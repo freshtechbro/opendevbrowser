@@ -1,0 +1,398 @@
+import { describe, it, expect, vi } from "vitest";
+import { RefStore } from "../src/snapshot/refs";
+import { Snapshotter } from "../src/snapshot/snapshotter";
+
+type AxNode = {
+  nodeId: string;
+  ignored?: boolean;
+  role?: { value?: unknown };
+  chromeRole?: { value?: unknown };
+  name?: { value?: unknown };
+  value?: { value?: unknown };
+  properties?: Array<{ name: string; value?: { value?: unknown } }>;
+  backendDOMNodeId?: number;
+  frameId?: string;
+};
+
+const createSession = (
+  nodes: AxNode[],
+  options?: { missingObjectIds?: Set<number>; emptySelectors?: Set<number>; rawNodes?: unknown }
+) => {
+  let lastBackendNodeId = 0;
+  return {
+    send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Accessibility.getFullAXTree") {
+        return { nodes: typeof options?.rawNodes !== "undefined" ? options.rawNodes : nodes };
+      }
+      if (method === "DOM.resolveNode") {
+        const backendNodeId = typeof params?.backendNodeId === "number" ? params.backendNodeId : 0;
+        lastBackendNodeId = backendNodeId;
+        if (options?.missingObjectIds?.has(backendNodeId)) {
+          return { object: {} };
+        }
+        return { object: { objectId: `obj-${backendNodeId}` } };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        if (options?.emptySelectors?.has(lastBackendNodeId)) {
+          return { result: { value: " " } };
+        }
+        return { result: { value: `#node-${lastBackendNodeId}` } };
+      }
+      return {};
+    }),
+    detach: vi.fn(async () => undefined)
+  };
+};
+
+const createPage = (
+  nodes: AxNode[],
+  options?: { failUrl?: boolean; failTitle?: boolean; missingObjectIds?: Set<number>; emptySelectors?: Set<number> }
+) => {
+  const session = createSession(nodes, options);
+  return {
+    context: () => ({
+      newCDPSession: async () => session
+    }),
+    url: () => {
+      if (options?.failUrl) {
+        throw new Error("url fail");
+      }
+      return "https://example.com";
+    },
+    title: async () => {
+      if (options?.failTitle) {
+        throw new Error("title fail");
+      }
+      return "Example";
+    }
+  };
+};
+
+describe("Snapshotter", () => {
+  it("formats and paginates snapshot output", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "button" }, name: { value: "password" }, backendDOMNodeId: 101 },
+      { nodeId: "2", role: { value: "link" }, name: { value: "Home" }, backendDOMNodeId: 102 },
+      { nodeId: "3", role: { value: "heading" }, name: { value: "Title" }, backendDOMNodeId: 103 }
+    ];
+
+    const refStore = new RefStore();
+    const snapshotter = new Snapshotter(refStore);
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-1", {
+      mode: "outline",
+      maxChars: 30
+    });
+
+    expect(result.content).toContain("[redacted]");
+    expect(result.truncated).toBe(true);
+    expect(result.nextCursor).toBe("1");
+  });
+
+  it("returns full snapshot when under limit", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "button" }, name: { value: "OK" }, backendDOMNodeId: 201 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-2", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.truncated).toBe(false);
+    expect(result.nextCursor).toBeUndefined();
+    expect(result.refCount).toBe(1);
+  });
+
+  it("handles invalid cursor values", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "link" }, name: { value: "token_abcdefghijklmnopqrstuvwxyz0123456789" }, backendDOMNodeId: 301 },
+      { nodeId: "2", role: { value: "link" }, name: { value: "Next" }, backendDOMNodeId: 302 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-3", {
+      mode: "outline",
+      maxChars: 200,
+      cursor: "-1"
+    });
+
+    expect(result.content).toContain("[redacted]");
+    expect(result.truncated).toBe(false);
+  });
+
+  it("renders type, disabled, and checked flags", async () => {
+    const nodes: AxNode[] = [
+      {
+        nodeId: "1",
+        role: { value: "checkbox" },
+        name: { value: "Option" },
+        backendDOMNodeId: 401,
+        properties: [
+          { name: "disabled", value: { value: true } },
+          { name: "checked", value: { value: true } }
+        ]
+      }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-4", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.content).toContain("disabled");
+    expect(result.content).toContain("checked");
+  });
+
+  it("respects positive cursor offsets", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "link" }, name: { value: "First" }, backendDOMNodeId: 501 },
+      { nodeId: "2", role: { value: "link" }, name: { value: "Second" }, backendDOMNodeId: 502 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-5", {
+      mode: "outline",
+      maxChars: 200,
+      cursor: "1"
+    });
+
+    expect(result.content).toContain("Second");
+    expect(result.content).not.toContain("First");
+  });
+
+  it("ignores empty names", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "link" }, name: { value: "   " }, backendDOMNodeId: 601 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-6", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.content).not.toContain("\"\"");
+  });
+
+  it("omits url and title when page queries fail", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "button" }, name: { value: "OK" }, backendDOMNodeId: 701 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes, { failTitle: true, failUrl: true });
+
+    const result = await snapshotter.snapshot(page as never, "target-7", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.url).toBeUndefined();
+    expect(result.title).toBeUndefined();
+  });
+
+  it("filters non-actionable roles in actionables mode", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "button" }, name: { value: "OK" }, backendDOMNodeId: 801 },
+      { nodeId: "2", role: { value: "heading" }, name: { value: "Title" }, backendDOMNodeId: 802 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-8", {
+      mode: "actionables",
+      maxChars: 200
+    });
+
+    expect(result.content).toContain("button");
+    expect(result.content).not.toContain("heading");
+    expect(result.refCount).toBe(1);
+  });
+
+  it("skips ignored nodes and uses chromeRole fallback", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", ignored: true, role: { value: "button" }, backendDOMNodeId: 901 },
+      { nodeId: "2", role: { value: "" }, chromeRole: { value: "link" }, name: { value: "Doc" }, backendDOMNodeId: 902 },
+      { nodeId: "3", role: { value: "heading" } },
+      { nodeId: "4", role: { value: "" }, chromeRole: { value: "" }, backendDOMNodeId: 903 },
+      { nodeId: "5", role: { value: "generic" }, name: { value: "Skip" }, backendDOMNodeId: 904 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-9", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.refCount).toBe(1);
+    expect(result.content).toContain("link");
+    expect(result.content).toContain("Doc");
+    expect(result.content).not.toContain("Skip");
+  });
+
+  it("skips nodes when selector resolution fails", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "button" }, name: { value: "OK" }, backendDOMNodeId: 1001 },
+      { nodeId: "2", role: { value: "link" }, name: { value: "Skip" }, backendDOMNodeId: 1002 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes, { missingObjectIds: new Set([1002]) });
+
+    const result = await snapshotter.snapshot(page as never, "target-10", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.refCount).toBe(1);
+    expect(result.content).toContain("OK");
+    expect(result.content).not.toContain("Skip");
+  });
+
+  it("includes value and handles disabled/checked flags from strings and numbers", async () => {
+    const nodes: AxNode[] = [
+      {
+        nodeId: "1",
+        role: { value: "checkbox" },
+        name: { value: "Option" },
+        value: { value: true },
+        backendDOMNodeId: 1101,
+        properties: [
+          { name: "disabled", value: { value: "true" } },
+          { name: "checked", value: { value: 1 } }
+        ]
+      }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-11", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.content).toContain("disabled");
+    expect(result.content).toContain("checked");
+    expect(result.content).toContain("value=\"true\"");
+  });
+
+  it("skips nodes when selector is empty", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "button" }, name: { value: "Hidden" }, backendDOMNodeId: 1201 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes, { emptySelectors: new Set([1201]) });
+
+    const result = await snapshotter.snapshot(page as never, "target-12", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.refCount).toBe(0);
+    expect(result.content).not.toContain("Hidden");
+  });
+
+  it("caps snapshot output at the max node limit", async () => {
+    const nodes: AxNode[] = Array.from({ length: 401 }, (_, index) => ({
+      nodeId: String(index + 1),
+      role: { value: "button" },
+      name: { value: `Node ${index + 1}` },
+      backendDOMNodeId: 2000 + index
+    }));
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-14", {
+      mode: "outline",
+      maxChars: 50000
+    });
+
+    expect(result.refCount).toBe(400);
+  });
+
+  it("handles non-array AX tree responses", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "button" }, name: { value: "OK" }, backendDOMNodeId: 2101 }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes, { rawNodes: null });
+
+    const result = await snapshotter.snapshot(page as never, "target-15", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.refCount).toBe(0);
+  });
+
+  it("redacts empty values", async () => {
+    const nodes: AxNode[] = [
+      {
+        nodeId: "1",
+        role: { value: "link" },
+        name: { value: "   " },
+        value: { value: "   " },
+        backendDOMNodeId: 2201
+      }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-16", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.content).not.toContain("value=");
+  });
+
+  it("ignores complex values for value and properties", async () => {
+    const nodes: AxNode[] = [
+      {
+        nodeId: "1",
+        role: { value: "button" },
+        name: { value: "Complex" },
+        value: { value: { nested: true } },
+        backendDOMNodeId: 1301,
+        properties: [
+          { name: "disabled", value: { value: { nested: true } } }
+        ]
+      }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-13", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.content).toContain("Complex");
+    expect(result.content).not.toContain("disabled");
+    expect(result.content).not.toContain("value=");
+  });
+
+});

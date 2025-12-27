@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "OpenDevBrowser Relay",
+  "version": "0.1.0",
+  "description": "Optional bridge to reuse existing Chrome tabs with OpenDevBrowser.",
+  "permissions": ["debugger", "tabs", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  }
+}

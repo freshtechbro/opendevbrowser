@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenDevBrowser</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 12px;
+        min-width: 260px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 8px;
+      }
+      #status {
+        font-size: 12px;
+        margin-bottom: 12px;
+      }
+      label {
+        font-size: 11px;
+        display: block;
+        margin-bottom: 4px;
+      }
+      input {
+        width: 100%;
+        padding: 6px;
+        margin-bottom: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+      button {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #222;
+        background: #111;
+        color: #fff;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>OpenDevBrowser</h1>
+    <div id="status">Disconnected</div>
+    <label for="relayPort">Relay port</label>
+    <input id="relayPort" type="number" min="1" max="65535" placeholder="8787" />
+    <label for="pairingToken">Pairing token (optional)</label>
+    <input id="pairingToken" type="text" placeholder="Leave blank for default" />
+    <button id="toggle">Connect</button>
+    <script type="module" src="dist/popup.js"></script>
+  </body>
+</html>
