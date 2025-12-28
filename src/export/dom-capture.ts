@@ -3,30 +3,25 @@ import type { Page } from "playwright-core";
 export type DomCapture = {
   html: string;
   styles: Record<string, string>;
+  warnings: string[];
 };
 
-const DANGEROUS_TAG_PATTERN =
-  /<\s*(script|iframe|object|embed|frame|frameset|applet|base|link|meta|noscript)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>|<\s*(script|iframe|object|embed|frame|frameset|applet|base|link|meta|noscript)\b[^>]*\/?>/gi;
+type CaptureOptions = {
+  sanitize?: boolean;
+  maxNodes?: number;
+  inlineStyles?: boolean;
+};
 
-const EVENT_HANDLER_ATTR_PATTERN = /\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi;
-
-const DANGEROUS_URL_ATTR_PATTERN =
-  /\s+(href|src|action)\s*=\s*["']\s*(javascript|data|vbscript):[^"']*["']/gi;
-
-export function sanitizeHtml(html: string): string {
-  let result = html;
-  result = result.replace(DANGEROUS_TAG_PATTERN, "");
-  result = result.replace(EVENT_HANDLER_ATTR_PATTERN, "");
-  result = result.replace(DANGEROUS_URL_ATTR_PATTERN, "");
-  return result;
-}
+const DEFAULT_MAX_NODES = 1000;
 
 export async function captureDom(
   page: Page,
   selector: string,
-  options: { sanitize?: boolean } = {}
+  options: CaptureOptions = {}
 ): Promise<DomCapture> {
   const shouldSanitize = options.sanitize !== false;
+  const maxNodes = options.maxNodes ?? DEFAULT_MAX_NODES;
+  const inlineStyles = options.inlineStyles !== false;
 
   return page.$eval(
     selector,
@@ -37,23 +32,109 @@ export async function captureDom(
         styles[prop] = style.getPropertyValue(prop);
       }
 
-      let html = (el as Element).outerHTML;
+      const warnings: string[] = [];
+      const root = el as Element;
+      const clone = root.cloneNode(true) as Element;
+      const originalElements = [root, ...Array.from(root.querySelectorAll("*"))];
+      const cloneElements = [clone, ...Array.from(clone.querySelectorAll("*"))];
+      const nodeLimit = Math.max(1, opts.maxNodes);
 
-      if (opts.shouldSanitize) {
-        const DANGEROUS_TAG_PATTERN =
-          /<\s*(script|iframe|object|embed|frame|frameset|applet|base|link|meta|noscript)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>|<\s*(script|iframe|object|embed|frame|frameset|applet|base|link|meta|noscript)\b[^>]*\/?>/gi;
-        const EVENT_HANDLER_ATTR_PATTERN = /\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi;
-        const DANGEROUS_URL_ATTR_PATTERN =
-          /\s+(href|src|action)\s*=\s*["']\s*(javascript|data|vbscript):[^"']*["']/gi;
-
-        html = html.replace(DANGEROUS_TAG_PATTERN, "");
-        html = html.replace(EVENT_HANDLER_ATTR_PATTERN, "");
-        html = html.replace(DANGEROUS_URL_ATTR_PATTERN, "");
+      if (originalElements.length > nodeLimit) {
+        const omitted = originalElements.length - nodeLimit;
+        warnings.push(`Export truncated at ${nodeLimit} nodes; ${omitted} nodes omitted.`);
       }
 
-      return { html, styles };
+      const limit = Math.min(originalElements.length, nodeLimit);
+      if (opts.inlineStyles) {
+        for (let index = 0; index < limit; index += 1) {
+          const source = originalElements[index];
+          const target = cloneElements[index];
+          if (!source || !target) continue;
+          const computed = window.getComputedStyle(source);
+          const inline = Array.from(computed)
+            .map((prop) => `${prop}: ${computed.getPropertyValue(prop)};`)
+            .join(" ");
+          target.setAttribute("style", inline);
+        }
+      }
+
+      if (originalElements.length > nodeLimit) {
+        for (let index = nodeLimit; index < cloneElements.length; index += 1) {
+          const target = cloneElements[index];
+          if (target) {
+            target.remove();
+          }
+        }
+      }
+
+      const container = document.createElement("template");
+      container.content.appendChild(clone);
+
+      if (opts.shouldSanitize) {
+        const blockedTags = new Set([
+          "script",
+          "iframe",
+          "object",
+          "embed",
+          "frame",
+          "frameset",
+          "applet",
+          "base",
+          "link",
+          "meta",
+          "noscript"
+        ]);
+        const urlAttrs = new Set(["href", "src", "action", "formaction", "xlink:href", "srcset"]);
+
+        const isDangerousUrl = (value: string) => {
+          const normalized = value.trim().toLowerCase();
+          return normalized.startsWith("javascript:")
+            || normalized.startsWith("data:")
+            || normalized.startsWith("vbscript:");
+        };
+
+        const isDangerousSrcset = (value: string) => {
+          const entries = value.split(",");
+          return entries.some((entry) => {
+            const url = entry.trim().split(/\s+/)[0] ?? "";
+            return isDangerousUrl(url);
+          });
+        };
+
+        const sanitizeElement = (element: Element) => {
+          const tag = element.tagName.toLowerCase();
+          if (blockedTags.has(tag)) {
+            element.remove();
+            return;
+          }
+          for (const attr of Array.from(element.attributes)) {
+            const name = attr.name.toLowerCase();
+            if (name.startsWith("on")) {
+              element.removeAttribute(attr.name);
+              continue;
+            }
+            if (urlAttrs.has(name)) {
+              const value = attr.value || "";
+              const dangerous = name === "srcset"
+                ? isDangerousSrcset(value)
+                : isDangerousUrl(value);
+              if (dangerous) {
+                element.removeAttribute(attr.name);
+              }
+            }
+          }
+        };
+
+        for (const element of Array.from(container.content.querySelectorAll("*"))) {
+          sanitizeElement(element);
+        }
+        if (container.content.firstElementChild) {
+          sanitizeElement(container.content.firstElementChild);
+        }
+      }
+
+      return { html: container.innerHTML, styles, warnings };
     },
-    { shouldSanitize }
+    { shouldSanitize, maxNodes, inlineStyles }
   );
 }
-

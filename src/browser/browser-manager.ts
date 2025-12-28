@@ -59,6 +59,10 @@ export class BrowserManager {
 
   updateConfig(config: OpenDevBrowserConfig): void {
     this.config = config;
+    for (const managed of this.sessions.values()) {
+      managed.consoleTracker.setOptions({ showFullConsole: config.devtools.showFullConsole });
+      managed.networkTracker.setOptions({ showFullUrls: config.devtools.showFullUrls });
+    }
   }
 
   async launch(options: LaunchOptions): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
@@ -113,8 +117,8 @@ export class BrowserManager {
 
     const refStore = new RefStore();
     const snapshotter = new Snapshotter(refStore);
-    const consoleTracker = new ConsoleTracker();
-    const networkTracker = new NetworkTracker();
+    const consoleTracker = new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole });
+    const networkTracker = new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls });
 
     const managed: ManagedSession = {
       sessionId,
@@ -156,6 +160,13 @@ export class BrowserManager {
 
   async disconnect(sessionId: string, closeBrowser = false): Promise<void> {
     const managed = this.getManaged(sessionId);
+    for (const entry of managed.targets.listPageEntries()) {
+      const cleanup = this.pageListeners.get(entry.page);
+      if (cleanup) {
+        cleanup();
+        this.pageListeners.delete(entry.page);
+      }
+    }
     if (closeBrowser) {
       await managed.browser.close();
     } else {
@@ -174,18 +185,8 @@ export class BrowserManager {
     const managed = this.getManaged(sessionId);
     const activeTargetId = managed.targets.getActiveTargetId();
     const page = activeTargetId ? managed.targets.getPage(activeTargetId) : null;
-    let title: string | undefined;
-    let url: string | undefined;
-    try {
-      title = page ? await page.title() : undefined;
-    } catch {
-      title = undefined;
-    }
-    try {
-      url = page ? page.url() : undefined;
-    } catch {
-      url = undefined;
-    }
+    const title = await this.safePageTitle(page, "BrowserManager.status");
+    const url = this.safePageUrl(page, "BrowserManager.status");
 
     return {
       mode: managed.mode,
@@ -227,18 +228,8 @@ export class BrowserManager {
     }
 
     const page = managed.targets.getPage(targetId);
-    let title: string | undefined;
-    let finalUrl: string | undefined;
-    try {
-      title = await page.title();
-    } catch {
-      title = undefined;
-    }
-    try {
-      finalUrl = page.url();
-    } catch {
-      finalUrl = undefined;
-    }
+    const title = await this.safePageTitle(page, "BrowserManager.page");
+    const finalUrl = this.safePageUrl(page, "BrowserManager.page");
 
     return { targetId, created, url: finalUrl, title };
   }
@@ -250,18 +241,8 @@ export class BrowserManager {
 
     for (const entry of named) {
       const page = managed.targets.getPage(entry.targetId);
-      let title: string | undefined;
-      let url: string | undefined;
-      try {
-        title = await page.title();
-      } catch {
-        title = undefined;
-      }
-      try {
-        url = page.url();
-      } catch {
-        url = undefined;
-      }
+      const title = await this.safePageTitle(page, "BrowserManager.listPages");
+      const url = this.safePageUrl(page, "BrowserManager.listPages");
       pages.push({ name: entry.name, targetId: entry.targetId, url, title });
     }
 
@@ -285,16 +266,11 @@ export class BrowserManager {
     this.attachTrackers(managed);
 
     const page = managed.targets.getPage(targetId);
-    let title: string | undefined;
-    try {
-      title = await page.title();
-    } catch {
-      title = undefined;
-    }
+    const title = await this.safePageTitle(page, "BrowserManager.useTarget");
 
     return {
       activeTargetId: targetId,
-      url: page.url(),
+      url: this.safePageUrl(page, "BrowserManager.useTarget"),
       title
     };
   }
@@ -356,7 +332,12 @@ export class BrowserManager {
       throw new Error("No active target for snapshot");
     }
     const page = managed.targets.getActivePage();
-    return managed.snapshotter.snapshot(page, targetId, { mode, maxChars, cursor });
+    return managed.snapshotter.snapshot(page, targetId, {
+      mode,
+      maxChars,
+      cursor,
+      maxNodes: this.config.snapshot.maxNodes
+    });
   }
 
   async click(sessionId: string, ref: string): Promise<{ timingMs: number; navigated: boolean }> {
@@ -421,17 +402,29 @@ export class BrowserManager {
   async clonePage(sessionId: string): Promise<ReactExport> {
     const managed = this.getManaged(sessionId);
     const page = managed.targets.getActivePage();
-    const capture = await captureDom(page, "body");
+    const allowUnsafeExport = this.config.security.allowUnsafeExport;
+    const exportConfig = this.config.export;
+    const capture = await captureDom(page, "body", {
+      sanitize: !allowUnsafeExport,
+      maxNodes: exportConfig.maxNodes,
+      inlineStyles: exportConfig.inlineStyles
+    });
     const css = extractCss(capture);
-    return emitReactComponent(capture, css);
+    return emitReactComponent(capture, css, { allowUnsafeExport });
   }
 
   async cloneComponent(sessionId: string, ref: string): Promise<ReactExport> {
     const managed = this.getManaged(sessionId);
     const selector = this.resolveSelector(managed, ref);
-    const capture = await captureDom(managed.targets.getActivePage(), selector);
+    const allowUnsafeExport = this.config.security.allowUnsafeExport;
+    const exportConfig = this.config.export;
+    const capture = await captureDom(managed.targets.getActivePage(), selector, {
+      sanitize: !allowUnsafeExport,
+      maxNodes: exportConfig.maxNodes,
+      inlineStyles: exportConfig.inlineStyles
+    });
     const css = extractCss(capture);
-    return emitReactComponent(capture, css);
+    return emitReactComponent(capture, css, { allowUnsafeExport });
   }
 
   async perfMetrics(sessionId: string): Promise<{ metrics: Array<{ name: string; value: number }> }> {
@@ -477,8 +470,8 @@ export class BrowserManager {
       targets: input.targets,
       refStore,
       snapshotter: new Snapshotter(refStore),
-      consoleTracker: new ConsoleTracker(),
-      networkTracker: new NetworkTracker()
+      consoleTracker: new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole }),
+      networkTracker: new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls })
     };
   }
 
@@ -500,6 +493,26 @@ export class BrowserManager {
       throw new Error(`Unknown ref: ${ref}. Take a new snapshot first.`);
     }
     return entry.selector;
+  }
+
+  private async safePageTitle(page: Page | null, context: string): Promise<string | undefined> {
+    if (!page) return undefined;
+    try {
+      return await page.title();
+    } catch {
+      console.warn(`${context}: failed to read page title`);
+      return undefined;
+    }
+  }
+
+  private safePageUrl(page: Page | null, context: string): string | undefined {
+    if (!page) return undefined;
+    try {
+      return page.url();
+    } catch {
+      console.warn(`${context}: failed to read page url`);
+      return undefined;
+    }
   }
 
   private attachTrackers(managed: ManagedSession): void {
@@ -596,8 +609,8 @@ export class BrowserManager {
 
     const refStore = new RefStore();
     const snapshotter = new Snapshotter(refStore);
-    const consoleTracker = new ConsoleTracker();
-    const networkTracker = new NetworkTracker();
+    const consoleTracker = new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole });
+    const networkTracker = new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls });
 
     const managed: ManagedSession = {
       sessionId,

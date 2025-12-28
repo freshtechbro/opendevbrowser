@@ -15,7 +15,7 @@ export function createCloneComponentTool(deps: ToolDeps): ToolDefinition {
     async execute(args) {
       try {
         const result = await deps.manager.cloneComponent(args.sessionId, args.ref);
-        return ok({ component: result.component, css: result.css });
+        return ok({ component: result.component, css: result.css, warnings: result.warnings });
       } catch (error) {
         return failure(serializeError(error).message, "clone_component_failed");
       }

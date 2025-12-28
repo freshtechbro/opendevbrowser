@@ -1,23 +1,13 @@
 import type { Page, Request, Response } from "playwright-core";
 
-const SENSITIVE_PARAM_PATTERNS = /^(token|key|secret|password|auth|api_key|apikey|access_token|refresh_token|session|bearer|credential)$/i;
-
 function redactUrl(rawUrl: string): string {
   try {
     const parsed = new URL(rawUrl);
-    const redactedParams: string[] = [];
-    parsed.searchParams.forEach((_, key) => {
-      if (SENSITIVE_PARAM_PATTERNS.test(key)) {
-        redactedParams.push(key);
-      }
-    });
-    for (const key of redactedParams) {
-      parsed.searchParams.set(key, "[REDACTED]");
-    }
+    parsed.search = "";
     parsed.hash = "";
     return parsed.toString();
   } catch {
-    return rawUrl.split("?")[0] ?? rawUrl;
+    return rawUrl.split(/[?#]/)[0] ?? rawUrl;
   }
 }
 
@@ -30,6 +20,10 @@ export type NetworkEvent = {
   ts: number;
 };
 
+export type NetworkTrackerOptions = {
+  showFullUrls?: boolean;
+};
+
 export class NetworkTracker {
   private events: NetworkEvent[] = [];
   private maxEvents: number;
@@ -37,9 +31,17 @@ export class NetworkTracker {
   private page: Page | null = null;
   private requestHandler?: (req: Request) => void;
   private responseHandler?: (res: Response) => void;
+  private showFullUrls: boolean;
 
-  constructor(maxEvents = 300) {
+  constructor(maxEvents = 300, options: NetworkTrackerOptions = {}) {
     this.maxEvents = maxEvents;
+    this.showFullUrls = options.showFullUrls ?? false;
+  }
+
+  setOptions(options: NetworkTrackerOptions): void {
+    if (typeof options.showFullUrls === "boolean") {
+      this.showFullUrls = options.showFullUrls;
+    }
   }
 
   attach(page: Page): void {
@@ -50,7 +52,7 @@ export class NetworkTracker {
     this.requestHandler = (req) => {
       this.push({
         method: req.method(),
-        url: redactUrl(req.url()),
+        url: this.showFullUrls ? req.url() : redactUrl(req.url()),
         resourceType: req.resourceType(),
         ts: Date.now()
       });
@@ -60,7 +62,7 @@ export class NetworkTracker {
       const req = res.request();
       this.push({
         method: req.method(),
-        url: redactUrl(res.url()),
+        url: this.showFullUrls ? res.url() : redactUrl(res.url()),
         status: res.status(),
         resourceType: req.resourceType(),
         ts: Date.now()

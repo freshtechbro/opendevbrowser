@@ -113,9 +113,7 @@ export class TargetManager {
 
   async listTargets(includeUrls = false): Promise<TargetInfo[]> {
     const entries = Array.from(this.targets.entries());
-    const results: TargetInfo[] = [];
-
-    for (const [targetId, page] of entries) {
+    return Promise.all(entries.map(async ([targetId, page]) => {
       const info: TargetInfo = {
         targetId,
         title: undefined,
@@ -137,25 +135,33 @@ export class TargetManager {
         }
       }
 
-      results.push(info);
-    }
-
-    return results;
+      return info;
+    }));
   }
 
   async closeTarget(targetId: string): Promise<void> {
     const page = this.getPage(targetId);
-    await page.close();
-    this.targets.delete(targetId);
-    const name = this.targetToName.get(targetId);
-    if (name) {
-      this.nameToTarget.delete(name);
-      this.targetToName.delete(targetId);
+    let closeError: unknown;
+    try {
+      await page.close();
+    } catch (error) {
+      closeError = error;
+    } finally {
+      this.targets.delete(targetId);
+      const name = this.targetToName.get(targetId);
+      if (name) {
+        this.nameToTarget.delete(name);
+        this.targetToName.delete(targetId);
+      }
+
+      if (this.activeTargetId === targetId) {
+        const remaining = Array.from(this.targets.keys());
+        this.activeTargetId = remaining[0] ?? null;
+      }
     }
 
-    if (this.activeTargetId === targetId) {
-      const remaining = Array.from(this.targets.keys());
-      this.activeTargetId = remaining[0] ?? null;
+    if (closeError) {
+      throw closeError;
     }
   }
 

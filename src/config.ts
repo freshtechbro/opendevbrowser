@@ -5,6 +5,7 @@ import * as os from "os";
 
 export type SnapshotConfig = {
   maxChars: number;
+  maxNodes: number;
 };
 
 export type SecurityConfig = {
@@ -13,11 +14,23 @@ export type SecurityConfig = {
   allowUnsafeExport: boolean;
 };
 
+export type DevtoolsConfig = {
+  showFullUrls: boolean;
+  showFullConsole: boolean;
+};
+
+export type ExportConfig = {
+  maxNodes: number;
+  inlineStyles: boolean;
+};
+
 export type OpenDevBrowserConfig = {
   headless: boolean;
   profile: string;
   snapshot: SnapshotConfig;
   security: SecurityConfig;
+  devtools: DevtoolsConfig;
+  export: ExportConfig;
   relayPort: number;
   relayToken?: string;
   chromePath?: string;
@@ -26,7 +39,8 @@ export type OpenDevBrowserConfig = {
 };
 
 const snapshotSchema = z.object({
-  maxChars: z.number().int().min(500).max(200000).default(16000)
+  maxChars: z.number().int().min(500).max(200000).default(16000),
+  maxNodes: z.number().int().min(50).max(5000).default(1000)
 });
 
 const securitySchema = z.object({
@@ -35,11 +49,23 @@ const securitySchema = z.object({
   allowUnsafeExport: z.boolean().default(false)
 });
 
+const devtoolsSchema = z.object({
+  showFullUrls: z.boolean().default(false),
+  showFullConsole: z.boolean().default(false)
+});
+
+const exportSchema = z.object({
+  maxNodes: z.number().int().min(1).max(5000).default(1000),
+  inlineStyles: z.boolean().default(true)
+});
+
 const configSchema = z.object({
   headless: z.boolean().default(false),
   profile: z.string().min(1).default("default"),
   snapshot: snapshotSchema.default({}),
   security: securitySchema.default({}),
+  devtools: devtoolsSchema.default({}),
+  export: exportSchema.default({}),
   relayPort: z.number().int().min(0).max(65535).default(8787),
   relayToken: z.string().optional(),
   chromePath: z.string().min(1).optional(),
@@ -62,15 +88,16 @@ function stripJsonComments(content: string): string {
 }
 
 function loadConfigFile(filePath: string): unknown {
-  try {
-    if (!fs.existsSync(filePath)) {
-      return {};
-    }
-    const content = fs.readFileSync(filePath, "utf-8");
-    const stripped = stripJsonComments(content);
-    return JSON.parse(stripped);
-  } catch {
+  if (!fs.existsSync(filePath)) {
     return {};
+  }
+  const content = fs.readFileSync(filePath, "utf-8");
+  const stripped = stripJsonComments(content);
+  try {
+    return JSON.parse(stripped);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    throw new Error(`Invalid JSON in opendevbrowser config at ${filePath}: ${message}`);
   }
 }
 

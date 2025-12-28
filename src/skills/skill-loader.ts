@@ -9,8 +9,26 @@ export class SkillLoader {
   }
 
   async loadBestPractices(topic?: string): Promise<string> {
-    const path = join(this.rootDir, "skills", "opendevbrowser-best-practices", "SKILL.md");
-    const content = await readFile(path, "utf8");
+    const candidates = [
+      join(this.rootDir, "skills", "opendevbrowser-best-practices", "SKILL.md"),
+      join(this.rootDir, "..", "skills", "opendevbrowser-best-practices", "SKILL.md")
+    ];
+    let content: string | null = null;
+
+    for (const candidate of candidates) {
+      try {
+        content = await readFile(candidate, "utf8");
+        break;
+      } catch (error) {
+        if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
+    }
+
+    if (!content) {
+      throw new Error("Skill loader could not find opendevbrowser-best-practices.");
+    }
     const trimmed = content.trim();
     if (!topic || !topic.trim()) {
       return trimmed;

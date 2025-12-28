@@ -14,7 +14,7 @@ export function createClonePageTool(deps: ToolDeps): ToolDefinition {
     async execute(args) {
       try {
         const result = await deps.manager.clonePage(args.sessionId);
-        return ok({ component: result.component, css: result.css });
+        return ok({ component: result.component, css: result.css, warnings: result.warnings });
       } catch (error) {
         return failure(serializeError(error).message, "clone_page_failed");
       }

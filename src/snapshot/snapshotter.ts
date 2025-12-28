@@ -10,6 +10,7 @@ export type SnapshotResult = {
   nextCursor?: string;
   refCount: number;
   timingMs: number;
+  warnings?: string[];
 };
 
 export class Snapshotter {
@@ -24,12 +25,17 @@ export class Snapshotter {
     maxChars: number;
     cursor?: string;
     mainFrameOnly?: boolean;
+    maxNodes?: number;
   }): Promise<SnapshotResult> {
     const startTime = Date.now();
     const session = await page.context().newCDPSession(page);
-    let snapshotData: { entries: Array<{ ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string }>; lines: string[] };
+    let snapshotData: {
+      entries: Array<{ ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string }>;
+      lines: string[];
+      warnings: string[];
+    };
     try {
-      snapshotData = await buildSnapshot(session, options.mode, options.mainFrameOnly ?? true);
+      snapshotData = await buildSnapshot(session, options.mode, options.mainFrameOnly ?? true, options.maxNodes);
     } finally {
       await session.detach();
     }
@@ -62,7 +68,8 @@ export class Snapshotter {
       truncated,
       nextCursor,
       refCount: snapshot.count,
-      timingMs
+      timingMs,
+      warnings: snapshotData.warnings
     };
   }
 }
@@ -91,7 +98,7 @@ type AxNode = {
   frameId?: string;
 };
 
-const MAX_AX_NODES = 400;
+const DEFAULT_MAX_AX_NODES = 1000;
 const ACTIONABLE_ROLES = new Set([
   "button",
   "link",
@@ -134,52 +141,56 @@ const SEMANTIC_ROLES = new Set([
   "complementary"
 ]);
 
-const SELECTOR_FUNCTION = `function() {
-  const element = this;
-  if (!(element instanceof Element)) return null;
-  const escape = (value) => {
+export const selectorFunction = function(this: Element): string | null {
+  if (!(this instanceof Element)) return null;
+  const escape = (value: string): string => {
     if (typeof CSS !== "undefined" && CSS.escape) {
       return CSS.escape(value);
     }
-    return String(value).replace(/([ #;?%&,.+*~':\\"!^$\\\\[\\\\]()=>|\\/\\\\\\\\])/g, "\\\\$1");
+    return String(value).replace(/([^\w-])/g, "\\$1");
   };
   // Prefer stable attributes first
-  const testId = element.getAttribute("data-testid");
+  const testId = this.getAttribute("data-testid");
   if (testId) {
-    return "[data-testid=\\"" + escape(testId) + "\\"]";
+    return '[data-testid="' + escape(testId) + '"]';
   }
-  const ariaLabel = element.getAttribute("aria-label");
+  const ariaLabel = this.getAttribute("aria-label");
   if (ariaLabel && ariaLabel.length < 50) {
-    return "[aria-label=\\"" + escape(ariaLabel) + "\\"]";
+    return '[aria-label="' + escape(ariaLabel) + '"]';
   }
+  const buildPathSelector = (start: Element): string => {
+    const parts: string[] = [];
+    let current: Element | null = start;
+    while (current && current.nodeType === Node.ELEMENT_NODE) {
+      let selector = current.nodeName.toLowerCase();
+      if (current.id) {
+        selector += "#" + escape(current.id);
+        parts.unshift(selector);
+        break;
+      }
+      const parentEl: Element | null = current.parentElement;
+      if (!parentEl) {
+        parts.unshift(selector);
+        break;
+      }
+      let index = 1;
+      let sibling: Element | null = current;
+      while (sibling && sibling.previousElementSibling) {
+        sibling = sibling.previousElementSibling;
+        index += 1;
+      }
+      selector += ":nth-child(" + index + ")";
+      parts.unshift(selector);
+      current = parentEl;
+    }
+    return parts.join(" > ");
+  };
   // Fallback to path-based selector
-  const parts = [];
-  let el = element;
-  while (el && el.nodeType === Node.ELEMENT_NODE) {
-    let selector = el.nodeName.toLowerCase();
-    if (el.id) {
-      selector += "#" + escape(el.id);
-      parts.unshift(selector);
-      break;
-    }
-    const parent = el.parentElement;
-    if (!parent) {
-      parts.unshift(selector);
-      break;
-    }
-    let index = 1;
-    let sibling = el;
-    while ((sibling = sibling.previousElementSibling)) {
-      index += 1;
-    }
-    selector += ":nth-child(" + index + ")";
-    parts.unshift(selector);
-    el = parent;
-  }
-  return parts.join(" > ");
-}`;
+  return buildPathSelector(this);
+};
+const SELECTOR_FUNCTION = selectorFunction.toString();
 
-async function buildSnapshot(session: CDPSession, mode: SnapshotMode, mainFrameOnly: boolean = true): Promise<{
+async function buildSnapshot(session: CDPSession, mode: SnapshotMode, mainFrameOnly: boolean = true, maxNodes?: number): Promise<{
   entries: Array<{
     ref: string;
     selector: string;
@@ -189,6 +200,7 @@ async function buildSnapshot(session: CDPSession, mode: SnapshotMode, mainFrameO
     name?: string;
   }>;
   lines: string[];
+  warnings: string[];
 }> {
   await session.send("Accessibility.enable");
   await session.send("DOM.enable");
@@ -203,12 +215,18 @@ async function buildSnapshot(session: CDPSession, mode: SnapshotMode, mainFrameO
     name?: string;
   }> = [];
   const lines: string[] = [];
+  const warnings: string[] = [];
+  const maxEntries = typeof maxNodes === "number" ? maxNodes : DEFAULT_MAX_AX_NODES;
+  let skippedFrameCount = 0;
 
   for (const node of nodes) {
-    if (entries.length >= MAX_AX_NODES) break;
+    if (entries.length >= maxEntries) break;
     if (node.ignored) continue;
     if (typeof node.backendDOMNodeId !== "number") continue;
-    if (mainFrameOnly && node.frameId) continue;
+    if (mainFrameOnly && node.frameId) {
+      skippedFrameCount += 1;
+      continue;
+    }
     const role = extractValue(node.role) || extractValue(node.chromeRole);
     if (!role) continue;
     if (!shouldInclude(role, mode)) continue;
@@ -241,7 +259,11 @@ async function buildSnapshot(session: CDPSession, mode: SnapshotMode, mainFrameO
     }));
   }
 
-  return { entries, lines };
+  if (mainFrameOnly && skippedFrameCount > 0) {
+    warnings.push(`Skipped ${skippedFrameCount} iframe nodes; snapshot limited to main frame.`);
+  }
+
+  return { entries, lines, warnings };
 }
 
 async function resolveSelector(session: CDPSession, backendNodeId: number): Promise<string | null> {
@@ -342,10 +364,6 @@ function formatNode(node: {
 function redactText(text?: string): string {
   const trimmed = (text ?? "").trim();
   if (!trimmed) return "";
-
-  if (/\bpassword\b/i.test(trimmed)) {
-    return "[redacted]";
-  }
 
   return trimmed.replace(/[A-Za-z0-9+/_-]{24,}/g, "[redacted]");
 }

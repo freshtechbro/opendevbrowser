@@ -1,15 +1,28 @@
 import type { Page } from "playwright-core";
 
-const TOKEN_LIKE_PATTERN = /\b[A-Za-z0-9_\-]{24,}\b/g;
+const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
+const TOKEN_LIKE_PATTERN = /\b[A-Za-z0-9_-]{32,}\b/g;
 const SENSITIVE_KV_PATTERN = /\b(token|key|secret|password|auth|bearer|credential)[=:]\s*\S+/gi;
+
+function shouldRedactToken(token: string): boolean {
+  const categories = [
+    /[a-z]/.test(token),
+    /[A-Z]/.test(token),
+    /\d/.test(token),
+    /[_-]/.test(token)
+  ].filter(Boolean).length;
+  return categories >= 3;
+}
 
 function redactText(text: string): string {
   let result = text.replace(SENSITIVE_KV_PATTERN, (match) => {
     const sepIndex = match.search(/[=:]/);
-    if (sepIndex === -1) return match;
     return match.slice(0, sepIndex + 1) + "[REDACTED]";
   });
-  result = result.replace(TOKEN_LIKE_PATTERN, "[REDACTED]");
+  result = result.replace(JWT_PATTERN, "[REDACTED]");
+  result = result.replace(TOKEN_LIKE_PATTERN, (match) => (
+    shouldRedactToken(match) ? "[REDACTED]" : match
+  ));
   return result;
 }
 
@@ -20,15 +33,27 @@ export type ConsoleEvent = {
   ts: number;
 };
 
+export type ConsoleTrackerOptions = {
+  showFullConsole?: boolean;
+};
+
 export class ConsoleTracker {
   private events: ConsoleEvent[] = [];
   private maxEvents: number;
   private seq: number = 0;
   private page: Page | null = null;
   private handler?: (msg: { type(): string; text(): string }) => void;
+  private showFullConsole: boolean;
 
-  constructor(maxEvents = 200) {
+  constructor(maxEvents = 200, options: ConsoleTrackerOptions = {}) {
     this.maxEvents = maxEvents;
+    this.showFullConsole = options.showFullConsole ?? false;
+  }
+
+  setOptions(options: ConsoleTrackerOptions): void {
+    if (typeof options.showFullConsole === "boolean") {
+      this.showFullConsole = options.showFullConsole;
+    }
   }
 
   attach(page: Page): void {
@@ -37,11 +62,13 @@ export class ConsoleTracker {
 
     this.page = page;
     this.handler = (msg) => {
+      const rawText = msg.text();
+      const text = this.showFullConsole ? rawText : redactText(rawText);
       this.seq += 1;
       this.events.push({
         seq: this.seq,
         level: msg.type(),
-        text: redactText(msg.text()),
+        text,
         ts: Date.now()
       });
       if (this.events.length > this.maxEvents) {
