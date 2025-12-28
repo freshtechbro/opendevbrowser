@@ -78,6 +78,56 @@ describe("ConsoleTracker", () => {
     expect(poll.events[0]?.text).toContain("token:[REDACTED]");
     expect(poll.events[0]?.text).not.toContain("mysecret123");
   });
+
+  it("preserves long identifiers without mixed character classes", () => {
+    const page = createPage();
+    const tracker = new ConsoleTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("console", {
+      type: () => "log",
+      text: () => "trace id abcdef1234567890abcdef1234567890"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.text).toContain("abcdef1234567890abcdef1234567890");
+  });
+
+  it("shows full console output when configured", () => {
+    const page = createPage();
+    const tracker = new ConsoleTracker(10, { showFullConsole: true });
+
+    tracker.attach(page as never);
+    page.emit("console", {
+      type: () => "log",
+      text: () => "token: abc123def456ghi789jkl000"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.text).toContain("token: abc123def456ghi789jkl000");
+  });
+
+  it("updates console redaction when options change", () => {
+    const page = createPage();
+    const tracker = new ConsoleTracker(10);
+
+    tracker.attach(page as never);
+    tracker.setOptions({});
+    page.emit("console", {
+      type: () => "log",
+      text: () => "token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+    });
+
+    tracker.setOptions({ showFullConsole: true });
+    page.emit("console", {
+      type: () => "log",
+      text: () => "token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.text).toContain("[REDACTED]");
+    expect(poll.events[1]?.text).toContain("token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9");
+  });
 });
 
 describe("NetworkTracker", () => {
@@ -132,7 +182,7 @@ describe("NetworkTracker", () => {
     expect(poll.events[0]?.status).toBe(200);
   });
 
-  it("redacts sensitive query params in URLs", () => {
+  it("strips query params from URLs by default", () => {
     const page = createPage();
     const tracker = new NetworkTracker(10);
 
@@ -146,11 +196,7 @@ describe("NetworkTracker", () => {
     page.emit("request", request);
 
     const poll = tracker.poll(0, 10);
-    expect(poll.events[0]?.url).toContain("token=%5BREDACTED%5D");
-    expect(poll.events[0]?.url).toContain("apikey=%5BREDACTED%5D");
-    expect(poll.events[0]?.url).toContain("user=bob");
-    expect(poll.events[0]?.url).not.toContain("secret123");
-    expect(poll.events[0]?.url).not.toContain("xyz789");
+    expect(poll.events[0]?.url).toBe("https://api.example.com/data");
   });
 
   it("strips hash fragments from URLs", () => {
@@ -169,5 +215,61 @@ describe("NetworkTracker", () => {
     const poll = tracker.poll(0, 10);
     expect(poll.events[0]?.url).not.toContain("#");
     expect(poll.events[0]?.url).not.toContain("access_token");
+  });
+
+  it("preserves full URLs when configured", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10, { showFullUrls: true });
+
+    tracker.attach(page as never);
+    const request = {
+      method: () => "GET",
+      url: () => "https://api.example.com/data?token=secret123&user=bob",
+      resourceType: () => "xhr"
+    };
+
+    page.emit("request", request);
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toContain("token=secret123");
+    expect(poll.events[0]?.url).toContain("user=bob");
+  });
+
+  it("updates URL redaction when options change", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    tracker.setOptions({});
+    const request = {
+      method: () => "GET",
+      url: () => "https://api.example.com/data?token=secret123",
+      resourceType: () => "xhr"
+    };
+
+    page.emit("request", request);
+    tracker.setOptions({ showFullUrls: true });
+    page.emit("request", request);
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toBe("https://api.example.com/data");
+    expect(poll.events[1]?.url).toContain("token=secret123");
+  });
+
+  it("handles invalid URLs gracefully", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    const request = {
+      method: () => "GET",
+      url: () => "not a url?token=secret123",
+      resourceType: () => "xhr"
+    };
+
+    page.emit("request", request);
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toBe("not a url");
   });
 });

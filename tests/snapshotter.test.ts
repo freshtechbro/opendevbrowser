@@ -1,6 +1,7 @@
+// @vitest-environment happy-dom
 import { describe, it, expect, vi } from "vitest";
 import { RefStore } from "../src/snapshot/refs";
-import { Snapshotter } from "../src/snapshot/snapshotter";
+import { Snapshotter, selectorFunction } from "../src/snapshot/snapshotter";
 
 type AxNode = {
   nodeId: string;
@@ -85,7 +86,7 @@ describe("Snapshotter", () => {
       maxChars: 30
     });
 
-    expect(result.content).toContain("[redacted]");
+    expect(result.content).toContain("\"password\"");
     expect(result.truncated).toBe(true);
     expect(result.nextCursor).toBe("1");
   });
@@ -324,7 +325,8 @@ describe("Snapshotter", () => {
 
     const result = await snapshotter.snapshot(page as never, "target-14", {
       mode: "outline",
-      maxChars: 50000
+      maxChars: 50000,
+      maxNodes: 400
     });
 
     expect(result.refCount).toBe(400);
@@ -395,4 +397,61 @@ describe("Snapshotter", () => {
     expect(result.content).not.toContain("value=");
   });
 
+  it("warns when iframe nodes are skipped", async () => {
+    const nodes: AxNode[] = [
+      { nodeId: "1", role: { value: "button" }, name: { value: "Main" }, backendDOMNodeId: 3001 },
+      { nodeId: "2", role: { value: "button" }, name: { value: "Frame" }, backendDOMNodeId: 3002, frameId: "frame-1" }
+    ];
+
+    const snapshotter = new Snapshotter(new RefStore());
+    const page = createPage(nodes);
+
+    const result = await snapshotter.snapshot(page as never, "target-17", {
+      mode: "outline",
+      maxChars: 200
+    });
+
+    expect(result.warnings?.[0]).toContain("Skipped 1 iframe");
+  });
+
+  it("prefers data-testid, then aria-label, then id, then nth-child selectors", () => {
+    document.body.innerHTML = `
+      <div id="root">
+        <button data-testid="cta">Buy</button>
+        <button aria-label="Close">Close</button>
+        <button id="primary">Primary</button>
+        <div><span>Nested</span></div>
+      </div>
+    `;
+
+    const testId = document.querySelector("[data-testid=\"cta\"]") as Element;
+    const aria = document.querySelector("[aria-label=\"Close\"]") as Element;
+    const idButton = document.querySelector("#primary") as Element;
+    const nested = document.querySelector("#root div span") as Element;
+
+    expect(selectorFunction.call(testId)).toBe("[data-testid=\"cta\"]");
+    expect(selectorFunction.call(aria)).toBe("[aria-label=\"Close\"]");
+    expect(selectorFunction.call(idButton)).toBe("button#primary");
+    expect(selectorFunction.call(nested)).toContain("div:nth-child");
+  });
+
+  it("falls back to manual escaping when CSS.escape is unavailable", () => {
+    const originalCSS = globalThis.CSS;
+    // @ts-expect-error allow removing CSS for fallback path
+    delete globalThis.CSS;
+
+    const element = document.createElement("div");
+    element.setAttribute("data-testid", "hello world");
+    const selector = selectorFunction.call(element);
+
+    expect(selector).toBe("[data-testid=\"hello\\ world\"]");
+
+    globalThis.CSS = originalCSS;
+  });
+
+  it("builds selector when element has no parent", () => {
+    const element = document.createElement("span");
+    const selector = selectorFunction.call(element);
+    expect(selector).toBe("span");
+  });
 });

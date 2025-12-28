@@ -24,9 +24,14 @@ describe("loadGlobalConfig", () => {
     expect(config.headless).toBe(false);
     expect(config.profile).toBe("default");
     expect(config.snapshot.maxChars).toBe(16000);
+    expect(config.snapshot.maxNodes).toBe(1000);
     expect(config.security.allowRawCDP).toBe(false);
     expect(config.security.allowNonLocalCdp).toBe(false);
     expect(config.security.allowUnsafeExport).toBe(false);
+    expect(config.devtools.showFullUrls).toBe(false);
+    expect(config.devtools.showFullConsole).toBe(false);
+    expect(config.export.maxNodes).toBe(1000);
+    expect(config.export.inlineStyles).toBe(true);
     expect(config.persistProfile).toBe(true);
     expect(config.relayPort).toBe(8787);
     expect(config.relayToken).toBeUndefined();
@@ -37,8 +42,10 @@ describe("loadGlobalConfig", () => {
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
       headless: true,
       profile: "test",
-      snapshot: { maxChars: 5000 },
+      snapshot: { maxChars: 5000, maxNodes: 1500 },
       security: { allowRawCDP: true, allowNonLocalCdp: true, allowUnsafeExport: true },
+      devtools: { showFullUrls: true, showFullConsole: true },
+      export: { maxNodes: 2500, inlineStyles: false },
       relayPort: 9191,
       relayToken: "secret",
       flags: ["--foo"],
@@ -49,9 +56,14 @@ describe("loadGlobalConfig", () => {
     expect(config.headless).toBe(true);
     expect(config.profile).toBe("test");
     expect(config.snapshot.maxChars).toBe(5000);
+    expect(config.snapshot.maxNodes).toBe(1500);
     expect(config.security.allowRawCDP).toBe(true);
     expect(config.security.allowNonLocalCdp).toBe(true);
     expect(config.security.allowUnsafeExport).toBe(true);
+    expect(config.devtools.showFullUrls).toBe(true);
+    expect(config.devtools.showFullConsole).toBe(true);
+    expect(config.export.maxNodes).toBe(2500);
+    expect(config.export.inlineStyles).toBe(false);
     expect(config.relayPort).toBe(9191);
     expect(config.relayToken).toBe("secret");
     expect(config.flags).toEqual(["--foo"]);
@@ -97,12 +109,11 @@ describe("loadGlobalConfig", () => {
     expect(() => loadGlobalConfig()).toThrow("Invalid opendevbrowser config");
   });
 
-  it("returns defaults on malformed JSON", () => {
+  it("throws on malformed JSON", () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue("not valid json {{{");
 
-    const config = loadGlobalConfig();
-    expect(config.profile).toBe("default");
+    expect(() => loadGlobalConfig()).toThrow("Invalid JSON in opendevbrowser config");
   });
 });
 

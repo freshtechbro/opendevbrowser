@@ -160,6 +160,7 @@ beforeEach(async () => {
     chromeDir: join(root, "chrome")
   });
   originalFetch = globalThis.fetch;
+  captureDom.mockClear();
 });
 
 afterEach(() => {
@@ -195,6 +196,35 @@ describe("BrowserManager", () => {
     expect(status.url).toBeDefined();
   });
 
+  it("updates tracker options when config changes", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+
+    const sessions = (manager as unknown as { sessions: Map<string, { consoleTracker: { setOptions: (opts: unknown) => void }; networkTracker: { setOptions: (opts: unknown) => void } }> }).sessions;
+    const managed = sessions.get(result.sessionId);
+    if (!managed) throw new Error("Missing managed session");
+
+    const consoleSpy = vi.spyOn(managed.consoleTracker, "setOptions");
+    const networkSpy = vi.spyOn(managed.networkTracker, "setOptions");
+
+    manager.updateConfig({
+      ...resolveConfig({}),
+      devtools: { showFullConsole: true, showFullUrls: true }
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith({ showFullConsole: true });
+    expect(networkSpy).toHaveBeenCalledWith({ showFullUrls: true });
+  });
+
   it("downloads Chrome when missing", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -210,6 +240,22 @@ describe("BrowserManager", () => {
 
     const result = await manager.launch({ profile: "default" });
     expect(result.warnings.length).toBe(1);
+  });
+
+  it("throws when browser instance is unavailable", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    (context as { browser: () => null }).browser = () => null;
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.launch({ profile: "default" })).rejects.toThrow("Browser instance unavailable");
   });
 
   it("launches startUrl with default profile", async () => {
@@ -600,6 +646,25 @@ describe("BrowserManager", () => {
     await expect(manager.click(result.sessionId, "r1")).rejects.toThrow("Unknown ref");
   });
 
+  it("clears refs on page close", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+
+    await manager.snapshot(result.sessionId, "outline", 500);
+    (page as unknown as { emit: (event: string) => void }).emit("close");
+
+    await expect(manager.click(result.sessionId, "r1")).rejects.toThrow("Unknown ref");
+  });
+
   it("returns undefined status when no active target", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -787,16 +852,32 @@ describe("BrowserManager", () => {
     launchPersistentContext.mockResolvedValue(context);
 
     const { BrowserManager } = await import("../src/browser/browser-manager");
-    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const baseConfig = resolveConfig({});
+    const manager = new BrowserManager("/tmp/project", {
+      ...baseConfig,
+      export: { ...baseConfig.export, maxNodes: 10, inlineStyles: false }
+    });
     const launch = await manager.launch({ profile: "default" });
 
     const clonePage = await manager.clonePage(launch.sessionId);
     expect(clonePage.component).toContain("OpenDevBrowserComponent");
     expect(clonePage.css).toContain(".opendevbrowser-root");
+    expect(captureDom).toHaveBeenNthCalledWith(
+      1,
+      page,
+      "body",
+      expect.objectContaining({ sanitize: true, maxNodes: 10, inlineStyles: false })
+    );
 
     await manager.snapshot(launch.sessionId, "outline", 500);
     const cloneComponent = await manager.cloneComponent(launch.sessionId, "r1");
     expect(cloneComponent.component).toContain("OpenDevBrowserComponent");
+    expect(captureDom).toHaveBeenNthCalledWith(
+      2,
+      page,
+      expect.any(String),
+      expect.objectContaining({ sanitize: true, maxNodes: 10, inlineStyles: false })
+    );
 
     const perf = await manager.perfMetrics(launch.sessionId);
     expect(perf.metrics[0]?.name).toBe("Nodes");
@@ -806,5 +887,26 @@ describe("BrowserManager", () => {
 
     await manager.screenshot(launch.sessionId, "/tmp/example.png");
     expect(page.screenshot).toHaveBeenCalledWith(expect.objectContaining({ path: "/tmp/example.png" }));
+  });
+
+  it("returns empty perf metrics when CDP response lacks metrics", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async (method: string) => (method === "Performance.getMetrics" ? {} : {})),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const perf = await manager.perfMetrics(launch.sessionId);
+    expect(perf.metrics).toEqual([]);
   });
 });

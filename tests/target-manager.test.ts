@@ -33,6 +33,21 @@ describe("TargetManager", () => {
     expect(manager.getActiveTargetId()).toBe(null);
   });
 
+  it("cleans up targets even when close throws", async () => {
+    const manager = new TargetManager();
+    const page = {
+      title: async () => "One",
+      url: () => "https://one",
+      close: async () => {
+        throw new Error("close failed");
+      }
+    };
+    const id = manager.registerPage(page as never);
+
+    await expect(manager.closeTarget(id)).rejects.toThrow("close failed");
+    expect(manager.getActiveTargetId()).toBe(null);
+  });
+
   it("throws on unknown targets", () => {
     const manager = new TargetManager();
     expect(() => manager.setActiveTarget("missing")).toThrow("Unknown targetId");
