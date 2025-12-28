@@ -99,12 +99,13 @@ flowchart LR
 - Prompting guide respects the `topic` argument via section filtering.
 - CDP endpoint validation uses proper URL hostname parsing (not substring checks).
 - Config now reads from plugin-owned file (`~/.config/opencode/opendevbrowser.jsonc`).
-- DevTools output (network/console) redacts sensitive data by default.
-- Export/clone pipeline sanitizes HTML (strips scripts, event handlers, dangerous URLs).
-- Snapshot prefers stable selectors (data-testid, aria-label) and filters to main frame.
+- DevTools output (network/console) redacts sensitive data by default; opt-in full output via config.
+- Export/clone pipeline sanitizes HTML (strips scripts, event handlers, dangerous URLs) unless unsafe export is enabled.
+- Export capture inlines subtree computed styles with a node cap and warning on truncation.
+- Snapshot prefers stable selectors (data-testid, aria-label), exposes iframe skip warnings, and supports configurable max nodes.
 
 ## Remaining Gaps
-- None. All gaps from ARCHITECTURE_GAPS_REPORT.md have been remediated.
+- None. All gaps from `ARCHITECTURE_GAPS_REPORT.md` are remediated as of this update.
 
 ## Recommendations
 - Keep plan docs and implementation in sync when new gaps arise.

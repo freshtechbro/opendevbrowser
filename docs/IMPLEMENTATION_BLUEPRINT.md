@@ -112,9 +112,11 @@ dev-browser-plugin/
   - Clone/export tools + perf/screenshot tools.
 
 ## Configuration (src/config.ts)
-- Defaults: Mode A, localhost only, redaction enabled, maxChars, per-project cache.
-- Reads `opendevbrowser` block from OpenCode config.
-- Validates and merges user overrides.
+- Defaults: Mode A, localhost only, redaction enabled, maxChars/maxNodes, per-project cache.
+- Reads plugin-owned file `~/.config/opencode/opendevbrowser.jsonc` (optional).
+- OpenCode `opencode.json` only declares `plugin: ["opendevbrowser@latest"]` (no custom keys).
+- DevTools toggles: `devtools.showFullUrls`, `devtools.showFullConsole` (both default false).
+- Export controls: `export.maxNodes` (default 1000), `export.inlineStyles` (default true); `security.allowUnsafeExport` bypasses sanitization.
 - Optional `relayToken` to require extension pairing on the local relay.
 
 ## Browser Management

@@ -41,6 +41,19 @@ Use it as the authoritative reference for commands, style, and safety.
 - `extension/` is reserved for the optional Chrome extension.
 - `skills/` contains plugin skill packs.
 
+## Repository Folder Structure
+```
+.
+|-- coverage/
+|-- dist/
+|-- docs/
+|-- extension/
+|-- node_modules/
+|-- skills/
+|-- src/
+`-- tests/
+```
+
 ## Layered AGENTS.md
 - Root `AGENTS.md` applies repo-wide; the nearest subfolder `AGENTS.md` overrides it.
 - Subfolder guides: `src/AGENTS.md`, `extension/AGENTS.md`, `tests/AGENTS.md`, `docs/AGENTS.md`, `skills/AGENTS.md`.
@@ -129,6 +142,15 @@ Playwright (when wired):
 - Snapshots should be token-efficient (AX-outline by default).
 - Actions should operate on refs and be deterministic.
 
+## Current Architecture (Implementation)
+- Config loads from `~/.config/opencode/opendevbrowser.jsonc` via Zod; malformed JSONC throws.
+- `BrowserManager` orchestrates Playwright sessions, `TargetManager` lifecycle, and ref invalidation listeners.
+- Snapshot pipeline uses AX outline, entropy-based redaction, `snapshot.maxNodes`, and iframe-skip warnings.
+- DevTools trackers capture console/network, strip query/hash by default, and honor `devtools.showFullUrls/showFullConsole`.
+- Export pipeline captures DOM in page context, DOM-sanitizes by default, inlines subtree styles with node caps via `export.maxNodes`, and warns on truncation; `allowUnsafeExport` bypasses sanitization with warning.
+- Skills load from `skills/` with fallback to parent dir; topic filtering is heading-based.
+- Relay protocol types live in `src/relay/` and are consumed by the extension with configurable relay settings.
+
 ## Architecture Alignment (Planned vs Current)
 - Source of truth: `docs/PLAN.md`, `docs/opendevbrowser-plan.md`, `docs/IMPLEMENTATION_BLUEPRINT.md`, `docs/ARCHITECTURE_COMPARISON.md`.
 - Snapshots: prefer Accessibility-domain AX outline; avoid DOM mutation for refs.
@@ -157,7 +179,9 @@ Playwright (when wired):
   "headless": false,
   "profile": "default",
   "persistProfile": true,
-  "snapshot": { "maxChars": 16000 },
+  "snapshot": { "maxChars": 16000, "maxNodes": 1000 },
+  "export": { "maxNodes": 1000, "inlineStyles": true },
+  "devtools": { "showFullUrls": false, "showFullConsole": false },
   "security": {
     "allowRawCDP": false,
     "allowNonLocalCdp": false,

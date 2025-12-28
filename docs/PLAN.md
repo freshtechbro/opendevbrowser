@@ -92,5 +92,5 @@
 - Smoke tests: managed mode navigation, snapshot selection, script execution.
 - Extension tests: handshake, attach/detach, tab selection.
 - Coverage: enforce >=95% across `src/` (extension excluded from coverage thresholds).
-- Installation prompt: one-step plugin config; extension optional instructions.
+- Installation prompt: one-step plugin config; optional plugin-owned config file (`~/.config/opencode/opendevbrowser.jsonc`).
 - Troubleshooting: browser detection, fallback download, profile cleanup.

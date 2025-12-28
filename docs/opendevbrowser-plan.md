@@ -260,17 +260,32 @@ Extension is staged; the plugin remains fully functional without it.
 ---
 
 ## Config Example (OpenCode)
+`opencode.json` should only declare the plugin:
 ```json
 {
-  "plugin": ["opendevbrowser"],
-  "opendevbrowser": {
-    "headless": false,
-    "profile": "default",
-    "snapshot": { "maxChars": 16000 },
-    "security": { "allowRawCDP": false },
-    "relayPort": 8787,
-    "relayToken": ""
-  }
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opendevbrowser@latest"]
+}
+```
+
+Plugin-owned config (optional) lives at `~/.config/opencode/opendevbrowser.jsonc`:
+```jsonc
+{
+  "headless": false,
+  "profile": "default",
+  "snapshot": { "maxChars": 16000, "maxNodes": 1000 },
+  "export": { "maxNodes": 1000, "inlineStyles": true },
+  "security": {
+    "allowRawCDP": false,
+    "allowNonLocalCdp": false,
+    "allowUnsafeExport": false
+  },
+  "devtools": {
+    "showFullUrls": false,
+    "showFullConsole": false
+  },
+  "relayPort": 8787,
+  "relayToken": ""
 }
 ```
 
