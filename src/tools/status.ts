@@ -14,11 +14,14 @@ export function createStatusTool(deps: ToolDeps): ToolDefinition {
     async execute(args) {
       try {
         const status = await deps.manager.status(args.sessionId);
+        const extensionPath = deps.getExtensionPath?.() ?? null;
+        
         return ok({
           mode: status.mode,
           activeTargetId: status.activeTargetId,
           url: status.url,
-          title: status.title
+          title: status.title,
+          extensionPath: extensionPath ?? undefined
         });
       } catch (error) {
         return failure(serializeError(error).message, "status_failed");

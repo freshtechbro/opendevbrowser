@@ -264,7 +264,7 @@ Extension is staged; the plugin remains fully functional without it.
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opendevbrowser@latest"]
+  "plugin": ["opendevbrowser"]
 }
 ```
 

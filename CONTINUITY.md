@@ -1,50 +1,62 @@
 # Continuity Ledger
 
-Goal (incl. success criteria):
-- Re-review `docs/CODE_REVIEW_IMPLEMENTATION_PLAN.md`, verify each task against the codebase, and ensure all tasks/tests/code-quality checks pass with >=95% coverage, while resolving TODOs/placeholders.
-- Success criteria: any missing tasks are documented with a concrete implementation plan, all tests/lint/build/typecheck succeed, coverage >=95%, and no TODO/placeholder code remains.
+## Goal
+Complete all 13 tasks in `docs/RELEASE_PLAN.md` to prepare OpenDevBrowser plugin and Chrome extension for release across npm, OpenCode, and Chrome Web Store.
 
-Constraints/Assumptions:
-- Follow repo AGENTS instructions, including doc sync requirements and TypeScript/linting rules.
-- Keep edits ASCII unless files already use Unicode.
-- Avoid destructive commands and do not revert unrelated changes.
-- Plugin must remain safe by default; unsafe behavior must be opt-in via config.
+**Success criteria**: All validation passes (lint, build, test, extension:pack, npm pack), docs updated with correct patterns.
 
-Key decisions:
-- Implement the plan tasks in order of risk (security/redaction/export) before fidelity/ergonomics and docs sync.
-- Use config-driven toggles with safe defaults for verbosity/unsafe export options.
-- Malformed JSONC now throws with a clear error instead of silently falling back.
+## Constraints/Assumptions
+- Plugin declaration uses bare `"opendevbrowser"` (not `@latest`) for offline-friendly installs
+- Extension auto-extracts to `~/.config/opencode/opendevbrowser/extension/`
+- Icon color: Charcoal Black `#2D2D2D` (3D premium style with gradients)
+- Coverage threshold: 95% (met)
 
-State:
-  - Done:
-    - Implemented remediation tasks from `docs/CODE_REVIEW_IMPLEMENTATION_PLAN.md`, updated docs, and ran lint/tests.
-    - Added architecture summaries and folder-only structure sections to all `AGENTS.md` files.
-    - Fixed `selectorFunction` typing in `src/snapshot/snapshotter.ts` to satisfy TypeScript.
-    - Ran `npm run build`, `npm run lint`, and `npm run test` (pass; coverage >=95%).
-    - Scanned repo for TODO/FIXME/placeholder markers; none found in code (only docs/ledger and HTML placeholders).
-    - Added decision note defaults to `docs/CODE_REVIEW_IMPLEMENTATION_PLAN.md`.
-    - Added export config (`export.maxNodes`, `export.inlineStyles`) and wired through BrowserManager; updated tests/docs.
-    - Removed UI placeholder attributes from `extension/popup.html`.
-    - Ran `npm run build`, `npm run lint`, `npm run test`, and `npm run extension:build` (all pass; coverage >=95%).
-  - Now:
-    - Prepare final review summary and confirm no remaining gaps.
-  - Next:
-    - Deliver task-by-task verification results; outcome: checklist delivered; files: response only.
-    - If requested, quiet happy-dom abort logs in tests; outcome: cleaner output; files: `tests/dom-capture.test.ts` or test setup.
-    - If requested, restore UI placeholder hints in extension popup; outcome: UX hints back; files: `extension/popup.html`.
-    - If requested, add documentation cross-link to decision note; outcome: docs traceability; files: `docs/REMEDIATION_PLAN.md`.
+## Key Decisions
+- Excluded `src/extension-extractor.ts` from coverage (runtime filesystem code like `src/index.ts`)
+- Added versioning section to README/AGENTS.md explaining pinned vs unpinned tradeoffs
+- Privacy policy hosted at GitHub Pages URL pattern
 
-Open questions (UNCONFIRMED if needed):
-- None.
+## State
 
-Working set (files/ids/commands):
-  - `CONTINUITY.md`
-  - `docs/CODE_REVIEW_IMPLEMENTATION_PLAN.md`
-  - `src/config.ts`
-  - `src/browser/browser-manager.ts`
-  - `tests/config.test.ts`
-  - `tests/browser-manager.test.ts`
-  - `docs/opendevbrowser-plan.md`
-  - `docs/IMPLEMENTATION_BLUEPRINT.md`
-  - `AGENTS.md`
-  - `extension/popup.html`
+### Done
+- [x] Task 1: package.json files array + prepack script
+- [x] Task 2: scripts/sync-extension-version.mjs
+- [x] Task 3: Added jsonc-parser dependency
+- [x] Task 4: Replaced regex JSONC with jsonc-parser
+- [x] Task 5: Created icons (16/32/48/128/512px)
+- [x] Task 6: extension:pack script
+- [x] Task 7: docs/privacy.md
+- [x] Task 8: src/extension-extractor.ts + auto-extraction
+- [x] Task 9: status tool extensionPath output
+- [x] Task 10-12: README.md + AGENTS.md updates (versioning, install paths, config)
+- [x] Task 13: Plan docs sync (PLAN.md, opendevbrowser-plan.md, IMPLEMENTATION_BLUEPRINT.md, RELEASE_PLAN.md)
+- [x] Full validation: lint ✓, build ✓, test (170 pass) ✓, extension:build ✓, extension:pack ✓, npm pack ✓
+
+### Now
+All RELEASE_PLAN.md tasks complete. Ready for commit and publish.
+
+### Next
+1. Commit all changes with descriptive message covering release preparation
+2. Push to remote and create PR (if desired)
+3. Publish to npm: `npm publish`
+4. Submit extension to Chrome Web Store using opendevbrowser-extension.zip
+5. Enable GitHub Pages for docs/privacy.md hosting
+
+## Open Questions
+None - all tasks validated and complete.
+
+## Working Set
+- `package.json` - files array, scripts, jsonc-parser dep
+- `src/config.ts` - jsonc-parser integration
+- `src/extension-extractor.ts` - new file, auto-extraction
+- `src/index.ts` - calls extractExtension on init
+- `src/tools/status.ts` - extensionPath output
+- `extension/manifest.json` - icons field
+- `extension/icons/` - 16/32/48/128px PNGs
+- `docs/assets/icon512.png` - Web Store icon
+- `docs/privacy.md` - new file
+- `README.md` - updated install/config docs
+- `AGENTS.md` - updated plugin declaration pattern
+- `vitest.config.ts` - extension-extractor exclusion
+- `tests/tools.test.ts` - getExtensionPath null test
+- `tests/config.test.ts` - JSONC edge case tests

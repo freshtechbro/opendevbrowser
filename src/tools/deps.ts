@@ -10,4 +10,5 @@ export type ToolDeps = {
   config: ConfigStore;
   skills: SkillLoader;
   relay?: RelayServer;
+  getExtensionPath?: () => string | null;
 };

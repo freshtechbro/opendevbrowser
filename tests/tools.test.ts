@@ -46,8 +46,9 @@ const createDeps = () => {
 
   const config = new ConfigStore(resolveConfig({}));
   const skills = { loadBestPractices: vi.fn().mockResolvedValue("guide") };
+  const getExtensionPath = vi.fn().mockReturnValue("/path/to/extension");
 
-  return { manager, runner, config, skills };
+  return { manager, runner, config, skills, getExtensionPath };
 };
 
 const parse = (value: string) => JSON.parse(value) as { ok: boolean } & Record<string, unknown>;
@@ -253,6 +254,17 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never)).ok).toBe(false);
+  });
+
+  it("status tool handles null extensionPath", async () => {
+    const deps = createDeps();
+    deps.getExtensionPath.mockReturnValue(null);
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.ok).toBe(true);
+    expect(result.extensionPath).toBeUndefined();
   });
 
   it("normalizes run steps", async () => {

@@ -9,31 +9,72 @@ Add the plugin to your OpenCode config (`~/.config/opencode/opencode.json`):
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opendevbrowser@latest"]
+  "plugin": ["opendevbrowser"]
 }
 ```
 
-That's it! The plugin works out-of-box with sensible defaults. Use `@latest` to auto-update on each OpenCode start.
+Restart OpenCode. The plugin works out-of-box with sensible defaults.
 
-## Optional Configuration
+## Plugin Versioning
+
+OpenCode uses Bun to install plugins into `~/.cache/opencode/node_modules/`.
+
+| Pattern | Behavior | Best For |
+|---------|----------|----------|
+| `"opendevbrowser"` | Resolves latest on first install, uses cached version after | Most users |
+| `"opendevbrowser@1.0.0"` | Uses exact version, fast startup, offline-friendly | Production, CI |
+| `"opendevbrowser@latest"` | Re-resolves on every startup (network required, slower) | Always-latest |
+
+**Recommendation**: Use unpinned (`"opendevbrowser"`) for development, pinned versions for production.
+
+## Updating the Plugin
+
+- **Unpinned**: Restart OpenCode while online to get latest version
+- **Pinned**: Bump version in `opencode.json`, then restart
+- **Force reinstall**: Delete `~/.cache/opencode/` and restart
+- **Alternative**: `cd ~/.cache/opencode && bun update opendevbrowser`
+
+## Configuration
 
 For advanced customization, create `~/.config/opencode/opendevbrowser.jsonc`:
 
 ```jsonc
 {
-  "headless": false,
-  "profile": "default",
-  "persistProfile": true,
-  "snapshot": { "maxChars": 16000 },
-  "security": {
-    "allowRawCDP": false,
-    "allowNonLocalCdp": false,
-    "allowUnsafeExport": false
+  // Browser settings
+  "headless": false,              // Run Chrome in headless mode
+  "profile": "default",           // Browser profile name
+  "persistProfile": true,         // Persist profile between sessions
+  "chromePath": "/path/to/chrome", // Custom Chrome executable path
+  "flags": [],                    // Additional Chrome flags
+
+  // Snapshot settings
+  "snapshot": {
+    "maxChars": 16000,            // Max characters in snapshot output
+    "maxNodes": 1000              // Max nodes to include in snapshot
   },
-  "relayPort": 8787,
-  "relayToken": "optional-secret",
-  "chromePath": "/path/to/chrome",
-  "flags": []
+
+  // Export/clone settings
+  "export": {
+    "maxNodes": 1000,             // Max nodes to export
+    "inlineStyles": true          // Inline computed styles in export
+  },
+
+  // DevTools capture settings
+  "devtools": {
+    "showFullUrls": false,        // Show full URLs (vs redacted)
+    "showFullConsole": false      // Show full console output (vs redacted)
+  },
+
+  // Security settings
+  "security": {
+    "allowRawCDP": false,         // Allow raw CDP commands
+    "allowNonLocalCdp": false,    // Allow non-localhost CDP endpoints
+    "allowUnsafeExport": false    // Skip HTML sanitization in exports
+  },
+
+  // Relay settings (for extension)
+  "relayPort": 8787,              // Local relay server port
+  "relayToken": "optional-secret" // Token for relay authentication
 }
 ```
 
@@ -95,19 +136,26 @@ Batch run:
 }
 ```
 
-## Optional Extension (Mode C Relay)
+## Chrome Extension (Mode C Relay)
 
-The extension is optional and only needed if you want to attach to existing logged-in tabs.
+The extension is optional and only needed to attach to existing logged-in browser tabs.
 
-Build the extension:
+### Install Options
 
-```bash
-npm run extension:build
-```
+#### Option 1: Chrome Web Store (Recommended)
+Install from the [Chrome Web Store](https://chrome.google.com/webstore) (search "OpenDevBrowser").
 
-Load `extension/` as an unpacked extension in Chrome. The popup shows connection status and a connect/disconnect toggle.
+#### Option 2: Auto-extracted from plugin
+The plugin auto-extracts the extension to a stable path on first run. Check `opendevbrowser_status` output for the path, then:
+1. Open `chrome://extensions`
+2. Enable "Developer mode"
+3. Click "Load unpacked"
+4. Select the extracted extension folder
 
-Relay flow:
+#### Option 3: Manual download
+Download `opendevbrowser-extension.zip` from [GitHub Releases](https://github.com/anthropics/opendevbrowser/releases), unzip, and load as unpacked.
+
+### Using the Extension
 
 1. Keep `relayPort` at the default `8787` in the plugin config (or set a custom port).
 2. If you changed the port, enter the same relay port in the extension popup.
@@ -118,6 +166,10 @@ If the extension disconnects, the next launch falls back to managed mode.
 
 Optional: set `relayToken` in the plugin config and enter the same token in the extension popup to lock down relay connections.
 
+## Privacy Policy
+
+See our [Privacy Policy](docs/privacy.md) for information about data handling.
+
 ## Scripts
 
 - `npm run build` - compile the plugin to `dist/`
@@ -125,3 +177,4 @@ Optional: set `relayToken` in the plugin config and enter the same token in the 
 - `npm run lint` - ESLint checks
 - `npm run test` - Vitest with coverage
 - `npm run extension:build` - compile extension assets
+- `npm run extension:pack` - create Web Store ZIP

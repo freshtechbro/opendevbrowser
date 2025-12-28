@@ -2,6 +2,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { parse as parseJsonc } from "jsonc-parser";
 
 export type SnapshotConfig = {
   maxChars: number;
@@ -81,24 +82,18 @@ function getGlobalConfigPath(): string {
   return path.join(configDir, CONFIG_FILE_NAME);
 }
 
-function stripJsonComments(content: string): string {
-  return content
-    .replace(/\/\/.*$/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "");
-}
-
 function loadConfigFile(filePath: string): unknown {
   if (!fs.existsSync(filePath)) {
     return {};
   }
   const content = fs.readFileSync(filePath, "utf-8");
-  const stripped = stripJsonComments(content);
-  try {
-    return JSON.parse(stripped);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown error";
-    throw new Error(`Invalid JSON in opendevbrowser config at ${filePath}: ${message}`);
+  const errors: Array<{ error: number; offset: number; length: number }> = [];
+  const parsed = parseJsonc(content, errors, { allowTrailingComma: true });
+  if (errors.length > 0) {
+    const firstError = errors[0];
+    throw new Error(`Invalid JSONC in opendevbrowser config at ${filePath}: parse error at offset ${firstError?.offset ?? 0}`);
   }
+  return parsed ?? {};
 }
 
 export function loadGlobalConfig(): OpenDevBrowserConfig {

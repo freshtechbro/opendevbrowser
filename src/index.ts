@@ -5,6 +5,7 @@ import { ScriptRunner } from "./browser/script-runner";
 import { SkillLoader } from "./skills/skill-loader";
 import { RelayServer } from "./relay/relay-server";
 import { createTools } from "./tools";
+import { extractExtension, getExtensionPath } from "./extension-extractor";
 
 export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const initialConfig = loadGlobalConfig();
@@ -15,6 +16,11 @@ export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const skills = new SkillLoader(directory);
   const relay = new RelayServer();
   relay.setToken(initialConfig.relayToken);
+
+  try {
+    await extractExtension();
+  } catch {
+  }
 
   const ensureRelay = async (port: number) => {
     if (port <= 0) {
@@ -32,7 +38,7 @@ export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   await ensureRelay(initialConfig.relayPort);
 
   return {
-    tool: createTools({ manager, runner, config: configStore, skills, relay })
+    tool: createTools({ manager, runner, config: configStore, skills, relay, getExtensionPath })
   };
 };
 

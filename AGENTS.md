@@ -169,9 +169,13 @@ Playwright (when wired):
 
 ## Plugin Configuration
 - Config is stored in a plugin-owned file: `~/.config/opencode/opendevbrowser.jsonc`
-- OpenCode's `opencode.json` only needs `"plugin": ["opendevbrowser@latest"]` - no other keys required.
+- OpenCode's `opencode.json` only needs `"plugin": ["opendevbrowser"]` - no other keys required.
 - The plugin works out-of-box with sensible defaults; config file is optional for customization.
-- Use `@latest` to auto-update on each OpenCode start.
+
+### Plugin Versioning
+- **Recommended**: Use bare package name `"opendevbrowser"` for stable, offline-friendly installs.
+- **Pinned version**: Use `"opendevbrowser@1.2.3"` to lock to a specific version.
+- **Updates**: Run `bun update opendevbrowser` in `~/.cache/opencode/node_modules/` to update manually.
 
 ### Config File Format (`~/.config/opencode/opendevbrowser.jsonc`)
 ```jsonc
@@ -204,14 +208,14 @@ When a user asks to install opendevbrowser, follow these steps:
    ```
 
 2. **Add plugin to array** (preserve existing plugins):
-   - If `plugin` array exists, append `"opendevbrowser@latest"` if not present.
-   - If no `plugin` array, add `"plugin": ["opendevbrowser@latest"]`.
+   - If `plugin` array exists, append `"opendevbrowser"` if not present.
+   - If no `plugin` array, add `"plugin": ["opendevbrowser"]`.
 
 3. **Example minimal opencode.json**:
    ```json
    {
      "$schema": "https://opencode.ai/config.json",
-     "plugin": ["opendevbrowser@latest"]
+     "plugin": ["opendevbrowser"]
    }
    ```
 
@@ -226,6 +230,146 @@ When a user asks to install opendevbrowser, follow these steps:
 ## Documentation Rules
 - Keep the three plan docs in sync when scope changes.
 - Update docs before proposing any release-related workflow.
+
+## Implementation Plan Format
+
+When creating detailed implementation plans, use this standardized task-by-task format. This ensures plans are actionable, traceable, and can be handed off to any agent for execution.
+
+### Plan Document Structure
+
+```markdown
+# [Plan Title]
+
+[Brief description of what this plan covers]
+
+---
+
+## Overview
+
+### [Context heading, e.g., "Distribution channels" or "Scope"]
+- Bullet points summarizing key aspects
+
+### Key decisions
+- Decision 1
+- Decision 2
+
+---
+
+## Task N — [Task Title]
+
+### Reasoning
+[Why this task is necessary. What problem it solves or what value it adds.]
+
+### What to do
+[One-sentence summary of the task objective.]
+
+### How
+1. Step-by-step instructions
+2. Be specific about what to change
+3. Include code snippets or commands where helpful
+
+### Files impacted
+- `path/to/file1.ts`
+- `path/to/file2.ts`
+- `path/to/new-file.ts` (new file)
+
+### End goal
+[What success looks like when this task is complete.]
+
+### Acceptance criteria
+- [ ] Criterion 1 (testable/verifiable)
+- [ ] Criterion 2
+- [ ] Criterion 3
+
+---
+
+## File-by-file implementation sequence
+
+[Optional section listing the order in which files should be modified to minimize conflicts]
+
+1. `file1.ts` — Tasks 1, 3
+2. `file2.ts` — Task 2
+3. `new-file.ts` — Task 4 (new file)
+
+---
+
+## Dependencies to add
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `package-name` | `^1.0.0` | Brief purpose |
+
+---
+
+## Version history
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | YYYY-MM-DD | Initial plan |
+| 1.1 | YYYY-MM-DD | Added tasks X-Y for [reason] |
+```
+
+### Task Section Requirements
+
+Each task MUST include all of these sections:
+
+| Section | Purpose |
+|---------|---------|
+| **Reasoning** | Explains WHY this task matters (context for the implementer) |
+| **What to do** | One-sentence summary of the objective |
+| **How** | Numbered step-by-step instructions |
+| **Files impacted** | Explicit list of files to create/modify |
+| **End goal** | Success state description |
+| **Acceptance criteria** | Checkbox list of verifiable conditions |
+
+### Best Practices
+
+1. **Atomic tasks**: Each task should be independently completable
+2. **Clear sequencing**: If tasks have dependencies, document the order
+3. **Testable criteria**: Acceptance criteria must be verifiable (not vague)
+4. **File-first thinking**: Always list impacted files explicitly
+5. **New files marked**: Indicate `(new file)` for files that don't exist yet
+6. **Version the plan**: Track changes in the version history table
+
+### Example Task
+
+```markdown
+## Task 4 — Replace JSONC parsing with robust parser
+
+### Reasoning
+Regex stripping breaks valid JSONC strings containing `//` and doesn't support trailing commas.
+
+### What to do
+Use `jsonc-parser` in `src/config.ts` and strengthen tests.
+
+### How
+1. Add dependency: `jsonc-parser`
+2. Replace regex comment stripping with `jsonc-parser`'s parse function
+3. Add tests for `http://` strings and trailing commas
+
+### Files impacted
+- `package.json` (new dependency)
+- `src/config.ts`
+- `tests/config.test.ts`
+
+### End goal
+JSONC works reliably for real-world configs.
+
+### Acceptance criteria
+- [ ] Tests pass for trailing commas and URLs with `//`
+- [ ] No regressions in config parsing
+```
+
+### When to Create Implementation Plans
+
+Create a formal implementation plan when:
+- Task involves 3+ files or 3+ distinct changes
+- Multiple agents may work on the task
+- Task spans multiple sessions or may be interrupted
+- User requests a detailed plan before implementation
+- Release, migration, or refactoring work
+
+Save implementation plans to `docs/` with descriptive names (e.g., `docs/RELEASE_PLAN.md`, `docs/MIGRATION_PLAN.md`).
 
 ## Commit and PR Guidance
 - No existing commit convention; use Conventional Commits.

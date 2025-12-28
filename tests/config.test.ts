@@ -113,7 +113,31 @@ describe("loadGlobalConfig", () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue("not valid json {{{");
 
-    expect(() => loadGlobalConfig()).toThrow("Invalid JSON in opendevbrowser config");
+    expect(() => loadGlobalConfig()).toThrow("Invalid JSONC in opendevbrowser config");
+  });
+
+  it("parses JSONC with trailing commas", () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(`{
+      "profile": "trailing",
+      "headless": true,
+    }`);
+
+    const config = loadGlobalConfig();
+    expect(config.profile).toBe("trailing");
+    expect(config.headless).toBe(true);
+  });
+
+  it("parses JSONC with URLs containing // without corruption", () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(`{
+      "chromePath": "http://example.com/path",
+      "flags": ["--proxy-server=http://proxy.example.com:8080"]
+    }`);
+
+    const config = loadGlobalConfig();
+    expect(config.chromePath).toBe("http://example.com/path");
+    expect(config.flags).toEqual(["--proxy-server=http://proxy.example.com:8080"]);
   });
 });
 
