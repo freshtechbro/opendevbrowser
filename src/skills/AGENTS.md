@@ -2,6 +2,9 @@
 
 Applies to `src/skills/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 
+## Local Architecture
+- `SkillLoader` reads skill packs from `skills/` (fallback to parent dir) and filters by heading `topic`.
+
 ## Responsibilities
 - Load skill packs (e.g., `skills/opendevbrowser-best-practices/SKILL.md`).
 - Filter guidance by `topic` headings when requested.
@@ -12,3 +15,8 @@ Applies to `src/skills/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 
 ## Testing
 - Add/adjust Vitest coverage for topic filtering and missing-skill behavior.
+
+## Folder Structure
+```
+src/skills/
+```

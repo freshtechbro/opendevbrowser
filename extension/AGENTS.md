@@ -7,6 +7,7 @@ Applies to `extension/` and subdirectories. Extends root `AGENTS.md`.
 - Relay URL/port must be configurable (no hardcoded relay URL).
 - Keep `background.ts` focused on connection orchestration and message routing.
 - Keep `popup.tsx` focused on UI + user-configurable settings (pairing token, relay settings).
+- CDP attach/detach and message forwarding live under `extension/src/services/`.
 
 ## TypeScript
 - Prefer `import type` for Chrome and message types.
@@ -18,3 +19,10 @@ Applies to `extension/` and subdirectories. Extends root `AGENTS.md`.
 
 ## Safety
 - Do not log tokens or tab content.
+
+## Folder Structure
+```
+extension/
+|-- dist/
+`-- src/
+```

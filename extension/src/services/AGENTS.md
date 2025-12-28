@@ -2,6 +2,9 @@
 
 Applies to `extension/src/services/`. Extends `extension/src/AGENTS.md` and root `AGENTS.md`.
 
+## Local Architecture
+- Bridges CDP attach/detach and forwards relay messages for background orchestration.
+
 ## Responsibilities
 - Manage CDP attach/detach and message forwarding.
 - Normalize errors and route responses/events consistently.
@@ -13,3 +16,8 @@ Applies to `extension/src/services/`. Extends `extension/src/AGENTS.md` and root
 
 ## Testing
 - Add/adjust tests with Chrome debugger mocks where feasible.
+
+## Folder Structure
+```
+extension/src/services/
+```

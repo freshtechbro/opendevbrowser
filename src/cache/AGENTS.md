@@ -2,6 +2,9 @@
 
 Applies to `src/cache/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 
+## Local Architecture
+- Resolves Chrome executable paths with config overrides; cached for BrowserManager startup.
+
 ## Responsibilities
 - Locate Chrome executables and cache resolved paths.
 - Keep platform detection deterministic and minimal.
@@ -12,3 +15,8 @@ Applies to `src/cache/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 
 ## Testing
 - Add/adjust Vitest coverage for platform paths and overrides.
+
+## Folder Structure
+```
+src/cache/
+```

@@ -2,6 +2,9 @@
 
 Applies to `src/tools/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 
+## Local Architecture
+- Tools validate inputs with Zod, delegate to managers/services, and return shaped responses.
+
 ## Responsibilities
 - Define tool schemas and validate inputs with Zod.
 - Delegate core work to managers/services; keep tools thin.
@@ -13,3 +16,8 @@ Applies to `src/tools/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 
 ## Testing
 - Add/adjust Vitest coverage for tool validation and response shapes.
+
+## Folder Structure
+```
+src/tools/
+```
