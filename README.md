@@ -195,6 +195,18 @@ If the extension disconnects, the next launch falls back to managed mode.
 
 Pairing is enforced by default. To disable it, set `"relayToken": false` in the plugin config and uncheck "Require pairing token" in the extension popup.
 
+## Security
+
+OpenDevBrowser includes defense-in-depth security measures:
+
+- **Relay Authentication**: Timing-safe token comparison, Origin header validation, rate limiting
+- **CDP Endpoint Validation**: Localhost-only by default, case-normalized hostname checking
+- **Data Redaction**: Console/network output redacts tokens, API keys, JWTs by default
+- **Export Sanitization**: Scripts, event handlers, SVG scripts, and dangerous CSS patterns removed
+- **Config Security**: Config files created with restrictive permissions (mode 0600)
+
+See [Security Audit Report](docs/SECURITY_AUDIT_REPORT.md) for details.
+
 ## Privacy Policy
 
 See our [Privacy Policy](docs/privacy.md) for information about data handling.

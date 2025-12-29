@@ -4,6 +4,7 @@ Applies to `extension/src/services/`. Extends `extension/src/AGENTS.md` and root
 
 ## Local Architecture
 - Bridges CDP attach/detach and forwards relay messages for background orchestration.
+- WebSocket connections to relay include Chrome's automatic Origin header for CSWSH protection.
 
 ## Responsibilities
 - Manage CDP attach/detach and message forwarding.
@@ -13,6 +14,7 @@ Applies to `extension/src/services/`. Extends `extension/src/AGENTS.md` and root
 - Handle detach/attach failures gracefully.
 - Keep protocol message shapes consistent with `src/relay/` types.
 - Avoid leaking tokens or tab content.
+- Chrome sends `Origin: chrome-extension://EXTENSION_ID` automatically; relay validates this.
 
 ## Testing
 - Add/adjust tests with Chrome debugger mocks where feasible.
