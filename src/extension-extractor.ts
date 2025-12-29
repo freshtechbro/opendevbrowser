@@ -16,7 +16,7 @@ function getPackageVersion(): string {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.version || "0.0.0";
   } catch (error) {
-    console.warn("[opendevbrowser] Failed to read package.json version:", error instanceof Error ? error.message : error);
+    void error;
     return "0.0.0";
   }
 }
@@ -28,7 +28,8 @@ function getInstalledVersion(destDir: string): string | null {
       return readFileSync(versionPath, "utf-8").trim();
     }
   } catch (error) {
-    console.warn("[opendevbrowser] Failed to read installed extension version:", error instanceof Error ? error.message : error);
+    // Ignore version read failures; we'll proceed with extraction.
+    void error;
   }
   return null;
 }
@@ -51,7 +52,7 @@ function isCompleteInstall(dir: string): boolean {
   return required.every(file => existsSync(join(dir, file)));
 }
 
-export function extractExtension(): string | null {
+export async function extractExtension(): Promise<string | null> {
   const bundledPath = getBundledExtensionPath();
   if (!bundledPath) {
     return null;
@@ -106,24 +107,24 @@ export function extractExtension(): string | null {
     if (existsSync(backupDir) && !existsSync(destDir)) {
       try {
         renameSync(backupDir, destDir);
-      } catch (rollbackErr) {
-        console.warn("[opendevbrowser] Failed to rollback extension backup:", rollbackErr instanceof Error ? rollbackErr.message : rollbackErr);
+      } catch {
+        /* best effort */
       }
     }
     // Cleanup staging
     if (existsSync(stagingDir)) {
       try {
         rmSync(stagingDir, { recursive: true, force: true });
-      } catch (stagingErr) {
-        console.warn("[opendevbrowser] Failed to cleanup staging directory:", stagingErr instanceof Error ? stagingErr.message : stagingErr);
+      } catch {
+        /* best effort */
       }
     }
     // Cleanup backup
     if (existsSync(backupDir)) {
       try {
         rmSync(backupDir, { recursive: true, force: true });
-      } catch (backupErr) {
-        console.warn("[opendevbrowser] Failed to cleanup backup directory:", backupErr instanceof Error ? backupErr.message : backupErr);
+      } catch {
+        /* best effort */
       }
     }
     throw error;

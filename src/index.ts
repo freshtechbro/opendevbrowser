@@ -18,10 +18,10 @@ export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   relay.setToken(initialConfig.relayToken);
 
   try {
-    await extractExtension();
+    extractExtension();
   } catch (error) {
     // Extension extraction is best-effort; keep plugin usable if it fails.
-    void error;
+    console.warn("Extension extraction failed:", error instanceof Error ? error.message : error);
   }
 
   const ensureRelay = async (port: number) => {

@@ -126,8 +126,22 @@ describe("RelayServer", () => {
 
     const cdp1 = await connect(`${started.url}/cdp`);
     const cdpClosed = waitForClose(cdp1);
+    // Create cdp2 but register close handler BEFORE connection completes
+    // This ensures we catch the server's close(1008) before it happens
     const cdp2 = new WebSocket(`${started.url}/cdp`);
     const cdp2Closed = waitForClose(cdp2);
+    // Wait for cdp2 to fully connect (open event) before proceeding
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("cdp2 connection timeout")), 1000);
+      cdp2.once("open", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      cdp2.once("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
 
     expect(await closedPromise).toBe(1000);
     expect(await cdp2Closed).toBe(1008);
