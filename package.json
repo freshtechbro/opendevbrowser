@@ -1,10 +1,13 @@
 {
   "name": "opendevbrowser",
-  "version": "0.1.0",
-  "description": "OpenCode plugin for script-first browser automation.",
+  "version": "0.2.0",
+  "description": "OpenCode plugin for browser automation via CDP with snapshot-refs-actions workflow",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "opendevbrowser": "./dist/cli/index.js"
+  },
   "files": [
     "dist",
     "skills",
@@ -13,6 +16,25 @@
     "extension/dist",
     "extension/icons"
   ],
+  "keywords": [
+    "opencode",
+    "plugin",
+    "browser",
+    "automation",
+    "cdp",
+    "playwright",
+    "testing",
+    "web-scraping",
+    "chrome"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/opendevbrowser.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
