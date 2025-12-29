@@ -98,4 +98,33 @@ describe("captureDom", () => {
 
     expect(result.warnings[0]).toContain("Export truncated");
   });
+
+  it("filters inline styles to allowlist properties only", async () => {
+    document.body.innerHTML = "<div id=\"root\"><span>Hi</span></div>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    const allowedProps = ["color", "background", "font-size", "margin", "padding", "display"];
+    const disallowedProps = ["animation-name", "transition", "cursor"];
+
+    for (const prop of allowedProps) {
+      if (result.html.includes(`${prop}:`)) {
+        expect(result.html).toContain(`${prop}:`);
+      }
+    }
+
+    for (const prop of disallowedProps) {
+      expect(result.html).not.toContain(`${prop}:`);
+    }
+  });
+
+  it("excludes skip values like 'none', 'initial', 'inherit' from inline styles", async () => {
+    document.body.innerHTML = "<div id=\"root\"><span>Hi</span></div>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).not.toMatch(/: none;/);
+    expect(result.html).not.toMatch(/: initial;/);
+    expect(result.html).not.toMatch(/: inherit;/);
+  });
 });

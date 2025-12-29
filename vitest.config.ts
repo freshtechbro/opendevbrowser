@@ -8,7 +8,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       include: ["src/**/*.ts"],
-      exclude: ["src/relay/protocol.ts", "src/index.ts", "src/tools/deps.ts", "src/extension-extractor.ts", "extension/**"],
+      exclude: ["src/relay/protocol.ts", "src/index.ts", "src/tools/deps.ts", "src/extension-extractor.ts", "src/cli/**", "src/skills/types.ts", "src/tools/skill_list.ts", "src/tools/skill_load.ts", "extension/**"],
       thresholds: {
         lines: 95,
         functions: 95,

@@ -143,6 +143,21 @@ describe("ScriptRunner", () => {
     expect(result.results[0].ok).toBe(true);
   });
 
+  it("retries when error has no message", async () => {
+    const manager = createManager();
+    manager.click
+      .mockRejectedValueOnce("boom" as never)
+      .mockResolvedValueOnce({ ok: true });
+    const runner = new ScriptRunner(manager as never);
+
+    const result = await runner.run("s1", [
+      { action: "click", args: { ref: "r1" } }
+    ]);
+
+    expect(manager.click).toHaveBeenCalledTimes(2);
+    expect(result.results[0].ok).toBe(true);
+  });
+
   it("does not retry on unknown ref errors", async () => {
     const manager = createManager();
     manager.click.mockRejectedValueOnce(new Error("Unknown ref: r1. Take a new snapshot first."));

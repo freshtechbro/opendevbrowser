@@ -6,9 +6,13 @@ const capture = {
   html: "<div id=\"root\">Hello</div>",
   styles: {
     color: "red",
-    "font-size": "16px"
+    "font-size": "16px",
+    "animation-name": "none",
+    "font-style": "initial",
+    padding: ""
   },
-  warnings: []
+  warnings: [],
+  inlineStyles: true
 };
 
 describe("export helpers", () => {
@@ -16,6 +20,16 @@ describe("export helpers", () => {
     const css = extractCss(capture);
     expect(css).toContain(".opendevbrowser-root");
     expect(css).toContain("color: red");
+    expect(css).not.toContain("animation-name");
+    expect(css).not.toContain("font-style: initial");
+    expect(css).not.toContain("padding:");
+  });
+
+  it("keeps full styles when inline styles are disabled", () => {
+    const css = extractCss({ ...capture, inlineStyles: false });
+    expect(css).toContain("animation-name: none");
+    expect(css).toContain("font-style: initial");
+    expect(css).not.toContain("padding:");
   });
 
   it("emits react component", () => {

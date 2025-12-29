@@ -133,6 +133,21 @@ describe("tools", () => {
     expect(connectResult.warnings).toEqual(["warn"]);
   });
 
+  it("omits warnings when launch returns none", async () => {
+    const deps = createDeps();
+    deps.manager.launch.mockResolvedValue({
+      sessionId: "s1",
+      mode: "A",
+      activeTargetId: "t1",
+      wsEndpoint: "ws://"
+    });
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
+    expect(launchResult.warnings).toBeUndefined();
+  });
+
   it("uses relay when available", async () => {
     const deps = createDeps();
     const relay = {
@@ -365,6 +380,26 @@ describe("tools", () => {
     deps.config.set({ ...deps.config.get(), checkForUpdates: true });
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn().mockResolvedValue({ ok: false });
+    globalThis.fetch = fetchMock as never;
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.updateHint).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalled();
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("status tool ignores non-string registry versions", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), checkForUpdates: true });
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: 123 })
+    });
     globalThis.fetch = fetchMock as never;
 
     const { createTools } = await import("../src/tools");
