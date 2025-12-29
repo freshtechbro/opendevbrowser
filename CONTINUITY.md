@@ -1,69 +1,67 @@
 # Continuity Ledger
 
 ## Goal (incl. success criteria)
-Implement Skill System Extension + CLI Installer + Multi-Platform Release per `docs/SKILL_SYSTEM_AND_CLI_PLAN.md`
+Implement comprehensive security hardening based on Security Audit Report (17 vulnerabilities).
 
 **Success criteria**:
-- CLI installer works with `npx opendevbrowser --local/--global` ✓
-- Multi-skill discovery and loading functional ✓
-- New skill tools registered (skill_list, skill_load) ✓
-- 3 task-specific skill packs created ✓
-- Chrome Web Store assets ready ✓
-- All tests pass, 95%+ coverage maintained ✓
+- All 13 security tasks from SECURITY_IMPLEMENTATION_PLAN.md implemented
+- All tests pass with 95%+ coverage
+- Documentation updated across codebase
+- Lint and build pass
 
 ## Constraints/Assumptions
-- Follow jarvis-mcp CLI pattern (`--local`/`--global` flags)
-- OpenCode auto-installs npm plugins via Bun (no manual npm install)
-- Config format: `{"$schema": "https://opencode.ai/config.json", "plugin": ["opendevbrowser"]}`
-- Skill names: lowercase, hyphens, <=64 chars (OpenCode convention)
-- Maintain backward compatibility with existing `loadBestPractices()` method
+- Use Node.js built-in crypto module (no new dependencies)
+- Maintain backward compatibility
+- Follow existing codebase patterns
+- TLS deferred; strengthen token auth and origin validation instead
 
 ## Key decisions
-- CLI follows jarvis-mcp pattern (validated against other OpenCode plugins)
-- Renamed `--project` to `--local` for ecosystem alignment
-- Interactive prompt only when no mode flag provided
-- `--with-config` flag optional for creating opendevbrowser.jsonc
-- Skills cached after first discovery for performance
-- Excluded CLI entry point from coverage (not testable without E2E)
-- Excluded skill_list.ts and skill_load.ts from coverage (@opencode-ai/plugin import)
+- Timing-safe comparison: crypto.timingSafeEqual() for all token validation
+- Origin validation: Allow only chrome-extension:// and null origins for relay WebSocket
+- Rate limiting: 5 attempts per minute per IP with 429 response
+- CDP allowlist: Optional, defaults to allow-all for backward compatibility
+- Token redaction: Lowered to 16+ chars, added API key prefix detection
+- Config permissions: 0600 for file, 0700 for directory (Unix)
 
 ## State
 
 ### Done
-- [x] Task 1-2: CLI entry point and flag parsing (src/cli/index.ts, src/cli/args.ts)
-- [x] Task 8: Shared config utilities (src/cli/utils/config.ts)
-- [x] Task 3-4: Global and local installers
-- [x] Task 5-7: Config template, update and uninstall commands
-- [x] Task 10: SkillInfo type and parseSkillMetadata
-- [x] Task 11-12: Extended SkillLoader with listSkills(), loadSkill(), skillPaths config
-- [x] Task 13-14: skill_list and skill_load tools registered
-- [x] Task 15: 3 task-specific skill packs (login-automation, form-testing, data-extraction)
-- [x] Task 9, 16: Comprehensive CLI and skill loader tests
-- [x] Task 21-22: Updated package.json (bin, keywords) and README (badges, CLI docs)
-- [x] Task 23-25: Updated AGENTS.md files and created docs/CLI.md
-- [x] Task 17-20: Chrome Web Store listing document created
-- [x] Task 26: Final integration verified
+- [x] Task 1: Timing-safe token comparison (relay-server.ts)
+- [x] Task 2: Origin header validation for WebSocket (relay-server.ts)
+- [x] Task 3: Re-validate webSocketDebuggerUrl (browser-manager.ts)
+- [x] Task 4: Case-insensitive hostname validation (browser-manager.ts)
+- [x] Task 5: Improved token redaction (console-tracker.ts)
+- [x] Task 6: URL path segment redaction (network-tracker.ts)
+- [x] Task 7: SVG script sanitization (dom-capture.ts)
+- [x] Task 8: CSS injection protection (dom-capture.ts)
+- [x] Task 9: Secure config file permissions (config.ts)
+- [x] Task 10: Rate limiting for handshakes (relay-server.ts)
+- [x] Task 11: CDP command allowlist (relay-server.ts, config.ts)
+- [x] Task 12: Extension Origin documentation (ConnectionManager.ts)
+- [x] Task 13: Security event logging (relay-server.ts)
+- [x] All tests pass (243 tests)
+- [x] Coverage 95.11% (exceeds 95% threshold)
+- [x] Documentation updated (AGENTS.md files, README.md)
 
 ### Now
-- COMPLETE - All 26 tasks implemented
+- [x] Update CONTINUITY.md with final status
+- [ ] Update Security Audit Report with implementation status
 
 ### Next
-- None - implementation complete
-
-## Verification Results
-- Lint: PASS
-- Build: PASS
-- Tests: 178 passed
-- Coverage: Lines 99.37%, Branches 95.05%, Functions 100%, Statements 99.55%
+- Update SECURITY_AUDIT_REPORT.md to mark implemented items
+- Final verification of all changes
+- Ready for commit and release
 
 ## Open questions
-- None
+- None - all security tasks implemented and verified
 
 ## Working set
-- `docs/SKILL_SYSTEM_AND_CLI_PLAN.md` - implementation plan (complete)
-- `src/cli/` - CLI installer implementation
-- `src/skills/` - Extended skill system
-- `src/tools/skill_list.ts`, `src/tools/skill_load.ts` - New tools
-- `skills/login-automation/`, `skills/form-testing/`, `skills/data-extraction/` - New skill packs
-- `extension/store-assets/LISTING.md` - Chrome Web Store listing
-- `docs/CLI.md` - CLI documentation
+- `docs/SECURITY_IMPLEMENTATION_PLAN.md` - implementation blueprint (COMPLETE)
+- `docs/SECURITY_AUDIT_REPORT.md` - needs status update
+- `src/relay/relay-server.ts` - Tasks 1, 2, 10, 11, 13
+- `src/browser/browser-manager.ts` - Tasks 3, 4
+- `src/devtools/console-tracker.ts` - Task 5
+- `src/devtools/network-tracker.ts` - Task 6
+- `src/export/dom-capture.ts` - Tasks 7, 8
+- `src/config.ts` - Task 9, 11
+- `extension/src/services/ConnectionManager.ts` - Task 12
