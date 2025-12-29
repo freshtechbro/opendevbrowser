@@ -47,7 +47,7 @@ const createSession = (
 
 const createPage = (
   nodes: AxNode[],
-  options?: { failUrl?: boolean; failTitle?: boolean; missingObjectIds?: Set<number>; emptySelectors?: Set<number> }
+  options?: { failUrl?: boolean; failTitle?: boolean; missingObjectIds?: Set<number>; emptySelectors?: Set<number>; rawNodes?: AxNode[] | null }
 ) => {
   const session = createSession(nodes, options);
   return {

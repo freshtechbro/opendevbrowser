@@ -248,7 +248,7 @@ describe("BrowserManager", () => {
     ];
     const { context } = createBrowserBundle(nodes);
 
-    (context as { browser: () => null }).browser = () => null;
+    (context as unknown as { browser: () => null }).browser = () => null;
     findChromeExecutable.mockResolvedValue("/bin/chrome");
     launchPersistentContext.mockResolvedValue(context);
 
@@ -323,7 +323,7 @@ describe("BrowserManager", () => {
 
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ webSocketDebuggerUrl: "ws://cdp" })
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
     }) as never;
 
     connectOverCDP.mockResolvedValue(browser);
@@ -358,7 +358,7 @@ describe("BrowserManager", () => {
 
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ webSocketDebuggerUrl: "ws://cdp" })
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
     }) as never;
 
     connectOverCDP.mockResolvedValue(browser);
@@ -434,6 +434,38 @@ describe("BrowserManager", () => {
     await expect(manager.connect({ wsEndpoint: "not-a-valid-url" }))
       .rejects
       .toThrow("Invalid CDP endpoint URL");
+  });
+
+  it("normalizes hostname case for localhost validation", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await manager.connect({ wsEndpoint: "ws://LOCALHOST:9222/cdp" });
+    expect(connectOverCDP).toHaveBeenCalled();
+
+    connectOverCDP.mockClear();
+    await manager.connect({ wsEndpoint: "ws://LocalHost:9222/cdp" });
+    expect(connectOverCDP).toHaveBeenCalled();
+  });
+
+  it("re-validates webSocketDebuggerUrl from /json/version", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://evil.com:9222/cdp" })
+    }) as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.connect({ host: "127.0.0.1", port: 9222 }))
+      .rejects
+      .toThrow("Non-local CDP endpoints");
   });
 
   it("accepts IPv6 loopback endpoints", async () => {
@@ -562,7 +594,7 @@ describe("BrowserManager", () => {
 
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ webSocketDebuggerUrl: "ws://cdp" })
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
     }) as never;
 
     const { BrowserManager } = await import("../src/browser/browser-manager");
@@ -580,7 +612,7 @@ describe("BrowserManager", () => {
 
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ webSocketDebuggerUrl: "ws://cdp" })
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
     }) as never;
 
     const { BrowserManager } = await import("../src/browser/browser-manager");

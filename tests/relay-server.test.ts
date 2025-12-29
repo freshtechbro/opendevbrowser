@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { WebSocket } from "ws";
+import http from "http";
 import { RelayServer } from "../src/relay/relay-server";
 
 const connect = async (url: string, timeoutMs = 3000): Promise<WebSocket> => {
@@ -40,7 +41,7 @@ const nextMessage = async (socket: WebSocket): Promise<Record<string, unknown>> 
   const data = await new Promise<unknown>((resolve) => {
     socket.once("message", resolve);
   });
-  const text = typeof data === "string" ? data : data.toString();
+  const text = typeof data === "string" ? data : String(data);
   return JSON.parse(text) as Record<string, unknown>;
 };
 
@@ -79,7 +80,7 @@ describe("RelayServer", () => {
     const started = await server.start(0);
     const internal = server as unknown as { server?: { emit: (event: string, ...args: unknown[]) => void } };
     const destroy = vi.fn();
-    internal.server?.emit("upgrade", { url: "/unknown" }, { destroy }, Buffer.from(""));
+    internal.server?.emit("upgrade", { url: "/unknown", headers: {}, socket: { remoteAddress: "127.0.0.1" } }, { destroy, write: vi.fn() }, Buffer.from(""));
     expect(destroy).toHaveBeenCalled();
     expect(started.url).toContain("ws://127.0.0.1:");
   });
@@ -239,5 +240,156 @@ describe("RelayServer", () => {
     const mockServer = new MockRelayServer();
     await expect(mockServer.start(0)).rejects.toThrow("Relay server did not expose a port");
     vi.doUnmock("http");
+  });
+
+  describe("Security Features", () => {
+    it("uses timing-safe token comparison", async () => {
+      server = new RelayServer();
+      server.setToken("correct-token-value");
+      const started = await server.start(0);
+
+      const ext1 = await connect(`${started.url}/extension`);
+      const closed1 = waitForClose(ext1);
+      ext1.send(JSON.stringify({ type: "handshake", payload: { tabId: 1, pairingToken: "wrong-token-value1" } }));
+      expect(await closed1).toBe(1008);
+
+      const ext2 = await connect(`${started.url}/extension`);
+      const closed2 = waitForClose(ext2);
+      ext2.send(JSON.stringify({ type: "handshake", payload: { tabId: 1, pairingToken: "correct-token-valu" } }));
+      expect(await closed2).toBe(1008);
+
+      const ext3 = await connect(`${started.url}/extension`);
+      ext3.send(JSON.stringify({ type: "handshake", payload: { tabId: 1, pairingToken: "correct-token-value" } }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(server.status().extension?.tabId).toBe(1);
+      ext3.close();
+    });
+
+    it("blocks web page origins (CSWSH prevention)", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const req = http.request({
+        hostname: "127.0.0.1",
+        port: started.port,
+        path: "/extension",
+        method: "GET",
+        headers: {
+          "Connection": "Upgrade",
+          "Upgrade": "websocket",
+          "Origin": "https://evil.com",
+          "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version": "13"
+        }
+      });
+
+      const response = await new Promise<http.IncomingMessage>((resolve) => {
+        req.on("response", resolve);
+        req.end();
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
+    it("allows chrome-extension origins", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const req = http.request({
+        hostname: "127.0.0.1",
+        port: started.port,
+        path: "/extension",
+        method: "GET",
+        headers: {
+          "Connection": "Upgrade",
+          "Upgrade": "websocket",
+          "Origin": "chrome-extension://abcdefghijklmnop",
+          "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version": "13"
+        }
+      });
+
+      const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
+        req.on("response", resolve);
+        req.on("upgrade", () => resolve({ statusCode: 101 } as http.IncomingMessage));
+        req.on("error", reject);
+        req.end();
+      });
+
+      expect(response.statusCode).toBe(101);
+    });
+
+    it("rate limits handshake attempts", async () => {
+      server = new RelayServer();
+      server.setToken("secret-token");
+      const started = await server.start(0);
+
+      for (let i = 0; i < 5; i++) {
+        const ext = await connect(`${started.url}/extension`);
+        ext.send(JSON.stringify({ type: "handshake", payload: { tabId: 1, pairingToken: "wrong" } }));
+        await waitForClose(ext);
+      }
+
+      const req = http.request({
+        hostname: "127.0.0.1",
+        port: started.port,
+        path: "/extension",
+        method: "GET",
+        headers: {
+          "Connection": "Upgrade",
+          "Upgrade": "websocket",
+          "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version": "13"
+        }
+      });
+
+      const response = await new Promise<http.IncomingMessage>((resolve) => {
+        req.on("response", resolve);
+        req.end();
+      });
+
+      expect(response.statusCode).toBe(429);
+    });
+
+    it("enforces CDP command allowlist when set", async () => {
+      server = new RelayServer();
+      server.setCdpAllowlist(["Page.navigate", "Runtime.evaluate"]);
+      const started = await server.start(0);
+
+      const extension = await connect(`${started.url}/extension`);
+      const cdp = await connect(`${started.url}/cdp`);
+
+      extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 7 } }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      cdp.send(JSON.stringify({ id: 1, method: "Browser.getVersion", params: {} }));
+      const response = await nextMessage(cdp);
+      expect(response.id).toBe(1);
+      expect(response.error).toBeDefined();
+      expect((response.error as { message: string }).message).toContain("not in allowlist");
+
+      extension.close();
+      cdp.close();
+    });
+
+    it("allows all commands when allowlist is empty", async () => {
+      server = new RelayServer();
+      server.setCdpAllowlist([]);
+      const started = await server.start(0);
+
+      const extension = await connect(`${started.url}/extension`);
+      const cdp = await connect(`${started.url}/cdp`);
+
+      extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 7 } }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const commandPromise = nextMessage(extension);
+      cdp.send(JSON.stringify({ id: 1, method: "Browser.getVersion", params: {} }));
+      const command = await commandPromise;
+      expect(command.method).toBe("forwardCDPCommand");
+
+      extension.close();
+      cdp.close();
+    });
   });
 });

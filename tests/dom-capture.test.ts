@@ -127,4 +127,82 @@ describe("captureDom", () => {
     expect(result.html).not.toMatch(/: initial;/);
     expect(result.html).not.toMatch(/: inherit;/);
   });
+
+  it("removes script elements inside SVG", async () => {
+    document.body.innerHTML = `
+      <div id="root">
+        <svg><rect width="100" height="100"></rect><script>alert('xss')</script></svg>
+      </div>
+    `;
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).not.toContain("<script");
+    expect(result.html).toContain("<svg");
+  });
+
+  it("removes foreignObject from SVG", async () => {
+    document.body.innerHTML = `
+      <div id="root">
+        <svg><foreignObject><div>malicious</div></foreignObject><rect/></svg>
+      </div>
+    `;
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).not.toContain("foreignObject");
+  });
+
+  it("removes event handlers from SVG elements", async () => {
+    document.body.innerHTML = `
+      <div id="root">
+        <svg onload="alert('xss')"><rect onclick="evil()"/></svg>
+      </div>
+    `;
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).not.toContain("onload");
+    expect(result.html).not.toContain("onclick");
+  });
+
+  it("blocks url() in inline styles", async () => {
+    document.body.innerHTML = `
+      <div id="root" style="background: url('https://evil.com/track')">Hi</div>
+    `;
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).not.toContain("url(");
+  });
+
+  it("blocks expression() in inline styles", async () => {
+    document.body.innerHTML = `
+      <div id="root" style="width: expression(alert('xss'))">Hi</div>
+    `;
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).not.toContain("expression(");
+  });
+
+  it("blocks -moz-binding in inline styles", async () => {
+    document.body.innerHTML = `
+      <div id="root" style="-moz-binding: url('evil.xml')">Hi</div>
+    `;
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).not.toContain("-moz-binding");
+  });
+
+  it("blocks javascript: in CSS url()", async () => {
+    document.body.innerHTML = `
+      <div id="root" style="background: url('javascript:alert(1)')">Hi</div>
+    `;
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).not.toContain("javascript:");
+  });
 });

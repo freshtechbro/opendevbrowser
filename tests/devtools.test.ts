@@ -86,11 +86,100 @@ describe("ConsoleTracker", () => {
     tracker.attach(page as never);
     page.emit("console", {
       type: () => "log",
-      text: () => "trace id abcdef1234567890abcdef1234567890"
+      text: () => "trace id 1234567890123456789012345678901234567890"
     });
 
     const poll = tracker.poll(0, 10);
-    expect(poll.events[0]?.text).toContain("abcdef1234567890abcdef1234567890");
+    expect(poll.events[0]?.text).toContain("1234567890123456789012345678901234567890");
+  });
+
+  it("redacts short API keys with common prefixes (16+ chars)", () => {
+    const page = createPage();
+    const tracker = new ConsoleTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("console", {
+      type: () => "log",
+      text: () => "Using key sk_live_abc123def456"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.text).toContain("[REDACTED]");
+    expect(poll.events[0]?.text).not.toContain("sk_live_abc123def456");
+  });
+
+  it("redacts pk_ prefixed tokens", () => {
+    const page = createPage();
+    const tracker = new ConsoleTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("console", {
+      type: () => "log",
+      text: () => "Public key: pk_test_abcdef123456"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.text).toContain("[REDACTED]");
+    expect(poll.events[0]?.text).not.toContain("pk_test_abcdef123456");
+  });
+
+  it("redacts api_ prefixed tokens", () => {
+    const page = createPage();
+    const tracker = new ConsoleTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("console", {
+      type: () => "log",
+      text: () => "API key: api_key_xyz789abc123"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.text).toContain("[REDACTED]");
+    expect(poll.events[0]?.text).not.toContain("api_key_xyz789abc123");
+  });
+
+  it("redacts high-entropy path segments in network URLs", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("request", {
+      url: () => "https://api.example.com/v1/AbCdEf_123-XyZ_456789ab/resource",
+      method: () => "GET",
+      resourceType: () => "xhr"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toContain("[REDACTED]");
+  });
+
+  it("preserves low-entropy path segments", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("request", {
+      url: () => "https://api.example.com/v1/users/profile",
+      method: () => "GET",
+      resourceType: () => "xhr"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toBe("https://api.example.com/v1/users/profile");
+  });
+
+  it("redacts tokens with only 2 character categories", () => {
+    const page = createPage();
+    const tracker = new ConsoleTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("console", {
+      type: () => "log",
+      text: () => "Token: abcdefghij1234567890"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.text).toContain("[REDACTED]");
   });
 
   it("shows full console output when configured", () => {
@@ -271,5 +360,57 @@ describe("NetworkTracker", () => {
 
     const poll = tracker.poll(0, 10);
     expect(poll.events[0]?.url).toBe("not a url");
+  });
+
+  it("redacts token-like path segments", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    const request = {
+      method: () => "GET",
+      url: () => "https://api.example.com/v1/sk_live_abc123def456xyz/resource",
+      resourceType: () => "xhr"
+    };
+
+    page.emit("request", request);
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toContain("[REDACTED]");
+    expect(poll.events[0]?.url).not.toContain("sk_live_abc123def456xyz");
+  });
+
+  it("preserves UUIDs in path segments", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    const request = {
+      method: () => "GET",
+      url: () => "https://api.example.com/users/550e8400-e29b-41d4-a716-446655440000/profile",
+      resourceType: () => "xhr"
+    };
+
+    page.emit("request", request);
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toContain("550e8400-e29b-41d4-a716-446655440000");
+  });
+
+  it("preserves numeric IDs in path segments", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    const request = {
+      method: () => "GET",
+      url: () => "https://api.example.com/users/12345678901234567890/profile",
+      resourceType: () => "xhr"
+    };
+
+    page.emit("request", request);
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toContain("12345678901234567890");
   });
 });

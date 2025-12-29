@@ -38,12 +38,12 @@ describe("loadGlobalConfig", () => {
     expect(config.relayToken).toBe("some-test-token");
     expect(fs.mkdirSync).toHaveBeenCalledWith(
       path.join("/home/testuser", ".config", "opencode"),
-      { recursive: true }
+      { recursive: true, mode: 0o700 }
     );
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       path.join("/home/testuser", ".config", "opencode", "opendevbrowser.jsonc"),
       expect.stringContaining("\"relayToken\": \"some-test-token\""),
-      "utf-8"
+      { encoding: "utf-8", mode: 0o600 }
     );
   });
 
