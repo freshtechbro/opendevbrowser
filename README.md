@@ -1,8 +1,36 @@
 # OpenDevBrowser Plugin
 
+[![npm version](https://img.shields.io/npm/v/opendevbrowser.svg)](https://www.npmjs.com/package/opendevbrowser)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 OpenDevBrowser is an OpenCode plugin that provides fast, script-first browser automation with a snapshot → refs → actions workflow. It launches or connects to Chrome via CDP and stays lightweight by default.
 
-## Install
+## Quick Install
+
+```bash
+# Interactive installation
+npx opendevbrowser
+
+# Or specify location directly
+npx opendevbrowser --global   # User-wide (~/.config/opencode/opencode.json)
+npx opendevbrowser --local    # This project only (./opencode.json)
+```
+
+The CLI adds the plugin to your OpenCode config automatically. Restart OpenCode after installation.
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--global`, `-g` | Install to global config |
+| `--local`, `-l` | Install to project config |
+| `--with-config` | Also create opendevbrowser.jsonc with defaults |
+| `--update`, `-u` | Clear cache to trigger reinstall |
+| `--uninstall` | Remove plugin from config |
+| `--help`, `-h` | Show usage |
+| `--version`, `-v` | Show version |
+
+## Manual Install
 
 Add the plugin to your OpenCode config (`~/.config/opencode/opencode.json`):
 
@@ -56,7 +84,7 @@ For advanced customization, edit `~/.config/opencode/opendevbrowser.jsonc`. The 
   // Export/clone settings
   "export": {
     "maxNodes": 1000,             // Max nodes to export
-    "inlineStyles": true          // Inline computed styles in export
+    "inlineStyles": true          // Inline computed styles in export (root CSS is filtered to reduce defaults)
   },
 
   // DevTools capture settings
@@ -74,7 +102,7 @@ For advanced customization, edit `~/.config/opencode/opendevbrowser.jsonc`. The 
 
   // Relay settings (for extension)
   "relayPort": 8787,              // Local relay server port
-  "relayToken": "some-test-token" // Set to false to disable pairing
+  "relayToken": "some-test-token" // Set to false to disable pairing; reinstalls cleanly on version changes
 }
 ```
 
