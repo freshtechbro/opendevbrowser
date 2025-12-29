@@ -38,6 +38,7 @@ export type OpenDevBrowserConfig = {
   flags: string[];
   checkForUpdates: boolean;
   persistProfile: boolean;
+  skillPaths: string[];
 };
 
 const DEFAULT_RELAY_PORT = 8787;
@@ -82,7 +83,8 @@ const configSchema = z.object({
   chromePath: z.string().min(1).optional(),
   flags: z.array(z.string()).default([]),
   checkForUpdates: z.boolean().default(false),
-  persistProfile: z.boolean().default(true)
+  persistProfile: z.boolean().default(true),
+  skillPaths: z.array(z.string()).default([])
 });
 
 const CONFIG_FILE_NAME = "opendevbrowser.jsonc";

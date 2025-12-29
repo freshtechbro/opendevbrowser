@@ -13,7 +13,7 @@ export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const cacheRoot = worktree || directory;
   const manager = new BrowserManager(cacheRoot, initialConfig);
   const runner = new ScriptRunner(manager);
-  const skills = new SkillLoader(directory);
+  const skills = new SkillLoader(directory, initialConfig.skillPaths);
   const relay = new RelayServer();
   relay.setToken(initialConfig.relayToken);
 

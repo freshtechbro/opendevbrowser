@@ -28,6 +28,8 @@ import { createClonePageTool } from "./clone_page";
 import { createCloneComponentTool } from "./clone_component";
 import { createPerfTool } from "./perf";
 import { createScreenshotTool } from "./screenshot";
+import { createSkillListTool } from "./skill_list";
+import { createSkillLoadTool } from "./skill_load";
 
 export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   return {
@@ -58,6 +60,8 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_clone_page: createClonePageTool(deps),
     opendevbrowser_clone_component: createCloneComponentTool(deps),
     opendevbrowser_perf: createPerfTool(deps),
-    opendevbrowser_screenshot: createScreenshotTool(deps)
+    opendevbrowser_screenshot: createScreenshotTool(deps),
+    opendevbrowser_skill_list: createSkillListTool(deps),
+    opendevbrowser_skill_load: createSkillLoadTool(deps)
   };
 }
