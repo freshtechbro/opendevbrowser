@@ -87,65 +87,97 @@ export class BrowserManager {
 
     await mkdir(profileDir, { recursive: true });
 
-    const context = await chromium.launchPersistentContext(profileDir, {
-      headless: resolvedHeadless,
-      executablePath: executablePath ?? undefined,
-      args: options.flags ?? this.config.flags,
-      viewport: null
-    });
+    let context: BrowserContext | null = null;
 
-    const browser = context.browser();
-    if (!browser) {
-      throw new Error("Browser instance unavailable");
+    try {
+      context = await chromium.launchPersistentContext(profileDir, {
+        headless: resolvedHeadless,
+        executablePath: executablePath ?? undefined,
+        args: options.flags ?? this.config.flags,
+        viewport: null
+      });
+
+      const browser = context.browser();
+      if (!browser) {
+        throw new Error("Browser instance unavailable");
+      }
+      const sessionId = randomUUID();
+      const targets = new TargetManager();
+      const pages = context.pages();
+
+      if (pages.length === 0) {
+        const page = await context.newPage();
+        targets.registerPage(page);
+      } else {
+        targets.registerExistingPages(pages);
+      }
+
+      const activeTargetId = targets.getActiveTargetId();
+
+      if (options.startUrl && activeTargetId) {
+        await this.goto(sessionId, options.startUrl, "load", 30000, { browser, context, targets });
+      }
+
+      const refStore = new RefStore();
+      const snapshotter = new Snapshotter(refStore);
+      const consoleTracker = new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole });
+      const networkTracker = new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls });
+
+      const managed: ManagedSession = {
+        sessionId,
+        mode: "A",
+        browser,
+        context,
+        profileDir,
+        persistProfile,
+        targets,
+        refStore,
+        snapshotter,
+        consoleTracker,
+        networkTracker
+      };
+
+      this.store.add({ id: sessionId, mode: "A", browser, context });
+      this.sessions.set(sessionId, managed);
+
+      this.attachTrackers(managed);
+      this.attachRefInvalidation(managed);
+
+      const wsEndpointProvider = browser as unknown as { wsEndpoint?: () => string };
+      const wsEndpoint = typeof wsEndpointProvider.wsEndpoint === "function"
+        ? wsEndpointProvider.wsEndpoint()
+        : undefined;
+
+      return { sessionId, mode: "A", activeTargetId, warnings, wsEndpoint: wsEndpoint || undefined };
+    } catch (error) {
+      const launchMessage = error instanceof Error ? error.message : "Unknown error";
+      const cleanupErrors: unknown[] = [];
+
+      if (context) {
+        try {
+          await context.close();
+        } catch (closeError) {
+          cleanupErrors.push(closeError);
+        }
+      }
+
+      if (!persistProfile) {
+        try {
+          await rm(profileDir, { recursive: true, force: true });
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...cleanupErrors],
+          `Failed to launch browser context: ${launchMessage}. Cleanup failed.`
+        );
+      }
+
+      throw new Error(`Failed to launch browser context: ${launchMessage}`, { cause: error });
     }
-    const sessionId = randomUUID();
-    const targets = new TargetManager();
-    const pages = context.pages();
-
-    if (pages.length === 0) {
-      const page = await context.newPage();
-      targets.registerPage(page);
-    } else {
-      targets.registerExistingPages(pages);
-    }
-
-    const activeTargetId = targets.getActiveTargetId();
-
-    if (options.startUrl && activeTargetId) {
-      await this.goto(sessionId, options.startUrl, "load", 30000, { browser, context, targets });
-    }
-
-    const refStore = new RefStore();
-    const snapshotter = new Snapshotter(refStore);
-    const consoleTracker = new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole });
-    const networkTracker = new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls });
-
-    const managed: ManagedSession = {
-      sessionId,
-      mode: "A",
-      browser,
-      context,
-      profileDir,
-      persistProfile,
-      targets,
-      refStore,
-      snapshotter,
-      consoleTracker,
-      networkTracker
-    };
-
-    this.store.add({ id: sessionId, mode: "A", browser, context });
-    this.sessions.set(sessionId, managed);
-
-    this.attachTrackers(managed);
-    this.attachRefInvalidation(managed);
-
-    const wsEndpointProvider = browser as unknown as { wsEndpoint?: () => string };
-    const wsEndpoint = typeof wsEndpointProvider.wsEndpoint === "function"
-      ? wsEndpointProvider.wsEndpoint()
-      : undefined;
-
-    return { sessionId, mode: "A", activeTargetId, warnings, wsEndpoint: wsEndpoint || undefined };
   }
 
   async connect(options: ConnectOptions): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {

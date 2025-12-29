@@ -1,9 +1,11 @@
 import type { Page } from "playwright-core";
+import { STYLE_ALLOWLIST, SKIP_STYLE_VALUES } from "./css-extract";
 
 export type DomCapture = {
   html: string;
   styles: Record<string, string>;
   warnings: string[];
+  inlineStyles: boolean;
 };
 
 type CaptureOptions = {
@@ -22,6 +24,8 @@ export async function captureDom(
   const shouldSanitize = options.sanitize !== false;
   const maxNodes = options.maxNodes ?? DEFAULT_MAX_NODES;
   const inlineStyles = options.inlineStyles !== false;
+  const styleAllowlist = Array.from(STYLE_ALLOWLIST);
+  const skipStyleValues = Array.from(SKIP_STYLE_VALUES);
 
   return page.$eval(
     selector,
@@ -46,15 +50,22 @@ export async function captureDom(
 
       const limit = Math.min(originalElements.length, nodeLimit);
       if (opts.inlineStyles) {
+        const skipSet = new Set(opts.skipStyleValues);
         for (let index = 0; index < limit; index += 1) {
           const source = originalElements[index];
           const target = cloneElements[index];
           if (!source || !target) continue;
           const computed = window.getComputedStyle(source);
-          const inline = Array.from(computed)
-            .map((prop) => `${prop}: ${computed.getPropertyValue(prop)};`)
-            .join(" ");
-          target.setAttribute("style", inline);
+          const parts: string[] = [];
+          for (const prop of opts.styleAllowlist) {
+            const value = computed.getPropertyValue(prop).trim();
+            if (value && !skipSet.has(value)) {
+              parts.push(`${prop}: ${value};`);
+            }
+          }
+          if (parts.length > 0) {
+            target.setAttribute("style", parts.join(" "));
+          }
         }
       }
 
@@ -133,8 +144,8 @@ export async function captureDom(
         }
       }
 
-      return { html: container.innerHTML, styles, warnings };
+      return { html: container.innerHTML, styles, warnings, inlineStyles: opts.inlineStyles };
     },
-    { shouldSanitize, maxNodes, inlineStyles }
+    { shouldSanitize, maxNodes, inlineStyles, styleAllowlist, skipStyleValues }
   );
 }
