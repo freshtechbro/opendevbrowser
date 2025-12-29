@@ -1,10 +1,24 @@
 import type { Page, Request, Response } from "playwright-core";
 
+function shouldRedactPathSegment(segment: string): boolean {
+  if (segment.length < 16) return false;
+  if (/^\d+$/.test(segment)) return false;
+  if (/^[a-f0-9-]{36}$/i.test(segment)) return false;
+  if (/^(sk_|pk_|api_|key_|token_|secret_|bearer_)/i.test(segment)) return true;
+  const categories = [/[a-z]/, /[A-Z]/, /\d/, /[_-]/].filter(r => r.test(segment)).length;
+  return categories >= 3 && segment.length >= 20;
+}
+
 function redactUrl(rawUrl: string): string {
   try {
     const parsed = new URL(rawUrl);
     parsed.search = "";
     parsed.hash = "";
+    const segments = parsed.pathname.split("/");
+    const redactedSegments = segments.map(segment =>
+      shouldRedactPathSegment(segment) ? "[REDACTED]" : segment
+    );
+    parsed.pathname = redactedSegments.join("/");
     return parsed.toString();
   } catch {
     return rawUrl.split(/[?#]/)[0] ?? rawUrl;

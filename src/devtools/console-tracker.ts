@@ -1,17 +1,21 @@
 import type { Page } from "playwright-core";
 
 const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
-const TOKEN_LIKE_PATTERN = /\b[A-Za-z0-9_-]{32,}\b/g;
+const TOKEN_LIKE_PATTERN = /\b[A-Za-z0-9_-]{16,}\b/g;
+const API_KEY_PREFIX_PATTERN = /\b(sk_|pk_|api_|key_|token_|secret_|bearer_)[A-Za-z0-9_-]+\b/gi;
 const SENSITIVE_KV_PATTERN = /\b(token|key|secret|password|auth|bearer|credential)[=:]\s*\S+/gi;
 
 function shouldRedactToken(token: string): boolean {
+  if (/^(sk_|pk_|api_|key_|token_|secret_|bearer_)/i.test(token)) {
+    return true;
+  }
   const categories = [
     /[a-z]/.test(token),
     /[A-Z]/.test(token),
     /\d/.test(token),
     /[_-]/.test(token)
   ].filter(Boolean).length;
-  return categories >= 3;
+  return categories >= 2;
 }
 
 function redactText(text: string): string {
@@ -20,6 +24,7 @@ function redactText(text: string): string {
     return match.slice(0, sepIndex + 1) + "[REDACTED]";
   });
   result = result.replace(JWT_PATTERN, "[REDACTED]");
+  result = result.replace(API_KEY_PREFIX_PATTERN, "[REDACTED]");
   result = result.replace(TOKEN_LIKE_PATTERN, (match) => (
     shouldRedactToken(match) ? "[REDACTED]" : match
   ));

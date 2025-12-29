@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage } from "http";
 import type { AddressInfo } from "net";
+import { timingSafeEqual } from "crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import type { RelayCommand, RelayEvent, RelayHandshake, RelayResponse } from "./protocol";
 
@@ -21,6 +22,10 @@ export class RelayServer {
   private cdpSocket: WebSocket | null = null;
   private extensionInfo: ExtensionInfo | null = null;
   private pairingToken: string | null = null;
+  private handshakeAttempts = new Map<string, { count: number; resetAt: number }>();
+  private cdpAllowlist: Set<string> | null = null;
+  private static readonly MAX_HANDSHAKE_ATTEMPTS = 5;
+  private static readonly RATE_LIMIT_WINDOW_MS = 60_000;
 
   async start(port = 8787): Promise<{ url: string; port: number }> {
     if (this.running && this.baseUrl && this.port !== null) {
@@ -68,6 +73,23 @@ export class RelayServer {
     });
 
     this.server.on("upgrade", (request: IncomingMessage, socket, head) => {
+      const origin = request.headers.origin;
+      const ip = request.socket.remoteAddress ?? "unknown";
+
+      if (!this.isAllowedOrigin(origin)) {
+        this.logSecurityEvent("origin_blocked", { origin, ip });
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
+      if (this.isRateLimited(ip)) {
+        this.logSecurityEvent("rate_limited", { ip });
+        socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
       const pathname = new URL(request.url ?? "", "http://127.0.0.1").pathname;
       if (pathname === "/extension") {
         this.extensionWss?.handleUpgrade(request, socket, head, (ws: WebSocket) => {
@@ -155,6 +177,49 @@ export class RelayServer {
     this.pairingToken = trimmed.length ? trimmed : null;
   }
 
+  setCdpAllowlist(methods: string[] | undefined): void {
+    if (!methods || methods.length === 0) {
+      this.cdpAllowlist = null;
+      return;
+    }
+    this.cdpAllowlist = new Set(methods);
+  }
+
+  private isAllowedOrigin(origin: string | undefined): boolean {
+    if (!origin) {
+      return true;
+    }
+    if (origin.startsWith("chrome-extension://")) {
+      return true;
+    }
+    return false;
+  }
+
+  private isRateLimited(ip: string): boolean {
+    const now = Date.now();
+    const record = this.handshakeAttempts.get(ip);
+
+    if (!record || now > record.resetAt) {
+      this.handshakeAttempts.set(ip, { count: 1, resetAt: now + RelayServer.RATE_LIMIT_WINDOW_MS });
+      return false;
+    }
+
+    record.count++;
+    return record.count > RelayServer.MAX_HANDSHAKE_ATTEMPTS;
+  }
+
+  private isCommandAllowed(method: string): boolean {
+    if (!this.cdpAllowlist) return true;
+    return this.cdpAllowlist.has(method);
+  }
+
+  private logSecurityEvent(event: string, details: Record<string, unknown>): void {
+    const safeDetails = { ...details };
+    delete safeDetails.token;
+    delete safeDetails.pairingToken;
+    console.warn(`[security] ${event}`, JSON.stringify(safeDetails));
+  }
+
   private handleCdpMessage(data: WebSocket.RawData): void {
     const message = parseJson(data);
     if (!isRecord(message)) {
@@ -171,6 +236,15 @@ export class RelayServer {
       this.sendJson(this.cdpSocket, {
         id,
         error: { message: "Extension not connected to relay" }
+      } satisfies RelayResponse);
+      return;
+    }
+
+    if (!this.isCommandAllowed(method)) {
+      this.logSecurityEvent("command_blocked", { method });
+      this.sendJson(this.cdpSocket, {
+        id,
+        error: { message: `CDP command '${method}' not in allowlist` }
       } satisfies RelayResponse);
       return;
     }
@@ -196,6 +270,7 @@ export class RelayServer {
 
     if (isHandshake(message)) {
       if (!this.isPairingTokenValid(message)) {
+        this.logSecurityEvent("handshake_failed", { reason: "invalid_token", tabId: message.payload.tabId });
         this.extensionInfo = null;
         this.extensionSocket?.close(1008, "Invalid pairing token");
         return;
@@ -245,10 +320,25 @@ export class RelayServer {
   }
 
   private isPairingTokenValid(handshake: RelayHandshake): boolean {
+    // No token configured = pairing disabled, allow all
     if (!this.pairingToken) {
       return true;
     }
-    return handshake.payload.pairingToken === this.pairingToken;
+
+    const expected = this.pairingToken;
+    const received = handshake.payload.pairingToken ?? "";
+
+    // Use timing-safe comparison to prevent timing attacks
+    const expectedBuf = Buffer.from(expected, "utf-8");
+    const receivedBuf = Buffer.from(received, "utf-8");
+
+    if (expectedBuf.length !== receivedBuf.length) {
+      // Perform dummy comparison to maintain constant time even on length mismatch
+      timingSafeEqual(expectedBuf, expectedBuf);
+      return false;
+    }
+
+    return timingSafeEqual(expectedBuf, receivedBuf);
   }
 }
 

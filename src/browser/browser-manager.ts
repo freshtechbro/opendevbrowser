@@ -163,7 +163,7 @@ export class BrowserManager {
 
       if (!persistProfile) {
         try {
-          await rm(profileDir, { recursive: true, force: true });
+          await rm(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         } catch (cleanupError) {
           cleanupErrors.push(cleanupError);
         }
@@ -207,7 +207,7 @@ export class BrowserManager {
     managed.consoleTracker.detach();
     managed.networkTracker.detach();
     if (!managed.persistProfile && managed.profileDir) {
-      await rm(managed.profileDir, { recursive: true, force: true });
+      await rm(managed.profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
     this.sessions.delete(sessionId);
     this.store.delete(sessionId);
@@ -605,6 +605,8 @@ export class BrowserManager {
       throw new Error("webSocketDebuggerUrl missing from /json/version response");
     }
 
+    this.ensureLocalEndpoint(data.webSocketDebuggerUrl);
+
     return data.webSocketDebuggerUrl;
   }
 
@@ -614,11 +616,11 @@ export class BrowserManager {
     let hostname: string;
     try {
       const parsed = new URL(endpoint);
-      hostname = parsed.hostname;
+      hostname = parsed.hostname.toLowerCase();
     } catch {
       throw new Error("Invalid CDP endpoint URL.");
     }
-    if (!LOCAL_HOSTNAMES.has(hostname) && !hostname.startsWith("::ffff:127.")) {
+    if (!LOCAL_HOSTNAMES.has(hostname) && !hostname.toLowerCase().startsWith("::ffff:127.")) {
       throw new Error("Non-local CDP endpoints are disabled by default.");
     }
   }

@@ -307,6 +307,11 @@ export class ConnectionManager {
     this.relayPort = DEFAULT_RELAY_PORT;
   }
 
+  /**
+   * Chrome automatically sends Origin: chrome-extension://EXTENSION_ID
+   * for WebSocket connections from extensions. The relay server validates
+   * this to prevent CSWSH attacks from web pages.
+   */
   private buildRelayUrl(): string {
     return `ws://127.0.0.1:${this.relayPort}/extension`;
   }

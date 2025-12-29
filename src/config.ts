@@ -100,8 +100,8 @@ function ensureConfigFile(filePath: string): void {
     return;
   }
   try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, DEFAULT_CONFIG_JSONC, "utf-8");
+    fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(filePath, DEFAULT_CONFIG_JSONC, { encoding: "utf-8", mode: 0o600 });
   } catch (error) {
     // Best-effort: fall back to in-code defaults if config cannot be created.
     void error;

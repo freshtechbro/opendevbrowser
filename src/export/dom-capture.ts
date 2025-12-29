@@ -112,16 +112,72 @@ export async function captureDom(
           });
         };
 
+        const DANGEROUS_CSS_PATTERNS = [
+          /url\s*\(/gi,
+          /expression\s*\(/gi,
+          /-moz-binding/gi,
+          /behavior\s*:/gi,
+          /javascript\s*:/gi
+        ];
+
+        const sanitizeStyle = (styleValue: string): { sanitized: string; wasModified: boolean } => {
+          let result = styleValue;
+          let wasModified = false;
+          for (const pattern of DANGEROUS_CSS_PATTERNS) {
+            if (pattern.test(result)) {
+              result = result.replace(new RegExp(pattern.source, pattern.flags), "/* blocked */");
+              wasModified = true;
+            }
+          }
+          return { sanitized: result, wasModified };
+        };
+
+        const sanitizeSvg = (svg: Element) => {
+          const scripts = svg.querySelectorAll("script");
+          scripts.forEach(script => {
+            script.remove();
+            warnings.push("Removed script element from SVG");
+          });
+
+          const foreignObjects = svg.querySelectorAll("foreignObject");
+          foreignObjects.forEach(fo => {
+            fo.remove();
+            warnings.push("Removed foreignObject from SVG");
+          });
+
+          const allElements = svg.querySelectorAll("*");
+          allElements.forEach(el => {
+            for (const attr of Array.from(el.attributes)) {
+              if (attr.name.toLowerCase().startsWith("on")) {
+                el.removeAttribute(attr.name);
+              }
+            }
+          });
+        };
+
         const sanitizeElement = (element: Element) => {
           const tag = element.tagName.toLowerCase();
           if (blockedTags.has(tag)) {
             element.remove();
             return;
           }
+
+          if (tag === "svg") {
+            sanitizeSvg(element);
+          }
+
           for (const attr of Array.from(element.attributes)) {
             const name = attr.name.toLowerCase();
             if (name.startsWith("on")) {
               element.removeAttribute(attr.name);
+              continue;
+            }
+            if (name === "style") {
+              const { sanitized, wasModified } = sanitizeStyle(attr.value);
+              if (wasModified) {
+                element.setAttribute("style", sanitized);
+                warnings.push("Sanitized dangerous CSS in style attribute");
+              }
               continue;
             }
             if (urlAttrs.has(name)) {
