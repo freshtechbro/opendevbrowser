@@ -378,7 +378,59 @@ Create a formal implementation plan when:
 Save implementation plans to `docs/` with descriptive names (e.g., `docs/RELEASE_PLAN.md`, `docs/MIGRATION_PLAN.md`).
 
 ## Commit and PR Guidance
-- No existing commit convention; use Conventional Commits.
+
+### Atomic Commit Workflow
+
+When committing changes, follow this workflow to create clean, reviewable history:
+
+1. **Group changes by impact and similarity**:
+   | Group Type | Example Prefix | Description |
+   |------------|----------------|-------------|
+   | Feature | `feat:` | New functionality (CLI, tools, skills) |
+   | Fix | `fix:` | Bug fixes, error handling improvements |
+   | Test | `test:` | Test additions or coverage improvements |
+   | Docs | `docs:` | Documentation changes |
+   | Chore | `chore:` | Cleanup, refactoring, config changes |
+
+2. **Commit order** (dependencies first):
+   - Core infrastructure changes first (config, types)
+   - Feature implementations second
+   - Tests third (they depend on features)
+   - Documentation fourth
+   - Cleanup/chore last
+
+3. **Commit message format** (Conventional Commits):
+   ```
+   <type>: <short summary>
+
+   - Bullet point details
+   - What was added/changed/fixed
+   - Why (if not obvious)
+   ```
+
+4. **Grouping rules**:
+   - Group files that change together for the same reason
+   - Keep related test files with their implementation OR in a separate test commit
+   - Never mix unrelated changes in one commit
+   - Each commit should be independently reviewable
+
+5. **Before committing**:
+   - Run `npm run lint` - fix any errors
+   - Run `npm run build` - ensure compilation succeeds
+   - Run `npm run test` - ensure all tests pass
+   - Check `git status` to review what will be committed
+
+6. **Example atomic commit sequence**:
+   ```
+   feat: add CLI installer with jarvis-mcp pattern
+   feat: extend skill system with multi-skill discovery
+   feat: add task-specific skill packs
+   test: add comprehensive test coverage for skill system
+   docs: add CLI and skill system documentation
+   chore: clean up obsolete docs and update state
+   ```
+
+### PR Guidance
 - PRs should include summary, test notes, and extension screenshots if relevant.
 - For releases, update `README.md` and related docs before publishing.
 

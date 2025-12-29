@@ -39,3 +39,7 @@ playwright/.cache/
 
 # TypeScript
 *.tsbuildinfo
+
+# Build artifacts (do not commit)
+*.tgz
+opendevbrowser-extension.zip
