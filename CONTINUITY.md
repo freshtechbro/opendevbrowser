@@ -1,62 +1,54 @@
 # Continuity Ledger
 
-## Goal
-Complete all 13 tasks in `docs/RELEASE_PLAN.md` to prepare OpenDevBrowser plugin and Chrome extension for release across npm, OpenCode, and Chrome Web Store.
+Goal (incl. success criteria):
+- Enforce extension pairing via relay token, defaulting to a shared token in plugin + extension; allow users to disable pairing by setting `relayToken` to `false` in config; ensure the extension UI supports toggling/enforcing the token and stays in sync.
+- Success: plugin config defaults include `relayToken: "some-test-token"` and pairing enforcement logic; extension uses the same default token and exposes a toggle to enable/disable pairing, with matching behavior on both sides.
 
-**Success criteria**: All validation passes (lint, build, test, extension:pack, npm pack), docs updated with correct patterns.
+Constraints/Assumptions:
+- Follow root and nearest `AGENTS.md` rules, TypeScript/ESLint constraints, and ASCII-only edits unless file already uses Unicode.
+- Use Zod for config validation; avoid logging secrets; relay token must not be exposed in logs.
+- Config file lives at `~/.config/opencode/opendevbrowser.jsonc`; user wants defaults preconfigured and relay token can be disabled by setting `false`.
 
-## Constraints/Assumptions
-- Plugin declaration uses bare `"opendevbrowser"` (not `@latest`) for offline-friendly installs
-- Extension auto-extracts to `~/.config/opencode/opendevbrowser/extension/`
-- Icon color: Charcoal Black `#2D2D2D` (3D premium style with gradients)
-- Coverage threshold: 95% (met)
+Key decisions:
+- Auto-create `~/.config/opencode/opendevbrowser.jsonc` with default relay settings when missing; keep in-code defaults in sync.
+- Default relay pairing token set to `some-test-token`; `relayToken: false` disables pairing enforcement in the plugin.
+- Extension adds `pairingEnabled` toggle and defaults to the same token when pairing is enabled.
 
-## Key Decisions
-- Excluded `src/extension-extractor.ts` from coverage (runtime filesystem code like `src/index.ts`)
-- Added versioning section to README/AGENTS.md explaining pinned vs unpinned tradeoffs
-- Privacy policy hosted at GitHub Pages URL pattern
+State:
+  - Done:
+    - Read current `CONTINUITY.md`, root `AGENTS.md`, and MCAF reference docs.
+    - Updated plugin config defaults to include relay token, allow `false`, and auto-create config file when missing.
+    - Updated extension settings/UI and connection logic for pairing toggle and default token; adjusted extension tests/mocks.
+    - Updated README and plan docs; added a formal relay pairing enforcement plan doc.
+    - Ran `npm run test` (pass; coverage thresholds met).
+    - Ran `npm run extension:build` (pass).
+    - Ran `npm run lint` (pass).
+    - Verified config auto-creation and defaults via local script (config file exists; relay token enabled and matches default).
+  - Now:
+    - Ready for extension UI pairing toggle verification in Chrome.
+  - Next:
+    - Manually validate extension pairing UI and token toggle in Chrome. (Expected files: extension popup UI)
+    - Review docs for consistency after verification and adjust if real-world behavior differs. (Expected files: `README.md`, `docs/`)
+    - Capture any release notes or change summary if preparing a publish. (Expected files: `docs/`, `README.md`)
 
-## State
+Open questions (UNCONFIRMED if needed):
+  - None.
 
-### Done
-- [x] Task 1: package.json files array + prepack script
-- [x] Task 2: scripts/sync-extension-version.mjs
-- [x] Task 3: Added jsonc-parser dependency
-- [x] Task 4: Replaced regex JSONC with jsonc-parser
-- [x] Task 5: Created icons (16/32/48/128/512px)
-- [x] Task 6: extension:pack script
-- [x] Task 7: docs/privacy.md
-- [x] Task 8: src/extension-extractor.ts + auto-extraction
-- [x] Task 9: status tool extensionPath output
-- [x] Task 10-12: README.md + AGENTS.md updates (versioning, install paths, config)
-- [x] Task 13: Plan docs sync (PLAN.md, opendevbrowser-plan.md, IMPLEMENTATION_BLUEPRINT.md, RELEASE_PLAN.md)
-- [x] Full validation: lint ✓, build ✓, test (170 pass) ✓, extension:build ✓, extension:pack ✓, npm pack ✓
-
-### Now
-All RELEASE_PLAN.md tasks complete. Ready for commit and publish.
-
-### Next
-1. Commit all changes with descriptive message covering release preparation
-2. Push to remote and create PR (if desired)
-3. Publish to npm: `npm publish`
-4. Submit extension to Chrome Web Store using opendevbrowser-extension.zip
-5. Enable GitHub Pages for docs/privacy.md hosting
-
-## Open Questions
-None - all tasks validated and complete.
-
-## Working Set
-- `package.json` - files array, scripts, jsonc-parser dep
-- `src/config.ts` - jsonc-parser integration
-- `src/extension-extractor.ts` - new file, auto-extraction
-- `src/index.ts` - calls extractExtension on init
-- `src/tools/status.ts` - extensionPath output
-- `extension/manifest.json` - icons field
-- `extension/icons/` - 16/32/48/128px PNGs
-- `docs/assets/icon512.png` - Web Store icon
-- `docs/privacy.md` - new file
-- `README.md` - updated install/config docs
-- `AGENTS.md` - updated plugin declaration pattern
-- `vitest.config.ts` - extension-extractor exclusion
-- `tests/tools.test.ts` - getExtensionPath null test
-- `tests/config.test.ts` - JSONC edge case tests
+Working set (files/ids/commands):
+- `CONTINUITY.md`
+- `src/config.ts`
+- `src/relay/relay-server.ts`
+- `extension/src/relay-settings.ts`
+- `extension/src/services/ConnectionManager.ts`
+- `extension/src/popup.tsx`
+- `extension/popup.html`
+- `tests/config.test.ts`
+- `tests/extension-chrome-mock.ts`
+- `tests/extension-connection-manager.test.ts`
+- `README.md`
+- `docs/PLAN.md`
+- `docs/opendevbrowser-plan.md`
+- `docs/IMPLEMENTATION_BLUEPRINT.md`
+- `docs/TESTING_WORKFLOW_PLAN.md`
+- `docs/privacy.md`
+- `docs/RELAY_PAIRING_ENFORCEMENT_PLAN.md`

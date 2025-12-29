@@ -15,7 +15,8 @@ function getPackageVersion(): string {
     const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.version || "0.0.0";
-  } catch {
+  } catch (error) {
+    void error;
     return "0.0.0";
   }
 }
@@ -26,8 +27,9 @@ function getInstalledVersion(destDir: string): string | null {
     if (existsSync(versionPath)) {
       return readFileSync(versionPath, "utf-8").trim();
     }
-  } catch {
-    // ignore
+  } catch (error) {
+    // Ignore version read failures; we'll proceed with extraction.
+    void error;
   }
   return null;
 }

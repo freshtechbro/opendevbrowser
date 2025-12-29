@@ -173,9 +173,14 @@ Playwright (when wired):
 - The plugin works out-of-box with sensible defaults; config file is optional for customization.
 
 ### Plugin Versioning
-- **Recommended**: Use bare package name `"opendevbrowser"` for stable, offline-friendly installs.
+- **Recommended**: Use bare package name `"opendevbrowser"` (matches OpenCode docs).
 - **Pinned version**: Use `"opendevbrowser@1.2.3"` to lock to a specific version.
-- **Updates**: Run `bun update opendevbrowser` in `~/.cache/opencode/node_modules/` to update manually.
+- OpenCode installs npm plugins via Bun at startup and caches them in `~/.cache/opencode/node_modules/`.
+
+### Updating the Plugin
+- **Recommended**: Bump version in `opencode.json`, then restart.
+- **Force reinstall**: Delete `~/.cache/opencode/` and restart.
+- **Optional**: `cd ~/.cache/opencode && bun update opendevbrowser`.
 
 ### Config File Format (`~/.config/opencode/opendevbrowser.jsonc`)
 ```jsonc
@@ -194,7 +199,8 @@ Playwright (when wired):
   "relayPort": 8787,
   "relayToken": "optional-secret",
   "chromePath": "/path/to/chrome",
-  "flags": []
+  "flags": [],
+  "checkForUpdates": false
 }
 ```
 

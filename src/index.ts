@@ -19,7 +19,9 @@ export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
 
   try {
     await extractExtension();
-  } catch {
+  } catch (error) {
+    // Extension extraction is best-effort; keep plugin usable if it fails.
+    void error;
   }
 
   const ensureRelay = async (port: number) => {

@@ -1,4 +1,5 @@
 import type { ConnectionStatus, RelayHandshake } from "../types";
+import { DEFAULT_PAIRING_ENABLED, DEFAULT_PAIRING_TOKEN, DEFAULT_RELAY_PORT } from "../relay-settings";
 import { RelayClient } from "./RelayClient";
 import { CDPRouter } from "./CDPRouter";
 import { TabManager } from "./TabManager";
@@ -22,8 +23,9 @@ export class ConnectionManager {
   private reconnectTimer: number | null = null;
   private reconnectAttempts = 0;
   private reconnectDelayMs = 500;
-  private pairingToken: string | null = null;
-  private relayPort = 8787;
+  private pairingToken: string | null = DEFAULT_PAIRING_TOKEN;
+  private pairingEnabled = DEFAULT_PAIRING_ENABLED;
+  private relayPort = DEFAULT_RELAY_PORT;
   private readonly maxReconnectAttempts = 5;
   private readonly maxReconnectDelayMs = 5000;
 
@@ -196,15 +198,18 @@ export class ConnectionManager {
     if (!this.trackedTab) {
       throw new Error("No tracked tab for handshake");
     }
+    const payload: RelayHandshake["payload"] = {
+      tabId: this.trackedTab.id,
+      url: this.trackedTab.url,
+      title: this.trackedTab.title,
+      groupId: this.trackedTab.groupId
+    };
+    if (this.pairingEnabled && this.pairingToken) {
+      payload.pairingToken = this.pairingToken;
+    }
     return {
       type: "handshake",
-      payload: {
-        tabId: this.trackedTab.id,
-        url: this.trackedTab.url,
-        title: this.trackedTab.title,
-        groupId: this.trackedTab.groupId,
-        pairingToken: this.pairingToken || undefined
-      }
+      payload
     };
   }
 
@@ -215,6 +220,12 @@ export class ConnectionManager {
 
     if (changes.pairingToken) {
       this.updatePairingToken(changes.pairingToken.newValue);
+      this.refreshHandshake();
+    }
+
+    if (changes.pairingEnabled) {
+      this.updatePairingEnabled(changes.pairingEnabled.newValue);
+      this.ensurePairingTokenDefault();
       this.refreshHandshake();
     }
 
@@ -247,12 +258,14 @@ export class ConnectionManager {
 
   private async loadSettings(): Promise<void> {
     const data = await new Promise<Record<string, unknown>>((resolve) => {
-      chrome.storage.local.get(["pairingToken", "relayPort"], (items) => {
+      chrome.storage.local.get(["pairingToken", "pairingEnabled", "relayPort"], (items) => {
         resolve(items);
       });
     });
+    this.updatePairingEnabled(data.pairingEnabled);
     this.updatePairingToken(data.pairingToken);
     this.updateRelayPort(data.relayPort);
+    this.ensurePairingTokenDefault();
   }
 
   private updatePairingToken(value: unknown): void {
@@ -261,6 +274,22 @@ export class ConnectionManager {
       return;
     }
     this.pairingToken = null;
+  }
+
+  private updatePairingEnabled(value: unknown): void {
+    if (typeof value === "boolean") {
+      this.pairingEnabled = value;
+      return;
+    }
+    this.pairingEnabled = DEFAULT_PAIRING_ENABLED;
+  }
+
+  private ensurePairingTokenDefault(): void {
+    if (!this.pairingEnabled || this.pairingToken) {
+      return;
+    }
+    this.pairingToken = DEFAULT_PAIRING_TOKEN;
+    chrome.storage.local.set({ pairingToken: DEFAULT_PAIRING_TOKEN });
   }
 
   private updateRelayPort(value: unknown): void {
@@ -275,7 +304,7 @@ export class ConnectionManager {
         return;
       }
     }
-    this.relayPort = 8787;
+    this.relayPort = DEFAULT_RELAY_PORT;
   }
 
   private buildRelayUrl(): string {

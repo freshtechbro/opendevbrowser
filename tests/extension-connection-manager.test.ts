@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createChromeMock } from "./extension-chrome-mock";
+import { DEFAULT_PAIRING_TOKEN } from "../extension/src/relay-settings";
 
 const relayInstances: Array<{
   url: string;
@@ -91,6 +92,33 @@ describe("ConnectionManager", () => {
     const relay = relayInstances[0];
     mock.emitTabUpdated(1, { id: 1, url: "https://updated", title: "Updated", groupId: 2 } as chrome.tabs.Tab);
     expect(relay.sendHandshake).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses default pairing token when pairing is enabled", async () => {
+    const mock = createChromeMock({ pairingToken: null, pairingEnabled: true });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const relay = relayInstances[0];
+    const handshake = relay.connect.mock.calls[0]?.[0] as { payload?: { pairingToken?: string } } | undefined;
+    expect(handshake?.payload?.pairingToken).toBe(DEFAULT_PAIRING_TOKEN);
+  });
+
+  it("omits pairing token when pairing is disabled", async () => {
+    const mock = createChromeMock({ pairingToken: "custom-token", pairingEnabled: false });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const relay = relayInstances[0];
+    const handshake = relay.connect.mock.calls[0]?.[0] as { payload?: { pairingToken?: string } } | undefined;
+    const hasToken = Boolean(handshake?.payload && "pairingToken" in handshake.payload);
+    expect(hasToken).toBe(false);
   });
 
   it("reconnects after relay close", async () => {

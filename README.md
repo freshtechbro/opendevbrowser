@@ -17,26 +17,25 @@ Restart OpenCode. The plugin works out-of-box with sensible defaults.
 
 ## Plugin Versioning
 
-OpenCode uses Bun to install plugins into `~/.cache/opencode/node_modules/`.
+OpenCode installs npm plugins via Bun at startup and caches them in `~/.cache/opencode/node_modules/`.
 
 | Pattern | Behavior | Best For |
 |---------|----------|----------|
-| `"opendevbrowser"` | Resolves latest on first install, uses cached version after | Most users |
-| `"opendevbrowser@1.0.0"` | Uses exact version, fast startup, offline-friendly | Production, CI |
-| `"opendevbrowser@latest"` | Re-resolves on every startup (network required, slower) | Always-latest |
+| `"opendevbrowser"` | Installed at startup and cached until you change version or refresh cache | Most users |
+| `"opendevbrowser@1.0.0"` | Fixed version, reproducible and offline-friendly | Production, CI |
 
 **Recommendation**: Use unpinned (`"opendevbrowser"`) for development, pinned versions for production.
 
 ## Updating the Plugin
 
-- **Unpinned**: Restart OpenCode while online to get latest version
-- **Pinned**: Bump version in `opencode.json`, then restart
+- **Recommended**: Bump the version in `opencode.json`, then restart OpenCode
 - **Force reinstall**: Delete `~/.cache/opencode/` and restart
-- **Alternative**: `cd ~/.cache/opencode && bun update opendevbrowser`
+- **Optional**: `cd ~/.cache/opencode && bun update opendevbrowser` (if you prefer a Bun-driven update)
+- **Optional**: Set `checkForUpdates` to show update hints in `opendevbrowser_status`
 
 ## Configuration
 
-For advanced customization, create `~/.config/opencode/opendevbrowser.jsonc`:
+For advanced customization, edit `~/.config/opencode/opendevbrowser.jsonc`. The plugin auto-creates this file with relay defaults on first run.
 
 ```jsonc
 {
@@ -46,6 +45,7 @@ For advanced customization, create `~/.config/opencode/opendevbrowser.jsonc`:
   "persistProfile": true,         // Persist profile between sessions
   "chromePath": "/path/to/chrome", // Custom Chrome executable path
   "flags": [],                    // Additional Chrome flags
+  "checkForUpdates": false,       // Check npm for updates in status tool
 
   // Snapshot settings
   "snapshot": {
@@ -74,7 +74,7 @@ For advanced customization, create `~/.config/opencode/opendevbrowser.jsonc`:
 
   // Relay settings (for extension)
   "relayPort": 8787,              // Local relay server port
-  "relayToken": "optional-secret" // Token for relay authentication
+  "relayToken": "some-test-token" // Set to false to disable pairing
 }
 ```
 
@@ -158,13 +158,14 @@ Download `opendevbrowser-extension.zip` from [GitHub Releases](https://github.co
 ### Using the Extension
 
 1. Keep `relayPort` at the default `8787` in the plugin config (or set a custom port).
-2. If you changed the port, enter the same relay port in the extension popup.
-3. Click Connect in the extension popup to attach to the active tab.
-4. Call `opendevbrowser_launch` and it will auto-switch to Mode C when the extension is connected.
+2. The extension defaults to pairing on; leave it enabled and keep the token in sync with `relayToken`.
+3. If you changed the port or token, enter the same values in the extension popup.
+4. Click Connect in the extension popup to attach to the active tab.
+5. Call `opendevbrowser_launch` and it will auto-switch to Mode C when the extension is connected.
 
 If the extension disconnects, the next launch falls back to managed mode.
 
-Optional: set `relayToken` in the plugin config and enter the same token in the extension popup to lock down relay connections.
+Pairing is enforced by default. To disable it, set `"relayToken": false` in the plugin config and uncheck "Require pairing token" in the extension popup.
 
 ## Privacy Policy
 

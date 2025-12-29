@@ -29,7 +29,7 @@ The extension operates entirely on your local machine:
 
 3. **Tab Access**: The `tabs` permission is used to identify and manage browser tabs during automation sessions.
 
-4. **Local Storage**: The `storage` permission stores your relay configuration (port and optional token) locally in Chrome. This data never leaves your browser.
+4. **Local Storage**: The `storage` permission stores your relay configuration (port, pairing token, pairing toggle) locally in Chrome. This data never leaves your browser.
 
 ## Data Flow
 

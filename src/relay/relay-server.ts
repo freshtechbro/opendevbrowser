@@ -150,7 +150,7 @@ export class RelayServer {
     return this.baseUrl ? `${this.baseUrl}/cdp` : null;
   }
 
-  setToken(token?: string | null): void {
+  setToken(token?: string | false | null): void {
     const trimmed = typeof token === "string" ? token.trim() : "";
     this.pairingToken = trimmed.length ? trimmed : null;
   }

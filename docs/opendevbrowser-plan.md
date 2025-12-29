@@ -22,7 +22,7 @@ OpenDevBrowser is an OpenCode plugin that provides **script-first, snapshot-firs
 - [x] Add README usage examples and config snippets.
 - [x] Implement relay server + extension bridge (Mode C) with auto-switch and forwarding.
 - [x] Add relay handshake/forwarding tests and fallback behavior.
-- [x] Add optional relay pairing token and extension reconnect/tab tracking updates.
+- [x] Add default relay pairing token (opt-out) and extension reconnect/tab tracking updates.
 - [x] Implement named page helpers (opendevbrowser_page/opendevbrowser_list/opendevbrowser_close) and name-to-target mapping.
 - [x] Implement export tools (opendevbrowser_clone_page/opendevbrowser_clone_component) using export pipeline.
 - [x] Implement lightweight perf metrics + screenshot tool (keep full tracing as non-goal).
@@ -246,7 +246,7 @@ Extension is staged; the plugin remains fully functional without it.
 - `connect` with safety checks and clear instructions
 
 ### Phase 5 — Optional Extension Bridge (Mode C) (Done)
-- Local WS bridge + pairing token
+- Local WS bridge + default pairing token (opt-out)
 - Extension uses `chrome.debugger` to proxy CDP
 - Reliability hardening: reconnect, target tracking, tab grouping
 
@@ -268,7 +268,7 @@ Extension is staged; the plugin remains fully functional without it.
 }
 ```
 
-Plugin-owned config (optional) lives at `~/.config/opencode/opendevbrowser.jsonc`:
+Plugin-owned config lives at `~/.config/opencode/opendevbrowser.jsonc` (auto-created with relay defaults):
 ```jsonc
 {
   "headless": false,
@@ -284,8 +284,9 @@ Plugin-owned config (optional) lives at `~/.config/opencode/opendevbrowser.jsonc
     "showFullUrls": false,
     "showFullConsole": false
   },
+  "checkForUpdates": false,
   "relayPort": 8787,
-  "relayToken": ""
+  "relayToken": "some-test-token"
 }
 ```
 

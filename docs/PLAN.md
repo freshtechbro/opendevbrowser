@@ -19,7 +19,7 @@
 - [x] Add README usage examples and config snippets.
 - [x] Implement relay server + extension bridge (Mode C) with auto-switch and forwarding.
 - [x] Add relay handshake/forwarding tests and fallback behavior.
-- [x] Add optional relay pairing token and extension reconnect/tab tracking updates.
+- [x] Add default relay pairing token (opt-out) and extension reconnect/tab tracking updates.
 - [x] Implement named page helpers (browser.page(name), browser.list, browser.close) and name-to-target mapping.
 - [x] Implement export tools (browser.clonePage, browser.cloneComponent) using export pipeline.
 - [x] Implement devtools perf metrics + screenshot tool.
@@ -49,7 +49,7 @@
 - Skill pack: best-practice prompting guides loaded on demand (small, no tool bloat).
 - Optional extension + relay:
   - Extension uses chrome.debugger to attach to existing tabs.
-  - Local relay forwards CDP commands/events between plugin and extension (optional pairing token).
+  - Local relay forwards CDP commands/events between plugin and extension (default pairing token, opt-out via config).
 
 ## Tool Surface (plugin-native)
 - browser.start / browser.stop
@@ -92,5 +92,5 @@
 - Smoke tests: managed mode navigation, snapshot selection, script execution.
 - Extension tests: handshake, attach/detach, tab selection.
 - Coverage: enforce >=95% across `src/` (extension excluded from coverage thresholds).
-- Installation prompt: one-step plugin config; optional plugin-owned config file (`~/.config/opencode/opendevbrowser.jsonc`).
+- Installation prompt: one-step plugin config; plugin-owned config file auto-created at `~/.config/opencode/opendevbrowser.jsonc`.
 - Troubleshooting: browser detection, fallback download, profile cleanup.

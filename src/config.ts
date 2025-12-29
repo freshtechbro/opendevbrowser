@@ -33,11 +33,21 @@ export type OpenDevBrowserConfig = {
   devtools: DevtoolsConfig;
   export: ExportConfig;
   relayPort: number;
-  relayToken?: string;
+  relayToken: string | false;
   chromePath?: string;
   flags: string[];
+  checkForUpdates: boolean;
   persistProfile: boolean;
 };
+
+const DEFAULT_RELAY_PORT = 8787;
+const DEFAULT_RELAY_TOKEN = "some-test-token";
+const DEFAULT_CONFIG_JSONC = `{
+  // Set relayToken to false to disable extension pairing.
+  "relayPort": ${DEFAULT_RELAY_PORT},
+  "relayToken": "${DEFAULT_RELAY_TOKEN}"
+}
+`;
 
 const snapshotSchema = z.object({
   maxChars: z.number().int().min(500).max(200000).default(16000),
@@ -67,10 +77,11 @@ const configSchema = z.object({
   security: securitySchema.default({}),
   devtools: devtoolsSchema.default({}),
   export: exportSchema.default({}),
-  relayPort: z.number().int().min(0).max(65535).default(8787),
-  relayToken: z.string().optional(),
+  relayPort: z.number().int().min(0).max(65535).default(DEFAULT_RELAY_PORT),
+  relayToken: z.union([z.string(), z.literal(false)]).default(DEFAULT_RELAY_TOKEN),
   chromePath: z.string().min(1).optional(),
   flags: z.array(z.string()).default([]),
+  checkForUpdates: z.boolean().default(false),
   persistProfile: z.boolean().default(true)
 });
 
@@ -82,8 +93,22 @@ function getGlobalConfigPath(): string {
   return path.join(configDir, CONFIG_FILE_NAME);
 }
 
+function ensureConfigFile(filePath: string): void {
+  if (fs.existsSync(filePath)) {
+    return;
+  }
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, DEFAULT_CONFIG_JSONC, "utf-8");
+  } catch (error) {
+    // Best-effort: fall back to in-code defaults if config cannot be created.
+    void error;
+  }
+}
+
 function loadConfigFile(filePath: string): unknown {
   if (!fs.existsSync(filePath)) {
+    ensureConfigFile(filePath);
     return {};
   }
   const content = fs.readFileSync(filePath, "utf-8");

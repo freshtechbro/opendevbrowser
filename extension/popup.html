@@ -24,12 +24,23 @@
         display: block;
         margin-bottom: 4px;
       }
+      label.toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
       input {
         width: 100%;
         padding: 6px;
         margin-bottom: 10px;
         border: 1px solid #ccc;
         border-radius: 4px;
+      }
+      input[type="checkbox"] {
+        width: auto;
+        margin: 0;
+        padding: 0;
       }
       button {
         width: 100%;
@@ -46,7 +57,11 @@
     <div id="status">Disconnected</div>
     <label for="relayPort">Relay port</label>
     <input id="relayPort" type="number" min="1" max="65535" />
-    <label for="pairingToken">Pairing token (optional)</label>
+    <label class="toggle" for="pairingEnabled">
+      <input id="pairingEnabled" type="checkbox" />
+      Require pairing token
+    </label>
+    <label for="pairingToken">Pairing token</label>
     <input id="pairingToken" type="text" />
     <button id="toggle">Connect</button>
     <script type="module" src="dist/popup.js"></script>

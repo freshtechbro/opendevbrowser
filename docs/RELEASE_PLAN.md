@@ -347,7 +347,7 @@ Execute tasks in this order to minimize conflicts:
 ### B) OpenCode Plugin
 1. User adds to `~/.config/opencode/opencode.json`:
    ```json
-   { "plugin": ["opendevbrowser@latest"] }
+  { "plugin": ["opendevbrowser"] }
    ```
 2. Restart OpenCode
 3. `opendevbrowser_status` shows auto-extracted extension path
@@ -395,11 +395,10 @@ Execute tasks in this order to minimize conflicts:
 ## Task 10 — Fix plugin declaration pattern in docs
 
 ### Reasoning
-Current docs incorrectly claim `"opendevbrowser@latest"` pattern and misleadingly state "@latest auto-updates on each OpenCode start". Research shows:
-- OpenCode uses Bun to install plugins at startup into `~/.cache/opencode/node_modules/`
-- When version is "latest", OpenCode runs `bun add --force --exact` on every startup (requires network, causes startup delay)
-- oh-my-opencode uses just the package name without `@latest` suffix
-- Pinned versions are faster, offline-friendly, and predictable
+Current docs incorrectly claim `"opendevbrowser@latest"` auto-updates on each OpenCode start. The official OpenCode docs show:
+- npm plugins are installed with Bun at startup and cached in `~/.cache/opencode/node_modules/`
+- config examples use bare npm package names (no `@latest` in examples)
+- no official plugin auto-update behavior is documented
 
 ### What to do
 Update all docs to use correct plugin declaration pattern and accurately describe update behavior.
@@ -407,7 +406,7 @@ Update all docs to use correct plugin declaration pattern and accurately describ
 ### How
 1. Replace `"opendevbrowser@latest"` with `"opendevbrowser"` (just package name)
 2. Remove or correct claims about "auto-update on each OpenCode start"
-3. Document the tradeoffs between pinned versions vs. unpinned (latest)
+3. Document the tradeoffs between pinned versions vs. unpinned
 4. Add manual update instructions
 
 ### Files impacted
@@ -429,7 +428,7 @@ Accurate documentation that matches actual OpenCode plugin behavior.
 
 ---
 
-## Task 11 — Document pinned vs. latest version tradeoffs
+## Task 11 — Document pinned vs. unpinned version tradeoffs
 
 ### Reasoning
 Users need to understand the implications of their plugin version choice for offline use, startup speed, and predictability.
@@ -439,9 +438,8 @@ Add a clear section explaining version pinning options.
 
 ### How
 1. Add "Plugin Versioning" section to README.md with:
-   - Default (unpinned): `"opendevbrowser"` — resolves latest on first install, uses cached version on subsequent starts
+   - Default (unpinned): `"opendevbrowser"` — installed at startup and cached until refreshed
    - Pinned: `"opendevbrowser@1.0.0"` — fast, offline-friendly, predictable
-   - Latest: `"opendevbrowser@latest"` — re-resolves on every startup (network required, slower)
 2. Recommend pinned versions for production use
 3. Document cache location: `~/.cache/opencode/node_modules/`
 
@@ -470,10 +468,9 @@ Document how to manually update the plugin.
 
 ### How
 1. Add "Updating the Plugin" section to README.md with:
-   - For unpinned: restart OpenCode while online
    - For pinned: bump version in `opencode.json`, then restart
    - Force reinstall: clear `~/.cache/opencode/` and restart
-   - Alternative: `cd ~/.cache/opencode && bun update opendevbrowser`
+   - Optional: `cd ~/.cache/opencode && bun update opendevbrowser`
 2. Add same instructions to AGENTS.md Installation Playbook
 
 ### Files impacted

@@ -33,8 +33,18 @@ describe("loadGlobalConfig", () => {
     expect(config.export.maxNodes).toBe(1000);
     expect(config.export.inlineStyles).toBe(true);
     expect(config.persistProfile).toBe(true);
+    expect(config.checkForUpdates).toBe(false);
     expect(config.relayPort).toBe(8787);
-    expect(config.relayToken).toBeUndefined();
+    expect(config.relayToken).toBe("some-test-token");
+    expect(fs.mkdirSync).toHaveBeenCalledWith(
+      path.join("/home/testuser", ".config", "opencode"),
+      { recursive: true }
+    );
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      path.join("/home/testuser", ".config", "opencode", "opendevbrowser.jsonc"),
+      expect.stringContaining("\"relayToken\": \"some-test-token\""),
+      "utf-8"
+    );
   });
 
   it("reads config from global config file", () => {
@@ -49,6 +59,7 @@ describe("loadGlobalConfig", () => {
       relayPort: 9191,
       relayToken: "secret",
       flags: ["--foo"],
+      checkForUpdates: true,
       persistProfile: false
     }));
 
@@ -67,6 +78,7 @@ describe("loadGlobalConfig", () => {
     expect(config.relayPort).toBe(9191);
     expect(config.relayToken).toBe("secret");
     expect(config.flags).toEqual(["--foo"]);
+    expect(config.checkForUpdates).toBe(true);
     expect(config.persistProfile).toBe(false);
 
     expect(fs.existsSync).toHaveBeenCalledWith(
@@ -138,6 +150,37 @@ describe("loadGlobalConfig", () => {
     const config = loadGlobalConfig();
     expect(config.chromePath).toBe("http://example.com/path");
     expect(config.flags).toEqual(["--proxy-server=http://proxy.example.com:8080"]);
+  });
+
+  it("accepts false relayToken to disable pairing", () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      relayToken: false
+    }));
+
+    const config = loadGlobalConfig();
+    expect(config.relayToken).toBe(false);
+  });
+
+  it("skips config creation when file appears between checks", () => {
+    vi.mocked(fs.existsSync)
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+
+    const config = loadGlobalConfig();
+    expect(config.relayToken).toBe("some-test-token");
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it("ignores failures when creating the default config file", () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    vi.mocked(fs.mkdirSync).mockImplementation(() => {
+      throw new Error("boom");
+    });
+
+    const config = loadGlobalConfig();
+    expect(config.relayToken).toBe("some-test-token");
   });
 });
 

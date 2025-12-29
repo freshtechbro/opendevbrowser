@@ -370,7 +370,7 @@ Ensure documentation accurately reflects current state and remediation progress.
 #### 7.3 Update README.md
 - **File**: `README.md`
 - **Changes**:
-  - Installation: add `opendevbrowser@latest` to plugin array
+  - Installation: add `opendevbrowser` to plugin array
   - Config: document `~/.config/opencode/opendevbrowser.jsonc`
   - Remove any references to `config.opendevbrowser` in opencode.json
 - **Acceptance**: README matches approved approach

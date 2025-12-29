@@ -1,11 +1,13 @@
 import type { BackgroundMessage, PopupMessage } from "./types";
+import { DEFAULT_PAIRING_ENABLED, DEFAULT_PAIRING_TOKEN, DEFAULT_RELAY_PORT } from "./relay-settings";
 
 const statusEl = document.getElementById("status");
 const toggleButton = document.getElementById("toggle");
 const relayPortInput = document.getElementById("relayPort") as HTMLInputElement | null;
 const pairingTokenInput = document.getElementById("pairingToken") as HTMLInputElement | null;
+const pairingEnabledInput = document.getElementById("pairingEnabled") as HTMLInputElement | null;
 
-if (!statusEl || !toggleButton || !relayPortInput || !pairingTokenInput) {
+if (!statusEl || !toggleButton || !relayPortInput || !pairingTokenInput || !pairingEnabledInput) {
   throw new Error("Popup DOM missing required elements");
 }
 
@@ -29,13 +31,32 @@ const refreshStatus = async () => {
 
 const loadSettings = async () => {
   const data = await new Promise<Record<string, unknown>>((resolve) => {
-    chrome.storage.local.get(["pairingToken", "relayPort"], (items) => {
+    chrome.storage.local.get(["pairingToken", "pairingEnabled", "relayPort"], (items) => {
       resolve(items);
     });
   });
-  pairingTokenInput.value = typeof data.pairingToken === "string" ? data.pairingToken : "";
-  const portValue = typeof data.relayPort === "number" ? data.relayPort : 8787;
-  relayPortInput.value = Number.isInteger(portValue) ? String(portValue) : "8787";
+  const pairingEnabled = typeof data.pairingEnabled === "boolean"
+    ? data.pairingEnabled
+    : DEFAULT_PAIRING_ENABLED;
+  const rawToken = typeof data.pairingToken === "string" ? data.pairingToken.trim() : "";
+  const tokenValue = pairingEnabled ? (rawToken || DEFAULT_PAIRING_TOKEN) : rawToken;
+  const portValue = typeof data.relayPort === "number" ? data.relayPort : DEFAULT_RELAY_PORT;
+
+  pairingEnabledInput.checked = pairingEnabled;
+  pairingTokenInput.disabled = !pairingEnabled;
+  pairingTokenInput.value = tokenValue;
+  relayPortInput.value = Number.isInteger(portValue) ? String(portValue) : String(DEFAULT_RELAY_PORT);
+
+  const updates: Record<string, unknown> = {};
+  if (typeof data.pairingEnabled !== "boolean") {
+    updates.pairingEnabled = pairingEnabled;
+  }
+  if (pairingEnabled && !rawToken) {
+    updates.pairingToken = DEFAULT_PAIRING_TOKEN;
+  }
+  if (Object.keys(updates).length > 0) {
+    chrome.storage.local.set(updates);
+  }
 };
 
 const toggle = async () => {
@@ -56,10 +77,22 @@ pairingTokenInput.addEventListener("input", () => {
   chrome.storage.local.set({ pairingToken: value });
 });
 
+pairingEnabledInput.addEventListener("change", () => {
+  const enabled = pairingEnabledInput.checked;
+  pairingTokenInput.disabled = !enabled;
+  const updates: Record<string, unknown> = { pairingEnabled: enabled };
+  if (enabled) {
+    const tokenValue = pairingTokenInput.value.trim() || DEFAULT_PAIRING_TOKEN;
+    pairingTokenInput.value = tokenValue;
+    updates.pairingToken = tokenValue;
+  }
+  chrome.storage.local.set(updates);
+});
+
 relayPortInput.addEventListener("input", () => {
   const raw = relayPortInput.value.trim();
   if (!raw) {
-    chrome.storage.local.set({ relayPort: 8787 });
+    chrome.storage.local.set({ relayPort: DEFAULT_RELAY_PORT });
     return;
   }
   const parsed = Number(raw);
@@ -73,6 +106,8 @@ refreshStatus().catch(() => {
 });
 
 loadSettings().catch(() => {
-  pairingTokenInput.value = "";
-  relayPortInput.value = "8787";
+  pairingEnabledInput.checked = DEFAULT_PAIRING_ENABLED;
+  pairingTokenInput.disabled = !DEFAULT_PAIRING_ENABLED;
+  pairingTokenInput.value = DEFAULT_PAIRING_TOKEN;
+  relayPortInput.value = String(DEFAULT_RELAY_PORT);
 });

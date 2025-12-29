@@ -12,7 +12,7 @@
 - [x] Add README usage examples and config snippets.
 - [x] Implement relay server + extension bridge (Mode C) with auto-switch and forwarding.
 - [x] Add relay handshake/forwarding tests and fallback behavior.
-- [x] Add optional relay pairing token and extension reconnect/tab tracking updates.
+- [x] Add default relay pairing token (opt-out) and extension reconnect/tab tracking updates.
 - [x] Implement named page helpers (opendevbrowser_page/opendevbrowser_list/opendevbrowser_close) and name-to-target mapping.
 - [x] Implement export tools (opendevbrowser_clone_page/opendevbrowser_clone_component) using export pipeline.
 - [x] Implement lightweight perf metrics + screenshot tool (keep full tracing as non-goal).
@@ -85,6 +85,7 @@ dev-browser-plugin/
     manifest.json
     src/
       background.ts
+      relay-settings.ts
       popup.tsx
       services/
         ConnectionManager.ts
@@ -113,11 +114,12 @@ dev-browser-plugin/
 
 ## Configuration (src/config.ts)
 - Defaults: Mode A, localhost only, redaction enabled, maxChars/maxNodes, per-project cache.
-- Reads plugin-owned file `~/.config/opencode/opendevbrowser.jsonc` (optional).
+- Reads plugin-owned file `~/.config/opencode/opendevbrowser.jsonc` and auto-creates it with relay defaults when missing.
 - OpenCode `opencode.json` only declares `plugin: ["opendevbrowser"]` (no custom keys).
 - DevTools toggles: `devtools.showFullUrls`, `devtools.showFullConsole` (both default false).
 - Export controls: `export.maxNodes` (default 1000), `export.inlineStyles` (default true); `security.allowUnsafeExport` bypasses sanitization.
-- Optional `relayToken` to require extension pairing on the local relay.
+- Default `relayToken` enforces extension pairing; set `relayToken: false` to disable.
+- Status tool optional update checks via `checkForUpdates` (default false).
 
 ## Browser Management
 ### BrowserManager
@@ -172,13 +174,13 @@ dev-browser-plugin/
   - Command: `{ id, method:"forwardCDPCommand", params:{method, params, sessionId} }`
   - Response: `{ id, result | error }`
   - Event: `{ method:"forwardCDPEvent", params:{method, params, sessionId} }`
-- Optional pairing token in handshake payload for local auth.
+- Default pairing token in handshake payload for local auth (opt-out via config).
 
 ### Extension
 - Uses `chrome.debugger` to attach to selected tab.
 - Maintains tab/target/session mapping via `TabManager`.
 - Tracks tab updates/grouping and re-sends handshake updates to relay.
-- Toggle UI in popup; sends handshake (with optional pairing token) to relay.
+- Toggle UI in popup; sends handshake with pairing token when enabled.
 
 ## Security Defaults
 - Localhost only for CDP unless explicitly allowed.

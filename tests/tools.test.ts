@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
 
 vi.mock("@opencode-ai/plugin", async () => {
@@ -6,6 +8,20 @@ vi.mock("@opencode-ai/plugin", async () => {
   const toolFn = (input: { description: string; args: unknown; execute: (...args: unknown[]) => unknown }) => input;
   toolFn.schema = z;
   return { tool: toolFn };
+});
+
+vi.mock("fs");
+vi.mock("os");
+
+beforeEach(() => {
+  vi.mocked(os.homedir).mockReturnValue("/home/testuser");
+  vi.mocked(fs.existsSync).mockReturnValue(false);
+  vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ version: "0.1.0" }));
+  delete process.env.OPENCODE_CONFIG_DIR;
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
 });
 
 const createDeps = () => {
@@ -265,6 +281,161 @@ describe("tools", () => {
     const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
     expect(result.ok).toBe(true);
     expect(result.extensionPath).toBeUndefined();
+  });
+
+  it("status tool skips update check when disabled", async () => {
+    const deps = createDeps();
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: "9.9.9" })
+    });
+    globalThis.fetch = fetchMock as never;
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.updateHint).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("status tool includes update hint when enabled", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), checkForUpdates: true });
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: "9.9.9" })
+    });
+    globalThis.fetch = fetchMock as never;
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.version).toBeDefined();
+    expect(result.updateHint).toContain("Update available");
+    expect(fetchMock).toHaveBeenCalled();
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("status tool omits update hint when latest matches installed", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), checkForUpdates: true });
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: "0.1.0" })
+    });
+    globalThis.fetch = fetchMock as never;
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.updateHint).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalled();
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("status tool handles update check fetch failures", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), checkForUpdates: true });
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
+    globalThis.fetch = fetchMock as never;
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.updateHint).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalled();
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("status tool handles non-ok registry responses", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), checkForUpdates: true });
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false });
+    globalThis.fetch = fetchMock as never;
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.updateHint).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalled();
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("status tool handles path resolution failures", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), checkForUpdates: true });
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as never;
+
+    vi.resetModules();
+    vi.doMock("url", async () => {
+      const actual = await vi.importActual<typeof import("url")>("url");
+      return {
+        ...actual,
+        fileURLToPath: () => {
+          throw new Error("boom");
+        }
+      };
+    });
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.version).toBeUndefined();
+    expect(result.updateHint).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    vi.doUnmock("url");
+    vi.resetModules();
+    globalThis.fetch = originalFetch;
+  });
+
+  it("status tool handles version lookup failures", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), checkForUpdates: true });
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as never;
+    vi.resetModules();
+    vi.doMock("fs", async () => {
+      const actual = await vi.importActual<typeof import("fs")>("fs");
+      return {
+        ...actual,
+        readFileSync: () => {
+          throw new Error("boom");
+        }
+      };
+    });
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.version).toBeUndefined();
+    expect(result.updateHint).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    vi.doUnmock("fs");
+    vi.resetModules();
+    globalThis.fetch = originalFetch;
   });
 
   it("normalizes run steps", async () => {

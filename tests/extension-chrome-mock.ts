@@ -17,7 +17,7 @@ export type ChromeMockState = {
   setRuntimeError: (message: string | null) => void;
 };
 
-export const createChromeMock = (initial?: { activeTab?: chrome.tabs.Tab | null; pairingToken?: string | null; relayPort?: number | null }): ChromeMockState => {
+export const createChromeMock = (initial?: { activeTab?: chrome.tabs.Tab | null; pairingToken?: string | null; pairingEnabled?: boolean | null; relayPort?: number | null }): ChromeMockState => {
   let activeTab = initial?.activeTab ?? {
     id: 1,
     url: "https://example.com",
@@ -26,6 +26,7 @@ export const createChromeMock = (initial?: { activeTab?: chrome.tabs.Tab | null;
   };
   let storageData: Record<string, unknown> = {
     pairingToken: initial?.pairingToken ?? null,
+    pairingEnabled: initial?.pairingEnabled ?? true,
     relayPort: initial?.relayPort ?? 8787
   };
 
