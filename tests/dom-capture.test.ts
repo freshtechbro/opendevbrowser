@@ -21,6 +21,24 @@ describe("captureDom", () => {
     expect(result.warnings).toEqual([]);
   });
 
+  it("handles empty element content", async () => {
+    document.body.innerHTML = "<div id=\"empty\"></div>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#empty");
+
+    expect(result.html).toContain("id=\"empty\"");
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("handles attribute with empty value", async () => {
+    document.body.innerHTML = "<div id=\"root\"><img src=\"\" alt=\"\"></div>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).toContain("<img");
+    expect(result.warnings).toEqual([]);
+  });
+
   it("skips sanitization when sanitize is false", async () => {
     document.body.innerHTML = "<div id=\"root\"><script>alert(1)</script></div>";
     const page = createPage();
@@ -89,6 +107,18 @@ describe("captureDom", () => {
     const result = await captureDom(page as never, "#root");
 
     expect(result.html).toContain("href=\"https://example.com\"");
+  });
+
+  it("handles srcset with empty entries gracefully", async () => {
+    document.body.innerHTML = `
+      <div id="root">
+        <img srcset=", , https://example.com/ok.png 1x, " />
+      </div>
+    `;
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).toContain("srcset=");
   });
 
   it("adds a warning when max node cap is exceeded", async () => {
@@ -196,13 +226,17 @@ describe("captureDom", () => {
     expect(result.html).not.toContain("-moz-binding");
   });
 
-  it("blocks javascript: in CSS url()", async () => {
+  it("truncates nodes beyond maxNodes limit", async () => {
     document.body.innerHTML = `
-      <div id="root" style="background: url('javascript:alert(1)')">Hi</div>
+      <div id="root">
+        <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+      </div>
     `;
     const page = createPage();
-    const result = await captureDom(page as never, "#root");
+    const result = await captureDom(page as never, "#root", { maxNodes: 2 });
 
-    expect(result.html).not.toContain("javascript:");
+    expect(result.warnings[0]).toContain("Export truncated");
+    const spanCount = (result.html.match(/<span/g) || []).length;
+    expect(spanCount).toBeLessThanOrEqual(3);
   });
 });

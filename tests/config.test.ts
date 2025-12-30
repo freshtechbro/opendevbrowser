@@ -35,14 +35,15 @@ describe("loadGlobalConfig", () => {
     expect(config.persistProfile).toBe(true);
     expect(config.checkForUpdates).toBe(false);
     expect(config.relayPort).toBe(8787);
-    expect(config.relayToken).toBe("some-test-token");
+    expect(typeof config.relayToken).toBe("string");
+    expect(config.relayToken).toMatch(/^[a-f0-9]{64}$/);
     expect(fs.mkdirSync).toHaveBeenCalledWith(
       path.join("/home/testuser", ".config", "opencode"),
       { recursive: true, mode: 0o700 }
     );
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       path.join("/home/testuser", ".config", "opencode", "opendevbrowser.jsonc"),
-      expect.stringContaining("\"relayToken\": \"some-test-token\""),
+      expect.stringMatching(/"relayToken": "[a-f0-9]{64}"/),
       { encoding: "utf-8", mode: 0o600 }
     );
   });
@@ -168,7 +169,8 @@ describe("loadGlobalConfig", () => {
       .mockReturnValueOnce(true);
 
     const config = loadGlobalConfig();
-    expect(config.relayToken).toBe("some-test-token");
+    expect(typeof config.relayToken).toBe("string");
+    expect(config.relayToken).toMatch(/^[a-f0-9]{64}$/);
     expect(fs.mkdirSync).not.toHaveBeenCalled();
     expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
@@ -180,7 +182,8 @@ describe("loadGlobalConfig", () => {
     });
 
     const config = loadGlobalConfig();
-    expect(config.relayToken).toBe("some-test-token");
+    expect(typeof config.relayToken).toBe("string");
+    expect(config.relayToken).toMatch(/^[a-f0-9]{64}$/);
   });
 });
 
@@ -198,6 +201,48 @@ describe("resolveConfig", () => {
   it("delegates to loadGlobalConfig", () => {
     const config = resolveConfig({});
     expect(config.profile).toBe("default");
+  });
+});
+
+describe("chromePath validation", () => {
+  beforeEach(() => {
+    vi.mocked(os.homedir).mockReturnValue("/home/testuser");
+    delete process.env.OPENCODE_CONFIG_DIR;
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("rejects chromePath that does not exist", () => {
+    vi.mocked(fs.existsSync).mockImplementation((p) => {
+      if (String(p).includes("opendevbrowser.jsonc")) return true;
+      return false;
+    });
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      chromePath: "/nonexistent/chrome"
+    }));
+    vi.mocked(fs.accessSync).mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    expect(() => loadGlobalConfig()).toThrow("Invalid opendevbrowser config");
+  });
+
+  it("rejects chromePath that exists but is not executable", () => {
+    vi.mocked(fs.existsSync).mockImplementation((p) => {
+      if (String(p).includes("opendevbrowser.jsonc")) return true;
+      if (String(p).includes("/path/to/notexec")) return true;
+      return false;
+    });
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      chromePath: "/path/to/notexec"
+    }));
+    vi.mocked(fs.accessSync).mockImplementation(() => {
+      throw new Error("EACCES");
+    });
+
+    expect(() => loadGlobalConfig()).toThrow("Invalid opendevbrowser config");
   });
 });
 

@@ -256,6 +256,66 @@ describe("RelayServer", () => {
     vi.doUnmock("http");
   });
 
+  describe("Pairing Endpoint", () => {
+    it("returns token via /pair endpoint when token is set", async () => {
+      server = new RelayServer();
+      server.setToken("my-secret-token");
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/pair`);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.token).toBe("my-secret-token");
+    });
+
+    it("rejects /pair from non-localhost origins", async () => {
+      server = new RelayServer();
+      server.setToken("secret");
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/pair`, {
+        headers: { "Origin": "https://evil.com" }
+      });
+      expect(response.status).toBe(403);
+    });
+
+    it("allows /pair from chrome-extension origins", async () => {
+      server = new RelayServer();
+      server.setToken("secret");
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/pair`, {
+        headers: { "Origin": "chrome-extension://abcdefghijklmnop" }
+      });
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.token).toBe("secret");
+    });
+
+    it("handles CORS preflight for /pair", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/pair`, {
+        method: "OPTIONS",
+        headers: {
+          "Origin": "chrome-extension://abcdefghijklmnop",
+          "Access-Control-Request-Method": "GET"
+        }
+      });
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe("chrome-extension://abcdefghijklmnop");
+    });
+
+    it("returns 404 for unknown HTTP paths", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/unknown/path`);
+      expect(response.status).toBe(404);
+    });
+  });
+
   describe("Security Features", () => {
     it("uses timing-safe token comparison", async () => {
       server = new RelayServer();
