@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { parse as parseJsonc, modify, applyEdits } from "jsonc-parser";
+import { writeFileAtomic } from "../../utils/fs";
 
 const PLUGIN_NAME = "opendevbrowser";
 const SCHEMA_URL = "https://opencode.ai/config.json";
@@ -48,7 +49,7 @@ export function readConfig(configPath: string): { content: string; config: OpenC
 export function writeConfig(configPath: string, config: OpenCodeConfig): void {
   ensureDir(path.dirname(configPath));
   const content = JSON.stringify(config, null, 2) + "\n";
-  fs.writeFileSync(configPath, content, "utf-8");
+  writeFileAtomic(configPath, content);
 }
 
 export function addPlugin(config: OpenCodeConfig, pluginName: string = PLUGIN_NAME): OpenCodeConfig {

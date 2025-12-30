@@ -1,8 +1,11 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { generateSecureToken } from "../../utils/crypto";
+import { writeFileAtomic } from "../../utils/fs";
 
-const CONFIG_TEMPLATE = `{
+function buildConfigTemplate(token: string): string {
+  return `{
   // OpenDevBrowser Plugin Configuration
   // See: https://github.com/anthropics/opendevbrowser#configuration
 
@@ -32,13 +35,14 @@ const CONFIG_TEMPLATE = `{
   },
 
   "relayPort": 8787,
-  "relayToken": "some-test-token",
+  "relayToken": "${token}",
 
   "flags": [],
 
   "checkForUpdates": false
 }
 `;
+}
 
 export function getPluginConfigPath(mode: "global" | "local"): string {
   if (mode === "global") {
@@ -61,10 +65,11 @@ export function createPluginConfig(mode: "global" | "local"): { created: boolean
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  fs.writeFileSync(configPath, CONFIG_TEMPLATE, "utf-8");
+  const token = generateSecureToken();
+  writeFileAtomic(configPath, buildConfigTemplate(token));
   return { created: true, path: configPath };
 }
 
 export function getConfigTemplate(): string {
-  return CONFIG_TEMPLATE;
+  return buildConfigTemplate(generateSecureToken());
 }

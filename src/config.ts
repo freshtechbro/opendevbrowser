@@ -3,6 +3,16 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { parse as parseJsonc } from "jsonc-parser";
+import { generateSecureToken } from "./utils/crypto";
+
+function isExecutable(filePath: string): boolean {
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export type SnapshotConfig = {
   maxChars: number;
@@ -42,13 +52,15 @@ export type OpenDevBrowserConfig = {
 };
 
 const DEFAULT_RELAY_PORT = 8787;
-const DEFAULT_RELAY_TOKEN = "some-test-token";
-const DEFAULT_CONFIG_JSONC = `{
+
+function buildDefaultConfigJsonc(token: string): string {
+  return `{
   // Set relayToken to false to disable extension pairing.
   "relayPort": ${DEFAULT_RELAY_PORT},
-  "relayToken": "${DEFAULT_RELAY_TOKEN}"
+  "relayToken": "${token}"
 }
 `;
+}
 
 const snapshotSchema = z.object({
   maxChars: z.number().int().min(500).max(200000).default(16000),
@@ -79,8 +91,11 @@ const configSchema = z.object({
   devtools: devtoolsSchema.default({}),
   export: exportSchema.default({}),
   relayPort: z.number().int().min(0).max(65535).default(DEFAULT_RELAY_PORT),
-  relayToken: z.union([z.string(), z.literal(false)]).default(DEFAULT_RELAY_TOKEN),
-  chromePath: z.string().min(1).optional(),
+  relayToken: z.union([z.string(), z.literal(false)]).optional(),
+  chromePath: z.string().min(1).optional().refine(
+    (val) => val === undefined || isExecutable(val),
+    { message: "chromePath must point to an executable file" }
+  ),
   flags: z.array(z.string()).default([]),
   checkForUpdates: z.boolean().default(false),
   persistProfile: z.boolean().default(true),
@@ -95,23 +110,24 @@ function getGlobalConfigPath(): string {
   return path.join(configDir, CONFIG_FILE_NAME);
 }
 
-function ensureConfigFile(filePath: string): void {
+function ensureConfigFile(filePath: string): string {
+  const token = generateSecureToken();
   if (fs.existsSync(filePath)) {
-    return;
+    return token;
   }
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(filePath, DEFAULT_CONFIG_JSONC, { encoding: "utf-8", mode: 0o600 });
+    fs.writeFileSync(filePath, buildDefaultConfigJsonc(token), { encoding: "utf-8", mode: 0o600 });
   } catch (error) {
-    // Best-effort: fall back to in-code defaults if config cannot be created.
-    void error;
+    console.warn(`[opendevbrowser] Warning: Could not create config file at ${filePath}:`, error);
   }
+  return token;
 }
 
-function loadConfigFile(filePath: string): unknown {
+function loadConfigFile(filePath: string): { raw: unknown; generatedToken: string | null } {
   if (!fs.existsSync(filePath)) {
-    ensureConfigFile(filePath);
-    return {};
+    const token = ensureConfigFile(filePath);
+    return { raw: {}, generatedToken: token };
   }
   const content = fs.readFileSync(filePath, "utf-8");
   const errors: Array<{ error: number; offset: number; length: number }> = [];
@@ -120,12 +136,12 @@ function loadConfigFile(filePath: string): unknown {
     const firstError = errors[0];
     throw new Error(`Invalid JSONC in opendevbrowser config at ${filePath}: parse error at offset ${firstError?.offset ?? 0}`);
   }
-  return parsed ?? {};
+  return { raw: parsed ?? {}, generatedToken: null };
 }
 
 export function loadGlobalConfig(): OpenDevBrowserConfig {
   const configPath = getGlobalConfigPath();
-  const raw = loadConfigFile(configPath);
+  const { raw, generatedToken } = loadConfigFile(configPath);
   const parsed = configSchema.safeParse(raw);
 
   if (!parsed.success) {
@@ -133,7 +149,10 @@ export function loadGlobalConfig(): OpenDevBrowserConfig {
     throw new Error(`Invalid opendevbrowser config at ${configPath}: ${issues}`);
   }
 
-  return parsed.data;
+  const data = parsed.data;
+  const relayToken = data.relayToken ?? generatedToken ?? generateSecureToken();
+
+  return { ...data, relayToken };
 }
 
 export function resolveConfig(_config: unknown): OpenDevBrowserConfig {
