@@ -107,24 +107,24 @@ export async function extractExtension(): Promise<string | null> {
     if (existsSync(backupDir) && !existsSync(destDir)) {
       try {
         renameSync(backupDir, destDir);
-      } catch {
-        /* best effort */
+      } catch (rollbackError) {
+        console.warn(`[opendevbrowser] Warning: Rollback failed for ${backupDir}:`, rollbackError);
       }
     }
     // Cleanup staging
     if (existsSync(stagingDir)) {
       try {
         rmSync(stagingDir, { recursive: true, force: true });
-      } catch {
-        /* best effort */
+      } catch (stagingCleanupError) {
+        console.warn(`[opendevbrowser] Warning: Failed to clean up staging directory ${stagingDir}:`, stagingCleanupError);
       }
     }
     // Cleanup backup
     if (existsSync(backupDir)) {
       try {
         rmSync(backupDir, { recursive: true, force: true });
-      } catch {
-        /* best effort */
+      } catch (backupCleanupError) {
+        console.warn(`[opendevbrowser] Warning: Failed to clean up backup directory ${backupDir}:`, backupCleanupError);
       }
     }
     throw error;

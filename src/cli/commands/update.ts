@@ -16,6 +16,14 @@ function getCacheDir(): string {
 }
 
 function rmdir(dirPath: string): void {
+  const cacheDir = getCacheDir();
+  const resolvedCache = path.resolve(cacheDir);
+  const resolvedPath = path.resolve(dirPath);
+
+  if (!resolvedPath.startsWith(resolvedCache + path.sep) || resolvedPath === resolvedCache) {
+    throw new Error(`Security: refusing to delete path outside cache directory: ${dirPath}`);
+  }
+
   if (fs.existsSync(dirPath)) {
     fs.rmSync(dirPath, { recursive: true, force: true });
   }

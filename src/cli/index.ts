@@ -23,7 +23,20 @@ async function promptInstallMode(): Promise<InstallMode> {
     process.stdout.write("Enter choice [1]: ");
 
     process.stdin.setEncoding("utf8");
+    let resolved = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
     process.stdin.once("data", (data) => {
+      cleanup();
+      if (resolved) return;
+      resolved = true;
       const input = data.toString().trim();
       if (input === "2") {
         resolve("local");
@@ -33,10 +46,16 @@ async function promptInstallMode(): Promise<InstallMode> {
     });
 
     process.stdin.once("close", () => {
+      cleanup();
+      if (resolved) return;
+      resolved = true;
       resolve("global");
     });
 
-    setTimeout(() => {
+    timeoutId = setTimeout(() => {
+      timeoutId = null;
+      if (resolved) return;
+      resolved = true;
       console.log("\nTimeout - using global install.");
       resolve("global");
     }, 30000);
