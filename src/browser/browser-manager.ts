@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { mkdir, rm } from "fs/promises";
 import { join } from "path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { Mutex } from "async-mutex";
 import type { OpenDevBrowserConfig } from "../config";
 import { resolveCachePaths } from "../cache/paths";
 import { findChromeExecutable } from "../cache/chrome-locator";
@@ -48,6 +49,7 @@ export type ManagedSession = {
 export class BrowserManager {
   private store = new SessionStore();
   private sessions = new Map<string, ManagedSession>();
+  private sessionMutexes = new Map<string, Mutex>();
   private worktree: string;
   private config: OpenDevBrowserConfig;
   private pageListeners = new WeakMap<Page, () => void>();
@@ -55,6 +57,15 @@ export class BrowserManager {
   constructor(worktree: string, config: OpenDevBrowserConfig) {
     this.worktree = worktree;
     this.config = config;
+  }
+
+  private getMutex(sessionId: string): Mutex {
+    let mutex = this.sessionMutexes.get(sessionId);
+    if (!mutex) {
+      mutex = new Mutex();
+      this.sessionMutexes.set(sessionId, mutex);
+    }
+    return mutex;
   }
 
   updateConfig(config: OpenDevBrowserConfig): void {
@@ -190,6 +201,11 @@ export class BrowserManager {
     return this.connectWithEndpoint(wsEndpoint, "C");
   }
 
+  async closeAll(): Promise<void> {
+    const sessions = Array.from(this.sessions.keys());
+    await Promise.allSettled(sessions.map(id => this.disconnect(id, true)));
+  }
+
   async disconnect(sessionId: string, closeBrowser = false): Promise<void> {
     const managed = this.getManaged(sessionId);
     for (const entry of managed.targets.listPageEntries()) {
@@ -210,6 +226,7 @@ export class BrowserManager {
       await rm(managed.profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
     this.sessions.delete(sessionId);
+    this.sessionMutexes.delete(sessionId);
     this.store.delete(sessionId);
   }
 
@@ -358,44 +375,53 @@ export class BrowserManager {
   }
 
   async snapshot(sessionId: string, mode: "outline" | "actionables", maxChars: number, cursor?: string): Promise<ReturnType<Snapshotter["snapshot"]>> {
-    const managed = this.getManaged(sessionId);
-    const targetId = managed.targets.getActiveTargetId();
-    if (!targetId) {
-      throw new Error("No active target for snapshot");
-    }
-    const page = managed.targets.getActivePage();
-    return managed.snapshotter.snapshot(page, targetId, {
-      mode,
-      maxChars,
-      cursor,
-      maxNodes: this.config.snapshot.maxNodes
+    const mutex = this.getMutex(sessionId);
+    return mutex.runExclusive(async () => {
+      const managed = this.getManaged(sessionId);
+      const targetId = managed.targets.getActiveTargetId();
+      if (!targetId) {
+        throw new Error("No active target for snapshot");
+      }
+      const page = managed.targets.getActivePage();
+      return managed.snapshotter.snapshot(page, targetId, {
+        mode,
+        maxChars,
+        cursor,
+        maxNodes: this.config.snapshot.maxNodes
+      });
     });
   }
 
   async click(sessionId: string, ref: string): Promise<{ timingMs: number; navigated: boolean }> {
-    const startTime = Date.now();
-    const managed = this.getManaged(sessionId);
-    const selector = this.resolveSelector(managed, ref);
-    const page = managed.targets.getActivePage();
-    const previousUrl = page.url();
-    await page.locator(selector).click();
-    const navigated = page.url() !== previousUrl;
-    return { timingMs: Date.now() - startTime, navigated };
+    const mutex = this.getMutex(sessionId);
+    return mutex.runExclusive(async () => {
+      const startTime = Date.now();
+      const managed = this.getManaged(sessionId);
+      const selector = this.resolveSelector(managed, ref);
+      const page = managed.targets.getActivePage();
+      const previousUrl = page.url();
+      await page.locator(selector).click();
+      const navigated = page.url() !== previousUrl;
+      return { timingMs: Date.now() - startTime, navigated };
+    });
   }
 
   async type(sessionId: string, ref: string, text: string, clear = false, submit = false): Promise<{ timingMs: number }> {
-    const startTime = Date.now();
-    const managed = this.getManaged(sessionId);
-    const selector = this.resolveSelector(managed, ref);
-    const locator = managed.targets.getActivePage().locator(selector);
-    if (clear) {
-      await locator.fill("");
-    }
-    await locator.fill(text);
-    if (submit) {
-      await locator.press("Enter");
-    }
-    return { timingMs: Date.now() - startTime };
+    const mutex = this.getMutex(sessionId);
+    return mutex.runExclusive(async () => {
+      const startTime = Date.now();
+      const managed = this.getManaged(sessionId);
+      const selector = this.resolveSelector(managed, ref);
+      const locator = managed.targets.getActivePage().locator(selector);
+      if (clear) {
+        await locator.fill("");
+      }
+      await locator.fill(text);
+      if (submit) {
+        await locator.press("Enter");
+      }
+      return { timingMs: Date.now() - startTime };
+    });
   }
 
   async select(sessionId: string, ref: string, values: string[]): Promise<void> {
@@ -612,14 +638,22 @@ export class BrowserManager {
 
   private ensureLocalEndpoint(endpoint: string): void {
     if (this.config.security.allowNonLocalCdp) return;
+    
+    const ALLOWED_PROTOCOLS = new Set(["ws:", "wss:", "http:", "https:"]);
     const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-    let hostname: string;
+    
+    let parsed: URL;
     try {
-      const parsed = new URL(endpoint);
-      hostname = parsed.hostname.toLowerCase();
+      parsed = new URL(endpoint);
     } catch {
       throw new Error("Invalid CDP endpoint URL.");
     }
+    
+    if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
+      throw new Error(`Disallowed protocol "${parsed.protocol}" for CDP endpoint. Allowed: ws, wss, http, https.`);
+    }
+    
+    const hostname = parsed.hostname.toLowerCase();
     if (!LOCAL_HOSTNAMES.has(hostname) && !hostname.toLowerCase().startsWith("::ffff:127.")) {
       throw new Error("Non-local CDP endpoints are disabled by default.");
     }

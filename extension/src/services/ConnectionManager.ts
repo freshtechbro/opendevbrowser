@@ -153,7 +153,7 @@ export class ConnectionManager {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectTimer) {
+    if (this.reconnectTimer !== null) {
       return;
     }
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {

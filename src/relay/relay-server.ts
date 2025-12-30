@@ -72,6 +72,43 @@ export class RelayServer {
       });
     });
 
+    this.server.on("request", (request: IncomingMessage, response) => {
+      const pathname = new URL(request.url ?? "", "http://127.0.0.1").pathname;
+      const origin = request.headers.origin;
+      
+      if (pathname === "/pair" && request.method === "OPTIONS") {
+        if (origin && origin.startsWith("chrome-extension://")) {
+          response.setHeader("Access-Control-Allow-Origin", origin);
+          response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+          response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+        }
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+      
+      if (pathname === "/pair" && request.method === "GET") {
+        const isLocalhost = !origin || origin.startsWith("chrome-extension://");
+        
+        if (!isLocalhost) {
+          response.writeHead(403, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ error: "Forbidden: only localhost/extension allowed" }));
+          return;
+        }
+        
+        if (origin && origin.startsWith("chrome-extension://")) {
+          response.setHeader("Access-Control-Allow-Origin", origin);
+        }
+        
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ token: this.pairingToken }));
+        return;
+      }
+      
+      response.writeHead(404);
+      response.end();
+    });
+
     this.server.on("upgrade", (request: IncomingMessage, socket, head) => {
       const origin = request.headers.origin;
       const ip = request.socket.remoteAddress ?? "unknown";

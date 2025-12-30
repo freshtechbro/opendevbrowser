@@ -34,8 +34,30 @@ export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
       return;
     }
     relay.stop();
-    await relay.start(port);
+    try {
+      await relay.start(port);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("EADDRINUSE") || message.includes("in use")) {
+        console.warn(`[opendevbrowser] Relay server port ${port} is already in use. Extension pairing will be unavailable.`);
+        console.warn(`[opendevbrowser] To fix: kill the process using port ${port} or change relayPort in config.`);
+      } else {
+        console.warn(`[opendevbrowser] Failed to start relay server: ${message}`);
+      }
+      // Security: we explicitly allow the plugin to continue without the relay server
+      // to ensure core functionality remains available even if the port is blocked.
+    }
   };
+
+  // Necessary: clean up all browser sessions and the relay server on exit
+  // to prevent zombie processes and locked ports.
+  const cleanup = () => {
+    relay.stop();
+    manager.closeAll().catch(() => {});
+  };
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
+  process.on("beforeExit", cleanup);
 
   await ensureRelay(initialConfig.relayPort);
 
