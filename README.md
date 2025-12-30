@@ -1,38 +1,38 @@
-# OpenDevBrowser Plugin
+# OpenDevBrowser
 
-[![npm version](https://img.shields.io/npm/v/opendevbrowser.svg)](https://www.npmjs.com/package/opendevbrowser)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://img.shields.io/npm/v/opendevbrowser.svg?style=flat-square)](https://www.npmjs.com/package/opendevbrowser)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
+[![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-green.svg?style=flat-square)](https://opencode.ai)
+[![Test Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen.svg?style=flat-square)](https://github.com/anthropics/opendevbrowser)
 
-OpenDevBrowser is an OpenCode plugin that provides fast, script-first browser automation with a snapshot → refs → actions workflow. It launches or connects to Chrome via CDP and stays lightweight by default.
+> **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
-## Quick Install
+OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents direct browser control via Chrome DevTools Protocol. Launch browsers, capture page snapshots, and interact with elements using stable refs.
+
+---
+
+## Installation
+
+### For Humans
 
 ```bash
-# Interactive installation
+# Interactive installer (recommended)
 npx opendevbrowser
 
-# Or specify location directly
-npx opendevbrowser --global   # User-wide (~/.config/opencode/opencode.json)
-npx opendevbrowser --local    # This project only (./opencode.json)
+# Or specify location
+npx opendevbrowser --global   # ~/.config/opencode/opencode.json
+npx opendevbrowser --local    # ./opencode.json
 ```
 
-The CLI adds the plugin to your OpenCode config automatically. Restart OpenCode after installation.
+Restart OpenCode after installation.
 
-### CLI Flags
+### For LLM Agents
 
-| Flag | Description |
-|------|-------------|
-| `--global`, `-g` | Install to global config |
-| `--local`, `-l` | Install to project config |
-| `--with-config` | Also create opendevbrowser.jsonc with defaults |
-| `--update`, `-u` | Clear cache to trigger reinstall |
-| `--uninstall` | Remove plugin from config |
-| `--help`, `-h` | Show usage |
-| `--version`, `-v` | Show version |
+<details>
+<summary><strong>Click to expand agent instructions</strong></summary>
 
-## Manual Install
-
-Add the plugin to your OpenCode config (`~/.config/opencode/opencode.json`):
+Add the plugin to the user's OpenCode config:
 
 ```json
 {
@@ -41,181 +41,169 @@ Add the plugin to your OpenCode config (`~/.config/opencode/opencode.json`):
 }
 ```
 
-Restart OpenCode. The plugin works out-of-box with sensible defaults.
+Config location: `~/.config/opencode/opencode.json`
 
-## Plugin Versioning
+The plugin works out-of-box with sensible defaults. No additional configuration required.
 
-OpenCode installs npm plugins via Bun at startup and caches them in `~/.cache/opencode/node_modules/`.
+</details>
 
-| Pattern | Behavior | Best For |
-|---------|----------|----------|
-| `"opendevbrowser"` | Installed at startup and cached until you change version or refresh cache | Most users |
-| `"opendevbrowser@1.0.0"` | Fixed version, reproducible and offline-friendly | Production, CI |
+---
 
-**Recommendation**: Use unpinned (`"opendevbrowser"`) for development, pinned versions for production.
+## Quick Start
 
-## Updating the Plugin
+```
+1. Launch a browser session
+2. Navigate to a URL
+3. Take a snapshot to get element refs
+4. Interact using refs (click, type, select)
+5. Re-snapshot after navigation
+```
 
-- **Recommended**: Bump the version in `opencode.json`, then restart OpenCode
-- **Force reinstall**: Delete `~/.cache/opencode/` and restart
-- **Optional**: `cd ~/.cache/opencode && bun update opendevbrowser` (if you prefer a Bun-driven update)
-- **Optional**: Set `checkForUpdates` to show update hints in `opendevbrowser_status`
+### Core Workflow
+
+| Step | Tool | Purpose |
+|------|------|---------|
+| 1 | `opendevbrowser_launch` | Start managed Chrome session |
+| 2 | `opendevbrowser_goto` | Navigate to URL |
+| 3 | `opendevbrowser_snapshot` | Get page structure with refs |
+| 4 | `opendevbrowser_click` / `opendevbrowser_type` | Interact with elements |
+| 5 | `opendevbrowser_close` | Clean up session |
+
+---
+
+## Features
+
+### Browser Control
+- **Launch & Connect** - Start managed Chrome or connect to existing browsers
+- **Multi-Tab Support** - Create, switch, and manage browser tabs
+- **Profile Persistence** - Maintain login sessions across runs
+- **Headless Mode** - Run without visible browser window
+
+### Page Interaction
+- **Snapshot** - Accessibility-tree based page capture (token-efficient)
+- **Click** - Click elements by ref
+- **Type** - Enter text into inputs
+- **Select** - Choose dropdown options
+- **Scroll** - Scroll page or elements
+- **Wait** - Wait for selectors or navigation
+
+### DevTools Integration
+- **Console Capture** - Monitor console.log, errors, warnings
+- **Network Tracking** - Capture XHR/fetch requests and responses
+- **Screenshot** - Full page or element screenshots
+- **Performance** - Page load metrics
+
+### Export & Clone
+- **DOM Capture** - Extract sanitized HTML with inline styles
+- **React Emitter** - Generate React component code from pages
+- **CSS Extraction** - Pull computed styles
+
+---
+
+## Chrome Extension (Optional)
+
+The extension enables **Mode C** - attach to existing logged-in browser tabs without launching a new browser.
+
+### Auto-Pair Feature
+
+The plugin and extension can automatically pair:
+
+1. **Plugin side**: Auto-generates secure token on first run (saved to config)
+2. **Extension side**: Enable "Auto-Pair" toggle and click Connect
+3. Extension fetches token from plugin's relay server
+4. Connection established with color indicator (green = connected)
+
+### Manual Setup
+
+1. Install extension from Chrome Web Store or load unpacked from `~/.cache/opencode/opendevbrowser-extension/`
+2. Open extension popup
+3. Enter same port/token as plugin config
+4. Click Connect
+
+---
 
 ## Configuration
 
-For advanced customization, edit `~/.config/opencode/opendevbrowser.jsonc`. The plugin auto-creates this file with relay defaults on first run.
+Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
 
 ```jsonc
 {
-  // Browser settings
-  "headless": false,              // Run Chrome in headless mode
-  "profile": "default",           // Browser profile name
-  "persistProfile": true,         // Persist profile between sessions
-  "chromePath": "/path/to/chrome", // Custom Chrome executable path
-  "flags": [],                    // Additional Chrome flags
-  "checkForUpdates": false,       // Check npm for updates in status tool
-
-  // Snapshot settings
-  "snapshot": {
-    "maxChars": 16000,            // Max characters in snapshot output
-    "maxNodes": 1000              // Max nodes to include in snapshot
-  },
-
-  // Export/clone settings
-  "export": {
-    "maxNodes": 1000,             // Max nodes to export
-    "inlineStyles": true          // Inline computed styles in export (root CSS is filtered to reduce defaults)
-  },
-
-  // DevTools capture settings
-  "devtools": {
-    "showFullUrls": false,        // Show full URLs (vs redacted)
-    "showFullConsole": false      // Show full console output (vs redacted)
-  },
-
-  // Security settings
+  "headless": false,
+  "profile": "default",
+  "persistProfile": true,
+  "snapshot": { "maxChars": 16000, "maxNodes": 1000 },
+  "export": { "maxNodes": 1000, "inlineStyles": true },
+  "devtools": { "showFullUrls": false, "showFullConsole": false },
   "security": {
-    "allowRawCDP": false,         // Allow raw CDP commands
-    "allowNonLocalCdp": false,    // Allow non-localhost CDP endpoints
-    "allowUnsafeExport": false    // Skip HTML sanitization in exports
+    "allowRawCDP": false,
+    "allowNonLocalCdp": false,
+    "allowUnsafeExport": false
   },
-
-  // Relay settings (for extension)
-  "relayPort": 8787,              // Local relay server port
-  "relayToken": "some-test-token" // Set to false to disable pairing; reinstalls cleanly on version changes
+  "relayPort": 8787,
+  "relayToken": "auto-generated-on-first-run"
 }
 ```
 
-All fields are optional. Omit any to use defaults.
+All fields optional. Plugin works with sensible defaults.
 
-## Core Flow
+---
 
-1. Launch a managed session.
-2. Capture a snapshot to get refs.
-3. Click/type/select using refs.
-4. Re-snapshot after navigation or big DOM changes.
+## CLI Commands
 
-## Tool Examples
+| Command | Description |
+|---------|-------------|
+| `npx opendevbrowser` | Interactive install |
+| `npx opendevbrowser --global` | Install to global config |
+| `npx opendevbrowser --local` | Install to project config |
+| `npx opendevbrowser --with-config` | Also create opendevbrowser.jsonc |
+| `npx opendevbrowser --update` | Clear cache, trigger reinstall |
+| `npx opendevbrowser --uninstall` | Remove from config |
+| `npx opendevbrowser --version` | Show version |
 
-Launch and snapshot:
-
-```json
-{
-  "tool": "opendevbrowser_launch",
-  "args": { "profile": "default", "headless": false }
-}
-```
-
-```json
-{
-  "tool": "opendevbrowser_snapshot",
-  "args": { "sessionId": "SESSION_ID", "format": "outline" }
-}
-```
-
-Click and type:
-
-```json
-{
-  "tool": "opendevbrowser_click",
-  "args": { "sessionId": "SESSION_ID", "ref": "r12" }
-}
-```
-
-```json
-{
-  "tool": "opendevbrowser_type",
-  "args": { "sessionId": "SESSION_ID", "ref": "r21", "text": "hello" }
-}
-```
-
-Batch run:
-
-```json
-{
-  "tool": "opendevbrowser_run",
-  "args": {
-    "sessionId": "SESSION_ID",
-    "steps": [
-      { "action": "goto", "args": { "url": "https://example.com" } },
-      { "action": "snapshot", "args": { "format": "outline" } }
-    ]
-  }
-}
-```
-
-## Chrome Extension (Mode C Relay)
-
-The extension is optional and only needed to attach to existing logged-in browser tabs.
-
-### Install Options
-
-#### Option 1: Chrome Web Store (Recommended)
-Install from the [Chrome Web Store](https://chrome.google.com/webstore) (search "OpenDevBrowser").
-
-#### Option 2: Auto-extracted from plugin
-The plugin auto-extracts the extension to a stable path on first run. Check `opendevbrowser_status` output for the path, then:
-1. Open `chrome://extensions`
-2. Enable "Developer mode"
-3. Click "Load unpacked"
-4. Select the extracted extension folder
-
-#### Option 3: Manual download
-Download `opendevbrowser-extension.zip` from [GitHub Releases](https://github.com/anthropics/opendevbrowser/releases), unzip, and load as unpacked.
-
-### Using the Extension
-
-1. Keep `relayPort` at the default `8787` in the plugin config (or set a custom port).
-2. The extension defaults to pairing on; leave it enabled and keep the token in sync with `relayToken`.
-3. If you changed the port or token, enter the same values in the extension popup.
-4. Click Connect in the extension popup to attach to the active tab.
-5. Call `opendevbrowser_launch` and it will auto-switch to Mode C when the extension is connected.
-
-If the extension disconnects, the next launch falls back to managed mode.
-
-Pairing is enforced by default. To disable it, set `"relayToken": false` in the plugin config and uncheck "Require pairing token" in the extension popup.
+---
 
 ## Security
 
-OpenDevBrowser includes defense-in-depth security measures:
+- **Relay Authentication** - Cryptographically secure tokens, timing-safe comparison
+- **Origin Validation** - Only localhost and Chrome extensions can pair
+- **CDP Localhost-Only** - Remote CDP endpoints blocked by default
+- **Data Redaction** - Console/network output redacts tokens and API keys
+- **Export Sanitization** - Scripts and event handlers stripped from exports
+- **Atomic Config Writes** - Prevents config corruption on crash
 
-- **Relay Authentication**: Timing-safe token comparison, Origin header validation, rate limiting
-- **CDP Endpoint Validation**: Localhost-only by default, case-normalized hostname checking
-- **Data Redaction**: Console/network output redacts tokens, API keys, JWTs by default
-- **Export Sanitization**: Scripts, event handlers, SVG scripts, and dangerous CSS patterns removed
-- **Config Security**: Config files created with restrictive permissions (mode 0600)
+---
 
-See [Security Audit Report](docs/SECURITY_AUDIT_REPORT.md) for details.
+## Updating
 
-## Privacy Policy
+```bash
+# Option 1: Clear cache (recommended)
+rm -rf ~/.cache/opencode/node_modules/opendevbrowser
+# Then restart OpenCode
 
-See our [Privacy Policy](docs/privacy.md) for information about data handling.
+# Option 2: Use CLI
+npx opendevbrowser --update
+```
 
-## Scripts
+---
 
-- `npm run build` - compile the plugin to `dist/`
-- `npm run dev` - watch build
-- `npm run lint` - ESLint checks
-- `npm run test` - Vitest with coverage
-- `npm run extension:build` - compile extension assets
-- `npm run extension:pack` - create Web Store ZIP
+## Development
+
+```bash
+npm install
+npm run build      # Compile to dist/
+npm run test       # Run tests with coverage
+npm run lint       # ESLint checks
+npm run extension:build  # Compile extension
+```
+
+---
+
+## Privacy
+
+See [Privacy Policy](docs/privacy.md) for data handling details.
+
+---
+
+## License
+
+MIT

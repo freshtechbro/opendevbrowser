@@ -1,6 +1,6 @@
 {
   "name": "opendevbrowser",
-  "version": "0.2.0",
+  "version": "0.0.10",
   "description": "OpenCode plugin for browser automation via CDP with snapshot-refs-actions workflow",
   "type": "module",
   "main": "dist/index.js",
@@ -36,8 +36,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsc -p tsconfig.json --watch",
+    "build": "tsup src/index.ts src/cli/index.ts --format esm --dts --clean --sourcemap",
+    "dev": "tsup src/index.ts src/cli/index.ts --format esm --dts --watch",
     "lint": "eslint \"{src,tests}/**/*.ts\"",
     "test": "vitest run --coverage",
     "extension:sync": "node scripts/sync-extension-version.mjs",
@@ -48,6 +48,7 @@
   "dependencies": {
     "@opencode-ai/plugin": "^1.0.203",
     "@puppeteer/browsers": "^2.2.0",
+    "async-mutex": "^0.5.0",
     "jsonc-parser": "^3.2.0",
     "playwright-core": "^1.49.1",
     "ws": "^8.17.1",
@@ -55,14 +56,15 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",
-    "@types/node": "^20.14.10",
+    "@types/node": "^20.19.27",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.9.0",
     "@typescript-eslint/parser": "^8.9.0",
     "@vitest/coverage-v8": "^4.0.16",
     "eslint": "^9.12.0",
     "happy-dom": "^20.0.11",
-    "typescript": "^5.6.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   }
 }
