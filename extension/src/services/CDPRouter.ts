@@ -1,4 +1,4 @@
-import type { RelayCommand, RelayEvent, RelayResponse } from "../types";
+import type { RelayCommand, RelayEvent, RelayResponse } from "../types.js";
 
 type RelayCallbacks = {
   onEvent: (event: RelayEvent) => void;

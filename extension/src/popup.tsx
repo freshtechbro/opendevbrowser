@@ -1,5 +1,5 @@
-import type { BackgroundMessage, PopupMessage } from "./types";
-import { DEFAULT_AUTO_PAIR, DEFAULT_PAIRING_ENABLED, DEFAULT_PAIRING_TOKEN, DEFAULT_RELAY_PORT } from "./relay-settings";
+import type { BackgroundMessage, PopupMessage } from "./types.js";
+import { DEFAULT_AUTO_PAIR, DEFAULT_PAIRING_ENABLED, DEFAULT_PAIRING_TOKEN, DEFAULT_RELAY_PORT } from "./relay-settings.js";
 
 const statusEl = document.getElementById("status");
 const statusIndicator = document.getElementById("statusIndicator");

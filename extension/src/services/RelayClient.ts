@@ -1,4 +1,4 @@
-import type { RelayCommand, RelayEvent, RelayHandshake, RelayResponse } from "../types";
+import type { RelayCommand, RelayEvent, RelayHandshake, RelayResponse } from "../types.js";
 
 type RelayHandlers = {
   onCommand: (command: RelayCommand) => void;

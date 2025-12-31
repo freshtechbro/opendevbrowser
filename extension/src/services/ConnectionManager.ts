@@ -1,8 +1,8 @@
-import type { ConnectionStatus, RelayHandshake } from "../types";
-import { DEFAULT_PAIRING_ENABLED, DEFAULT_PAIRING_TOKEN, DEFAULT_RELAY_PORT } from "../relay-settings";
-import { RelayClient } from "./RelayClient";
-import { CDPRouter } from "./CDPRouter";
-import { TabManager } from "./TabManager";
+import type { ConnectionStatus, RelayHandshake } from "../types.js";
+import { DEFAULT_PAIRING_ENABLED, DEFAULT_PAIRING_TOKEN, DEFAULT_RELAY_PORT } from "../relay-settings.js";
+import { RelayClient } from "./RelayClient.js";
+import { CDPRouter } from "./CDPRouter.js";
+import { TabManager } from "./TabManager.js";
 
 type TrackedTab = {
   id: number;

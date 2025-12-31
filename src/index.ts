@@ -7,7 +7,7 @@ import { RelayServer } from "./relay/relay-server";
 import { createTools } from "./tools";
 import { extractExtension, getExtensionPath } from "./extension-extractor";
 
-export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
+const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const initialConfig = loadGlobalConfig();
   const configStore = new ConfigStore(initialConfig);
   const cacheRoot = worktree || directory;
@@ -17,6 +17,12 @@ export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const relay = new RelayServer();
   relay.setToken(initialConfig.relayToken);
 
+  // Minimal startup signal for local testing/debugging.
+  // Avoid logging secrets (relayToken can be a string).
+  console.info(
+    `[opendevbrowser] loaded (cacheRoot=${cacheRoot}, relay=${initialConfig.relayToken === false ? "disabled" : "enabled"})`
+  );
+
   try {
     extractExtension();
   } catch (error) {
@@ -25,7 +31,7 @@ export const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   }
 
   const ensureRelay = async (port: number) => {
-    if (port <= 0) {
+    if (port <= 0 || initialConfig.relayToken === false) {
       relay.stop();
       return;
     }

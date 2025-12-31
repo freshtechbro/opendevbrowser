@@ -10,7 +10,7 @@
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "types": ["chrome"],
-    "jsx": "preserve"
+    "jsx": "react-jsx"
   },
   "include": ["src"]
 }

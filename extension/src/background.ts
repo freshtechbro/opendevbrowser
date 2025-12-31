@@ -1,5 +1,5 @@
-import { ConnectionManager } from "./services/ConnectionManager";
-import type { BackgroundMessage, PopupMessage } from "./types";
+import { ConnectionManager } from "./services/ConnectionManager.js";
+import type { BackgroundMessage, PopupMessage } from "./types.js";
 
 const connection = new ConnectionManager();
 
