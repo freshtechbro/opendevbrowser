@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { WebSocket } from "ws";
 import http from "http";
 import { RelayServer } from "../src/relay/relay-server";
@@ -47,12 +47,19 @@ const nextMessage = async (socket: WebSocket): Promise<Record<string, unknown>> 
 
 describe("RelayServer", () => {
   let server: RelayServer | null = null;
+  let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
 
   afterEach(() => {
     if (server) {
       server.stop();
       server = null;
     }
+    warnSpy?.mockRestore();
+    warnSpy = null;
   });
 
   it("starts and stops", async () => {

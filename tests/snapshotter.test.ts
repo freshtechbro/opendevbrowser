@@ -1,7 +1,35 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { RefStore } from "../src/snapshot/refs";
 import { Snapshotter, selectorFunction } from "../src/snapshot/snapshotter";
+
+type HappyDomSettings = {
+  fetch: {
+    interceptor: unknown;
+  };
+};
+
+const getHappyDomSettings = (): HappyDomSettings | null => {
+  const happyDom = window as unknown as { happyDOM?: { settings: HappyDomSettings } };
+  return happyDom.happyDOM?.settings ?? null;
+};
+
+let originalInterceptor: unknown = null;
+
+beforeAll(() => {
+  const settings = getHappyDomSettings();
+  if (!settings) return;
+  originalInterceptor = settings.fetch.interceptor;
+  settings.fetch.interceptor = {
+    beforeAsyncRequest: async () => new Response("", { status: 200 })
+  };
+});
+
+afterAll(() => {
+  const settings = getHappyDomSettings();
+  if (!settings) return;
+  settings.fetch.interceptor = originalInterceptor;
+});
 
 type AxNode = {
   nodeId: string;
