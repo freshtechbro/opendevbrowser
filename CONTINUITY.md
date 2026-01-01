@@ -16,18 +16,19 @@ State:
     - Committed fixes for browser cleanup, DOM sanitization, and status update checks.
     - Committed skill/continuity nudges, skill discovery updates, and CLI install extensions.
     - Committed version check tooling, test stability updates, and documentation refresh.
+    - Committed the refreshed extension bundle and updated the ledger.
+    - Verified git status is clean after all commits.
   - Now:
-    - Commit remaining tracked artifacts (extension bundle and ledger update).
+    - Prepare and send commit summary to the user.
   - Next:
-    - Commit `opendevbrowser-extension.zip` so the release bundle matches the latest build output.
-    - Update and commit `CONTINUITY.md` with final completion state for this task.
-    - Verify `git status` is clean and capture commit hashes for reporting.
-    - Share commit summary with the user and confirm any follow-up release steps.
+    - Share commit summary and hashes with the user (outcome: user reviews changes; files: none).
+    - Confirm whether to proceed with release steps from `docs/DISTRIBUTION_PLAN.md` (outcome: release decision; files: docs/DISTRIBUTION_PLAN.md if updated).
+    - If release continues, run version checks/build/pack and confirm artifact freshness (outcome: validated artifacts; files: `opendevbrowser-extension.zip`, `package.json`).
+    - If requested, tag/publish the release (outcome: published release; files: none).
 
 Open questions (UNCONFIRMED if needed):
 - None.
 
 Working set (files/ids/commands):
 - `CONTINUITY.md`
-- `opendevbrowser-extension.zip`
 - `git status -sb`
