@@ -33,14 +33,18 @@ function getPackageVersion(): string | undefined {
 }
 
 async function fetchLatestVersion(packageName: string): Promise<string | undefined> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
   try {
-    const response = await fetch(`https://registry.npmjs.org/${packageName}/latest`);
+    const response = await fetch(`https://registry.npmjs.org/${packageName}/latest`, { signal: controller.signal });
     if (!response.ok) return undefined;
     const payload = await response.json() as { version?: unknown };
     return typeof payload.version === "string" ? payload.version : undefined;
   } catch (error) {
-    void error;
+    console.warn("[opendevbrowser] Update check failed:", error);
     return undefined;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

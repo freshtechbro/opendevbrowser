@@ -364,6 +364,7 @@ describe("tools", () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
     globalThis.fetch = fetchMock as never;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const { createTools } = await import("../src/tools");
     const tools = createTools(deps as never);
@@ -371,7 +372,12 @@ describe("tools", () => {
     const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
     expect(result.updateHint).toBeUndefined();
     expect(fetchMock).toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[opendevbrowser] Update check failed:",
+      expect.any(Error)
+    );
 
+    warnSpy.mockRestore();
     globalThis.fetch = originalFetch;
   });
 
