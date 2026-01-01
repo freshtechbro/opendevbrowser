@@ -54,7 +54,7 @@ The extension does not integrate with any third-party services, analytics platfo
 ## Open Source
 
 OpenDevBrowser is open source. You can review the complete source code at:
-https://github.com/anthropics/opendevbrowser
+https://github.com/freshtechbro/opendevbrowser
 
 ## Changes to This Policy
 

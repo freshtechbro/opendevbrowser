@@ -5,7 +5,11 @@ Applies to `skills/` and subdirectories. Extends root `AGENTS.md`.
 ## Skill Pack Architecture
 - Each skill pack lives in its own folder with `SKILL.md` as the entry point.
 - `opendevbrowser-best-practices` is the canonical prompting guide source.
-- Skills are discovered via `SkillLoader.listSkills()` and loaded via `SkillLoader.loadSkill(name, topic?)`.
+- OpenCode-native discovery is primary:
+  - Project-local: `.opencode/skill/*/SKILL.md`
+  - Global: `~/.config/opencode/skill/*/SKILL.md`
+- Compatibility-only paths: `.claude/skills/*/SKILL.md`, `~/.claude/skills/*/SKILL.md`
+- `opendevbrowser_skill_list/load` are compatibility wrappers; OpenCode `skill` is primary.
 
 ## Skill Pack Rules
 - `skills/opendevbrowser-best-practices/SKILL.md` is the source for prompting guide output.
@@ -46,12 +50,13 @@ Content organized by topic for filtering.
 | Skill | Purpose |
 |-------|---------|
 | `opendevbrowser-best-practices` | Core prompting guide for browser automation |
+| `opendevbrowser-continuity-ledger` | Continuity ledger guidance for long-running tasks |
 | `login-automation` | Authentication and credential handling |
 | `form-testing` | Form validation and submission testing |
 | `data-extraction` | Table extraction and pagination handling |
 
 ## Custom Skill Paths
-Users can add custom skills via `skillPaths` in `opendevbrowser.jsonc`:
+Advanced: users can add custom search paths via `skillPaths` in `opendevbrowser.jsonc`:
 ```jsonc
 {
   "skillPaths": ["~/.config/opencode/opendevbrowser-skills"]
@@ -62,6 +67,8 @@ Users can add custom skills via `skillPaths` in `opendevbrowser.jsonc`:
 ```
 skills/
 |-- opendevbrowser-best-practices/
+|   `-- SKILL.md
+|-- opendevbrowser-continuity-ledger/
 |   `-- SKILL.md
 |-- login-automation/
 |   `-- SKILL.md

@@ -1,10 +1,10 @@
 # OpenDevBrowser
 
-[![npm version](https://img.shields.io/npm/v/opendevbrowser.svg?style=flat-square)](https://www.npmjs.com/package/opendevbrowser)
+[![npm version](https://img.shields.io/npm/v/opendevbrowser.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
 [![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-green.svg?style=flat-square)](https://opencode.ai)
-[![Test Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen.svg?style=flat-square)](https://github.com/anthropics/opendevbrowser)
+[![Test Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen.svg?style=flat-square)](https://github.com/freshtechbro/opendevbrowser)
 
 > **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
@@ -23,16 +23,24 @@ npx opendevbrowser
 # Or specify location
 npx opendevbrowser --global   # ~/.config/opencode/opencode.json
 npx opendevbrowser --local    # ./opencode.json
+
+# Full install (config + extension assets)
+npx opendevbrowser --full
 ```
 
 Restart OpenCode after installation.
 
-### For LLM Agents
+OpenCode discovers skills in `.opencode/skill` (project) and `~/.config/opencode/skill` (global) first; `.claude/skills` is compatibility-only. The CLI installs bundled skills into the OpenCode-native locations by default.
 
-<details>
-<summary><strong>Click to expand agent instructions</strong></summary>
+### Agent Installation (OpenCode)
 
-Add the plugin to the user's OpenCode config:
+Recommended (CLI, installs plugin + config + bundled skills + extension assets):
+
+```bash
+npx opendevbrowser --full --global --no-prompt
+```
+
+Manual fallback (edit OpenCode config):
 
 ```json
 {
@@ -43,9 +51,7 @@ Add the plugin to the user's OpenCode config:
 
 Config location: `~/.config/opencode/opencode.json`
 
-The plugin works out-of-box with sensible defaults. No additional configuration required.
-
-</details>
+Restart OpenCode, then run `opendevbrowser_status` to verify the plugin is loaded.
 
 ---
 
@@ -139,6 +145,29 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
     "allowNonLocalCdp": false,
     "allowUnsafeExport": false
   },
+  "continuity": {
+    "enabled": true,
+    "filePath": "opendevbrowser_continuity.md",
+    "nudge": {
+      "enabled": true,
+      "keywords": [
+        "plan",
+        "multi-step",
+        "multi step",
+        "long-running",
+        "long running",
+        "refactor",
+        "migration",
+        "rollout",
+        "release",
+        "upgrade",
+        "investigate",
+        "follow-up",
+        "continue"
+      ],
+      "maxAgeMs": 60000
+    }
+  },
   "relayPort": 8787,
   "relayToken": "auto-generated-on-first-run"
 }
@@ -156,6 +185,7 @@ All fields optional. Plugin works with sensible defaults.
 | `npx opendevbrowser --global` | Install to global config |
 | `npx opendevbrowser --local` | Install to project config |
 | `npx opendevbrowser --with-config` | Also create opendevbrowser.jsonc |
+| `npx opendevbrowser --full` | Full install (config + extension assets) |
 | `npx opendevbrowser --update` | Clear cache, trigger reinstall |
 | `npx opendevbrowser --uninstall` | Remove from config |
 | `npx opendevbrowser --version` | Show version |
@@ -183,6 +213,8 @@ rm -rf ~/.cache/opencode/node_modules/opendevbrowser
 # Option 2: Use CLI
 npx opendevbrowser --update
 ```
+
+Release checklist: `docs/DISTRIBUTION_PLAN.md`
 
 ---
 

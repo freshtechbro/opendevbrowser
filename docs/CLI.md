@@ -13,6 +13,18 @@ npx opendevbrowser --global   # Install to ~/.config/opencode/opencode.json
 npx opendevbrowser --local    # Install to ./opencode.json
 ```
 
+By default, the CLI also installs bundled skills to `~/.config/opencode/skill`. Use `--skills-local` for project-local skills or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+
+### Skill discovery order (OpenCode-native)
+
+OpenCode discovers skills in this order (first match wins):
+
+1. Project-local: `./.opencode/skill`
+2. Global: `~/.config/opencode/skill` (or `$OPENCODE_CONFIG_DIR/skill`)
+3. Compatibility: `./.claude/skills`
+4. Compatibility: `~/.claude/skills`
+5. Extra paths from `skillPaths` (advanced)
+
 ## Commands
 
 ### Install (Default)
@@ -34,8 +46,20 @@ npx opendevbrowser -l
 # Skip prompts, use default (global)
 npx opendevbrowser --no-prompt
 
+# Full install (config + extension assets)
+npx opendevbrowser --full
+
 # Also create opendevbrowser.jsonc config file
 npx opendevbrowser --global --with-config
+
+# Full install (plugin + config + bundled skills)
+npx opendevbrowser --global --with-config --skills-global
+
+# Install skills locally (project scope)
+npx opendevbrowser --skills-local
+
+# Skip installing skills
+npx opendevbrowser --no-skills
 ```
 
 ### Update
@@ -87,7 +111,11 @@ npx opendevbrowser -v
 | `--update` | `-u` | Clear cache to trigger reinstall |
 | `--uninstall` | | Remove plugin from config |
 | `--with-config` | | Also create `opendevbrowser.jsonc` |
+| `--full` | `-f` | Create config and pre-extract extension assets |
 | `--no-prompt` | | Skip prompts, use defaults |
+| `--skills-global` | | Install skills to `~/.config/opencode/skill` (default) |
+| `--skills-local` | | Install skills to `./.opencode/skill` |
+| `--no-skills` | | Skip installing bundled skills |
 | `--help` | `-h` | Show usage information |
 | `--version` | `-v` | Show version number |
 
@@ -125,9 +153,28 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
     "allowNonLocalCdp": false,
     "allowUnsafeExport": false
   },
-  "skillPaths": []
+  "skillPaths": [],
+  "skills": {
+    "nudge": {
+      "enabled": true,
+      "keywords": ["login", "form", "extract"],
+      "maxAgeMs": 60000
+    }
+  },
+  "continuity": {
+    "enabled": true,
+    "filePath": "opendevbrowser_continuity.md",
+    "nudge": {
+      "enabled": true,
+      "keywords": ["plan", "multi-step", "long-running", "refactor", "migration", "rollout", "continue"],
+      "maxAgeMs": 60000
+    }
+  }
 }
 ```
+
+The optional `skills.nudge` section controls the small one-time prompt hint that encourages early `skill(...)` usage on skill-relevant tasks.
+The optional `continuity` section controls the long-running task nudge and the ledger file path.
 
 ## Examples
 

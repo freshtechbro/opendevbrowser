@@ -5,16 +5,16 @@ Maintain a single Continuity Ledger for this workspace in `CONTINUITY.md`. The l
 - At the start of every assistant turn: read `CONTINUITY.md`, update it to reflect the latest goal/constraints/decisions/state, then proceed with the work.
 - Update `CONTINUITY.md` again whenever any of these change: goal, constraints/assumptions, key decisions, progress state (Done/Now/Next), or important tool outcomes.
 - Keep it short and stable: facts only, no transcripts. Prefer bullets. Mark uncertainty as `UNCONFIRMED` (never guess).
-- If you notice missing recall or a compaction/summary event: refresh/rebuild the ledger from visible context, mark gaps `UNCONFIRMED`, ask up to 1-3 targeted questions, then continue.
+- If you notice missing recall or a compaction/summary event: refresh/rebuild the ledger from visible context, mark gaps `UNCONFIRMED`, ask up to 1-5 targeted questions, then continue.
 
 ## `todowrite` vs the Ledger
 - `todowrite` is for short-term execution scaffolding while you work (a small 3-7 step plan with pending/in_progress/completed).
 - `todoread` is for checking the current task plan state.
 - `CONTINUITY.md` is for long-running continuity across compaction (the "what/why/current state"), not a step-by-step task list.
-- Keep them consistent: when the plan or state changes, update the ledger at the intent/progress level (not every micro-step).
+- Keep them concise and consistent: when the plan or state changes, update the ledger at the intent/progress level (not every micro-step).
 
 ## In replies
-- Begin with a brief "Ledger Snapshot" (Goal + Now/Next + Open Questions). Print the full ledger only when it materially changes or when the user asks.
+- Begin with a brief "Ledger Snapshot" (Goal + Now/Next + Open Questions and recommended options based on your understanding, research and best practice). Print the full ledger only when it materially changes or when the user asks.
 
 ## `CONTINUITY.md` format (keep headings)
 Goal (incl. success criteria):
@@ -25,7 +25,7 @@ Goal (incl. success criteria):
   - Now:
   - Next: at least 4 next tasks/subtasks each with a brief description. must be detailed with a clear action item and expected outcome and files to be impacted
 - Open questions (UNCONFIRMED if needed):
-  - When you have open questions, do your research in the codebase (and on the internet for best practices) to understand the existing patterns and constraints. Choose answers that are consistent with the existing patterns and constraints and best-practice.
+  - When you have open questions, do your research in the codebase (and on the internet for best practices) to understand the existing patterns and constraints. Choose answers that are consistent with the existing patterns and constraints and best-practice and research all synchronized into logical recommendations.
 - Working set (files/ids/commands):
 
 # Agent Guidelines (opendevbrowser)
@@ -36,7 +36,7 @@ Use it as the authoritative reference for commands, style, and safety.
 
 ## Repository Layout
 - `docs/` holds the authoritative plans and blueprints.
-- `docs/PLAN.md`, `docs/opendevbrowser-plan.md`, `docs/IMPLEMENTATION_BLUEPRINT.md` must stay in sync.
+- Keep any referenced plan docs in sync with the current scope.
 - `src/` contains the OpenCode plugin implementation.
 - `extension/` is reserved for the optional Chrome extension.
 - `skills/` contains plugin skill packs.
@@ -152,7 +152,7 @@ Playwright (when wired):
 - Relay protocol types live in `src/relay/` and are consumed by the extension with configurable relay settings.
 
 ## Architecture Alignment (Planned vs Current)
-- Source of truth: `docs/PLAN.md`, `docs/opendevbrowser-plan.md`, `docs/IMPLEMENTATION_BLUEPRINT.md`, `docs/ARCHITECTURE_COMPARISON.md`.
+- Source of truth: `docs/` (see the plan doc(s) for the current scope).
 - Snapshots: prefer Accessibility-domain AX outline; avoid DOM mutation for refs.
 - Refs: stable mapping `{ backendNodeId, frameId, targetId }`; invalidate on navigation/target switch.
 - ScriptRunner: include retry/backoff helpers for waits and actions.

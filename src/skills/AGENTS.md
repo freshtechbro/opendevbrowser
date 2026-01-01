@@ -3,7 +3,11 @@
 Applies to `src/skills/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 
 ## Local Architecture
-- `SkillLoader` reads skill packs from `skills/` (fallback to parent dir) and filters by heading `topic`.
+- `SkillLoader` reads skill packs from OpenCode skill directories:
+  - Project-local: `.opencode/skill/`
+  - Global: `~/.config/opencode/skill/`
+  - Compatibility: `.claude/skills/`, `~/.claude/skills/`
+- `skillPaths` can add extra search paths as an advanced override.
 
 ## Responsibilities
 - Load skill packs (e.g., `skills/opendevbrowser-best-practices/SKILL.md`).
