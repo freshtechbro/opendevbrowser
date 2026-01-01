@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "opendevbrowser": "./dist/cli/index.js"
+    "opendevbrowser": "dist/cli/index.js"
   },
   "files": [
     "dist",
@@ -30,7 +30,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/opendevbrowser.git"
+    "url": "git+https://github.com/freshtechbro/opendevbrowser.git"
   },
   "engines": {
     "node": ">=18"
