@@ -208,26 +208,62 @@ export class BrowserManager {
 
   async disconnect(sessionId: string, closeBrowser = false): Promise<void> {
     const managed = this.getManaged(sessionId);
-    for (const entry of managed.targets.listPageEntries()) {
-      const cleanup = this.pageListeners.get(entry.page);
-      if (cleanup) {
-        cleanup();
-        this.pageListeners.delete(entry.page);
+    const cleanupErrors: unknown[] = [];
+
+    try {
+      for (const entry of managed.targets.listPageEntries()) {
+        const cleanup = this.pageListeners.get(entry.page);
+        if (cleanup) {
+          try {
+            cleanup();
+          } catch (error) {
+            cleanupErrors.push(error);
+          }
+          this.pageListeners.delete(entry.page);
+        }
       }
+
+      try {
+        if (closeBrowser) {
+          await managed.browser.close();
+        } else {
+          await managed.context.close();
+        }
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+
+      try {
+        managed.consoleTracker.detach();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+
+      try {
+        managed.networkTracker.detach();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+
+      if (!managed.persistProfile && managed.profileDir) {
+        try {
+          await rm(managed.profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        } catch (error) {
+          cleanupErrors.push(error);
+        }
+      }
+    } finally {
+      this.sessions.delete(sessionId);
+      this.sessionMutexes.delete(sessionId);
+      this.store.delete(sessionId);
     }
-    if (closeBrowser) {
-      await managed.browser.close();
-    } else {
-      await managed.context.close();
+
+    if (cleanupErrors.length === 1) {
+      throw cleanupErrors[0];
     }
-    managed.consoleTracker.detach();
-    managed.networkTracker.detach();
-    if (!managed.persistProfile && managed.profileDir) {
-      await rm(managed.profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    if (cleanupErrors.length > 1) {
+      throw new AggregateError(cleanupErrors, "Failed to disconnect browser session.");
     }
-    this.sessions.delete(sessionId);
-    this.sessionMutexes.delete(sessionId);
-    this.store.delete(sessionId);
   }
 
   async status(sessionId: string): Promise<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string }> {

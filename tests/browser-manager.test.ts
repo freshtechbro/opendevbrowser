@@ -11,10 +11,15 @@ const downloadChromeForTesting = vi.fn();
 const launchPersistentContext = vi.fn();
 const connectOverCDP = vi.fn();
 const captureDom = vi.fn().mockResolvedValue({ html: "<div>ok</div>", styles: { color: "red" } });
+const rm = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock("../src/cache/paths", () => ({ resolveCachePaths }));
 vi.mock("../src/cache/chrome-locator", () => ({ findChromeExecutable }));
 vi.mock("../src/cache/downloader", () => ({ downloadChromeForTesting }));
+vi.mock("fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("fs/promises")>("fs/promises");
+  return { ...actual, rm };
+});
 vi.mock("playwright-core", () => ({
   chromium: {
     launchPersistentContext,
@@ -24,6 +29,7 @@ vi.mock("playwright-core", () => ({
 vi.mock("../src/export/dom-capture", () => ({ captureDom }));
 
 let originalFetch: typeof globalThis.fetch | undefined;
+let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
 
 type LegacyNode = { ref: string; role: string; name: string; tag: string; selector: string };
 
@@ -160,6 +166,8 @@ beforeEach(async () => {
     chromeDir: join(root, "chrome")
   });
   originalFetch = globalThis.fetch;
+  warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  rm.mockClear();
   captureDom.mockClear();
 });
 
@@ -167,6 +175,8 @@ afterEach(() => {
   if (originalFetch) {
     globalThis.fetch = originalFetch;
   }
+  warnSpy?.mockRestore();
+  warnSpy = null;
 });
 
 describe("BrowserManager", () => {
@@ -535,6 +545,30 @@ describe("BrowserManager", () => {
     await manager.disconnect(result.sessionId, false);
   });
 
+  it("passes retry options when cleaning up temp profiles", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    downloadChromeForTesting.mockResolvedValue({ executablePath: "/bin/chrome" });
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({ profile: "default", persistProfile: false });
+    await manager.disconnect(result.sessionId, false);
+
+    expect(rm).toHaveBeenCalledWith(expect.any(String), {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100
+    });
+  });
+
   it("manages targets and wait helpers", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -636,6 +670,27 @@ describe("BrowserManager", () => {
 
     await manager.disconnect(result.sessionId, true);
     expect(browser.close).toHaveBeenCalled();
+  });
+
+  it("cleans up session state when disconnect throws", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+
+    vi.spyOn(context, "close").mockRejectedValue(new Error("close fail"));
+
+    await expect(manager.disconnect(result.sessionId, false)).rejects.toThrow("close fail");
+
+    const sessions = (manager as unknown as { sessions: Map<string, unknown> }).sessions;
+    expect(sessions.has(result.sessionId)).toBe(false);
   });
 
   it("rejects unknown refs and snapshots with no target", async () => {
