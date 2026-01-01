@@ -36,6 +36,9 @@ OpenDevBrowser Relay bridges the OpenDevBrowser plugin with your Chrome browser,
 - All automation happens locally
 - Open source and auditable
 
+### Privacy Policy URL
+https://github.com/freshtechbro/opendevbrowser/blob/main/docs/privacy.md
+
 ## Category
 Developer Tools
 
