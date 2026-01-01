@@ -113,11 +113,11 @@ export async function captureDom(
         };
 
         const DANGEROUS_CSS_PATTERNS = [
-          /url\s*\(/gi,
-          /expression\s*\(/gi,
-          /-moz-binding/gi,
-          /behavior\s*:/gi,
-          /javascript\s*:/gi
+          /url\s*\(/i,
+          /expression\s*\(/i,
+          /-moz-binding/i,
+          /behavior\s*:/i,
+          /javascript\s*:/i
         ];
 
         const sanitizeStyle = (styleValue: string): { sanitized: string; wasModified: boolean } => {
@@ -125,7 +125,7 @@ export async function captureDom(
           let wasModified = false;
           for (const pattern of DANGEROUS_CSS_PATTERNS) {
             if (pattern.test(result)) {
-              result = result.replace(new RegExp(pattern.source, pattern.flags), "/* blocked */");
+              result = result.replace(new RegExp(pattern.source, "gi"), "/* blocked */");
               wasModified = true;
             }
           }

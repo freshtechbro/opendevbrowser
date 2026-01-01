@@ -1,6 +1,34 @@
 // @vitest-environment happy-dom
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { captureDom } from "../src/export/dom-capture";
+
+type HappyDomSettings = {
+  fetch: {
+    interceptor: unknown;
+  };
+};
+
+const getHappyDomSettings = (): HappyDomSettings | null => {
+  const happyDom = window as unknown as { happyDOM?: { settings: HappyDomSettings } };
+  return happyDom.happyDOM?.settings ?? null;
+};
+
+let originalInterceptor: unknown = null;
+
+beforeAll(() => {
+  const settings = getHappyDomSettings();
+  if (!settings) return;
+  originalInterceptor = settings.fetch.interceptor;
+  settings.fetch.interceptor = {
+    beforeAsyncRequest: async () => new Response("", { status: 200 })
+  };
+});
+
+afterAll(() => {
+  const settings = getHappyDomSettings();
+  if (!settings) return;
+  settings.fetch.interceptor = originalInterceptor;
+});
 
 const createPage = () => ({
   $eval: async (selector: string, fn: (el: Element, opts: { shouldSanitize: boolean }) => unknown, opts: { shouldSanitize: boolean }) => {
@@ -199,6 +227,19 @@ describe("captureDom", () => {
   it("blocks url() in inline styles", async () => {
     document.body.innerHTML = `
       <div id="root" style="background: url('https://evil.com/track')">Hi</div>
+    `;
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).not.toContain("url(");
+  });
+
+  it("sanitizes repeated dangerous styles across elements", async () => {
+    document.body.innerHTML = `
+      <div id="root">
+        <div style="background: url('https://evil.com/1')">One</div>
+        <div style="background: url('https://evil.com/2')">Two</div>
+      </div>
     `;
     const page = createPage();
     const result = await captureDom(page as never, "#root");
