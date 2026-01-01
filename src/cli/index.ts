@@ -3,8 +3,10 @@
 import { parseArgs, getHelpText } from "./args";
 import { installGlobal } from "./installers/global";
 import { installLocal } from "./installers/local";
+import { installSkills } from "./installers/skills";
 import { runUpdate } from "./commands/update";
 import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
+import { extractExtension } from "../extension-extractor";
 import type { InstallMode } from "./args";
 
 const VERSION = "0.1.0";
@@ -162,6 +164,33 @@ async function main(): Promise<void> {
           : installLocal(args.withConfig);
 
         console.log(result.message);
+
+        if (args.skillsMode === "none") {
+          console.log("Skill installation skipped (--no-skills).");
+        } else if (result.success) {
+          const skillsResult = installSkills(args.skillsMode);
+          if (skillsResult.success) {
+            console.log(skillsResult.message);
+          } else {
+            console.warn(skillsResult.message);
+          }
+        } else {
+          console.warn("Skill installation skipped because plugin install failed.");
+        }
+
+        if (args.fullInstall && result.success) {
+          try {
+            const extensionPath = extractExtension();
+            if (extensionPath) {
+              console.log(`Extension assets extracted to ${extensionPath}`);
+            } else {
+              console.warn("Extension assets not found; skipping extraction.");
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(`Extension pre-extraction failed: ${message}`);
+          }
+        }
 
         if (result.success && !result.alreadyInstalled) {
           console.log("\nNext steps:");

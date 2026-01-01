@@ -16,7 +16,7 @@ function getPackageVersion(): string {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.version || "0.0.0";
   } catch (error) {
-    void error;
+    console.warn("[opendevbrowser] Failed to read package.json for extension version:", error);
     return "0.0.0";
   }
 }
@@ -28,8 +28,7 @@ function getInstalledVersion(destDir: string): string | null {
       return readFileSync(versionPath, "utf-8").trim();
     }
   } catch (error) {
-    // Ignore version read failures; we'll proceed with extraction.
-    void error;
+    console.warn("[opendevbrowser] Failed to read installed extension version:", error);
   }
   return null;
 }
@@ -52,7 +51,7 @@ function isCompleteInstall(dir: string): boolean {
   return required.every(file => existsSync(join(dir, file)));
 }
 
-export async function extractExtension(): Promise<string | null> {
+export function extractExtension(): string | null {
   const bundledPath = getBundledExtensionPath();
   if (!bundledPath) {
     return null;

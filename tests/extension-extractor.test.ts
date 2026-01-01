@@ -72,7 +72,7 @@ describe("extension-extractor", () => {
     mkdirSync(parentDir, { recursive: true });
 
     const { extractExtension } = await import("../src/extension-extractor");
-    const result = await extractExtension();
+    const result = extractExtension();
 
     if (result) {
       expect(result).toBe(destDir);
@@ -87,7 +87,7 @@ describe("extension-extractor", () => {
     mkdirSync(parentDir, { recursive: true });
 
     const { extractExtension } = await import("../src/extension-extractor");
-    const result = await extractExtension();
+    const result = extractExtension();
 
     if (result) {
       const parentContents = readdirSync(parentDir);
@@ -104,7 +104,7 @@ describe("extension-extractor", () => {
     writeFileSync(join(destDir, ".version"), "0.0.1");
 
     const { extractExtension } = await import("../src/extension-extractor");
-    const result = await extractExtension();
+    const result = extractExtension();
 
     if (result) {
       const parentContents = readdirSync(parentDir);
@@ -121,11 +121,54 @@ describe("extension-extractor", () => {
     writeFileSync(join(destDir, "old-file.txt"), "should be removed");
 
     const { extractExtension } = await import("../src/extension-extractor");
-    const result = await extractExtension();
+    const result = extractExtension();
 
     if (result) {
       expect(existsSync(join(destDir, ".version"))).toBe(true);
       expect(existsSync(join(destDir, "old-file.txt"))).toBe(false);
+    }
+  });
+
+  it("warns when version reads fail and remains synchronous", async () => {
+    const destDir = getTestConfigDir();
+    const parentDir = dirname(destDir);
+    mkdirSync(parentDir, { recursive: true });
+    mkdirSync(destDir, { recursive: true });
+    writeFileSync(join(destDir, ".version"), "1.0.0");
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.resetModules();
+      vi.doMock("fs", async () => {
+        const actual = await vi.importActual<typeof import("fs")>("fs");
+        return {
+          ...actual,
+          readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+            const [path] = args;
+            if (typeof path === "string" && (path.endsWith("package.json") || path.endsWith(".version"))) {
+              throw new Error("boom");
+            }
+            return actual.readFileSync(...args);
+          }
+        };
+      });
+
+      const { extractExtension } = await import("../src/extension-extractor");
+      const result = extractExtension();
+
+      expect(result).not.toBeInstanceOf(Promise);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[opendevbrowser] Failed to read package.json for extension version:",
+        expect.any(Error)
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[opendevbrowser] Failed to read installed extension version:",
+        expect.any(Error)
+      );
+    } finally {
+      vi.doUnmock("fs");
+      vi.resetModules();
+      warnSpy.mockRestore();
     }
   });
 });
