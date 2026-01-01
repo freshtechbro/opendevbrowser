@@ -5,7 +5,7 @@ import { ok } from "./response";
 
 export function createSkillListTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "List available browser automation skills that can be loaded for specialized guidance",
+    description: "List available skills from OpenCode skill directories (compatibility wrapper)",
     args: {},
     async execute() {
       const skills = await deps.skills.listSkills();

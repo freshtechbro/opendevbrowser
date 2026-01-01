@@ -34,6 +34,39 @@ function buildConfigTemplate(token: string): string {
     "allowUnsafeExport": false
   },
 
+  "skillPaths": [],
+  "skills": {
+    "nudge": {
+      "enabled": true,
+      "keywords": ["login", "form", "extract"],
+      "maxAgeMs": 60000
+    }
+  },
+
+  "continuity": {
+    "enabled": true,
+    "filePath": "opendevbrowser_continuity.md",
+    "nudge": {
+      "enabled": true,
+      "keywords": [
+        "plan",
+        "multi-step",
+        "multi step",
+        "long-running",
+        "long running",
+        "refactor",
+        "migration",
+        "rollout",
+        "release",
+        "upgrade",
+        "investigate",
+        "follow-up",
+        "continue"
+      ],
+      "maxAgeMs": 60000
+    }
+  },
+
   "relayPort": 8787,
   "relayToken": "${token}",
 

@@ -35,6 +35,28 @@ export type ExportConfig = {
   inlineStyles: boolean;
 };
 
+export type SkillsNudgeConfig = {
+  enabled: boolean;
+  keywords: string[];
+  maxAgeMs: number;
+};
+
+export type SkillsConfig = {
+  nudge: SkillsNudgeConfig;
+};
+
+export type ContinuityNudgeConfig = {
+  enabled: boolean;
+  keywords: string[];
+  maxAgeMs: number;
+};
+
+export type ContinuityConfig = {
+  enabled: boolean;
+  filePath: string;
+  nudge: ContinuityNudgeConfig;
+};
+
 export type OpenDevBrowserConfig = {
   headless: boolean;
   profile: string;
@@ -42,6 +64,8 @@ export type OpenDevBrowserConfig = {
   security: SecurityConfig;
   devtools: DevtoolsConfig;
   export: ExportConfig;
+  skills: SkillsConfig;
+  continuity: ContinuityConfig;
   relayPort: number;
   relayToken: string | false;
   chromePath?: string;
@@ -83,6 +107,58 @@ const exportSchema = z.object({
   inlineStyles: z.boolean().default(true)
 });
 
+const skillsNudgeSchema = z.object({
+  enabled: z.boolean().default(true),
+  keywords: z.array(z.string()).default([
+    "login",
+    "sign in",
+    "sign-in",
+    "auth",
+    "authentication",
+    "mfa",
+    "form",
+    "submit",
+    "validation",
+    "extract",
+    "scrape",
+    "scraping",
+    "table",
+    "pagination",
+    "crawl"
+  ]),
+  maxAgeMs: z.number().int().min(1000).max(600000).default(60000)
+});
+
+const skillsSchema = z.object({
+  nudge: skillsNudgeSchema.default({})
+}).default({});
+
+const continuityNudgeSchema = z.object({
+  enabled: z.boolean().default(true),
+  keywords: z.array(z.string()).default([
+    "plan",
+    "multi-step",
+    "multi step",
+    "long-running",
+    "long running",
+    "refactor",
+    "migration",
+    "rollout",
+    "release",
+    "upgrade",
+    "investigate",
+    "follow-up",
+    "continue"
+  ]),
+  maxAgeMs: z.number().int().min(1000).max(600000).default(60000)
+});
+
+const continuitySchema = z.object({
+  enabled: z.boolean().default(true),
+  filePath: z.string().min(1).default("opendevbrowser_continuity.md"),
+  nudge: continuityNudgeSchema.default({})
+}).default({});
+
 const configSchema = z.object({
   headless: z.boolean().default(false),
   profile: z.string().min(1).default("default"),
@@ -90,6 +166,8 @@ const configSchema = z.object({
   security: securitySchema.default({}),
   devtools: devtoolsSchema.default({}),
   export: exportSchema.default({}),
+  skills: skillsSchema.default({}),
+  continuity: continuitySchema.default({}),
   relayPort: z.number().int().min(0).max(65535).default(DEFAULT_RELAY_PORT),
   relayToken: z.union([z.string(), z.literal(false)]).optional(),
   chromePath: z.string().min(1).optional().refine(

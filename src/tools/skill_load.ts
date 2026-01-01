@@ -7,7 +7,7 @@ const z = tool.schema;
 
 export function createSkillLoadTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "Load a specific browser automation skill by name for specialized guidance on tasks like login automation, form testing, or data extraction",
+    description: "Load a specific skill by name from OpenCode skill directories (compatibility wrapper)",
     args: {
       name: z.string().describe("Name of the skill to load (e.g., 'login-automation', 'form-testing')"),
       topic: z.string().optional().describe("Optional topic to filter the skill content")

@@ -1,16 +1,20 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, chmod } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { SkillLoader } from "../src/skills/skill-loader";
 
 let tempRoot = "";
+let originalConfigDir: string | undefined;
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(join(tmpdir(), "odb-skill-"));
-  await mkdir(join(tempRoot, "skills", "opendevbrowser-best-practices"), { recursive: true });
+  originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
+  process.env.OPENCODE_CONFIG_DIR = tempRoot;
+  const skillDir = join(tempRoot, ".opencode", "skill", "opendevbrowser-best-practices");
+  await mkdir(skillDir, { recursive: true });
   await writeFile(
-    join(tempRoot, "skills", "opendevbrowser-best-practices", "SKILL.md"),
+    join(skillDir, "SKILL.md"),
     `---
 name: opendevbrowser-best-practices
 description: Best practices for browser automation
@@ -26,6 +30,14 @@ Do actions.
 Do snapshots.
 `
   );
+});
+
+afterEach(() => {
+  if (originalConfigDir === undefined) {
+    delete process.env.OPENCODE_CONFIG_DIR;
+  } else {
+    process.env.OPENCODE_CONFIG_DIR = originalConfigDir;
+  }
 });
 
 describe("SkillLoader", () => {
@@ -51,12 +63,27 @@ describe("SkillLoader", () => {
     expect(content).toContain("## Snapshots");
   });
 
-  it("falls back to parent skills directory when root lacks skills", async () => {
-    const distRoot = join(tempRoot, "dist");
-    await mkdir(distRoot, { recursive: true });
-    const loader = new SkillLoader(distRoot);
+  it("falls back to global opencode skill directory when local is missing", async () => {
+    const missingRoot = await mkdtemp(join(tmpdir(), "odb-skill-global-"));
+    const globalSkillDir = join(tempRoot, "skill", "opendevbrowser-best-practices");
+    await mkdir(globalSkillDir, { recursive: true });
+    await writeFile(
+      join(globalSkillDir, "SKILL.md"),
+      `---
+name: opendevbrowser-best-practices
+description: Global guide
+version: 1.0.0
+---
+
+# Guide
+Global content.
+`
+    );
+
+    const loader = new SkillLoader(missingRoot);
     const content = await loader.loadBestPractices();
     expect(content).toContain("# Guide");
+    expect(content).toContain("Global content.");
   });
 
   it("throws when skill file is missing", async () => {
@@ -69,7 +96,7 @@ describe("SkillLoader", () => {
     if (process.platform === "win32") return;
 
     const restrictedRoot = await mkdtemp(join(tmpdir(), "odb-skill-restricted-"));
-    const skillDir = join(restrictedRoot, "skills", "opendevbrowser-best-practices");
+    const skillDir = join(restrictedRoot, ".opencode", "skill", "opendevbrowser-best-practices");
     const skillPath = join(skillDir, "SKILL.md");
     await mkdir(skillDir, { recursive: true });
     await writeFile(skillPath, "secret");
@@ -83,7 +110,7 @@ describe("SkillLoader", () => {
 });
 
 describe("SkillLoader.listSkills", () => {
-  it("discovers skills in root/skills directory", async () => {
+  it("discovers skills in project .opencode/skill directory", async () => {
     const loader = new SkillLoader(tempRoot);
     const skills = await loader.listSkills();
     expect(skills.length).toBeGreaterThanOrEqual(1);
@@ -166,14 +193,14 @@ description: Duplicate
   });
 
   it("skips directories without SKILL.md", async () => {
-    await mkdir(join(tempRoot, "skills", "empty-dir"), { recursive: true });
+    await mkdir(join(tempRoot, ".opencode", "skill", "empty-dir"), { recursive: true });
     const loader = new SkillLoader(tempRoot);
     const skills = await loader.listSkills();
     expect(skills.some((s) => s.name === "empty-dir")).toBe(false);
   });
 
-  it("skips files in skills directory", async () => {
-    await writeFile(join(tempRoot, "skills", "not-a-skill.txt"), "file content");
+  it("skips files in skill directory", async () => {
+    await writeFile(join(tempRoot, ".opencode", "skill", "not-a-skill.txt"), "file content");
     const loader = new SkillLoader(tempRoot);
     const skills = await loader.listSkills();
     expect(skills.some((s) => s.name === "not-a-skill.txt")).toBe(false);
@@ -298,7 +325,7 @@ name: named-skill
 describe("filterSections edge cases", () => {
   it("handles content with body lines before any heading", async () => {
     await writeFile(
-      join(tempRoot, "skills", "opendevbrowser-best-practices", "SKILL.md"),
+      join(tempRoot, ".opencode", "skill", "opendevbrowser-best-practices", "SKILL.md"),
       `---
 name: opendevbrowser-best-practices
 description: Test
@@ -318,7 +345,7 @@ Content one.
 
   it("handles headings with no text after hash", async () => {
     await writeFile(
-      join(tempRoot, "skills", "opendevbrowser-best-practices", "SKILL.md"),
+      join(tempRoot, ".opencode", "skill", "opendevbrowser-best-practices", "SKILL.md"),
       `---
 name: opendevbrowser-best-practices
 description: Test

@@ -1,5 +1,5 @@
 import { readFile, readdir } from "fs/promises";
-import { join, dirname } from "path";
+import { join } from "path";
 import * as os from "os";
 import type { SkillInfo, SkillMetadata } from "./types";
 
@@ -66,11 +66,18 @@ export class SkillLoader {
   }
 
   private getSearchPaths(): string[] {
-    return [
-      join(this.rootDir, "skills"),
-      join(dirname(this.rootDir), "skills"),
+    const configDir = process.env.OPENCODE_CONFIG_DIR
+      || join(os.homedir(), ".config", "opencode");
+
+    const searchPaths = [
+      join(this.rootDir, ".opencode", "skill"),
+      join(configDir, "skill"),
+      join(this.rootDir, ".claude", "skills"),
+      join(os.homedir(), ".claude", "skills"),
       ...this.additionalPaths
     ];
+
+    return Array.from(new Set(searchPaths));
   }
 
   private async discoverSkillsInPath(searchPath: string): Promise<SkillInfo[]> {

@@ -1,6 +1,6 @@
 ---
-name: OpenDevBrowser Best Practices
-description: This skill should be used when the user asks to "write a browser script", "generate opendevbrowser steps", "use snapshot refs", "automate navigation", "extract DOM elements", or requests best-practice prompting for OpenDevBrowser. Provides script-first guidance, snapshot/ref workflow, and token-efficient patterns.
+name: opendevbrowser-best-practices
+description: Use when the user asks to write browser scripts, automate navigation, use snapshot refs, or extract DOM elements. Provides script-first, snapshot/ref guidance.
 version: 0.1.0
 ---
 

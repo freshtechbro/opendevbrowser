@@ -7,6 +7,17 @@ import * as os from "os";
 vi.mock("fs");
 vi.mock("os");
 
+let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+beforeEach(() => {
+  warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  warnSpy?.mockRestore();
+  warnSpy = null;
+});
+
 describe("loadGlobalConfig", () => {
   beforeEach(() => {
     vi.mocked(os.homedir).mockReturnValue("/home/testuser");
