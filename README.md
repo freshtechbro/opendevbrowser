@@ -40,6 +40,12 @@ Recommended (CLI, installs plugin + config + bundled skills + extension assets):
 npx opendevbrowser --full --global --no-prompt
 ```
 
+Explicit flags (config + skills, no prompt):
+
+```bash
+npx opendevbrowser --global --with-config --skills-global --no-prompt
+```
+
 Manual fallback (edit OpenCode config):
 
 ```json
@@ -214,7 +220,7 @@ rm -rf ~/.cache/opencode/node_modules/opendevbrowser
 npx opendevbrowser --update
 ```
 
-Release checklist: `docs/DISTRIBUTION_PLAN.md`
+Release checklist: [docs/DISTRIBUTION_PLAN.md](docs/DISTRIBUTION_PLAN.md)
 
 ---
 
