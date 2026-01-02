@@ -43,3 +43,6 @@ playwright/.cache/
 # Build artifacts (do not commit)
 *.tgz
 opendevbrowser-extension.zip
+
+# Continuity ledger (local-only)
+CONTINUITY.md
