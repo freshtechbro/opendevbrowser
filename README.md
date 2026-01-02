@@ -221,17 +221,20 @@ The extension enables **Mode C** - attach to existing logged-in browser tabs wit
 
 The plugin and extension can automatically pair:
 
-1. **Plugin side**: Auto-generates secure token on first run (saved to config)
+1. **Plugin side**: Starts a local relay server and config discovery endpoint
 2. **Extension side**: Enable "Auto-Pair" toggle and click Connect
-3. Extension fetches token from plugin's relay server
+3. Extension fetches relay port from discovery, then fetches token from the relay server
 4. Connection established with color indicator (green = connected)
 
 ### Manual Setup
 
-1. Install extension from Chrome Web Store or load unpacked from `~/.cache/opencode/opendevbrowser-extension/`
-2. Open extension popup
-3. Enter same port/token as plugin config
-4. Click Connect
+1. Start OpenCode once so the plugin can extract the extension assets.
+2. Load unpacked from `~/.config/opencode/opendevbrowser/extension`
+   (fallback: `~/.cache/opencode/node_modules/opendevbrowser/extension`).
+3. Open extension popup
+4. Enter the same relay port and token as the plugin config
+   (if `relayToken` is missing, either add one to `opendevbrowser.jsonc` or use Auto-Pair).
+5. Click Connect
 
 ---
 
