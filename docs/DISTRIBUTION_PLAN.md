@@ -41,6 +41,7 @@ One command reliably verifies version consistency before release.
 ### Acceptance criteria
 - [ ] `npm run version:check` fails when versions differ.
 - [ ] `npm run version:check` passes when versions match.
+- [ ] `npm run prepack` runs `version:check` before building release artifacts.
 
 ---
 
@@ -128,5 +129,6 @@ Agents can install the plugin with clear, copy-pasteable instructions.
 4. Run: `npm run build`
 5. Run: `npm run extension:build`
 6. Run: `npm run extension:pack` (generates `opendevbrowser-extension.zip`)
+   - Output: `./opendevbrowser-extension.zip` at repo root.
 7. Publish to NPM: `npm publish`
 8. Create GitHub release tag `vX.Y.Z` and attach `opendevbrowser-extension.zip`

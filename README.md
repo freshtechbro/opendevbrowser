@@ -350,6 +350,8 @@ npm run build      # Compile to dist/
 npm run test       # Run tests with coverage
 npm run lint       # ESLint checks
 npm run extension:build  # Compile extension
+npm run version:check    # Verify package/extension version alignment
+npm run extension:pack   # Build extension zip for releases
 ```
 
 ---
