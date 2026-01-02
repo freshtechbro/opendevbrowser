@@ -53,8 +53,8 @@ The extension does not integrate with any third-party services, analytics platfo
 
 ## Open Source
 
-OpenDevBrowser is open source. You can review the complete source code at:
-https://github.com/freshtechbro/opendevbrowser
+OpenDevBrowser is open source. You can review the published package contents at:
+https://registry.npmjs.org/opendevbrowser
 
 ## Changes to This Policy
 
@@ -62,4 +62,5 @@ We may update this privacy policy from time to time. Any changes will be reflect
 
 ## Contact
 
-For questions about this privacy policy or the extension, please open an issue on our GitHub repository.
+For questions about this privacy policy or the extension, please contact the maintainer at:
+https://github.com/freshtechbro
