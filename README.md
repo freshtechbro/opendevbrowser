@@ -112,6 +112,107 @@ Restart OpenCode, then run `opendevbrowser_status` to verify the plugin is loade
 
 ---
 
+## Tool Reference
+
+OpenDevBrowser provides **30 tools** organized by category:
+
+### Session Management
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_launch` | Launch managed Chrome session with optional profile |
+| `opendevbrowser_connect` | Connect to existing Chrome CDP endpoint |
+| `opendevbrowser_disconnect` | Disconnect browser session |
+| `opendevbrowser_status` | Get session status and connection info |
+
+### Tab/Target Management
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_targets_list` | List all browser tabs/targets |
+| `opendevbrowser_target_use` | Switch to a specific tab by targetId |
+| `opendevbrowser_target_new` | Open new tab (optionally with URL) |
+| `opendevbrowser_target_close` | Close a tab by targetId |
+
+### Named Pages
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_page` | Open or focus a named page (logical tab alias) |
+| `opendevbrowser_list` | List all named pages in session |
+| `opendevbrowser_close` | Close a named page |
+
+### Navigation & Interaction
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_goto` | Navigate to URL |
+| `opendevbrowser_wait` | Wait for load state or element |
+| `opendevbrowser_snapshot` | Capture page accessibility tree with refs |
+| `opendevbrowser_click` | Click element by ref |
+| `opendevbrowser_type` | Type text into input by ref |
+| `opendevbrowser_select` | Select dropdown option by ref |
+| `opendevbrowser_scroll` | Scroll page or element |
+| `opendevbrowser_run` | Execute multiple actions in sequence |
+
+### DOM Inspection
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_dom_get_html` | Get outerHTML of element by ref |
+| `opendevbrowser_dom_get_text` | Get innerText of element by ref |
+
+### DevTools & Analysis
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_console_poll` | Poll console logs since sequence |
+| `opendevbrowser_network_poll` | Poll network requests since sequence |
+| `opendevbrowser_screenshot` | Capture page screenshot |
+| `opendevbrowser_perf` | Get page performance metrics |
+| `opendevbrowser_prompting_guide` | Get best-practice prompting guidance |
+
+### Export & Cloning
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_clone_page` | Export page as React component + CSS |
+| `opendevbrowser_clone_component` | Export element subtree as React component |
+
+### Skills
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_skill_list` | List available skills |
+| `opendevbrowser_skill_load` | Load a skill by name (with optional topic filter) |
+
+---
+
+## Bundled Skills
+
+OpenDevBrowser includes **5 task-specific skill packs**:
+
+| Skill | Purpose |
+|-------|---------|
+| `opendevbrowser-best-practices` | Core prompting patterns and workflow guidance |
+| `opendevbrowser-continuity-ledger` | Long-running task state management |
+| `login-automation` | Authentication flow patterns |
+| `form-testing` | Form validation and submission workflows |
+| `data-extraction` | Structured data scraping patterns |
+
+Skills are discovered from (priority order):
+1. `.opencode/skill/` (project)
+2. `~/.config/opencode/skill/` (global)
+3. `.claude/skills/` (compatibility)
+4. `~/.claude/skills/` (compatibility)
+5. Custom paths via `skillPaths` config
+
+Load a skill: `opendevbrowser_skill_load` with `name` and optional `topic` filter.
+
+---
+
+## Browser Modes
+
+| Mode | Tool | Use Case |
+|------|------|----------|
+| **Managed** | `opendevbrowser_launch` | Fresh browser, full control, automatic cleanup |
+| **CDP Connect** | `opendevbrowser_connect` | Attach to existing Chrome with `--remote-debugging-port` |
+| **Extension Relay** | Chrome Extension | Attach to logged-in tabs via relay server |
+
+---
+
 ## Chrome Extension (Optional)
 
 The extension enables **Mode C** - attach to existing logged-in browser tabs without launching a new browser.
@@ -140,42 +241,56 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
 
 ```jsonc
 {
+  // Browser settings
   "headless": false,
   "profile": "default",
   "persistProfile": true,
+  "chromePath": "/path/to/chrome",  // Custom Chrome executable
+  "flags": ["--disable-extensions"],  // Additional Chrome flags
+
+  // Snapshot limits
   "snapshot": { "maxChars": 16000, "maxNodes": 1000 },
+
+  // Export limits
   "export": { "maxNodes": 1000, "inlineStyles": true },
+
+  // DevTools output
   "devtools": { "showFullUrls": false, "showFullConsole": false },
+
+  // Security (all default false for safety)
   "security": {
     "allowRawCDP": false,
     "allowNonLocalCdp": false,
     "allowUnsafeExport": false
   },
+
+  // Skills configuration
+  "skills": {
+    "nudge": {
+      "enabled": true,
+      "keywords": ["form", "login", "extract", "scrape"],
+      "maxAgeMs": 60000
+    }
+  },
+  "skillPaths": ["./custom-skills"],  // Additional skill directories
+
+  // Continuity ledger
   "continuity": {
     "enabled": true,
     "filePath": "opendevbrowser_continuity.md",
     "nudge": {
       "enabled": true,
-      "keywords": [
-        "plan",
-        "multi-step",
-        "multi step",
-        "long-running",
-        "long running",
-        "refactor",
-        "migration",
-        "rollout",
-        "release",
-        "upgrade",
-        "investigate",
-        "follow-up",
-        "continue"
-      ],
+      "keywords": ["plan", "multi-step", "refactor", "migration"],
       "maxAgeMs": 60000
     }
   },
+
+  // Extension relay
   "relayPort": 8787,
-  "relayToken": "auto-generated-on-first-run"
+  "relayToken": "auto-generated-on-first-run",
+
+  // Updates
+  "checkForUpdates": false
 }
 ```
 
