@@ -1,8 +1,12 @@
-import { createServer, type IncomingMessage } from "http";
+import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import type { AddressInfo } from "net";
 import { timingSafeEqual } from "crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import type { RelayCommand, RelayEvent, RelayHandshake, RelayResponse } from "./protocol";
+
+const DEFAULT_DISCOVERY_PORT = 8787;
+const CONFIG_PATH = "/config";
+const PAIR_PATH = "/pair";
 
 type ExtensionInfo = {
   tabId: number;
@@ -11,21 +15,32 @@ type ExtensionInfo = {
   groupId?: number;
 };
 
+type RelayServerOptions = {
+  discoveryPort?: number;
+};
+
 export class RelayServer {
   private running = false;
   private baseUrl: string | null = null;
   private port: number | null = null;
   private server: ReturnType<typeof createServer> | null = null;
+  private discoveryServer: ReturnType<typeof createServer> | null = null;
   private extensionWss: WebSocketServer | null = null;
   private cdpWss: WebSocketServer | null = null;
   private extensionSocket: WebSocket | null = null;
   private cdpSocket: WebSocket | null = null;
   private extensionInfo: ExtensionInfo | null = null;
   private pairingToken: string | null = null;
+  private configuredDiscoveryPort: number;
+  private discoveryPort: number | null = null;
   private handshakeAttempts = new Map<string, { count: number; resetAt: number }>();
   private cdpAllowlist: Set<string> | null = null;
   private static readonly MAX_HANDSHAKE_ATTEMPTS = 5;
   private static readonly RATE_LIMIT_WINDOW_MS = 60_000;
+
+  constructor(options: RelayServerOptions = {}) {
+    this.configuredDiscoveryPort = options.discoveryPort ?? DEFAULT_DISCOVERY_PORT;
+  }
 
   async start(port = 8787): Promise<{ url: string; port: number }> {
     if (this.running && this.baseUrl && this.port !== null) {
@@ -76,7 +91,17 @@ export class RelayServer {
       const pathname = new URL(request.url ?? "", "http://127.0.0.1").pathname;
       const origin = request.headers.origin;
       
-      if (pathname === "/pair" && request.method === "OPTIONS") {
+      if (pathname === CONFIG_PATH && request.method === "OPTIONS") {
+        this.handleConfigPreflight(origin, response);
+        return;
+      }
+      
+      if (pathname === CONFIG_PATH && request.method === "GET") {
+        this.handleConfigRequest(origin, response);
+        return;
+      }
+      
+      if (pathname === PAIR_PATH && request.method === "OPTIONS") {
         if (origin && origin.startsWith("chrome-extension://")) {
           response.setHeader("Access-Control-Allow-Origin", origin);
           response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -87,7 +112,7 @@ export class RelayServer {
         return;
       }
       
-      if (pathname === "/pair" && request.method === "GET") {
+      if (pathname === PAIR_PATH && request.method === "GET") {
         const isLocalhost = !origin || origin.startsWith("chrome-extension://");
         
         if (!isLocalhost) {
@@ -159,6 +184,14 @@ export class RelayServer {
     this.baseUrl = `ws://127.0.0.1:${address.port}`;
     this.running = true;
 
+    try {
+      await this.startDiscoveryServer();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[opendevbrowser] Discovery server failed to start: ${message}`);
+      this.stopDiscoveryServer();
+    }
+
     return { url: this.baseUrl, port: address.port };
   }
 
@@ -167,6 +200,7 @@ export class RelayServer {
     this.baseUrl = null;
     this.port = null;
     this.extensionInfo = null;
+    this.stopDiscoveryServer();
 
     if (this.extensionSocket) {
       this.extensionSocket.close(1000, "Relay stopped");
@@ -209,6 +243,13 @@ export class RelayServer {
     return this.baseUrl ? `${this.baseUrl}/cdp` : null;
   }
 
+  getDiscoveryPort(): number | null {
+    if (this.port !== null && this.port === this.configuredDiscoveryPort) {
+      return this.port;
+    }
+    return this.discoveryPort;
+  }
+
   setToken(token?: string | false | null): void {
     const trimmed = typeof token === "string" ? token.trim() : "";
     this.pairingToken = trimmed.length ? trimmed : null;
@@ -230,6 +271,97 @@ export class RelayServer {
       return true;
     }
     return false;
+  }
+
+  private isExtensionOrigin(origin: string | undefined): boolean {
+    return Boolean(origin && origin.startsWith("chrome-extension://"));
+  }
+
+  private handleConfigPreflight(origin: string | undefined, response: ServerResponse): void {
+    if (this.isExtensionOrigin(origin)) {
+      response.setHeader("Access-Control-Allow-Origin", origin);
+      response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    }
+    response.writeHead(204);
+    response.end();
+  }
+
+  private handleConfigRequest(origin: string | undefined, response: ServerResponse): void {
+    if (!this.isExtensionOrigin(origin)) {
+      response.writeHead(403, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "Forbidden: extension origin required" }));
+      return;
+    }
+
+    if (origin) {
+      response.setHeader("Access-Control-Allow-Origin", origin);
+    }
+
+    if (this.port === null) {
+      response.writeHead(503, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "Relay not running" }));
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    });
+    response.end(JSON.stringify({
+      relayPort: this.port,
+      pairingRequired: Boolean(this.pairingToken)
+    }));
+  }
+
+  private async startDiscoveryServer(): Promise<void> {
+    if (this.port === null || this.discoveryServer) {
+      return;
+    }
+
+    if (this.configuredDiscoveryPort > 0 && this.configuredDiscoveryPort === this.port) {
+      return;
+    }
+
+    this.discoveryServer = createServer((request: IncomingMessage, response) => {
+      const pathname = new URL(request.url ?? "", "http://127.0.0.1").pathname;
+      const origin = request.headers.origin;
+
+      if (pathname === CONFIG_PATH && request.method === "OPTIONS") {
+        this.handleConfigPreflight(origin, response);
+        return;
+      }
+
+      if (pathname === CONFIG_PATH && request.method === "GET") {
+        this.handleConfigRequest(origin, response);
+        return;
+      }
+
+      response.writeHead(404);
+      response.end();
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      this.discoveryServer?.once("error", reject);
+      this.discoveryServer?.listen(this.configuredDiscoveryPort, "127.0.0.1", () => {
+        resolve();
+      });
+    });
+
+    const address = this.discoveryServer.address() as AddressInfo | null;
+    if (!address) {
+      throw new Error("Discovery server did not expose a port");
+    }
+
+    this.discoveryPort = address.port;
+  }
+
+  private stopDiscoveryServer(): void {
+    if (this.discoveryServer) {
+      this.discoveryServer.close();
+      this.discoveryServer = null;
+    }
+    this.discoveryPort = null;
   }
 
   private isRateLimited(ip: string): boolean {

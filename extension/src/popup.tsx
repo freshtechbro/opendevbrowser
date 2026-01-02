@@ -1,5 +1,11 @@
 import type { BackgroundMessage, PopupMessage } from "./types.js";
-import { DEFAULT_AUTO_PAIR, DEFAULT_PAIRING_ENABLED, DEFAULT_PAIRING_TOKEN, DEFAULT_RELAY_PORT } from "./relay-settings.js";
+import {
+  DEFAULT_AUTO_PAIR,
+  DEFAULT_DISCOVERY_PORT,
+  DEFAULT_PAIRING_ENABLED,
+  DEFAULT_PAIRING_TOKEN,
+  DEFAULT_RELAY_PORT
+} from "./relay-settings.js";
 
 const statusEl = document.getElementById("status");
 const statusIndicator = document.getElementById("statusIndicator");
@@ -54,6 +60,53 @@ const fetchTokenFromPlugin = async (port: number): Promise<string | null> => {
   }
 };
 
+const parsePort = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
+type RelayConfig = {
+  relayPort: number;
+  pairingRequired: boolean;
+};
+
+const fetchRelayConfig = async (port: number): Promise<RelayConfig | null> => {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/config`, {
+      method: "GET",
+      headers: { "Accept": "application/json" }
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    const relayPort = parsePort(data.relayPort);
+    if (!relayPort) {
+      return null;
+    }
+    const pairingRequired = typeof data.pairingRequired === "boolean" ? data.pairingRequired : true;
+    return { relayPort, pairingRequired };
+  } catch {
+    return null;
+  }
+};
+
+const applyRelayPort = (port: number): void => {
+  const nextValue = String(port);
+  if (relayPortInput.value !== nextValue) {
+    relayPortInput.value = nextValue;
+  }
+  chrome.storage.local.set({ relayPort: port });
+};
+
 const loadSettings = async () => {
   const data = await new Promise<Record<string, unknown>>((resolve) => {
     chrome.storage.local.get(["pairingToken", "pairingEnabled", "relayPort", "autoPair"], (items) => {
@@ -67,7 +120,7 @@ const loadSettings = async () => {
     : DEFAULT_PAIRING_ENABLED;
   const rawToken = typeof data.pairingToken === "string" ? data.pairingToken.trim() : "";
   const tokenValue = pairingEnabled ? (rawToken || DEFAULT_PAIRING_TOKEN || "") : rawToken;
-  const portValue = typeof data.relayPort === "number" ? data.relayPort : DEFAULT_RELAY_PORT;
+  const portValue = parsePort(data.relayPort) ?? DEFAULT_RELAY_PORT;
 
   autoPairInput.checked = autoPair;
   pairingEnabledInput.checked = pairingEnabled;
@@ -91,15 +144,22 @@ const toggle = async () => {
   const isConnected = statusEl.textContent === "Connected";
   
   if (!isConnected && autoPairInput.checked && pairingEnabledInput.checked) {
-    const port = parseInt(relayPortInput.value, 10) || DEFAULT_RELAY_PORT;
-    const fetchedToken = await fetchTokenFromPlugin(port);
-    if (fetchedToken) {
-      pairingTokenInput.value = fetchedToken;
-      chrome.storage.local.set({ pairingToken: fetchedToken });
-    } else {
-      statusEl.textContent = "Failed to fetch token from plugin";
-      setTimeout(() => refreshStatus(), 2000);
-      return;
+    const config = await fetchRelayConfig(DEFAULT_DISCOVERY_PORT);
+    const relayPort = config?.relayPort ?? parsePort(relayPortInput.value) ?? DEFAULT_RELAY_PORT;
+    if (config?.relayPort) {
+      applyRelayPort(config.relayPort);
+    }
+    const pairingRequired = config?.pairingRequired ?? true;
+    if (pairingRequired) {
+      const fetchedToken = await fetchTokenFromPlugin(relayPort);
+      if (fetchedToken) {
+        pairingTokenInput.value = fetchedToken;
+        chrome.storage.local.set({ pairingToken: fetchedToken });
+      } else {
+        statusEl.textContent = "Failed to fetch token from plugin";
+        setTimeout(() => refreshStatus(), 2000);
+        return;
+      }
     }
   }
   
