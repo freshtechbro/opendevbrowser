@@ -1,7 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { WebSocket } from "ws";
 import http from "http";
+import type { ServerResponse } from "http";
+import type { AddressInfo } from "net";
 import { RelayServer } from "../src/relay/relay-server";
+
+const getAvailablePort = async (): Promise<number> => {
+  const tempServer = http.createServer();
+  await new Promise<void>((resolve) => {
+    tempServer.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = tempServer.address() as AddressInfo;
+  await new Promise<void>((resolve) => tempServer.close(() => resolve()));
+  return address.port;
+};
 
 const connect = async (url: string, timeoutMs = 3000): Promise<WebSocket> => {
   const socket = new WebSocket(url);
@@ -123,6 +135,73 @@ describe("RelayServer", () => {
     cdp.close();
   });
 
+  it("forwards sessionId from CDP commands", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const cdp = await connect(`${started.url}/cdp`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 7 } }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const commandPromise = nextMessage(extension);
+    cdp.send(JSON.stringify({ id: 2, method: "Runtime.evaluate", params: {}, sessionId: "sess-1" }));
+    const command = await commandPromise;
+    const params = command.params as Record<string, unknown> | undefined;
+    expect(params?.sessionId).toBe("sess-1");
+
+    extension.close();
+    cdp.close();
+  });
+
+  it("forwards string ids and error responses", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const cdp = await connect(`${started.url}/cdp`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 3 } }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const responsePromise = nextMessage(cdp);
+    extension.send(JSON.stringify({ id: "req-1", error: { message: "boom" } }));
+    const response = await responsePromise;
+    expect(response.id).toBe("req-1");
+    expect(response.error).toEqual({ message: "boom" });
+
+    extension.close();
+    cdp.close();
+  });
+
+  it("parses buffer messages and forwards results", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const cdp = await connect(`${started.url}/cdp`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 5 } }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const responsePromise = nextMessage(cdp);
+    extension.send(Buffer.from(JSON.stringify({ id: "buf-1", result: { ok: true } })));
+    const response = await responsePromise;
+    expect(response.id).toBe("buf-1");
+    expect(response.result).toEqual({ ok: true });
+
+    extension.close();
+    cdp.close();
+  });
+
+  it("handles buffer extension messages without a socket", async () => {
+    server = new RelayServer();
+    const internal = server as unknown as { handleExtensionMessage: (data: WebSocket.RawData) => void };
+    internal.handleExtensionMessage(Buffer.from(JSON.stringify({ type: "handshake", payload: { tabId: 11 } })));
+    expect(server.status().extension?.tabId).toBe(11);
+  });
+
   it("replaces extension connections and rejects extra CDP clients", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -227,6 +306,17 @@ describe("RelayServer", () => {
     expect(await closed).toBe(1008);
   });
 
+  it("rejects missing pairing tokens when required", async () => {
+    server = new RelayServer();
+    server.setToken("secret");
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const closed = waitForClose(extension);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 99 } }));
+    expect(await closed).toBe(1008);
+  });
+
   it("accepts valid pairing tokens", async () => {
     server = new RelayServer();
     server.setToken("secret");
@@ -320,6 +410,177 @@ describe("RelayServer", () => {
 
       const response = await fetch(`http://127.0.0.1:${started.port}/unknown/path`);
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe("Config Endpoint", () => {
+    const extensionOrigin = "chrome-extension://abcdefghijklmnop";
+
+    it("returns relay config for extension origins", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      server.setToken("secret");
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/config`, {
+        headers: { "Origin": extensionOrigin }
+      });
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.relayPort).toBe(started.port);
+      expect(data.pairingRequired).toBe(true);
+    });
+
+    it("returns pairingRequired false when no token is set", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/config`, {
+        headers: { "Origin": extensionOrigin }
+      });
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.pairingRequired).toBe(false);
+    });
+
+    it("returns 503 when relay is not running", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      const response = {
+        setHeader: vi.fn(),
+        writeHead: vi.fn(),
+        end: vi.fn()
+      } as unknown as ServerResponse;
+
+      const internal = server as unknown as {
+        handleConfigRequest: (origin: string | undefined, res: ServerResponse) => void;
+      };
+      internal.handleConfigRequest(extensionOrigin, response);
+
+      expect(response.writeHead).toHaveBeenCalledWith(503, { "Content-Type": "application/json" });
+      expect(response.end).toHaveBeenCalledWith(JSON.stringify({ error: "Relay not running" }));
+    });
+
+    it("rejects non-extension origins", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/config`, {
+        headers: { "Origin": "https://evil.com" }
+      });
+      expect(response.status).toBe(403);
+    });
+
+    it("handles CORS preflight for /config", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/config`, {
+        method: "OPTIONS",
+        headers: {
+          "Origin": extensionOrigin,
+          "Access-Control-Request-Method": "GET"
+        }
+      });
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(extensionOrigin);
+    });
+
+    it("serves discovery config on a dedicated discovery server", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      server.setToken("secret");
+      await server.start(0);
+      const discoveryPort = server.getDiscoveryPort();
+      expect(discoveryPort).toBeTruthy();
+
+      const response = await fetch(`http://127.0.0.1:${discoveryPort}/config`, {
+        headers: { "Origin": extensionOrigin }
+      });
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(typeof data.relayPort).toBe("number");
+    });
+
+    it("handles CORS preflight on the discovery server", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      await server.start(0);
+      const discoveryPort = server.getDiscoveryPort();
+      expect(discoveryPort).toBeTruthy();
+
+      const response = await fetch(`http://127.0.0.1:${discoveryPort}/config`, {
+        method: "OPTIONS",
+        headers: {
+          "Origin": extensionOrigin,
+          "Access-Control-Request-Method": "GET"
+        }
+      });
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(extensionOrigin);
+    });
+
+    it("no-ops discovery start when relay is not running", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      const internal = server as unknown as { startDiscoveryServer: () => Promise<void> };
+      await internal.startDiscoveryServer();
+      expect(server.getDiscoveryPort()).toBeNull();
+    });
+
+    it("no-ops discovery start when discovery server already exists", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      await server.start(0);
+      const internal = server as unknown as { startDiscoveryServer: () => Promise<void> };
+      await internal.startDiscoveryServer();
+      expect(server.getDiscoveryPort()).toBeTruthy();
+    });
+
+    it("returns 404 for unknown discovery paths", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      await server.start(0);
+      const discoveryPort = server.getDiscoveryPort();
+      expect(discoveryPort).toBeTruthy();
+
+      const response = await fetch(`http://127.0.0.1:${discoveryPort}/unknown`, {
+        headers: { "Origin": extensionOrigin }
+      });
+      expect(response.status).toBe(404);
+    });
+
+    it("warns when discovery server has no address", async () => {
+      vi.resetModules();
+      vi.doMock("http", async () => {
+        const { EventEmitter } = await import("events");
+        let callCount = 0;
+        return {
+          createServer: () => {
+            callCount += 1;
+            const emitter = new EventEmitter();
+            return {
+              on: emitter.on.bind(emitter),
+              once: emitter.once.bind(emitter),
+              listen: (_port: number, _host: string, cb: () => void) => cb(),
+              address: () => (callCount === 1 ? ({ port: 1234 } as AddressInfo) : null),
+              close: () => undefined
+            };
+          }
+        };
+      });
+
+      const { RelayServer: MockRelayServer } = await import("../src/relay/relay-server");
+      const mockServer = new MockRelayServer({ discoveryPort: 0 });
+      await mockServer.start(0);
+      const warn = warnSpy;
+      if (!warn) {
+        throw new Error("warnSpy missing");
+      }
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Discovery server failed to start"));
+      mockServer.stop();
+      vi.doUnmock("http");
+    });
+
+    it("skips discovery server when relay port matches discovery port", async () => {
+      const port = await getAvailablePort();
+      server = new RelayServer({ discoveryPort: port });
+      const started = await server.start(port);
+      expect(started.port).toBe(port);
+      expect(server.getDiscoveryPort()).toBe(port);
     });
   });
 
