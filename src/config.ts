@@ -212,7 +212,7 @@ function loadConfigFile(filePath: string): { raw: unknown; generatedToken: strin
   const parsed = parseJsonc(content, errors, { allowTrailingComma: true });
   if (errors.length > 0) {
     const firstError = errors[0];
-    throw new Error(`Invalid JSONC in opendevbrowser config at ${filePath}: parse error at offset ${firstError?.offset ?? 0}`);
+    throw new Error(`Invalid JSONC in opendevbrowser config at ${filePath}: parse error at offset ${firstError.offset}`);
   }
   return { raw: parsed ?? {}, generatedToken: null };
 }
