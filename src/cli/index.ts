@@ -1,13 +1,32 @@
 #!/usr/bin/env node
 
-import { parseArgs, getHelpText } from "./args";
+import { parseArgs, getHelpText, detectOutputFormat } from "./args";
+import type { OutputFormat } from "./args";
+import { registerCommand, getCommand } from "./commands/registry";
+import type { CommandResult } from "./commands/types";
 import { installGlobal } from "./installers/global";
 import { installLocal } from "./installers/local";
 import { installSkills } from "./installers/skills";
 import { runUpdate } from "./commands/update";
 import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
+import { runServe } from "./commands/serve";
+import { runScriptCommand } from "./commands/run";
+import { runSessionLaunch } from "./commands/session/launch";
+import { runSessionConnect } from "./commands/session/connect";
+import { runSessionDisconnect } from "./commands/session/disconnect";
+import { runSessionStatus } from "./commands/session/status";
+import { runGoto } from "./commands/nav/goto";
+import { runWait } from "./commands/nav/wait";
+import { runSnapshot } from "./commands/nav/snapshot";
+import { runClick } from "./commands/interact/click";
+import { runType } from "./commands/interact/type";
+import { runSelect } from "./commands/interact/select";
+import { runScroll } from "./commands/interact/scroll";
 import { extractExtension } from "../extension-extractor";
+import { writeOutput } from "./output";
 import type { InstallMode } from "./args";
+import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_USAGE } from "./errors";
+import type { CliError } from "./errors";
 
 const VERSION = "0.1.0";
 
@@ -111,49 +130,106 @@ async function promptUninstallMode(): Promise<InstallMode | null> {
   });
 }
 
+function emitFatalError(error: CliError, outputFormat: OutputFormat): void {
+  if (outputFormat === "text") {
+    console.error(`Error: ${error.message}`);
+    if (error.exitCode === EXIT_USAGE) {
+      console.error("\nFor help: npx opendevbrowser --help");
+    }
+    return;
+  }
+
+  writeOutput(formatErrorPayload(error), { format: outputFormat });
+}
+
 async function main(): Promise<void> {
+  let outputFormat: OutputFormat | null = null;
+  let parseSucceeded = false;
   try {
     const args = parseArgs(process.argv);
+    parseSucceeded = true;
+    outputFormat = args.outputFormat;
+    const outputOptions = { format: args.outputFormat, quiet: args.quiet };
 
-    switch (args.command) {
-      case "help":
-        console.log(getHelpText());
-        process.exit(0);
-        break;
-
-      case "version":
-        console.log(`opendevbrowser v${VERSION}`);
-        process.exit(0);
-        break;
-
-      case "update": {
-        const result = runUpdate();
-        console.log(result.message);
-        process.exit(result.success ? 0 : 1);
-        break;
+    const emitResult = (result: CommandResult, payload?: Record<string, unknown>) => {
+      const suppressOutput = Boolean(
+        result.data
+        && typeof result.data === "object"
+        && "suppressOutput" in result.data
+        && (result.data as { suppressOutput?: boolean }).suppressOutput
+      );
+      if (suppressOutput) {
+        return;
       }
+      if (args.outputFormat === "text") {
+        if (result.message) {
+          writeOutput(result.message, outputOptions);
+        }
+      } else {
+        const exitCode = resolveExitCode(result);
+        writeOutput({
+          success: result.success,
+          message: result.message,
+          ...(result.success || !result.message ? {} : { error: result.message }),
+          ...(result.success || exitCode === null ? {} : { exitCode }),
+          ...payload
+        }, outputOptions);
+      }
+    };
 
-      case "uninstall": {
+    registerCommand({
+      name: "help",
+      description: "Show help",
+      run: () => ({ success: true, message: getHelpText() })
+    });
+
+    registerCommand({
+      name: "version",
+      description: "Show version",
+      run: () => ({ success: true, message: `opendevbrowser v${VERSION}` })
+    });
+
+    registerCommand({
+      name: "update",
+      description: "Clear cached plugin to trigger reinstall",
+      run: () => {
+        const result = runUpdate();
+        return { success: result.success, message: result.message };
+      }
+    });
+
+    registerCommand({
+      name: "uninstall",
+      description: "Remove plugin from config",
+      run: async () => {
         let mode = args.mode;
         if (!mode && !args.noPrompt) {
           mode = await promptUninstallMode() ?? undefined;
           if (!mode) {
-            console.log("Uninstall cancelled.");
-            process.exit(0);
+            return { success: true, message: "Uninstall cancelled." };
           }
         }
         if (!mode) {
-          console.error("Error: Please specify --global or --local for uninstall.");
-          process.exit(1);
+          return { success: false, message: "Error: Please specify --global or --local for uninstall.", exitCode: EXIT_USAGE };
         }
         const result = runUninstall(mode);
-        console.log(result.message);
-        process.exit(result.success ? 0 : 1);
-        break;
+        return { success: result.success, message: result.message };
       }
+    });
 
-      case "install":
-      default: {
+    registerCommand({
+      name: "install",
+      description: "Install the plugin",
+      run: async () => {
+        const log = (...values: unknown[]) => {
+          if (args.quiet) return;
+          console.log(...values);
+        };
+        const warn = (...values: unknown[]) => {
+          if (args.quiet) return;
+          console.warn(...values);
+        };
+
         let mode = args.mode;
         if (!mode) {
           mode = await promptInstallMode();
@@ -163,55 +239,167 @@ async function main(): Promise<void> {
           ? installGlobal(args.withConfig)
           : installLocal(args.withConfig);
 
-        console.log(result.message);
+        if (args.outputFormat !== "text") {
+          const payload: Record<string, unknown> = {
+            alreadyInstalled: result.alreadyInstalled
+          };
+
+          if (result.success && args.skillsMode !== "none") {
+            const skillsResult = installSkills(args.skillsMode);
+            payload.skills = skillsResult;
+          }
+
+          if (args.fullInstall && result.success) {
+            try {
+              const extensionPath = extractExtension();
+              payload.extensionPath = extensionPath;
+            } catch (error) {
+              payload.extensionError = error instanceof Error ? error.message : String(error);
+            }
+          }
+
+          return { success: result.success, message: result.message, data: payload };
+        }
+
+        log(result.message);
 
         if (args.skillsMode === "none") {
-          console.log("Skill installation skipped (--no-skills).");
+          log("Skill installation skipped (--no-skills).");
         } else if (result.success) {
           const skillsResult = installSkills(args.skillsMode);
           if (skillsResult.success) {
-            console.log(skillsResult.message);
+            log(skillsResult.message);
           } else {
-            console.warn(skillsResult.message);
+            warn(skillsResult.message);
           }
         } else {
-          console.warn("Skill installation skipped because plugin install failed.");
+          warn("Skill installation skipped because plugin install failed.");
         }
 
         if (args.fullInstall && result.success) {
           try {
             const extensionPath = extractExtension();
             if (extensionPath) {
-              console.log(`Extension assets extracted to ${extensionPath}`);
+              log(`Extension assets extracted to ${extensionPath}`);
             } else {
-              console.warn("Extension assets not found; skipping extraction.");
+              warn("Extension assets not found; skipping extraction.");
             }
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            console.warn(`Extension pre-extraction failed: ${message}`);
+            warn(`Extension pre-extraction failed: ${message}`);
           }
         }
 
         if (result.success && !result.alreadyInstalled) {
-          console.log("\nNext steps:");
-          console.log("  1. Start or restart OpenCode");
-          console.log("  2. Use opendevbrowser_status to verify the plugin is loaded");
-          console.log("\nFor help: npx opendevbrowser --help");
+          log("\nNext steps:");
+          log("  1. Start or restart OpenCode");
+          log("  2. Use opendevbrowser_status to verify the plugin is loaded");
+          log("\nFor help: npx opendevbrowser --help");
         }
 
-        process.exit(result.success ? 0 : 1);
-        break;
+        return { success: result.success, message: result.message };
       }
+    });
+
+    registerCommand({
+      name: "serve",
+      description: "Start or stop the local daemon",
+      run: async () => runServe(args)
+    });
+
+    registerCommand({
+      name: "run",
+      description: "Execute a JSON script in a single process",
+      run: async () => runScriptCommand(args)
+    });
+
+    registerCommand({
+      name: "launch",
+      description: "Launch a managed browser session via daemon",
+      run: async () => runSessionLaunch(args)
+    });
+
+    registerCommand({
+      name: "connect",
+      description: "Connect to an existing browser via daemon",
+      run: async () => runSessionConnect(args)
+    });
+
+    registerCommand({
+      name: "disconnect",
+      description: "Disconnect a daemon session",
+      run: async () => runSessionDisconnect(args)
+    });
+
+    registerCommand({
+      name: "status",
+      description: "Get daemon session status",
+      run: async () => runSessionStatus(args)
+    });
+
+    registerCommand({
+      name: "goto",
+      description: "Navigate current session to a URL",
+      run: async () => runGoto(args)
+    });
+
+    registerCommand({
+      name: "wait",
+      description: "Wait for load or a ref to appear",
+      run: async () => runWait(args)
+    });
+
+    registerCommand({
+      name: "snapshot",
+      description: "Capture a snapshot of the active page",
+      run: async () => runSnapshot(args)
+    });
+
+    registerCommand({
+      name: "click",
+      description: "Click an element by ref",
+      run: async () => runClick(args)
+    });
+
+    registerCommand({
+      name: "type",
+      description: "Type into an element by ref",
+      run: async () => runType(args)
+    });
+
+    registerCommand({
+      name: "select",
+      description: "Select values in a select by ref",
+      run: async () => runSelect(args)
+    });
+
+    registerCommand({
+      name: "scroll",
+      description: "Scroll the page or element by ref",
+      run: async () => runScroll(args)
+    });
+    const command = getCommand(args.command);
+    if (!command) {
+      throw new Error(`Unknown command: ${args.command}`);
     }
+
+    const result = await command.run(args);
+    emitResult(result, result.data ? { data: result.data } : undefined);
+    const exitCode = resolveExitCode(result);
+    if (exitCode === null) {
+      return;
+    }
+    process.exit(exitCode);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Error: ${message}`);
-    console.error("\nFor help: npx opendevbrowser --help");
-    process.exit(1);
+    const format = outputFormat ?? detectOutputFormat(process.argv);
+    const cliError = toCliError(error, parseSucceeded ? EXIT_EXECUTION : EXIT_USAGE);
+    emitFatalError(cliError, format);
+    process.exit(cliError.exitCode);
   }
 }
 
 main().catch((error: unknown) => {
-  console.error("Unexpected error:", error);
-  process.exit(1);
+  const cliError = toCliError(error, EXIT_EXECUTION);
+  emitFatalError(cliError, detectOutputFormat(process.argv));
+  process.exit(cliError.exitCode);
 });
