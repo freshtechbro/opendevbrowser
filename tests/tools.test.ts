@@ -162,6 +162,33 @@ describe("tools", () => {
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
   });
 
+  it("fails when extension-only is requested without a relay", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: false }),
+      getCdpUrl: () => "ws://relay"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionOnly: true } as never));
+    expect(launchResult.ok).toBe(false);
+  });
+
+  it("fails when extension-only relay connection errors", async () => {
+    const deps = createDeps();
+    deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
+    const relay = {
+      status: () => ({ extensionConnected: true }),
+      getCdpUrl: () => "ws://relay"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionOnly: true } as never));
+    expect(launchResult.ok).toBe(false);
+  });
+
   it("falls back when relay connect fails", async () => {
     const deps = createDeps();
     deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
@@ -175,6 +202,39 @@ describe("tools", () => {
     const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
     expect(deps.manager.launch).toHaveBeenCalled();
     expect(launchResult.warnings).toContain("Relay connection failed; falling back to managed Chrome.");
+  });
+
+  it("warns when extension is not connected", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: false }),
+      getCdpUrl: () => "ws://relay"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
+    expect(launchResult.warnings).toContain("Extension not connected; launching managed Chrome instead.");
+  });
+
+  it("waits for extension when requested", async () => {
+    vi.useFakeTimers();
+    const deps = createDeps();
+    let connected = false;
+    const relay = {
+      status: () => ({ extensionConnected: connected }),
+      getCdpUrl: () => "ws://relay"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchPromise = tools.opendevbrowser_launch.execute({ waitForExtension: true, waitTimeoutMs: 1000 } as never);
+    connected = true;
+    await vi.advanceTimersByTimeAsync(500);
+
+    const launchResult = parse(await launchPromise);
+    expect(launchResult.mode).toBe("C");
+    vi.useRealTimers();
   });
 
   it("navigates startUrl after relay connect", async () => {

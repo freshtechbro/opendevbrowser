@@ -359,13 +359,24 @@ describe("RelayServer", () => {
       server.setToken("my-secret-token");
       const started = await server.start(0);
 
-      const response = await fetch(`http://127.0.0.1:${started.port}/pair`);
+      const response = await fetch(`http://127.0.0.1:${started.port}/pair`, {
+        headers: { "Origin": "chrome-extension://abcdefghijklmnop" }
+      });
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data.token).toBe("my-secret-token");
     });
 
-    it("rejects /pair from non-localhost origins", async () => {
+    it("rejects /pair without extension origin", async () => {
+      server = new RelayServer();
+      server.setToken("secret");
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/pair`);
+      expect(response.status).toBe(403);
+    });
+
+    it("rejects /pair from non-extension origins", async () => {
       server = new RelayServer();
       server.setToken("secret");
       const started = await server.start(0);

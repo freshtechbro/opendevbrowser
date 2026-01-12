@@ -5,6 +5,8 @@ type TabRemovedListener = (tabId: number) => void;
 type TabUpdatedListener = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void;
 type DebuggerEventListener = (source: chrome.debugger.Debuggee, method: string, params?: object) => void;
 type DebuggerDetachListener = (source: chrome.debugger.Debuggee) => void;
+type RuntimeListener = () => void;
+type MessageListener = (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void) => void;
 
 export type ChromeMockState = {
   chrome: typeof chrome;
@@ -15,9 +17,18 @@ export type ChromeMockState = {
   emitDebuggerEvent: (source: chrome.debugger.Debuggee, method: string, params?: object) => void;
   emitDebuggerDetach: (source: chrome.debugger.Debuggee) => void;
   setRuntimeError: (message: string | null) => void;
+  emitStartup: () => void;
+  emitInstalled: () => void;
 };
 
-export const createChromeMock = (initial?: { activeTab?: chrome.tabs.Tab | null; pairingToken?: string | null; pairingEnabled?: boolean | null; relayPort?: number | null }): ChromeMockState => {
+export const createChromeMock = (initial?: {
+  activeTab?: chrome.tabs.Tab | null;
+  pairingToken?: string | null;
+  pairingEnabled?: boolean | null;
+  relayPort?: number | null;
+  autoConnect?: boolean | null;
+  autoPair?: boolean | null;
+}): ChromeMockState => {
   let activeTab = initial?.activeTab ?? {
     id: 1,
     url: "https://example.com",
@@ -27,7 +38,9 @@ export const createChromeMock = (initial?: { activeTab?: chrome.tabs.Tab | null;
   let storageData: Record<string, unknown> = {
     pairingToken: initial?.pairingToken ?? null,
     pairingEnabled: initial?.pairingEnabled ?? true,
-    relayPort: initial?.relayPort ?? 8787
+    relayPort: initial?.relayPort ?? 8787,
+    autoConnect: initial?.autoConnect ?? null,
+    autoPair: initial?.autoPair ?? null
   };
 
   const storageListeners = new Set<StorageListener>();
@@ -35,10 +48,32 @@ export const createChromeMock = (initial?: { activeTab?: chrome.tabs.Tab | null;
   const tabUpdatedListeners = new Set<TabUpdatedListener>();
   const debuggerEventListeners = new Set<DebuggerEventListener>();
   const debuggerDetachListeners = new Set<DebuggerDetachListener>();
+  const startupListeners = new Set<RuntimeListener>();
+  const installedListeners = new Set<RuntimeListener>();
+  const messageListeners = new Set<MessageListener>();
 
   const chromeMock = {
     runtime: {
-      lastError: null as { message: string } | null
+      lastError: null as { message: string } | null,
+      onStartup: {
+        addListener: (listener: RuntimeListener) => {
+          startupListeners.add(listener);
+        }
+      },
+      onInstalled: {
+        addListener: (listener: RuntimeListener) => {
+          installedListeners.add(listener);
+        }
+      },
+      onMessage: {
+        addListener: (listener: MessageListener) => {
+          messageListeners.add(listener);
+        }
+      }
+    },
+    action: {
+      setBadgeText: vi.fn(),
+      setBadgeBackgroundColor: vi.fn()
     },
     storage: {
       local: {
@@ -147,6 +182,16 @@ export const createChromeMock = (initial?: { activeTab?: chrome.tabs.Tab | null;
     },
     setRuntimeError: (message) => {
       chromeMock.runtime.lastError = message ? { message } : null;
+    },
+    emitStartup: () => {
+      for (const listener of startupListeners) {
+        listener();
+      }
+    },
+    emitInstalled: () => {
+      for (const listener of installedListeners) {
+        listener();
+      }
     }
   };
 };
