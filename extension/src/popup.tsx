@@ -1,5 +1,6 @@
 import type { BackgroundMessage, PopupMessage } from "./types.js";
 import {
+  DEFAULT_AUTO_CONNECT,
   DEFAULT_AUTO_PAIR,
   DEFAULT_DISCOVERY_PORT,
   DEFAULT_PAIRING_ENABLED,
@@ -9,15 +10,24 @@ import {
 
 const statusEl = document.getElementById("status");
 const statusIndicator = document.getElementById("statusIndicator");
+const statusPill = document.getElementById("statusPill");
+const statusNote = document.getElementById("statusNote");
 const toggleButton = document.getElementById("toggle");
 const relayPortInput = document.getElementById("relayPort") as HTMLInputElement | null;
 const pairingTokenInput = document.getElementById("pairingToken") as HTMLInputElement | null;
 const pairingEnabledInput = document.getElementById("pairingEnabled") as HTMLInputElement | null;
 const autoPairInput = document.getElementById("autoPair") as HTMLInputElement | null;
+const autoConnectInput = document.getElementById("autoConnect") as HTMLInputElement | null;
 
-if (!statusEl || !statusIndicator || !toggleButton || !relayPortInput || !pairingTokenInput || !pairingEnabledInput || !autoPairInput) {
+if (!statusEl || !statusIndicator || !statusPill || !statusNote || !toggleButton || !relayPortInput || !pairingTokenInput || !pairingEnabledInput || !autoPairInput || !autoConnectInput) {
   throw new Error("Popup DOM missing required elements");
 }
+
+const defaultNote = "Local relay only. Tokens stay on-device.";
+
+const setNote = (message: string = defaultNote) => {
+  statusNote.textContent = message;
+};
 
 const setStatus = (status: BackgroundMessage["status"]) => {
   const isConnected = status === "connected";
@@ -26,8 +36,10 @@ const setStatus = (status: BackgroundMessage["status"]) => {
   
   if (isConnected) {
     statusIndicator.classList.add("connected");
+    statusPill.classList.add("connected");
   } else {
     statusIndicator.classList.remove("connected");
+    statusPill.classList.remove("connected");
   }
 };
 
@@ -42,6 +54,7 @@ const sendMessage = (message: PopupMessage): Promise<BackgroundMessage> => {
 const refreshStatus = async () => {
   const response = await sendMessage({ type: "status" });
   setStatus(response.status);
+  setNote();
 };
 
 const fetchTokenFromPlugin = async (port: number): Promise<string | null> => {
@@ -109,12 +122,13 @@ const applyRelayPort = (port: number): void => {
 
 const loadSettings = async () => {
   const data = await new Promise<Record<string, unknown>>((resolve) => {
-    chrome.storage.local.get(["pairingToken", "pairingEnabled", "relayPort", "autoPair"], (items) => {
+    chrome.storage.local.get(["pairingToken", "pairingEnabled", "relayPort", "autoPair", "autoConnect"], (items) => {
       resolve(items);
     });
   });
   
   const autoPair = typeof data.autoPair === "boolean" ? data.autoPair : DEFAULT_AUTO_PAIR;
+  const autoConnect = typeof data.autoConnect === "boolean" ? data.autoConnect : DEFAULT_AUTO_CONNECT;
   const pairingEnabled = typeof data.pairingEnabled === "boolean"
     ? data.pairingEnabled
     : DEFAULT_PAIRING_ENABLED;
@@ -122,13 +136,18 @@ const loadSettings = async () => {
   const tokenValue = pairingEnabled ? (rawToken || DEFAULT_PAIRING_TOKEN || "") : rawToken;
   const portValue = parsePort(data.relayPort) ?? DEFAULT_RELAY_PORT;
 
+  autoConnectInput.checked = autoConnect;
   autoPairInput.checked = autoPair;
   pairingEnabledInput.checked = pairingEnabled;
   pairingTokenInput.disabled = !pairingEnabled || autoPair;
   pairingTokenInput.value = tokenValue;
   relayPortInput.value = Number.isInteger(portValue) ? String(portValue) : String(DEFAULT_RELAY_PORT);
+  setNote();
 
   const updates: Record<string, unknown> = {};
+  if (typeof data.autoConnect !== "boolean") {
+    updates.autoConnect = autoConnect;
+  }
   if (typeof data.autoPair !== "boolean") {
     updates.autoPair = autoPair;
   }
@@ -142,6 +161,7 @@ const loadSettings = async () => {
 
 const toggle = async () => {
   const isConnected = statusEl.textContent === "Connected";
+  setNote();
   
   if (!isConnected && autoPairInput.checked && pairingEnabledInput.checked) {
     const config = await fetchRelayConfig(DEFAULT_DISCOVERY_PORT);
@@ -156,7 +176,8 @@ const toggle = async () => {
         pairingTokenInput.value = fetchedToken;
         chrome.storage.local.set({ pairingToken: fetchedToken });
       } else {
-        statusEl.textContent = "Failed to fetch token from plugin";
+        setStatus("disconnected");
+        setNote("Auto-pair failed. Start the plugin and retry.");
         setTimeout(() => refreshStatus(), 2000);
         return;
       }
@@ -167,6 +188,7 @@ const toggle = async () => {
     type: isConnected ? "disconnect" : "connect"
   });
   setStatus(response.status);
+  setNote();
 };
 
 toggleButton.addEventListener("click", () => {
@@ -183,7 +205,18 @@ autoPairInput.addEventListener("change", () => {
   if (enabled) {
     pairingTokenInput.placeholder = "Will be fetched automatically";
   } else {
-    pairingTokenInput.placeholder = "Enter token or enable Auto-Pair";
+    pairingTokenInput.placeholder = "Enter token or enable auto-pair";
+  }
+});
+
+autoConnectInput.addEventListener("change", () => {
+  const enabled = autoConnectInput.checked;
+  chrome.storage.local.set({ autoConnect: enabled });
+  if (enabled && statusEl.textContent !== "Connected") {
+    toggle().catch(() => {
+      setStatus("disconnected");
+      setNote();
+    });
   }
 });
 
@@ -218,12 +251,15 @@ relayPortInput.addEventListener("input", () => {
 
 refreshStatus().catch(() => {
   setStatus("disconnected");
+  setNote();
 });
 
 loadSettings().catch(() => {
+  autoConnectInput.checked = DEFAULT_AUTO_CONNECT;
   autoPairInput.checked = DEFAULT_AUTO_PAIR;
   pairingEnabledInput.checked = DEFAULT_PAIRING_ENABLED;
   pairingTokenInput.disabled = !DEFAULT_PAIRING_ENABLED;
   pairingTokenInput.value = DEFAULT_PAIRING_TOKEN || "";
   relayPortInput.value = String(DEFAULT_RELAY_PORT);
+  setNote();
 });

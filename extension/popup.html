@@ -1,108 +1,368 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
     <title>OpenDevBrowser</title>
     <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 0;
-        padding: 12px;
-        min-width: 280px;
+      :root {
+        color-scheme: dark;
+        --bg-deep: #060910;
+        --bg-surface: #0b1220;
+        --panel: rgba(12, 20, 33, 0.74);
+        --panel-strong: rgba(15, 24, 40, 0.86);
+        --stroke: rgba(255, 255, 255, 0.12);
+        --stroke-strong: rgba(255, 255, 255, 0.2);
+        --text: #e8edf6;
+        --muted: #9aa6bd;
+        --accent: #20d5c6;
+        --accent-2: #6ee7ff;
+        --accent-soft: rgba(32, 213, 198, 0.22);
+        --danger: #f16b4e;
+        --shadow: 0 14px 32px rgba(3, 8, 18, 0.55);
       }
-      h1 {
-        font-size: 14px;
-        margin: 0 0 8px;
-      }
-      .status-container {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 12px;
-      }
-      .status-indicator {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background-color: #dc3545;
-        transition: background-color 0.3s ease;
-      }
-      .status-indicator.connected {
-        background-color: #28a745;
-      }
-      #status {
-        font-size: 12px;
-      }
-      label {
-        font-size: 11px;
-        display: block;
-        margin-bottom: 4px;
-      }
-      label.toggle {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-bottom: 10px;
-      }
-      input {
-        width: 100%;
-        padding: 6px;
-        margin-bottom: 10px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
+
+      * {
         box-sizing: border-box;
       }
-      input[type="checkbox"] {
-        width: auto;
+
+      body {
         margin: 0;
-        padding: 0;
+        min-width: 336px;
+        position: relative;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 10% 20%, rgba(32, 213, 198, 0.2), transparent 40%),
+          radial-gradient(circle at 90% 0%, rgba(110, 231, 255, 0.2), transparent 35%),
+          linear-gradient(160deg, var(--bg-deep) 0%, var(--bg-surface) 100%);
+        color: var(--text);
+        font-family: "Space Grotesk", "Manrope", "Sora", "Avenir Next", "Segoe UI", sans-serif;
+        letter-spacing: 0.01em;
       }
-      input:disabled {
-        background-color: #f5f5f5;
-        color: #999;
+
+      body::after {
+        content: "";
+        position: absolute;
+        inset: -40% -10% auto auto;
+        width: 220px;
+        height: 220px;
+        background: radial-gradient(circle, rgba(32, 213, 198, 0.18), transparent 70%);
+        filter: blur(20px);
+        pointer-events: none;
       }
-      button {
-        width: 100%;
-        padding: 8px;
-        border: 1px solid #222;
-        background: #111;
-        color: #fff;
-        cursor: pointer;
+
+      .app {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 16px;
+        animation: rise 400ms ease both;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .app-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .brand-mark {
+        width: 12px;
+        height: 12px;
         border-radius: 4px;
-        transition: background-color 0.2s ease;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+        box-shadow: 0 0 14px rgba(32, 213, 198, 0.55);
       }
-      button:hover {
-        background: #333;
+
+      .brand-title {
+        font-size: 13px;
+        font-weight: 600;
       }
-      .auto-pair-note {
+
+      .brand-subtitle {
+        font-size: 9px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.22em;
+        margin-top: 2px;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border: 1px solid var(--stroke);
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 999px;
         font-size: 10px;
-        color: #666;
-        margin-top: -6px;
-        margin-bottom: 10px;
+        color: var(--muted);
+        backdrop-filter: blur(10px);
+        transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+      }
+
+      .status-pill.connected {
+        color: var(--text);
+        border-color: rgba(32, 213, 198, 0.5);
+        background: var(--accent-soft);
+      }
+
+      .status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--danger);
+        box-shadow: 0 0 8px rgba(241, 107, 78, 0.4);
+        transition: background-color 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .status-indicator.connected {
+        background: var(--accent);
+        box-shadow: 0 0 12px rgba(32, 213, 198, 0.55);
+      }
+
+      .panel {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid var(--stroke);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px) saturate(120%);
+      }
+
+      .panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 14px;
+        pointer-events: none;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      }
+
+      label {
+        font-size: 10px;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      input[type="number"],
+      input[type="text"] {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: var(--panel-strong);
+        color: var(--text);
+        font-size: 12px;
+        outline: none;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      input[type="number"]:focus,
+      input[type="text"]:focus {
+        border-color: rgba(32, 213, 198, 0.6);
+        box-shadow: 0 0 0 2px rgba(32, 213, 198, 0.12);
+      }
+
+      input:disabled {
+        opacity: 0.6;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding-top: 10px;
+      }
+
+      .row + .row {
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .row-title {
+        font-size: 12px;
+        color: var(--text);
+      }
+
+      .row-subtitle {
+        font-size: 10px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .switch {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        width: 40px;
+        height: 22px;
+      }
+
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .slider {
+        position: absolute;
+        inset: 0;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 999px;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+
+      .slider::before {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 2px;
+        top: 2px;
+        border-radius: 999px;
+        background: #0b111a;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+        transition: transform 0.2s ease;
+      }
+
+      .switch input:checked + .slider {
+        background: rgba(32, 213, 198, 0.3);
+        border-color: rgba(32, 213, 198, 0.6);
+      }
+
+      .switch input:checked + .slider::before {
+        transform: translateX(18px);
+        background: #0f1f22;
+        box-shadow: 0 0 0 1px rgba(32, 213, 198, 0.4) inset;
+      }
+
+      .primary {
+        width: 100%;
+        padding: 10px 12px;
+        border: none;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: #081014;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+        cursor: pointer;
+        box-shadow: 0 10px 24px rgba(32, 213, 198, 0.28);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 28px rgba(32, 213, 198, 0.34);
+      }
+
+      .primary:active {
+        transform: translateY(0);
+      }
+
+      .field-note {
+        font-size: 10px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+          animation: none !important;
+        }
       }
     </style>
   </head>
   <body>
-    <h1>OpenDevBrowser</h1>
-    <div class="status-container">
-      <div id="statusIndicator" class="status-indicator"></div>
-      <div id="status">Disconnected</div>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div>
+            <div class="brand-title">OpenDevBrowser</div>
+            <div class="brand-subtitle">Relay Extension</div>
+          </div>
+        </div>
+        <div id="statusPill" class="status-pill">
+          <div id="statusIndicator" class="status-indicator"></div>
+          <div id="status">Disconnected</div>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="field">
+          <label for="relayPort">Relay port</label>
+          <input id="relayPort" type="number" min="1" max="65535" />
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="row-title">Auto-connect</div>
+            <div class="row-subtitle">Reconnect on browser start</div>
+          </div>
+          <label class="switch">
+            <input id="autoConnect" type="checkbox" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="row-title">Auto-pair</div>
+            <div class="row-subtitle">Fetch token from running plugin</div>
+          </div>
+          <label class="switch">
+            <input id="autoPair" type="checkbox" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="row-title">Require pairing token</div>
+            <div class="row-subtitle">Disable only for local dev</div>
+          </div>
+          <label class="switch">
+            <input id="pairingEnabled" type="checkbox" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="field">
+          <label for="pairingToken">Pairing token</label>
+          <input id="pairingToken" type="text" placeholder="Enter token or enable auto-pair" />
+          <div id="statusNote" class="field-note">Local relay only. Tokens stay on-device.</div>
+        </div>
+      </section>
+
+      <button id="toggle" class="primary">Connect</button>
     </div>
-    <label for="relayPort">Relay port</label>
-    <input id="relayPort" type="number" min="1" max="65535" />
-    <label class="toggle" for="autoPair">
-      <input id="autoPair" type="checkbox" />
-      Auto-Pair (fetch token from plugin)
-    </label>
-    <div class="auto-pair-note">When enabled, token is fetched automatically from running plugin</div>
-    <label class="toggle" for="pairingEnabled">
-      <input id="pairingEnabled" type="checkbox" />
-      Require pairing token
-    </label>
-    <label for="pairingToken">Pairing token</label>
-    <input id="pairingToken" type="text" placeholder="Enter token or enable Auto-Pair" />
-    <button id="toggle">Connect</button>
     <script type="module" src="dist/popup.js"></script>
   </body>
 </html>

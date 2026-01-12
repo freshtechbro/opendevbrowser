@@ -113,17 +113,13 @@ export class RelayServer {
       }
       
       if (pathname === PAIR_PATH && request.method === "GET") {
-        const isLocalhost = !origin || origin.startsWith("chrome-extension://");
-        
-        if (!isLocalhost) {
+        if (!this.isExtensionOrigin(origin)) {
           response.writeHead(403, { "Content-Type": "application/json" });
-          response.end(JSON.stringify({ error: "Forbidden: only localhost/extension allowed" }));
+          response.end(JSON.stringify({ error: "Forbidden: extension origin required" }));
           return;
         }
         
-        if (origin && origin.startsWith("chrome-extension://")) {
-          response.setHeader("Access-Control-Allow-Origin", origin);
-        }
+        response.setHeader("Access-Control-Allow-Origin", origin as string);
         
         response.writeHead(200, { "Content-Type": "application/json" });
         response.end(JSON.stringify({ token: this.pairingToken }));
