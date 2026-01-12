@@ -17,6 +17,9 @@ Applies to `src/tools/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 ## Testing
 - Add/adjust Vitest coverage for tool validation and response shapes.
 
+## Documentation Sync
+- If tool args or launch relay behavior change, update `docs/REFACTORING_PLAN.md` and `docs/CLI.md`.
+
 ## Folder Structure
 ```
 src/tools/

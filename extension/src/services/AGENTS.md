@@ -16,6 +16,9 @@ Applies to `extension/src/services/`. Extends `extension/src/AGENTS.md` and root
 - Avoid leaking tokens or tab content.
 - Chrome sends `Origin: chrome-extension://EXTENSION_ID` automatically; relay validates this.
 
+## Documentation Sync
+- Update `docs/EXTENSION.md` and `docs/REFACTORING_PLAN.md` if relay protocol behavior changes.
+
 ## Testing
 - Add/adjust tests with Chrome debugger mocks where feasible.
 

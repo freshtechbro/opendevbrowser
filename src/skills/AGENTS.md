@@ -17,6 +17,9 @@ Applies to `src/skills/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 - Keep topic filtering deterministic; do not reorder or reformat content.
 - Do not add new skill packs without aligning docs and tests.
 
+## Documentation Sync
+- Update `docs/REFACTORING_PLAN.md` and skill docs when adding or changing skill discovery behavior.
+
 ## Testing
 - Add/adjust Vitest coverage for topic filtering and missing-skill behavior.
 

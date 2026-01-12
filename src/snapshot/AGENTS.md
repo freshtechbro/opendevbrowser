@@ -18,6 +18,9 @@ Applies to `src/snapshot/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 ## Testing
 - Add/adjust Vitest coverage for snapshot/ref lifecycle behavior.
 
+## Documentation Sync
+- Update `docs/REFACTORING_PLAN.md` if snapshot/ref behavior changes.
+
 ## Folder Structure
 ```
 src/snapshot/

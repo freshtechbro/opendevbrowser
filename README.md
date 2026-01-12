@@ -83,6 +83,34 @@ Restart OpenCode, then run `opendevbrowser_status` to verify the plugin is loade
 
 ---
 
+### CLI Automation Quick Start
+
+Run a local daemon for persistent sessions, then drive automation via CLI commands:
+
+```bash
+# Start daemon
+npx opendevbrowser serve
+
+# Launch a session
+npx opendevbrowser launch --start-url https://example.com
+
+# Capture a snapshot
+npx opendevbrowser snapshot --session-id <session-id>
+
+# Interact by ref
+npx opendevbrowser click --session-id <session-id> --ref r12
+```
+
+For single-shot scripts:
+
+```bash
+npx opendevbrowser run --script ./script.json --output-format json
+```
+
+Use `--output-format json|stream-json` for automation-friendly output.
+
+---
+
 ## Features
 
 ### Browser Control
@@ -217,7 +245,7 @@ Load a skill: `opendevbrowser_skill_load` with `name` and optional `topic` filte
 
 The extension enables **Mode C** - attach to existing logged-in browser tabs without launching a new browser.
 
-### Auto-Pair Feature
+### Auto-Connect + Auto-Pair
 
 The plugin and extension can automatically pair:
 
@@ -225,6 +253,27 @@ The plugin and extension can automatically pair:
 2. **Extension side**: Enable "Auto-Pair" toggle and click Connect
 3. Extension fetches relay port from discovery, then fetches token from the relay server
 4. Connection established with color indicator (green = connected)
+
+**Auto-connect** and **Auto-pair** are enabled by default for a seamless setup. The extension badge shows status (ON/OFF).
+
+### Default Settings (Extension)
+
+| Setting | Default |
+|---------|---------|
+| Relay port | `8787` |
+| Auto-connect | `true` |
+| Auto-pair | `true` |
+| Require pairing token | `true` |
+| Pairing token | `null` (fetched on connect) |
+
+### Connection Flow (Extension Relay)
+
+1. Extension checks the discovery endpoint at `http://127.0.0.1:8787/config`.
+2. It learns the relay port and whether pairing is required.
+3. If pairing is required and Auto-pair is on, it fetches the token from `http://127.0.0.1:<relayPort>/pair`.
+4. It connects to `ws://127.0.0.1:<relayPort>/extension` using the extension origin.
+
+`/config` and `/pair` are extension-origin only for CSWSH protection.
 
 ### Manual Setup
 
@@ -235,6 +284,15 @@ The plugin and extension can automatically pair:
 4. Enter the same relay port and token as the plugin config
    (if `relayToken` is missing, either add one to `opendevbrowser.jsonc` or use Auto-Pair).
 5. Click Connect
+
+### Where Extension Assets Live
+
+Extension assets are bundled inside the NPM package and extracted on install/startup:
+
+- Primary: `~/.config/opencode/opendevbrowser/extension`
+- Fallback: `~/.cache/opencode/node_modules/opendevbrowser/extension`
+
+Extraction is handled by `extractExtension()` (see `src/extension-extractor.ts`).
 
 ---
 
@@ -338,6 +396,7 @@ rm -rf ~/.cache/opencode/node_modules/opendevbrowser
 npx opendevbrowser --update
 ```
 
+Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 Release checklist: [docs/DISTRIBUTION_PLAN.md](docs/DISTRIBUTION_PLAN.md)
 
 ---
@@ -353,6 +412,20 @@ npm run extension:build  # Compile extension
 npm run version:check    # Verify package/extension version alignment
 npm run extension:pack   # Build extension zip for releases
 ```
+
+### Packaging & Distribution (NPM + GitHub + Extension)
+
+Uniform versioning is required (source of truth: `package.json`):
+
+1. Bump `package.json` version.
+2. Run: `npm run extension:sync`
+3. Run: `npm run version:check`
+4. Run: `npm run build`
+5. Run: `npm run extension:build`
+6. Run: `npm run extension:pack` (outputs `./opendevbrowser-extension.zip`)
+7. Publish to NPM and attach the zip to the GitHub release tag (`vX.Y.Z`).
+
+Release checklist: `docs/DISTRIBUTION_PLAN.md`
 
 ---
 

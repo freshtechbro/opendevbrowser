@@ -16,6 +16,7 @@ Applies to `skills/` and subdirectories. Extends root `AGENTS.md`.
 - Keep guidance short, script-first, and snapshot-first.
 - Keep examples aligned with `opendevbrowser_*` tool names.
 - Do not include secrets or captured page data in skill content.
+- If adding a consolidated skill pack, update `docs/REFACTORING_PLAN.md` and `docs/CLI.md`.
 
 ## Skill Format Specification
 

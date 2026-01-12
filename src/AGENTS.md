@@ -3,7 +3,7 @@
 Applies to `src/` and subdirectories. Extends root `AGENTS.md`.
 
 ## Architecture
-- Keep module boundaries: `cache/`, `browser/`, `snapshot/`, `devtools/`, `export/`, `relay/`, `tools/`, `skills/`, `cli/`.
+- Keep module boundaries: `cache/`, `browser/`, `snapshot/`, `devtools/`, `export/`, `relay/`, `tools/`, `skills/`, `core/`, `cli/`.
 - Keep tools thin (arg validation + response shaping); place core logic in managers/services.
 - Snapshot/ref work must align with Architecture Alignment rules in root `AGENTS.md`.
 - Relay changes must preserve localhost-only and honor configurable relay port/token.
@@ -15,6 +15,9 @@ Applies to `src/` and subdirectories. Extends root `AGENTS.md`.
 
 ## Testing
 - Add/update Vitest tests in `tests/` for behavior changes.
+
+## Documentation Sync
+- Update `docs/REFACTORING_PLAN.md` (and module docs like `docs/CLI.md`) when changing core or CLI behavior.
 
 ## Safety
 - Do not log secrets or captured page data.

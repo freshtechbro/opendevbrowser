@@ -24,6 +24,9 @@ Applies to `src/devtools/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 ## Testing
 - Add/adjust Vitest coverage for polling and buffer bounds.
 
+## Documentation Sync
+- Update `docs/REFACTORING_PLAN.md` if devtools redaction rules change.
+
 ## Folder Structure
 ```
 src/devtools/

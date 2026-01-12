@@ -12,6 +12,8 @@ Applies to `docs/` and subdirectories. Extends root `AGENTS.md`.
 - Prefer linking to the canonical doc instead of duplicating guidance.
 - Use Mermaid for architecture and flow diagrams.
 - Keep docs concise, ASCII, and action-oriented.
+- Canonical refactor plan lives in `docs/REFACTORING_PLAN.md`.
+- Keep `docs/ARCHITECTURE.md` current when component boundaries or flows change.
 
 ## Folder Structure
 ```

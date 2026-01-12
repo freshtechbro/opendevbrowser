@@ -24,6 +24,9 @@ Applies to `src/export/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 ## Testing
 - Add/adjust Vitest coverage for CSS aggregation and scoping.
 
+## Documentation Sync
+- Update `docs/REFACTORING_PLAN.md` if export safety behavior changes.
+
 ## Folder Structure
 ```
 src/export/

@@ -22,6 +22,9 @@ Applies to `src/relay/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 - Rate limit handshake attempts (5 per minute per IP by default).
 - Optional CDP command allowlist restricts which commands can be forwarded.
 
+## Documentation Sync
+- Keep `/config` and `/pair` origin policy documented in `docs/EXTENSION.md` and `docs/REFACTORING_PLAN.md`.
+
 ## Testing
 - Add/adjust Vitest coverage for protocol typing utilities.
 

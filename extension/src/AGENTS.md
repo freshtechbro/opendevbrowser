@@ -10,6 +10,10 @@ Applies to `extension/src/` and subdirectories. Extends `extension/AGENTS.md` an
 - Background script orchestrates connections and message routing.
 - Popup UI handles user settings (pairing token, relay config).
 
+## UI Settings
+- Storage keys: `autoConnect`, `autoPair`, `pairingEnabled`, `pairingToken`, `relayPort`.
+- Auto-connect and auto-pair default to on; keep defaults and docs in sync.
+
 ## Safety & Constraints
 - Do not add non-local relay endpoints.
 - Keep message schemas aligned with relay protocol.
@@ -18,6 +22,9 @@ Applies to `extension/src/` and subdirectories. Extends `extension/AGENTS.md` an
 ## Testing
 - Build with `npm run extension:build` after changes.
 - Extension tests live under `tests/` with Chrome mocks.
+
+## Documentation Sync
+- Update `docs/EXTENSION.md` and `docs/REFACTORING_PLAN.md` when settings or UI behavior changes.
 
 ## Folder Structure
 ```

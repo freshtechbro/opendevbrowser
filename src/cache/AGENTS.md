@@ -16,6 +16,9 @@ Applies to `src/cache/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 ## Testing
 - Add/adjust Vitest coverage for platform paths and overrides.
 
+## Documentation Sync
+- Update `docs/REFACTORING_PLAN.md` if cache path or Chrome resolution behavior changes.
+
 ## Folder Structure
 ```
 src/cache/

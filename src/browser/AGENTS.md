@@ -21,6 +21,9 @@ Applies to `src/browser/`. Extends `src/AGENTS.md` and root `AGENTS.md`.
 ## Testing
 - Add/adjust Vitest coverage for lifecycle and action paths in `tests/`.
 
+## Documentation Sync
+- Update `docs/REFACTORING_PLAN.md` if BrowserManager lifecycle or CDP validation changes.
+
 ## Folder Structure
 ```
 src/browser/

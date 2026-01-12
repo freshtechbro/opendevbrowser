@@ -236,6 +236,9 @@ When a user asks to install opendevbrowser, follow these steps:
 ## Documentation Rules
 - Keep the three plan docs in sync when scope changes.
 - Update docs before proposing any release-related workflow.
+- Canonical refactor plan is `docs/REFACTORING_PLAN.md`; avoid parallel research docs.
+- Keep `docs/ARCHITECTURE.md` updated when core flows or distribution boundaries change.
+- If CLI output or exit-code behavior changes, update `docs/CLI.md` and related tests.
 
 ## Implementation Plan Format
 

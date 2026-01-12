@@ -8,6 +8,8 @@ Applies to `extension/` and subdirectories. Extends root `AGENTS.md`.
 - Keep `background.ts` focused on connection orchestration and message routing.
 - Keep `popup.tsx` focused on UI + user-configurable settings (pairing token, relay settings).
 - CDP attach/detach and message forwarding live under `extension/src/services/`.
+- Auto-connect and auto-pair default to on; extension should attempt auto-connect on install/startup and when toggled on.
+- Auto-pair fetches tokens from the local relay `/pair` endpoint and must not log tokens.
 
 ## TypeScript
 - Prefer `import type` for Chrome and message types.
@@ -19,6 +21,9 @@ Applies to `extension/` and subdirectories. Extends root `AGENTS.md`.
 
 ## Safety
 - Do not log tokens or tab content.
+
+## Documentation Sync
+- Update `docs/EXTENSION.md` and `docs/REFACTORING_PLAN.md` when relay, auto-connect, or pairing behavior changes.
 
 ## Folder Structure
 ```
