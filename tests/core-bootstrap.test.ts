@@ -14,6 +14,10 @@ let lastRelay: {
   setToken: ReturnType<typeof vi.fn>;
 } | null = null;
 
+const registerLastRelay = (relay: NonNullable<typeof lastRelay>): void => {
+  lastRelay = relay;
+};
+
 vi.mock("../src/browser/browser-manager", () => ({
   BrowserManager: class BrowserManager {
     cacheRoot: string;
@@ -56,7 +60,7 @@ vi.mock("../src/relay/relay-server", () => ({
     stop = vi.fn();
     setToken = vi.fn();
     constructor() {
-      lastRelay = this;
+      registerLastRelay(this);
     }
   }
 }));

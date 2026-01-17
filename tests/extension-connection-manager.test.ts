@@ -13,10 +13,15 @@ const relayInstances: Array<{
   triggerClose: () => void;
 }> = [];
 
+let attachShouldFail = false;
+
 vi.mock("../extension/src/services/RelayClient", () => ({
   RelayClient: class RelayClient {
     url: string;
-    connect = vi.fn().mockResolvedValue(undefined);
+    connect = vi.fn().mockResolvedValue({
+      type: "handshakeAck",
+      payload: { instanceId: "test-relay", relayPort: 8787, pairingRequired: true }
+    });
     disconnect = vi.fn();
     sendHandshake = vi.fn();
     sendEvent = vi.fn();
@@ -40,6 +45,9 @@ vi.mock("../extension/src/services/CDPRouter", () => ({
   CDPRouter: class CDPRouter {
     attachedTabId: number | null = null;
     attach = vi.fn(async (tabId: number) => {
+      if (attachShouldFail) {
+        throw new Error("Attach failed");
+      }
       this.attachedTabId = tabId;
     });
     detach = vi.fn(async () => {
@@ -56,6 +64,7 @@ describe("ConnectionManager", () => {
 
   beforeEach(() => {
     relayInstances.length = 0;
+    attachShouldFail = false;
     const { chrome } = createChromeMock();
     globalThis.chrome = chrome;
   });
@@ -71,6 +80,7 @@ describe("ConnectionManager", () => {
 
     await manager.connect();
     expect(manager.getStatus()).toBe("connected");
+    expect(manager.getRelayIdentity()).toEqual({ instanceId: "test-relay", relayPort: 8787 });
 
     const relay = relayInstances[0];
     expect(relay.url).toBe("ws://127.0.0.1:8787/extension");
@@ -133,5 +143,49 @@ describe("ConnectionManager", () => {
 
     await vi.advanceTimersByTimeAsync(600);
     expect(relayInstances.length).toBeGreaterThan(1);
+  });
+
+  it("reports missing active tab errors", async () => {
+    const mock = createChromeMock();
+    mock.setActiveTab(null);
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    expect(manager.getStatus()).toBe("disconnected");
+    expect(manager.getLastError()?.code).toBe("no_active_tab");
+  });
+
+  it("reports restricted tab URL errors", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 2,
+        url: "chrome://extensions",
+        title: "Extensions"
+      } as chrome.tabs.Tab
+    });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    expect(manager.getStatus()).toBe("disconnected");
+    expect(manager.getLastError()?.code).toBe("tab_url_restricted");
+  });
+
+  it("reports debugger attach failures", async () => {
+    attachShouldFail = true;
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    expect(manager.getStatus()).toBe("disconnected");
+    expect(manager.getLastError()?.code).toBe("debugger_attach_failed");
   });
 });

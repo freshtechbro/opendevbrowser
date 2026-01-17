@@ -4,7 +4,7 @@ import { SessionStore } from "../src/browser/session-store";
 describe("SessionStore", () => {
   it("stores and removes sessions", () => {
     const store = new SessionStore();
-    const session = { id: "s1", mode: "A", browser: {} as never, context: {} as never };
+    const session = { id: "s1", mode: "managed", browser: {} as never, context: {} as never };
 
     store.add(session);
     expect(store.has("s1")).toBe(true);

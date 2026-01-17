@@ -7,8 +7,15 @@ let lastConnectionManager: {
   connect: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
   getStatus: ReturnType<typeof vi.fn>;
+  getLastError: ReturnType<typeof vi.fn>;
+  getRelayIdentity: ReturnType<typeof vi.fn>;
+  clearLastError: ReturnType<typeof vi.fn>;
   emitStatus: (status: ConnectionStatus) => void;
 } | null = null;
+
+const registerLastConnectionManager = (manager: NonNullable<typeof lastConnectionManager>): void => {
+  lastConnectionManager = manager;
+};
 
 vi.mock("../extension/src/services/ConnectionManager", () => ({
   ConnectionManager: class ConnectionManager {
@@ -23,6 +30,9 @@ vi.mock("../extension/src/services/ConnectionManager", () => ({
       this.emitStatus("disconnected");
     });
     getStatus = vi.fn(() => this.status);
+    getLastError = vi.fn(() => null);
+    getRelayIdentity = vi.fn(() => ({ instanceId: null, relayPort: null }));
+    clearLastError = vi.fn();
     onStatus = (listener: (status: ConnectionStatus) => void) => {
       this.listeners.add(listener);
       return () => this.listeners.delete(listener);
@@ -33,7 +43,7 @@ vi.mock("../extension/src/services/ConnectionManager", () => ({
       }
     };
     constructor() {
-      lastConnectionManager = this;
+      registerLastConnectionManager(this);
     }
   }
 }));

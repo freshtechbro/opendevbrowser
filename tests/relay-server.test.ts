@@ -33,6 +33,37 @@ const connect = async (url: string, timeoutMs = 3000): Promise<WebSocket> => {
   return socket;
 };
 
+const upgradeRequest = async (options: { port: number; path: string; origin?: string }): Promise<number> => {
+  return await new Promise((resolve, reject) => {
+    const headers: Record<string, string> = {
+      "Connection": "Upgrade",
+      "Upgrade": "websocket",
+      "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+      "Sec-WebSocket-Version": "13"
+    };
+    if (options.origin) {
+      headers.Origin = options.origin;
+    }
+    const req = http.request({
+      hostname: "127.0.0.1",
+      port: options.port,
+      path: options.path,
+      method: "GET",
+      headers
+    });
+
+    req.on("response", (response) => {
+      resolve(response.statusCode ?? 0);
+    });
+    req.on("upgrade", (_response, socket) => {
+      socket.destroy();
+      resolve(101);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+};
+
 const waitForClose = (socket: WebSocket, timeoutMs = 4000): Promise<number> => {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -55,6 +86,12 @@ const nextMessage = async (socket: WebSocket): Promise<Record<string, unknown>> 
   });
   const text = typeof data === "string" ? data : String(data);
   return JSON.parse(text) as Record<string, unknown>;
+};
+
+const waitForHandshakeAck = async (socket: WebSocket): Promise<Record<string, unknown>> => {
+  const message = await nextMessage(socket);
+  expect(message.type).toBe("handshakeAck");
+  return message;
 };
 
 describe("RelayServer", () => {
@@ -112,7 +149,7 @@ describe("RelayServer", () => {
     const cdp = await connect(`${started.url}/cdp`);
 
     extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 7, url: "https://example.com", title: "Example" } }));
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitForHandshakeAck(extension);
     expect(server.status().extension?.tabId).toBe(7);
 
     const commandPromise = nextMessage(extension);
@@ -143,7 +180,7 @@ describe("RelayServer", () => {
     const cdp = await connect(`${started.url}/cdp`);
 
     extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 7 } }));
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitForHandshakeAck(extension);
 
     const commandPromise = nextMessage(extension);
     cdp.send(JSON.stringify({ id: 2, method: "Runtime.evaluate", params: {}, sessionId: "sess-1" }));
@@ -163,7 +200,7 @@ describe("RelayServer", () => {
     const cdp = await connect(`${started.url}/cdp`);
 
     extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 3 } }));
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitForHandshakeAck(extension);
 
     const responsePromise = nextMessage(cdp);
     extension.send(JSON.stringify({ id: "req-1", error: { message: "boom" } }));
@@ -183,7 +220,7 @@ describe("RelayServer", () => {
     const cdp = await connect(`${started.url}/cdp`);
 
     extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 5 } }));
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitForHandshakeAck(extension);
 
     const responsePromise = nextMessage(cdp);
     extension.send(Buffer.from(JSON.stringify({ id: "buf-1", result: { ok: true } })));
@@ -324,8 +361,22 @@ describe("RelayServer", () => {
 
     const extension = await connect(`${started.url}/extension`);
     extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 42, pairingToken: "secret" } }));
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitForHandshakeAck(extension);
     expect(server.status().extension?.tabId).toBe(42);
+    extension.close();
+  });
+
+  it("sends handshake acknowledgements with relay identity", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 99 } }));
+    const ack = await waitForHandshakeAck(extension);
+    const payload = ack.payload as Record<string, unknown>;
+    expect(typeof payload.instanceId).toBe("string");
+    expect(payload.relayPort).toBe(started.port);
+    expect(payload.pairingRequired).toBe(false);
     extension.close();
   });
 
@@ -365,15 +416,18 @@ describe("RelayServer", () => {
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data.token).toBe("my-secret-token");
+      expect(typeof data.instanceId).toBe("string");
     });
 
-    it("rejects /pair without extension origin", async () => {
+    it("allows /pair without an Origin header", async () => {
       server = new RelayServer();
       server.setToken("secret");
       const started = await server.start(0);
 
       const response = await fetch(`http://127.0.0.1:${started.port}/pair`);
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.token).toBe("secret");
     });
 
     it("rejects /pair from non-extension origins", async () => {
@@ -439,6 +493,8 @@ describe("RelayServer", () => {
       const data = await response.json();
       expect(data.relayPort).toBe(started.port);
       expect(data.pairingRequired).toBe(true);
+      expect(typeof data.instanceId).toBe("string");
+      expect("discoveryPort" in data).toBe(true);
     });
 
     it("returns pairingRequired false when no token is set", async () => {
@@ -478,6 +534,18 @@ describe("RelayServer", () => {
         headers: { "Origin": "https://evil.com" }
       });
       expect(response.status).toBe(403);
+    });
+
+    it("allows config requests without an Origin header", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      server.setToken("secret");
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/config`);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.relayPort).toBe(started.port);
+      expect(data.pairingRequired).toBe(true);
     });
 
     it("handles CORS preflight for /config", async () => {
@@ -595,6 +663,74 @@ describe("RelayServer", () => {
     });
   });
 
+  describe("Status Endpoint", () => {
+    it("returns token-free relay status", async () => {
+      server = new RelayServer();
+      server.setToken("secret");
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(typeof data.instanceId).toBe("string");
+      expect(data.extensionConnected).toBe(false);
+      expect(data.extensionHandshakeComplete).toBe(false);
+      expect(data.pairingRequired).toBe(true);
+      expect("token" in data).toBe(false);
+      expect("pairingToken" in data).toBe(false);
+    });
+
+    it("serves status on the discovery server when enabled", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      await server.start(0);
+      const discoveryPort = server.getDiscoveryPort();
+      expect(discoveryPort).toBeTruthy();
+
+      const response = await fetch(`http://127.0.0.1:${discoveryPort}/status`);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(typeof data.instanceId).toBe("string");
+    });
+
+    it("rejects status requests from non-extension origins", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`, {
+        headers: { "Origin": "https://evil.com" }
+      });
+      expect(response.status).toBe(403);
+    });
+
+    it("sets CORS headers for extension-origin status requests", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`, {
+        headers: { "Origin": "chrome-extension://abcdefghijklmnop" }
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe("chrome-extension://abcdefghijklmnop");
+    });
+
+    it("handles status preflight on the discovery server", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      await server.start(0);
+      const discoveryPort = server.getDiscoveryPort();
+      expect(discoveryPort).toBeTruthy();
+
+      const response = await fetch(`http://127.0.0.1:${discoveryPort}/status`, {
+        method: "OPTIONS",
+        headers: {
+          "Origin": "chrome-extension://abcdefghijklmnop",
+          "Access-Control-Request-Method": "GET"
+        }
+      });
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe("chrome-extension://abcdefghijklmnop");
+    });
+  });
+
   describe("Security Features", () => {
     it("uses timing-safe token comparison", async () => {
       server = new RelayServer();
@@ -613,9 +749,24 @@ describe("RelayServer", () => {
 
       const ext3 = await connect(`${started.url}/extension`);
       ext3.send(JSON.stringify({ type: "handshake", payload: { tabId: 1, pairingToken: "correct-token-value" } }));
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await waitForHandshakeAck(ext3);
       expect(server.status().extension?.tabId).toBe(1);
       ext3.close();
+    });
+
+    it("requires token for /cdp when pairing is enabled", async () => {
+      server = new RelayServer();
+      server.setToken("secret-token");
+      const started = await server.start(0);
+
+      const missing = await upgradeRequest({ port: started.port, path: "/cdp" });
+      expect(missing).toBe(401);
+
+      const invalid = await upgradeRequest({ port: started.port, path: "/cdp?token=wrong" });
+      expect(invalid).toBe(401);
+
+      const valid = await upgradeRequest({ port: started.port, path: "/cdp?token=secret-token" });
+      expect(valid).toBe(101);
     });
 
     it("blocks web page origins (CSWSH prevention)", async () => {
@@ -713,7 +864,7 @@ describe("RelayServer", () => {
       const cdp = await connect(`${started.url}/cdp`);
 
       extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 7 } }));
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await waitForHandshakeAck(extension);
 
       cdp.send(JSON.stringify({ id: 1, method: "Browser.getVersion", params: {} }));
       const response = await nextMessage(cdp);
@@ -734,7 +885,7 @@ describe("RelayServer", () => {
       const cdp = await connect(`${started.url}/cdp`);
 
       extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 7 } }));
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await waitForHandshakeAck(extension);
 
       const commandPromise = nextMessage(extension);
       cdp.send(JSON.stringify({ id: 1, method: "Browser.getVersion", params: {} }));

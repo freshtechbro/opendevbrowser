@@ -1,27 +1,41 @@
-# Local AGENTS.md (tests/)
+# tests/ — Agent Guidelines
 
-Applies to `tests/` and subdirectories. Extends root `AGENTS.md`.
+Testing conventions. Extends root `AGENTS.md`.
 
-## Test Architecture
-- Tests mirror `src/` modules and exercise tool flows via mocks.
-- Chrome/Playwright behaviors should use existing local mocks to stay hermetic.
+## Framework
 
-## Testing Rules
-- Use Vitest for unit/integration tests.
-- Keep tests under `tests/` with `.test.ts` naming (per Vitest config).
-- Keep coverage >=95% for `src/` (extension excluded from coverage thresholds).
-- Prefer integration-style assertions over shallow/unit-only checks.
-- Never weaken or delete tests to make them pass.
-- If CLI output or exit codes change, update `tests/cli-output.test.ts`.
+- **Vitest** for unit/integration tests
+- Coverage thresholds: ≥95% lines/functions/branches/statements
+- Config: `vitest.config.ts`
 
-## Organization
-- Keep test names descriptive and aligned to tool/action names.
-- Extension tests should use existing Chrome mocks in `tests/`.
+## Conventions
+
+| Rule | Details |
+|------|---------|
+| Naming | `*.test.ts` files only |
+| Location | All tests in `tests/` directory |
+| Mocking | Use existing Chrome/Playwright mocks |
+| Style | Integration-style assertions preferred |
+
+## Running Tests
+
+```bash
+npm run test                        # All tests with coverage
+npm run test -- tests/foo.test.ts   # Single file
+npm run test -- -t "test name"      # Single test by name
+```
+
+## Critical Rules
+
+- **Never weaken tests** to make them pass—fix the code
+- **Never delete tests** without understanding why they fail
+- **Add regression tests** for every bug fix
+- **Keep mocks hermetic** (no real Chrome/network)
+
+## Coverage Scope
+
+Covers `src/**/*.ts` only. Extension excluded from thresholds.
 
 ## Documentation Sync
-- Update `docs/CLI.md` or `docs/EXTENSION.md` when tests reveal behavior changes.
 
-## Folder Structure
-```
-tests/
-```
+Update `docs/CLI.md` when CLI output or exit codes change.

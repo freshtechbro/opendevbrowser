@@ -195,7 +195,7 @@ describe("BrowserManager", () => {
     manager.updateConfig(resolveConfig({}));
 
     const result = await manager.launch({ profile: "default" });
-    expect(result.mode).toBe("A");
+    expect(result.mode).toBe("managed");
     expect(result.warnings).toEqual([]);
 
     await manager.snapshot(result.sessionId, "outline", 500);
@@ -325,6 +325,25 @@ describe("BrowserManager", () => {
     expect(result.wsEndpoint).toBeUndefined();
   });
 
+  it("returns undefined wsEndpoint when browser lacks wsEndpoint provider", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, browser } = createBrowserBundle(nodes);
+
+    delete (browser as { wsEndpoint?: () => string }).wsEndpoint;
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    downloadChromeForTesting.mockResolvedValue({ executablePath: "/bin/chrome" });
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({ profile: "default" });
+    expect(result.wsEndpoint).toBeUndefined();
+  });
+
   it("connects via wsEndpoint lookup", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -342,7 +361,7 @@ describe("BrowserManager", () => {
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
     const result = await manager.connect({ host: "127.0.0.1", port: 9222 });
-    expect(result.mode).toBe("B");
+    expect(result.mode).toBe("cdpConnect");
   });
 
   it("connects via relay endpoint", async () => {
@@ -351,13 +370,196 @@ describe("BrowserManager", () => {
     ];
     const { browser } = createBrowserBundle(nodes);
 
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-1" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "secret-token", instanceId: "relay-1" })
+      }) as never;
+
     connectOverCDP.mockResolvedValue(browser);
 
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
     const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
-    expect(result.mode).toBe("C");
+    expect(result.mode).toBe("extension");
+    expect(connectOverCDP).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp?token=secret-token");
+    expect(result.wsEndpoint).toBe("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("ignores token query params on relay endpoints", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-1" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "pair-token", instanceId: "relay-1" })
+      }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp?token=user-token");
+    expect(connectOverCDP).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp?token=pair-token");
+    expect(result.wsEndpoint).toBe("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("connects via relay endpoint without pairing", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    expect(result.mode).toBe("extension");
+    expect(connectOverCDP).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+    expect(result.wsEndpoint).toBe("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("throws when relay config fetch fails", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as never;
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects.toThrow("Failed to fetch relay config");
+  });
+
+  it("throws when relay config is missing relayPort", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ pairingRequired: true })
+    }) as never;
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects.toThrow("Relay config missing relayPort");
+  });
+
+  it("throws when relay pairing fetch fails", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true })
+      })
+      .mockResolvedValueOnce({ ok: false }) as never;
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects.toThrow("Failed to fetch relay pairing token");
+  });
+
+  it("throws when pairing token is missing from /pair", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-1" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ instanceId: "relay-1" })
+      }) as never;
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects.toThrow("Relay pairing token missing");
+  });
+
+  it("throws on relay pairing instance mismatch", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-1" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "secret", instanceId: "relay-2" })
+      }) as never;
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects.toThrow("Relay pairing mismatch");
+  });
+
+  it("returns input for invalid relay endpoint sanitize fallback", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = (manager as unknown as { sanitizeWsEndpointForOutput: (value: string) => string })
+      .sanitizeWsEndpointForOutput("not-a-valid-url");
+    expect(result).toBe("not-a-valid-url");
+  });
+
+  it("maps unauthorized relay errors to a stable message", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-1" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "secret", instanceId: "relay-1" })
+      }) as never;
+
+    connectOverCDP.mockRejectedValue(new Error("Unexpected server response: 401"));
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects.toThrow("Relay /cdp rejected the connection (unauthorized)");
+  });
+
+  it("propagates non-401 relay connection errors", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockRejectedValueOnce(new Error("Unexpected server response: 500"));
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects.toThrow("Unexpected server response: 500");
   });
 
   it("connects using default host and port", async () => {
@@ -411,6 +613,16 @@ describe("BrowserManager", () => {
       .toThrow("Failed to fetch CDP endpoint");
   });
 
+  it("fails when wsEndpoint lookup fetch throws", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error("network down")) as never;
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.connect({ host: "127.0.0.1", port: 9222 }))
+      .rejects
+      .toThrow("network down");
+  });
+
   it("rejects non-local endpoints by default", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
@@ -444,6 +656,15 @@ describe("BrowserManager", () => {
     await expect(manager.connect({ wsEndpoint: "not-a-valid-url" }))
       .rejects
       .toThrow("Invalid CDP endpoint URL");
+  });
+
+  it("rejects disallowed protocol endpoints", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.connect({ wsEndpoint: "ftp://127.0.0.1:9222/devtools/browser" }))
+      .rejects
+      .toThrow("Disallowed protocol \"ftp:\"");
   });
 
   it("normalizes hostname case for localhost validation", async () => {
@@ -691,6 +912,27 @@ describe("BrowserManager", () => {
 
     const sessions = (manager as unknown as { sessions: Map<string, unknown> }).sessions;
     expect(sessions.has(result.sessionId)).toBe(false);
+  });
+
+  it("aggregates disconnect cleanup errors", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default", persistProfile: false });
+
+    vi.spyOn(context, "close").mockRejectedValue(new Error("close fail"));
+    rm.mockRejectedValueOnce(new Error("rm fail"));
+
+    await expect(manager.disconnect(result.sessionId, false))
+      .rejects
+      .toThrow("Failed to disconnect browser session.");
   });
 
   it("rejects unknown refs and snapshots with no target", async () => {

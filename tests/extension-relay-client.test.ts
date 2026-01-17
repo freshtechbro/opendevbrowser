@@ -64,11 +64,14 @@ describe("RelayClient", () => {
 
     const handshake = { type: "handshake", payload: { tabId: 1 } };
     const connectPromise = client.connect(handshake);
-    await vi.runAllTimersAsync();
-    await connectPromise;
+    await vi.advanceTimersByTimeAsync(0);
 
     const socket = FakeWebSocket.instances[0];
     expect(socket.sent[0]).toBe(JSON.stringify(handshake));
+    socket.emit("message", {
+      data: JSON.stringify({ type: "handshakeAck", payload: { instanceId: "relay-1", relayPort: 8787, pairingRequired: false } })
+    });
+    await connectPromise;
 
     socket.emit("message", {
       data: JSON.stringify({ method: "forwardCDPCommand", id: 1, params: { method: "Runtime.enable" } })
