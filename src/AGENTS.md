@@ -1,40 +1,59 @@
-# Local AGENTS.md (src/)
+# src/ — Agent Guidelines
 
-Applies to `src/` and subdirectories. Extends root `AGENTS.md`.
+Extends root `AGENTS.md`. Nearest file takes precedence.
 
-## Architecture
-- Keep module boundaries: `cache/`, `browser/`, `snapshot/`, `devtools/`, `export/`, `relay/`, `tools/`, `skills/`, `core/`, `cli/`.
-- Keep tools thin (arg validation + response shaping); place core logic in managers/services.
-- Snapshot/ref work must align with Architecture Alignment rules in root `AGENTS.md`.
-- Relay changes must preserve localhost-only and honor configurable relay port/token.
-- Config toggles (devtools verbosity, snapshot limits, unsafe export) flow through managers into module behavior.
+## Module Boundaries
 
-## TypeScript
-- Prefer `import type` for type-only imports (common across src).
-- Validate tool/config inputs with Zod schemas; keep runtime validation at boundaries.
+| Module | Responsibility |
+|--------|----------------|
+| `browser/` | BrowserManager, TargetManager, CDP lifecycle |
+| `cache/` | Chrome executable resolution |
+| `cli/` | CLI commands, installers, templates |
+| `core/` | Bootstrap, runtime wiring |
+| `devtools/` | Console/network trackers, redaction |
+| `export/` | DOM capture, React emitter, sanitization |
+| `relay/` | Extension relay server, protocol types |
+| `skills/` | SkillLoader, topic filtering |
+| `snapshot/` | AX-tree snapshots, ref management |
+| `tools/` | 30+ tool definitions (thin wrappers) |
+| `utils/` | Shared utilities |
+
+## Patterns
+
+### Tools (src/tools/)
+- Validate inputs with Zod schemas
+- Delegate logic to managers/services
+- Return structured `{ success, data }` or `{ error }` objects
+- Never use `any`; narrow `unknown` with validation
+
+### Managers (src/browser/, src/core/)
+- Own lifecycle and state
+- BrowserManager: Playwright session, targets, cleanup
+- ScriptRunner: action execution with retry/backoff
+
+### Security (src/relay/, src/browser/)
+- `crypto.timingSafeEqual()` for token comparison
+- Hostname normalization before CDP validation
+- Origin validation on WebSocket upgrade
+- Rate limiting: 5 handshakes/min/IP
+
+## Config Flow
+
+```
+src/config.ts (Zod schema)
+  → src/core/bootstrap.ts (loads + validates)
+    → managers receive typed config
+```
+
+Config toggles: `devtools.showFullUrls`, `snapshot.maxNodes`, `security.allowUnsafeExport`
+
+## Anti-Patterns
+
+- Hardcoded relay endpoints → use config
+- `===` for tokens → use `timingSafeEqual()`
+- Log secrets → redact all sensitive data
+- Empty catch blocks → always handle errors
 
 ## Testing
-- Add/update Vitest tests in `tests/` for behavior changes.
 
-## Documentation Sync
-- Update `docs/REFACTORING_PLAN.md` (and module docs like `docs/CLI.md`) when changing core or CLI behavior.
-
-## Safety
-- Do not log secrets or captured page data.
-- Use `crypto.timingSafeEqual()` for all token/secret comparisons.
-- Set file permissions explicitly (mode 0600 for config files).
-- Validate Origin headers on WebSocket connections.
-
-## Folder Structure
-```
-src/
-|-- browser/
-|-- cache/
-|-- cli/
-|-- devtools/
-|-- export/
-|-- relay/
-|-- skills/
-|-- snapshot/
-`-- tools/
-```
+Add/update tests in `tests/` for behavior changes. Coverage ≥95%.

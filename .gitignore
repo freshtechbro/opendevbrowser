@@ -46,3 +46,11 @@ opendevbrowser-extension.zip
 
 # Continuity ledger (local-only)
 CONTINUITY.md
+
+# Auto Claude data directory
+.auto-claude/
+
+# Local planning artifacts
+.sisyphus/
+prd.json
+progress.txt

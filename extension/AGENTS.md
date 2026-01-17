@@ -1,33 +1,49 @@
-# Local AGENTS.md (extension/)
+# extension/ — Agent Guidelines
 
-Applies to `extension/` and subdirectories. Extends root `AGENTS.md`.
+Chrome extension for relay mode. Extends root `AGENTS.md`.
 
 ## Architecture
-- Extension connects only to local relay; do not add non-local endpoints.
-- Relay URL/port must be configurable (no hardcoded relay URL).
-- Keep `background.ts` focused on connection orchestration and message routing.
-- Keep `popup.tsx` focused on UI + user-configurable settings (pairing token, relay settings).
-- CDP attach/detach and message forwarding live under `extension/src/services/`.
-- Auto-connect and auto-pair default to on; extension should attempt auto-connect on install/startup and when toggled on.
-- Auto-pair fetches tokens from the local relay `/pair` endpoint and must not log tokens.
 
-## TypeScript
-- Prefer `import type` for Chrome and message types.
-- Keep message schemas aligned with the relay protocol (no local drift).
-
-## Testing
-- Extension tests live in `tests/` and use Chrome mocks.
-- Build with `npm run extension:build` when validating extension changes.
-
-## Safety
-- Do not log tokens or tab content.
-
-## Documentation Sync
-- Update `docs/EXTENSION.md` and `docs/REFACTORING_PLAN.md` when relay, auto-connect, or pairing behavior changes.
-
-## Folder Structure
 ```
 extension/
-|-- dist/
-`-- src/
+├── src/
+│   ├── background.ts    # Connection orchestration, message routing
+│   ├── popup.tsx        # Settings UI (port, token, auto-connect)
+│   └── services/        # CDP attach/detach, message forwarding
+├── manifest.json
+└── popup.html
 ```
+
+## Key Behaviors
+
+- **Local relay only**: Never add non-local endpoints
+- **Auto-connect**: Enabled by default, attempts on install/startup
+- **Auto-pair**: Fetches token from `/pair` endpoint
+- **Configurable**: `relayPort`/`relayToken` from popup settings
+
+## Connection Flow
+
+1. Extension checks `http://127.0.0.1:8787/config`
+2. Fetches token from `/pair` if auto-pair enabled
+3. Connects to `ws://127.0.0.1:<port>/extension`
+4. Badge shows ON/OFF status
+
+## Constraints
+
+| Never | Why |
+|-------|-----|
+| Hardcode relay URL | Use config from popup |
+| Log tokens/tab content | Security requirement |
+| Non-local endpoints | Localhost only |
+
+## Build
+
+```bash
+npm run extension:build    # tsc -p extension/tsconfig.json
+npm run extension:sync     # Sync version from package.json
+npm run extension:pack     # Create .zip for release
+```
+
+## Testing
+
+Extension tests use Chrome mocks in `tests/`. Build before validating changes.

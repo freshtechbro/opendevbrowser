@@ -1,446 +1,155 @@
-# Continuity Ledger (compaction-safe)
-Maintain a single Continuity Ledger for this workspace in `CONTINUITY.md`. The ledger is the canonical session briefing designed to survive context compaction; do not rely on earlier chat text unless it's reflected in the ledger.
+# OpenDevBrowser - Agent Guidelines
 
-## How it works
-- At the start of every assistant turn: read `CONTINUITY.md`, update it to reflect the latest goal/constraints/decisions/state, then proceed with the work.
-- Update `CONTINUITY.md` again whenever any of these change: goal, constraints/assumptions, key decisions, progress state (Done/Now/Next), or important tool outcomes.
-- Keep it short and stable: facts only, no transcripts. Prefer bullets. Mark uncertainty as `UNCONFIRMED` (never guess).
-- If you notice missing recall or a compaction/summary event: refresh/rebuild the ledger from visible context, mark gaps `UNCONFIRMED`, ask up to 1-5 targeted questions, then continue.
-
-## `todowrite` vs the Ledger
-- `todowrite` is for short-term execution scaffolding while you work (a small 3-7 step plan with pending/in_progress/completed).
-- `todoread` is for checking the current task plan state.
-- `CONTINUITY.md` is for long-running continuity across compaction (the "what/why/current state"), not a step-by-step task list.
-- Keep them concise and consistent: when the plan or state changes, update the ledger at the intent/progress level (not every micro-step).
-
-## In replies
-- Begin with a brief "Ledger Snapshot" (Goal + Now/Next + Open Questions and recommended options based on your understanding, research and best practice). Print the full ledger only when it materially changes or when the user asks.
-
-## `CONTINUITY.md` format (keep headings)
-Goal (incl. success criteria):
-- Constraints/Assumptions:
-- Key decisions:
-- State:
-  - Done:
-  - Now:
-  - Next: at least 4 next tasks/subtasks each with a brief description. must be detailed with a clear action item and expected outcome and files to be impacted
-- Open questions (UNCONFIRMED if needed):
-  - When you have open questions, do your research in the codebase (and on the internet for best practices) to understand the existing patterns and constraints. Choose answers that are consistent with the existing patterns and constraints and best-practice and research all synchronized into logical recommendations.
-- Working set (files/ids/commands):
-
-# Agent Guidelines (opendevbrowser)
-
-## Purpose
-This file orients agentic coding tools to this repository's expectations.
-Use it as the authoritative reference for commands, style, and safety.
-
-## Repository Layout
-- `docs/` holds the authoritative plans and blueprints.
-- Keep any referenced plan docs in sync with the current scope.
-- `src/` contains the OpenCode plugin implementation.
-- `extension/` is reserved for the optional Chrome extension.
-- `skills/` contains plugin skill packs.
-
-## Repository Folder Structure
-```
-.
-|-- coverage/
-|-- dist/
-|-- docs/
-|-- extension/
-|-- node_modules/
-|-- skills/
-|-- src/
-`-- tests/
-```
-
-## Layered AGENTS.md
-- Root `AGENTS.md` applies repo-wide; the nearest subfolder `AGENTS.md` overrides it.
-- Subfolder guides: `src/AGENTS.md`, `extension/AGENTS.md`, `tests/AGENTS.md`, `docs/AGENTS.md`, `skills/AGENTS.md`.
-- Nested guides exist under `src/**/AGENTS.md` and `extension/**/AGENTS.md`; the closest file to the working directory takes precedence.
-- When working inside `src/` or `extension/`, check for module-level `AGENTS.md` (including `extension/src/**`) and follow it first.
-
-## Setup
-- Install dependencies: `npm install`
-
-## Build, Lint, and Test Commands
-Scripts are in `package.json`:
-- `npm run build` (tsc -p tsconfig.json, outputs `dist/`)
-- `npm run dev` (tsc -p tsconfig.json --watch)
-- `npm run lint` (eslint "{src,tests}/**/*.ts")
-- `npm run test` (vitest run --coverage)
-- `npm run extension:build` (tsc -p extension/tsconfig.json)
-
-### Single Test Guidance
-Vitest:
-- Run a single file: `npm run test -- tests/foo.test.ts`
-- Run a single test name: `npm run test -- -t "test name"`
-- Direct: `npx vitest run tests/foo.test.ts`
-
-Playwright (when wired):
-- Run a single file: `npx playwright test tests/foo.spec.ts`
-- Run a single test name: `npx playwright test -g "test name"`
-
-## Test Configuration
-- `vitest.config.ts` uses Node environment and `tests/**/*.test.ts`.
-- Coverage thresholds: 95% for lines/functions/branches/statements.
-- Coverage scope: `src/**/*.ts` (excludes extension and a few internal files).
-
-## Linting
-- ESLint flat config in `eslint.config.js` using `@typescript-eslint`.
-- `@typescript-eslint/no-explicit-any` is an error.
-- `@typescript-eslint/no-unused-vars` ignores args prefixed with `_`.
-- No Prettier config; follow ESLint and existing formatting.
-
-## Formatting
-- Indentation: 2 spaces.
-- Line endings: LF.
-- Keep edits ASCII unless the file already uses Unicode.
-
-### Naming
-- Files and folders: `kebab-case`.
-- Variables and functions: `camelCase`.
-- Classes and types: `PascalCase`.
-- Tool and command names: `opendevbrowser_*`.
-
-### Imports
-- Order imports: Node built-ins, external packages, internal modules, relative paths.
-- Use `import type` for type-only imports.
-- Avoid deep relative chains when a local module export exists.
-
-### TypeScript
-- Compiler config: strict, noUncheckedIndexedAccess, ES2022 target, ESNext modules.
-- Prefer explicit types at boundaries (tool args, public APIs).
-- Avoid `any`, `@ts-ignore`, and `@ts-expect-error`.
-- Use `unknown` for unsafe inputs, then narrow with validation.
-- Use Zod schemas for tool argument validation.
-
-### Error Handling
-- Never use empty `catch` blocks.
-- Prefer `throw new Error("message", { cause })` when rethrowing.
-- Surface tool errors as structured error objects, not raw stack traces.
-- Include enough context to debug without leaking secrets.
-
-### Logging and Secrets
-- Do not log cookies, tokens, or captured page data.
-- Redact secrets in snapshots or logs.
-- Keep CDP endpoints bound to `127.0.0.1` by default.
-
-## Tooling Expectations
-- Plugin runs in the OpenCode runtime (Bun).
-- Prefer `Bun.$` for shell execution inside tools.
-- Tool names must be namespaced as `opendevbrowser_*`.
-
-## Testing Guidelines
-- Unit tests: Vitest (`*.test.ts` or `*.spec.ts`).
-- Integration tests: Playwright where relevant.
-- Place tests in `tests/` or alongside modules, but keep naming consistent.
-
-## Plugin Architecture Principles
-- Plugin-native implementation only (no MCP orchestration).
-- Script-first UX: snapshot -> refs -> actions.
-- Snapshots should be token-efficient (AX-outline by default).
-- Actions should operate on refs and be deterministic.
-
-## Current Architecture (Implementation)
-- Config loads from `~/.config/opencode/opendevbrowser.jsonc` via Zod; malformed JSONC throws.
-- `BrowserManager` orchestrates Playwright sessions, `TargetManager` lifecycle, and ref invalidation listeners.
-- Snapshot pipeline uses AX outline, entropy-based redaction, `snapshot.maxNodes`, and iframe-skip warnings.
-- DevTools trackers capture console/network, strip query/hash by default, and honor `devtools.showFullUrls/showFullConsole`.
-- Export pipeline captures DOM in page context, DOM-sanitizes by default, inlines subtree styles with node caps via `export.maxNodes`, and warns on truncation; `allowUnsafeExport` bypasses sanitization with warning.
-- Skills load from `skills/` with fallback to parent dir; topic filtering is heading-based.
-- Relay protocol types live in `src/relay/` and are consumed by the extension with configurable relay settings.
-
-## Architecture Alignment (Planned vs Current)
-- Source of truth: `docs/` (see the plan doc(s) for the current scope).
-- Snapshots: prefer Accessibility-domain AX outline; avoid DOM mutation for refs.
-- Refs: stable mapping `{ backendNodeId, frameId, targetId }`; invalidate on navigation/target switch.
-- ScriptRunner: include retry/backoff helpers for waits and actions.
-- Relay: extension honors configurable `relayPort`/`relayToken` (no hardcoded relay URL).
-- Prompting guide: `topic` argument must filter guidance or be removed.
-
-## Security and Safety
-- Refuse non-local CDP endpoints unless explicitly allowed by config.
-- CDP endpoint validation uses proper URL hostname parsing (allowlist: localhost, 127.0.0.1, ::1).
-- Do not expose raw CDP tools unless user-enabled.
-- Avoid writing browser profiles or caches into git.
-- DevTools output (network/console) redacts sensitive query params and token-like strings by default.
-- Export/clone pipeline sanitizes HTML by default (strips scripts, on* handlers, dangerous URLs).
-
-## Plugin Configuration
-- Config is stored in a plugin-owned file: `~/.config/opencode/opendevbrowser.jsonc`
-- OpenCode's `opencode.json` only needs `"plugin": ["opendevbrowser"]` - no other keys required.
-- The plugin works out-of-box with sensible defaults; config file is optional for customization.
-
-### Plugin Versioning
-- **Recommended**: Use bare package name `"opendevbrowser"` (matches OpenCode docs).
-- **Pinned version**: Use `"opendevbrowser@1.2.3"` to lock to a specific version.
-- OpenCode installs npm plugins via Bun at startup and caches them in `~/.cache/opencode/node_modules/`.
-
-### Updating the Plugin
-- **Recommended**: Bump version in `opencode.json`, then restart.
-- **Force reinstall**: Delete `~/.cache/opencode/` and restart.
-- **Optional**: `cd ~/.cache/opencode && bun update opendevbrowser`.
-
-### Config File Format (`~/.config/opencode/opendevbrowser.jsonc`)
-```jsonc
-{
-  "headless": false,
-  "profile": "default",
-  "persistProfile": true,
-  "snapshot": { "maxChars": 16000, "maxNodes": 1000 },
-  "export": { "maxNodes": 1000, "inlineStyles": true },
-  "devtools": { "showFullUrls": false, "showFullConsole": false },
-  "security": {
-    "allowRawCDP": false,
-    "allowNonLocalCdp": false,
-    "allowUnsafeExport": false
-  },
-  "relayPort": 8787,
-  "relayToken": "optional-secret",
-  "chromePath": "/path/to/chrome",
-  "flags": [],
-  "checkForUpdates": false
-}
-```
-
-## For LLM Agents (Installation Playbook)
-
-When a user asks to install opendevbrowser, follow these steps:
-
-1. **Read existing config** (do not overwrite):
-   ```bash
-   cat ~/.config/opencode/opencode.json
-   ```
-
-2. **Add plugin to array** (preserve existing plugins):
-   - If `plugin` array exists, append `"opendevbrowser"` if not present.
-   - If no `plugin` array, add `"plugin": ["opendevbrowser"]`.
-
-3. **Example minimal opencode.json**:
-   ```json
-   {
-     "$schema": "https://opencode.ai/config.json",
-     "plugin": ["opendevbrowser"]
-   }
-   ```
-
-4. **Verify installation**:
-   - Restart OpenCode or start a new session.
-   - Run `opendevbrowser_status` to confirm the plugin is loaded.
-
-5. **Optional config customization**:
-   - Only create `~/.config/opencode/opendevbrowser.jsonc` if user requests non-default settings.
-   - Never add `opendevbrowser` keys to `opencode.json` (schema violation).
-
-## Documentation Rules
-- Keep the three plan docs in sync when scope changes.
-- Update docs before proposing any release-related workflow.
-- Canonical refactor plan is `docs/REFACTORING_PLAN.md`; avoid parallel research docs.
-- Keep `docs/ARCHITECTURE.md` updated when core flows or distribution boundaries change.
-- If CLI output or exit-code behavior changes, update `docs/CLI.md` and related tests.
-
-## Implementation Plan Format
-
-When creating detailed implementation plans, use this standardized task-by-task format. This ensures plans are actionable, traceable, and can be handed off to any agent for execution.
-
-### Plan Document Structure
-
-```markdown
-# [Plan Title]
-
-[Brief description of what this plan covers]
-
----
+**Generated:** 2026-01-13 | **Commit:** 7756dee | **Branch:** main
 
 ## Overview
 
-### [Context heading, e.g., "Distribution channels" or "Scope"]
-- Bullet points summarizing key aspects
+OpenCode plugin providing AI agents with browser automation via Chrome DevTools Protocol. Script-first UX: snapshot → refs → actions.
 
-### Key decisions
-- Decision 1
-- Decision 2
+## Structure
 
----
-
-## Task N — [Task Title]
-
-### Reasoning
-[Why this task is necessary. What problem it solves or what value it adds.]
-
-### What to do
-[One-sentence summary of the task objective.]
-
-### How
-1. Step-by-step instructions
-2. Be specific about what to change
-3. Include code snippets or commands where helpful
-
-### Files impacted
-- `path/to/file1.ts`
-- `path/to/file2.ts`
-- `path/to/new-file.ts` (new file)
-
-### End goal
-[What success looks like when this task is complete.]
-
-### Acceptance criteria
-- [ ] Criterion 1 (testable/verifiable)
-- [ ] Criterion 2
-- [ ] Criterion 3
-
----
-
-## File-by-file implementation sequence
-
-[Optional section listing the order in which files should be modified to minimize conflicts]
-
-1. `file1.ts` — Tasks 1, 3
-2. `file2.ts` — Task 2
-3. `new-file.ts` — Task 4 (new file)
-
----
-
-## Dependencies to add
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `package-name` | `^1.0.0` | Brief purpose |
-
----
-
-## Version history
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0 | YYYY-MM-DD | Initial plan |
-| 1.1 | YYYY-MM-DD | Added tasks X-Y for [reason] |
+```
+.
+├── src/              # Plugin implementation (tools, managers, services)
+│   ├── browser/      # BrowserManager, TargetManager, CDP lifecycle
+│   ├── cache/        # Chrome executable resolution
+│   ├── cli/          # CLI commands and installers
+│   ├── core/         # Bootstrap, runtime wiring
+│   ├── devtools/     # Console/network trackers with redaction
+│   ├── export/       # DOM capture, React emitter, CSS extraction
+│   ├── relay/        # Extension relay protocol and server
+│   ├── skills/       # SkillLoader for skill pack discovery
+│   ├── snapshot/     # AX-tree snapshots, ref management
+│   ├── tools/        # 30+ opendevbrowser_* tool definitions
+│   └── utils/        # Shared utilities
+├── extension/        # Chrome extension (relay client)
+├── skills/           # Bundled skill packs (5 total)
+├── tests/            # Vitest tests (95% coverage required)
+└── docs/             # Architecture, plans, CLI docs
 ```
 
-### Task Section Requirements
+## Where to Look
 
-Each task MUST include all of these sections:
+| Task | Location | Notes |
+|------|----------|-------|
+| Add/modify tool | `src/tools/` | Keep thin; delegate to managers |
+| Browser lifecycle | `src/browser/browser-manager.ts` | Owns Playwright, targets, cleanup |
+| Snapshot/refs | `src/snapshot/` | AX-tree, ref mapping |
+| Extension relay | `src/relay/` | Protocol types, server security |
+| CLI commands | `src/cli/commands/` | Grouped by category |
+| Add skill pack | `skills/*/SKILL.md` | Follow naming conventions |
+| Config schema | `src/config.ts` | Zod schema, defaults |
 
-| Section | Purpose |
-|---------|---------|
-| **Reasoning** | Explains WHY this task matters (context for the implementer) |
-| **What to do** | One-sentence summary of the objective |
-| **How** | Numbered step-by-step instructions |
-| **Files impacted** | Explicit list of files to create/modify |
-| **End goal** | Success state description |
-| **Acceptance criteria** | Checkbox list of verifiable conditions |
+## Commands
 
-### Best Practices
-
-1. **Atomic tasks**: Each task should be independently completable
-2. **Clear sequencing**: If tasks have dependencies, document the order
-3. **Testable criteria**: Acceptance criteria must be verifiable (not vague)
-4. **File-first thinking**: Always list impacted files explicitly
-5. **New files marked**: Indicate `(new file)` for files that don't exist yet
-6. **Version the plan**: Track changes in the version history table
-
-### Example Task
-
-```markdown
-## Task 4 — Replace JSONC parsing with robust parser
-
-### Reasoning
-Regex stripping breaks valid JSONC strings containing `//` and doesn't support trailing commas.
-
-### What to do
-Use `jsonc-parser` in `src/config.ts` and strengthen tests.
-
-### How
-1. Add dependency: `jsonc-parser`
-2. Replace regex comment stripping with `jsonc-parser`'s parse function
-3. Add tests for `http://` strings and trailing commas
-
-### Files impacted
-- `package.json` (new dependency)
-- `src/config.ts`
-- `tests/config.test.ts`
-
-### End goal
-JSONC works reliably for real-world configs.
-
-### Acceptance criteria
-- [ ] Tests pass for trailing commas and URLs with `//`
-- [ ] No regressions in config parsing
+```bash
+npm run build          # tsup → dist/
+npm run dev            # tsup --watch
+npm run lint           # eslint "{src,tests}/**/*.ts"
+npm run test           # vitest run --coverage (95% threshold)
+npm run extension:build   # tsc extension
+npm run extension:sync    # Sync version from package.json
+npm run version:check     # Verify version alignment
 ```
 
-### When to Create Implementation Plans
+**Single test:** `npm run test -- tests/foo.test.ts` or `npm run test -- -t "test name"`
 
-Create a formal implementation plan when:
-- Task involves 3+ files or 3+ distinct changes
-- Multiple agents may work on the task
-- Task spans multiple sessions or may be interrupted
-- User requests a detailed plan before implementation
-- Release, migration, or refactoring work
+## Conventions
 
-Save implementation plans to `docs/` with descriptive names (e.g., `docs/RELEASE_PLAN.md`, `docs/MIGRATION_PLAN.md`).
+### Naming
+- Files/folders: `kebab-case`
+- Variables/functions: `camelCase`
+- Classes/types: `PascalCase`
+- Tools: `opendevbrowser_*` prefix required
 
-## Commit and PR Guidance
+### TypeScript
+- Strict mode, `noUncheckedIndexedAccess` enabled
+- Use `import type` for type-only imports
+- Validate inputs with Zod at boundaries
+- Never use `any`, `@ts-ignore`, `@ts-expect-error`
 
-### Atomic Commit Workflow
+### Code Organization
+- Tools: thin wrappers (validation + response shaping)
+- Managers: core logic (BrowserManager, ScriptRunner)
+- Keep module boundaries clear
 
-When committing changes, follow this workflow to create clean, reviewable history:
+## Anti-Patterns
 
-1. **Group changes by impact and similarity**:
-   | Group Type | Example Prefix | Description |
-   |------------|----------------|-------------|
-   | Feature | `feat:` | New functionality (CLI, tools, skills) |
-   | Fix | `fix:` | Bug fixes, error handling improvements |
-   | Test | `test:` | Test additions or coverage improvements |
-   | Docs | `docs:` | Documentation changes |
-   | Chore | `chore:` | Cleanup, refactoring, config changes |
+| Never | Why |
+|-------|-----|
+| `any` type | Use `unknown` + narrow with validation |
+| Hardcoded relay endpoints | Use config `relayPort`/`relayToken` |
+| `===` for token comparison | Use `crypto.timingSafeEqual()` |
+| Log secrets/tokens | Redact all sensitive data |
+| Empty catch blocks | Always handle or rethrow with context |
+| Weaken tests to pass | Fix the code, not the test |
 
-2. **Commit order** (dependencies first):
-   - Core infrastructure changes first (config, types)
-   - Feature implementations second
-   - Tests third (they depend on features)
-   - Documentation fourth
-   - Cleanup/chore last
+## Security
 
-3. **Commit message format** (Conventional Commits):
-   ```
-   <type>: <short summary>
+### Defaults (all false for safety)
+- `allowRawCDP`: Direct CDP access
+- `allowNonLocalCdp`: Remote CDP endpoints
+- `allowUnsafeExport`: Skip HTML sanitization
 
-   - Bullet point details
-   - What was added/changed/fixed
-   - Why (if not obvious)
-   ```
+### Required Protections
+- CDP endpoints: localhost only (127.0.0.1, ::1, localhost)
+- Hostname normalization: lowercase before validation
+- Relay auth: timing-safe token comparison
+- Rate limiting: 5 handshakes/min/IP
+- Origin validation: chrome-extension:// only for WebSocket
+- Export sanitization: strip scripts, handlers, dangerous CSS
 
-4. **Grouping rules**:
-   - Group files that change together for the same reason
-   - Keep related test files with their implementation OR in a separate test commit
-   - Never mix unrelated changes in one commit
-   - Each commit should be independently reviewable
+### File Permissions
+- Config files: mode 0600
+- Atomic writes: prevent corruption
 
-5. **Before committing**:
-   - Run `npm run lint` - fix any errors
-   - Run `npm run build` - ensure compilation succeeds
-   - Run `npm run test` - ensure all tests pass
-   - Check `git status` to review what will be committed
+## Plugin Architecture
 
-6. **Example atomic commit sequence**:
-   ```
-   feat: add CLI installer with jarvis-mcp pattern
-   feat: extend skill system with multi-skill discovery
-   feat: add task-specific skill packs
-   test: add comprehensive test coverage for skill system
-   docs: add CLI and skill system documentation
-   chore: clean up obsolete docs and update state
-   ```
+```
+Entry: src/index.ts
+  └── Exports: { tool, chat.message, experimental.chat.system.transform }
 
-### PR Guidance
-- PRs should include summary, test notes, and extension screenshots if relevant.
-- For releases, update `README.md` and related docs before publishing.
+Bootstrap: src/core/bootstrap.ts
+  └── Wires: BrowserManager, ScriptRunner, SkillLoader, RelayServer
 
-## Cursor / Copilot Rules
-- No `.cursor/rules/`, `.cursorrules`, or `.github/copilot-instructions.md` files detected.
+Config: ~/.config/opencode/opendevbrowser.jsonc
+  └── Schema: src/config.ts (Zod validation)
+```
 
-## Project-Specific Notes
-- Preferred frameworks: Vitest for unit tests, Playwright for integration flows.
-- Optional Chrome extension is staged; plugin must work without it.
-- Use minimal, focused changes; avoid refactors during bug fixes.
+### Tool Registration Pattern
+```typescript
+// src/tools/index.ts
+export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
+  return {
+    opendevbrowser_launch: createLaunchTool(deps),
+    opendevbrowser_snapshot: createSnapshotTool(deps),
+    // ... 30+ tools
+  };
+}
+```
+
+## Testing
+
+- Framework: Vitest
+- Coverage: ≥95% lines/functions/branches/statements
+- Location: `tests/*.test.ts`
+- Mocking: Use existing Chrome/Playwright mocks
+- Never weaken tests; fix root cause
+
+## Documentation
+
+- Source of truth: `docs/`
+- Architecture: `docs/ARCHITECTURE.md`
+- CLI reference: `docs/CLI.md`
+- Refactor plans: `docs/REFACTORING_PLAN.md`
+- Keep docs in sync with implementation
+
+## Layered AGENTS.md
+
+Subdirectory guides override this root file:
+- `src/AGENTS.md` — module boundaries, manager patterns
+- `extension/AGENTS.md` — Chrome extension specifics
+- `tests/AGENTS.md` — testing conventions
+- `skills/AGENTS.md` — skill pack format
+
+The nearest AGENTS.md to your working directory takes precedence.
