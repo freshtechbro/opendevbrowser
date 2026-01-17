@@ -78,7 +78,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
 
 async function launchWithRelay(core: OpenDevBrowserCore, params: Record<string, unknown>) {
   let relayStatus = core.relay.status();
-  const relayUrl = core.relay.getCdpUrl();
+  let relayUrl = core.relay.getCdpUrl();
   const relayPort = core.config.relayPort;
   const noExtension = optionalBoolean(params.noExtension) ?? false;
   const extensionOnly = optionalBoolean(params.extensionOnly) ?? false;
@@ -89,16 +89,31 @@ async function launchWithRelay(core: OpenDevBrowserCore, params: Record<string, 
   const waitTimeoutMs = optionalNumber(params.waitTimeoutMs) ?? 30000;
 
   if (waitForExtension && !managedExplicit) {
-    const connected = await waitForRelay(core.relay, waitTimeoutMs);
+    const observedPort = resolveObservedPort(relayStatus, relayPort);
+    const connected = await waitForRelayAny(core.relay, observedPort, waitTimeoutMs);
     if (connected) {
       relayStatus = core.relay.status();
+      relayUrl = core.relay.getCdpUrl() ?? relayUrl;
     }
   }
 
-  const extensionReady = Boolean((relayStatus.extensionHandshakeComplete || relayStatus.extensionConnected) && relayUrl);
-  const observedStatus = extensionReady ? null : await fetchRelayObservedStatus(relayPort);
+  const observedPort = resolveObservedPort(relayStatus, relayPort);
+  const shouldFetchObserved = !managedExplicit && (!relayUrl || !(relayStatus.extensionHandshakeComplete || relayStatus.extensionConnected));
+  const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
+  if (!relayUrl) {
+    const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
+    relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/cdp` : null;
+  }
+  const extensionReady = Boolean(
+    relayUrl && (
+      relayStatus.extensionHandshakeComplete ||
+      relayStatus.extensionConnected ||
+      observedStatus?.extensionHandshakeComplete ||
+      observedStatus?.extensionConnected
+    )
+  );
   const diagnostics = observedStatus
-    ? `Diagnostics: relayPort=${relayPort} instance=${observedStatus.instanceId.slice(0, 8)} ext=${observedStatus.extensionConnected} handshake=${observedStatus.extensionHandshakeComplete} cdp=${observedStatus.cdpConnected}`
+    ? `Diagnostics: relayPort=${observedPort ?? "?"} instance=${observedStatus.instanceId.slice(0, 8)} ext=${observedStatus.extensionConnected} handshake=${observedStatus.extensionHandshakeComplete} cdp=${observedStatus.cdpConnected}`
     : null;
   const missingReason = diagnostics ? `Extension not connected. ${diagnostics}` : "Extension not connected.";
 
@@ -245,17 +260,6 @@ function requireState(value: unknown): "attached" | "visible" | "hidden" {
   return "attached";
 }
 
-async function waitForRelay(relay: { status: () => { extensionConnected: boolean } }, timeoutMs: number): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (relay.status().extensionConnected) {
-      return true;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  return false;
-}
-
 type RelayObservedStatus = {
   instanceId: string;
   running: boolean;
@@ -266,8 +270,37 @@ type RelayObservedStatus = {
   pairingRequired: boolean;
 };
 
-async function fetchRelayObservedStatus(port: number): Promise<RelayObservedStatus | null> {
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+async function waitForRelayAny(
+  relay: { status: () => { extensionConnected: boolean } },
+  observedPort: number | null,
+  timeoutMs: number
+): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (relay.status().extensionConnected) {
+      return true;
+    }
+    const observedStatus = await fetchRelayObservedStatus(observedPort);
+    if (observedStatus?.extensionConnected) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
+function resolveObservedPort(relayStatus: { port?: number }, configPort: number): number | null {
+  if (isValidPort(relayStatus.port)) return relayStatus.port;
+  if (isValidPort(configPort)) return configPort;
+  return null;
+}
+
+function isValidPort(port: unknown): port is number {
+  return typeof port === "number" && Number.isInteger(port) && port > 0 && port <= 65535;
+}
+
+async function fetchRelayObservedStatus(port: number | null): Promise<RelayObservedStatus | null> {
+  if (!isValidPort(port)) {
     return null;
   }
   try {

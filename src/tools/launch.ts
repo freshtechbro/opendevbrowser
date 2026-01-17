@@ -45,19 +45,30 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
         const managedExplicit = Boolean(args.noExtension || headlessExplicit);
         const managedHeadless = headlessExplicit ? true : false;
 
-        if (args.waitForExtension && deps.relay && !managedExplicit) {
-          const connected = await waitForExtension(deps.relay, waitTimeoutMs);
+        if (args.waitForExtension && !managedExplicit) {
+          const observedPort = resolveObservedPort(relayStatus, config.relayPort);
+          const connected = await waitForExtensionAny(deps.relay, observedPort, waitTimeoutMs);
           if (connected) {
-            relayStatus = deps.relay.status();
-            relayUrl = deps.relay.getCdpUrl() ?? null;
-            if (!relayUrl) {
-              const fallbackPort = resolveObservedPort(relayStatus, config.relayPort);
-              relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/cdp` : null;
-            }
+            relayStatus = deps.relay?.status() ?? relayStatus;
+            relayUrl = deps.relay?.getCdpUrl() ?? relayUrl;
           }
         }
 
-        const extensionReady = Boolean((relayStatus?.extensionHandshakeComplete || relayStatus?.extensionConnected) && relayUrl);
+        const observedPort = resolveObservedPort(relayStatus, config.relayPort);
+        const shouldFetchObserved = !managedExplicit && (!relayUrl || !(relayStatus?.extensionHandshakeComplete || relayStatus?.extensionConnected));
+        const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
+        if (!relayUrl) {
+          const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
+          relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/cdp` : null;
+        }
+        const extensionReady = Boolean(
+          relayUrl && (
+            relayStatus?.extensionHandshakeComplete ||
+            relayStatus?.extensionConnected ||
+            observedStatus?.extensionHandshakeComplete ||
+            observedStatus?.extensionConnected
+          )
+        );
         let usedRelay = false;
         let result:
           | Awaited<ReturnType<typeof deps.manager.launch>>
@@ -65,8 +76,6 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
           | null = null;
 
         if (args.extensionOnly && !extensionReady) {
-          const observedPort = resolveObservedPort(relayStatus, config.relayPort);
-          const observedStatus = await fetchRelayObservedStatus(observedPort);
           const reason = buildRelayNotReadyReason("Extension not connected.", {
             relayUrl,
             relayStatus,
@@ -78,8 +87,6 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
 
         if (!managedExplicit) {
           if (!extensionReady || !relayUrl) {
-            const observedPort = resolveObservedPort(relayStatus, config.relayPort);
-            const observedStatus = await fetchRelayObservedStatus(observedPort);
             const reason = buildRelayNotReadyReason("Extension not connected.", {
               relayUrl,
               relayStatus,
@@ -94,8 +101,7 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
           } catch (error) {
             const errorMessage = serializeError(error).message;
             const unauthorized = errorMessage.toLowerCase().includes("unauthorized") || errorMessage.includes("401");
-            const observedPort = resolveObservedPort(relayStatus, config.relayPort);
-            const observedStatus = await fetchRelayObservedStatus(observedPort);
+            const errorObservedStatus = observedStatus ?? await fetchRelayObservedStatus(observedPort);
             const reason = buildRelayNotReadyReason(
               unauthorized
                 ? "Extension relay connection failed: relay /cdp unauthorized (token mismatch)."
@@ -103,7 +109,7 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
               {
                 relayUrl,
                 relayStatus,
-                observedStatus,
+                observedStatus: errorObservedStatus,
                 observedPort
               }
             );
@@ -171,10 +177,18 @@ const buildManagedFailureMessage = (error: unknown): string => {
   ].join("\n");
 };
 
-async function waitForExtension(relay: { status: () => { extensionConnected: boolean } }, timeoutMs: number): Promise<boolean> {
+async function waitForExtensionAny(
+  relay: { status: () => { extensionConnected: boolean } } | undefined,
+  observedPort: number | null,
+  timeoutMs: number
+): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (relay.status().extensionConnected) {
+    if (relay?.status().extensionConnected) {
+      return true;
+    }
+    const observedStatus = await fetchRelayObservedStatus(observedPort);
+    if (observedStatus?.extensionConnected) {
       return true;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));

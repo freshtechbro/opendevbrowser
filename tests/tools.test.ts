@@ -164,6 +164,32 @@ describe("tools", () => {
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
   });
 
+  it("uses observed status when local relay is disconnected", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: false }),
+      getCdpUrl: () => "ws://relay"
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-12345678",
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
+  });
+
   it("fails when extension-only is requested without a relay", async () => {
     const deps = createDeps();
     const relay = {
@@ -260,6 +286,7 @@ describe("tools", () => {
 
   it("adds mismatch hint when observed status disagrees", async () => {
     const deps = createDeps();
+    deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
     const relay = {
       status: () => ({ extensionConnected: false, instanceId: "local-12345678" }),
       getCdpUrl: () => "ws://relay"
@@ -381,8 +408,8 @@ describe("tools", () => {
     const tools = createTools({ ...deps, relay } as never);
 
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionOnly: true } as never));
-    expect(launchResult.ok).toBe(false);
-    expect(String(launchResult.error?.message)).toContain("observed@");
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
   });
 
   it("skips observed status when relay port is invalid", async () => {
@@ -462,6 +489,32 @@ describe("tools", () => {
     const launchResult = parse(await launchPromise);
     expect(launchResult.mode).toBe("extension");
     vi.useRealTimers();
+  });
+
+  it("waits for extension using observed status", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: false, port: 8787 }),
+      getCdpUrl: () => "ws://relay"
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-12345678",
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ waitForExtension: true, waitTimeoutMs: 500 } as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
   });
 
   it("falls back to relayUrl after wait when relay URL remains null", async () => {
