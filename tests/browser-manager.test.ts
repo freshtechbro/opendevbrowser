@@ -526,7 +526,7 @@ describe("BrowserManager", () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
-    const { browser } = createBrowserBundle(nodes);
+    createBrowserBundle(nodes);
 
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
