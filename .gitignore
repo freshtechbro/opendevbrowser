@@ -54,3 +54,7 @@ CONTINUITY.md
 .sisyphus/
 prd.json
 progress.txt
+
+# Local docs scratch
+docs/RELAY_CDP_TOKEN_PLAN.md
+docs/UI_references/
