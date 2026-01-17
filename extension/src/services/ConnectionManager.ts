@@ -11,8 +11,78 @@ type TrackedTab = {
   groupId?: number;
 };
 
+type ConnectionErrorCode =
+  | "no_active_tab"
+  | "tab_url_missing"
+  | "tab_url_restricted"
+  | "debugger_attach_failed"
+  | "relay_connect_failed"
+  | "unknown";
+
+type ConnectionErrorInfo = {
+  code: ConnectionErrorCode;
+  message: string;
+};
+
+class ConnectionError extends Error {
+  code: ConnectionErrorCode;
+
+  constructor(code: ConnectionErrorCode, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+const RESTRICTED_PROTOCOLS = new Set([
+  "chrome:",
+  "chrome-extension:",
+  "chrome-search:",
+  "chrome-untrusted:",
+  "devtools:",
+  "chrome-devtools:",
+  "edge:",
+  "brave:"
+]);
+
+const isWebStoreUrl = (url: URL): boolean => {
+  if (url.hostname === "chromewebstore.google.com") {
+    return true;
+  }
+  if (url.hostname === "chrome.google.com" && url.pathname.startsWith("/webstore")) {
+    return true;
+  }
+  return false;
+};
+
+const getRestrictionMessage = (url: URL): string | null => {
+  if (RESTRICTED_PROTOCOLS.has(url.protocol)) {
+    return "Active tab uses a restricted URL scheme. Focus a normal http(s) tab and retry.";
+  }
+  if (isWebStoreUrl(url)) {
+    return "Chrome Web Store tabs cannot be debugged. Open a normal tab and retry.";
+  }
+  return null;
+};
+
+const summarizeProtocol = (rawUrl: string): string => {
+  try {
+    return new URL(rawUrl).protocol.replace(":", "");
+  } catch {
+    return "unknown";
+  }
+};
+
+const logInfo = (message: string): void => {
+  console.info(`[opendevbrowser] ${message}`);
+};
+
+const logWarn = (message: string): void => {
+  console.warn(`[opendevbrowser] ${message}`);
+};
+
 export class ConnectionManager {
   private status: ConnectionStatus = "disconnected";
+  private lastError: ConnectionErrorInfo | null = null;
   private listeners = new Set<(status: ConnectionStatus) => void>();
   private relay: RelayClient | null = null;
   private cdp = new CDPRouter();
@@ -26,6 +96,8 @@ export class ConnectionManager {
   private pairingToken: string | null = DEFAULT_PAIRING_TOKEN;
   private pairingEnabled = DEFAULT_PAIRING_ENABLED;
   private relayPort = DEFAULT_RELAY_PORT;
+  private relayInstanceId: string | null = null;
+  private relayConfirmedPort: number | null = null;
   private readonly maxReconnectAttempts = 5;
   private readonly maxReconnectDelayMs = 5000;
 
@@ -40,18 +112,39 @@ export class ConnectionManager {
     return this.status;
   }
 
+  getRelayIdentity(): { instanceId: string | null; relayPort: number | null } {
+    return {
+      instanceId: this.relayInstanceId,
+      relayPort: this.relayConfirmedPort
+    };
+  }
+
+  getLastError(): ConnectionErrorInfo | null {
+    return this.lastError;
+  }
+
+  clearLastError(): void {
+    this.lastError = null;
+  }
+
   async connect(): Promise<void> {
     if (this.status === "connected") {
       return;
     }
 
     try {
+      this.clearLastError();
       this.shouldReconnect = true;
       this.reconnectAttempts = 0;
       await this.loadSettings();
       await this.attachToActiveTab();
       await this.connectRelay();
-    } catch {
+      this.clearLastError();
+    } catch (error) {
+      const info = this.normalizeError(error);
+      this.setLastError(info);
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      logWarn(`Connect failed (${info.code}). ${detail}`);
       await this.disconnect();
     }
   }
@@ -73,6 +166,8 @@ export class ConnectionManager {
     } finally {
       this.disconnecting = false;
       this.setStatus("disconnected");
+      this.relayInstanceId = null;
+      this.relayConfirmedPort = null;
     }
   }
 
@@ -93,10 +188,51 @@ export class ConnectionManager {
     if (!tab || typeof tab.id !== "number") {
       this.trackedTab = null;
       this.setStatus("disconnected");
-      throw new Error("No active tab available");
+      logWarn("Active tab not found.");
+      throw new ConnectionError(
+        "no_active_tab",
+        "No active browser tab found. Focus a normal tab (not the popup) and retry."
+      );
     }
 
-    await this.cdp.attach(tab.id);
+    if (!tab.url) {
+      logWarn("Active tab URL missing.");
+      throw new ConnectionError("tab_url_missing", "Active tab URL is unavailable. Reload the tab and retry.");
+    }
+
+    let parsedUrl: URL | null = null;
+    try {
+      parsedUrl = new URL(tab.url);
+    } catch {
+      parsedUrl = null;
+    }
+
+    if (!parsedUrl) {
+      logWarn("Active tab URL is invalid.");
+      throw new ConnectionError(
+        "tab_url_restricted",
+        "Active tab URL is unsupported. Focus a normal http(s) tab and retry."
+      );
+    }
+
+    const restrictionMessage = getRestrictionMessage(parsedUrl);
+    if (restrictionMessage) {
+      logWarn(`Active tab blocked: ${summarizeProtocol(tab.url)} scheme.`);
+      throw new ConnectionError("tab_url_restricted", restrictionMessage);
+    }
+
+    logInfo("Active tab resolved.");
+    try {
+      await this.cdp.attach(tab.id);
+      logInfo("Debugger attached.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      logWarn(`Debugger attach failed. ${detail}`);
+      throw new ConnectionError(
+        "debugger_attach_failed",
+        "Debugger attach failed. Close DevTools for the tab and retry."
+      );
+    }
     this.trackedTab = {
       id: tab.id,
       url: tab.url ?? undefined,
@@ -107,7 +243,7 @@ export class ConnectionManager {
 
   private async connectRelay(): Promise<void> {
     if (!this.trackedTab) {
-      throw new Error("No tracked tab for relay connection");
+      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the plugin and retry.");
     }
 
     const relay = new RelayClient(this.buildRelayUrl(), {
@@ -131,15 +267,20 @@ export class ConnectionManager {
     });
 
     try {
-      await relay.connect(this.buildHandshake());
+      const ack = await relay.connect(this.buildHandshake());
+      this.relayInstanceId = ack.payload.instanceId;
+      this.relayConfirmedPort = ack.payload.relayPort;
+      logInfo("Relay WebSocket connected.");
       this.setStatus("connected");
       this.reconnectAttempts = 0;
       this.reconnectDelayMs = 500;
     } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      logWarn(`Relay WebSocket connect failed. ${detail}`);
       if (this.relay === relay) {
         this.relay = null;
       }
-      throw error;
+      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the plugin and retry.");
     }
   }
 
@@ -149,6 +290,8 @@ export class ConnectionManager {
       return;
     }
     this.setStatus("disconnected");
+    this.relayInstanceId = null;
+    this.relayConfirmedPort = null;
     this.scheduleReconnect();
   }
 
@@ -266,6 +409,20 @@ export class ConnectionManager {
     this.updatePairingToken(data.pairingToken);
     this.updateRelayPort(data.relayPort);
     this.ensurePairingTokenDefault();
+  }
+
+  private setLastError(error: ConnectionErrorInfo | null): void {
+    this.lastError = error;
+  }
+
+  private normalizeError(error: unknown): ConnectionErrorInfo {
+    if (error instanceof ConnectionError) {
+      return { code: error.code, message: error.message };
+    }
+    return {
+      code: "unknown",
+      message: "Connection failed. Focus a normal tab and retry."
+    };
   }
 
   private updatePairingToken(value: unknown): void {

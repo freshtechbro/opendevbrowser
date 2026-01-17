@@ -67,7 +67,9 @@ function parseRunArgs(rawArgs: string[]): RunArgs {
       continue;
     }
     if (arg?.startsWith("--start-url=")) {
-      parsed.startUrl = arg.split("=", 2)[1];
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --start-url");
+      parsed.startUrl = value;
       continue;
     }
     if (arg === "--flag") {
@@ -78,7 +80,9 @@ function parseRunArgs(rawArgs: string[]): RunArgs {
       continue;
     }
     if (arg?.startsWith("--flag=")) {
-      parsed.flags.push(arg.split("=", 2)[1]);
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --flag");
+      parsed.flags.push(value);
       continue;
     }
   }

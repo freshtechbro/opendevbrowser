@@ -34,3 +34,34 @@ export type RelayHandshake = {
     pairingToken?: string;
   };
 };
+
+export type RelayHandshakeAck = {
+  type: "handshakeAck";
+  payload: {
+    instanceId: string;
+    relayPort: number;
+    pairingRequired: boolean;
+  };
+};
+
+export type RelayHttpStatus = {
+  instanceId: string;
+  running: boolean;
+  port?: number;
+  extensionConnected: boolean;
+  extensionHandshakeComplete: boolean;
+  cdpConnected: boolean;
+  pairingRequired: boolean;
+};
+
+export type RelayHttpConfig = {
+  relayPort: number;
+  pairingRequired: boolean;
+  instanceId: string;
+  discoveryPort: number | null;
+};
+
+export type RelayHttpPair = {
+  token: string | null;
+  instanceId: string;
+};

@@ -1,12 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import type { AddressInfo } from "net";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, randomUUID } from "crypto";
 import { WebSocket, WebSocketServer } from "ws";
-import type { RelayCommand, RelayEvent, RelayHandshake, RelayResponse } from "./protocol";
+import type { RelayCommand, RelayEvent, RelayHandshake, RelayHandshakeAck, RelayResponse } from "./protocol";
 
 const DEFAULT_DISCOVERY_PORT = 8787;
 const CONFIG_PATH = "/config";
 const PAIR_PATH = "/pair";
+const STATUS_PATH = "/status";
+const CDP_TOKEN_QUERY_KEY = "token";
 
 type ExtensionInfo = {
   tabId: number;
@@ -20,6 +22,7 @@ type RelayServerOptions = {
 };
 
 export class RelayServer {
+  private readonly instanceId = randomUUID();
   private running = false;
   private baseUrl: string | null = null;
   private port: number | null = null;
@@ -30,6 +33,7 @@ export class RelayServer {
   private extensionSocket: WebSocket | null = null;
   private cdpSocket: WebSocket | null = null;
   private extensionInfo: ExtensionInfo | null = null;
+  private extensionHandshakeComplete = false;
   private pairingToken: string | null = null;
   private configuredDiscoveryPort: number;
   private discoveryPort: number | null = null;
@@ -57,6 +61,7 @@ export class RelayServer {
       }
       this.extensionSocket = socket;
       this.extensionInfo = null;
+      this.extensionHandshakeComplete = false;
       socket.on("message", (data: WebSocket.RawData) => {
         this.handleExtensionMessage(data);
       });
@@ -64,6 +69,7 @@ export class RelayServer {
         if (this.extensionSocket === socket) {
           this.extensionSocket = null;
           this.extensionInfo = null;
+          this.extensionHandshakeComplete = false;
         }
         if (this.cdpSocket) {
           this.cdpSocket.close(1011, "Extension disconnected");
@@ -100,6 +106,16 @@ export class RelayServer {
         this.handleConfigRequest(origin, response);
         return;
       }
+
+      if (pathname === STATUS_PATH && request.method === "OPTIONS") {
+        this.handleConfigPreflight(origin, response);
+        return;
+      }
+
+      if (pathname === STATUS_PATH && request.method === "GET") {
+        this.handleStatusRequest(origin, response);
+        return;
+      }
       
       if (pathname === PAIR_PATH && request.method === "OPTIONS") {
         if (origin && origin.startsWith("chrome-extension://")) {
@@ -113,16 +129,18 @@ export class RelayServer {
       }
       
       if (pathname === PAIR_PATH && request.method === "GET") {
-        if (!this.isExtensionOrigin(origin)) {
+        if (origin && !this.isExtensionOrigin(origin)) {
           response.writeHead(403, { "Content-Type": "application/json" });
           response.end(JSON.stringify({ error: "Forbidden: extension origin required" }));
           return;
         }
         
-        response.setHeader("Access-Control-Allow-Origin", origin as string);
+        if (origin) {
+        response.setHeader("Access-Control-Allow-Origin", origin);
+        }
         
         response.writeHead(200, { "Content-Type": "application/json" });
-        response.end(JSON.stringify({ token: this.pairingToken }));
+        response.end(JSON.stringify({ token: this.pairingToken, instanceId: this.instanceId }));
         return;
       }
       
@@ -156,6 +174,13 @@ export class RelayServer {
         return;
       }
       if (pathname === "/cdp") {
+        const token = this.getCdpTokenFromRequestUrl(request.url);
+        if (!this.isTokenValid(token)) {
+          this.logSecurityEvent("cdp_unauthorized", { ip });
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         this.cdpWss?.handleUpgrade(request, socket, head, (ws: WebSocket) => {
           this.cdpWss?.emit("connection", ws, request);
         });
@@ -196,6 +221,7 @@ export class RelayServer {
     this.baseUrl = null;
     this.port = null;
     this.extensionInfo = null;
+    this.extensionHandshakeComplete = false;
     this.stopDiscoveryServer();
 
     if (this.extensionSocket) {
@@ -222,7 +248,10 @@ export class RelayServer {
     url?: string;
     port?: number;
     extensionConnected: boolean;
+    extensionHandshakeComplete: boolean;
     cdpConnected: boolean;
+    pairingRequired: boolean;
+    instanceId: string;
     extension?: ExtensionInfo;
   } {
     return {
@@ -230,7 +259,10 @@ export class RelayServer {
       url: this.baseUrl || undefined,
       port: this.port ?? undefined,
       extensionConnected: Boolean(this.extensionSocket),
+      extensionHandshakeComplete: this.extensionHandshakeComplete,
       cdpConnected: Boolean(this.cdpSocket),
+      pairingRequired: Boolean(this.pairingToken),
+      instanceId: this.instanceId,
       extension: this.extensionInfo ?? undefined
     };
   }
@@ -273,8 +305,21 @@ export class RelayServer {
     return Boolean(origin && origin.startsWith("chrome-extension://"));
   }
 
+  private getCdpTokenFromRequestUrl(requestUrl: string | undefined): string | null {
+    try {
+      const url = new URL(requestUrl ?? "", "http://127.0.0.1");
+      const token = url.searchParams.get(CDP_TOKEN_QUERY_KEY);
+      if (!token || token.trim().length === 0) {
+        return null;
+      }
+      return token;
+    } catch {
+      return null;
+    }
+  }
+
   private handleConfigPreflight(origin: string | undefined, response: ServerResponse): void {
-    if (this.isExtensionOrigin(origin)) {
+    if (origin && this.isExtensionOrigin(origin)) {
       response.setHeader("Access-Control-Allow-Origin", origin);
       response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
       response.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -284,7 +329,7 @@ export class RelayServer {
   }
 
   private handleConfigRequest(origin: string | undefined, response: ServerResponse): void {
-    if (!this.isExtensionOrigin(origin)) {
+    if (origin && !this.isExtensionOrigin(origin)) {
       response.writeHead(403, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: "Forbidden: extension origin required" }));
       return;
@@ -306,6 +351,34 @@ export class RelayServer {
     });
     response.end(JSON.stringify({
       relayPort: this.port,
+      pairingRequired: Boolean(this.pairingToken),
+      instanceId: this.instanceId,
+      discoveryPort: this.getDiscoveryPort()
+    }));
+  }
+
+  private handleStatusRequest(origin: string | undefined, response: ServerResponse): void {
+    if (origin && !this.isExtensionOrigin(origin)) {
+      response.writeHead(403, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "Forbidden: extension origin required" }));
+      return;
+    }
+
+    if (origin) {
+      response.setHeader("Access-Control-Allow-Origin", origin);
+    }
+
+    response.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    });
+    response.end(JSON.stringify({
+      instanceId: this.instanceId,
+      running: this.running,
+      port: this.port ?? undefined,
+      extensionConnected: Boolean(this.extensionSocket),
+      extensionHandshakeComplete: this.extensionHandshakeComplete,
+      cdpConnected: Boolean(this.cdpSocket),
       pairingRequired: Boolean(this.pairingToken)
     }));
   }
@@ -330,6 +403,16 @@ export class RelayServer {
 
       if (pathname === CONFIG_PATH && request.method === "GET") {
         this.handleConfigRequest(origin, response);
+        return;
+      }
+
+      if (pathname === STATUS_PATH && request.method === "OPTIONS") {
+        this.handleConfigPreflight(origin, response);
+        return;
+      }
+
+      if (pathname === STATUS_PATH && request.method === "GET") {
+        this.handleStatusRequest(origin, response);
         return;
       }
 
@@ -440,12 +523,26 @@ export class RelayServer {
         this.extensionSocket?.close(1008, "Invalid pairing token");
         return;
       }
+      if (this.extensionSocket) {
+        this.extensionHandshakeComplete = true;
+      }
       this.extensionInfo = {
         tabId: message.payload.tabId,
         url: message.payload.url,
         title: message.payload.title,
         groupId: message.payload.groupId
       };
+      if (this.extensionSocket && this.port !== null) {
+        const ack: RelayHandshakeAck = {
+          type: "handshakeAck",
+          payload: {
+            instanceId: this.instanceId,
+            relayPort: this.port,
+            pairingRequired: Boolean(this.pairingToken)
+          }
+        };
+        this.sendJson(this.extensionSocket, ack);
+      }
       return;
     }
 
@@ -485,20 +582,21 @@ export class RelayServer {
   }
 
   private isPairingTokenValid(handshake: RelayHandshake): boolean {
-    // No token configured = pairing disabled, allow all
+    return this.isTokenValid(handshake.payload.pairingToken);
+  }
+
+  private isTokenValid(received: string | undefined | null): boolean {
     if (!this.pairingToken) {
       return true;
     }
 
     const expected = this.pairingToken;
-    const received = handshake.payload.pairingToken ?? "";
+    const value = received ?? "";
 
-    // Use timing-safe comparison to prevent timing attacks
     const expectedBuf = Buffer.from(expected, "utf-8");
-    const receivedBuf = Buffer.from(received, "utf-8");
+    const receivedBuf = Buffer.from(value, "utf-8");
 
     if (expectedBuf.length !== receivedBuf.length) {
-      // Perform dummy comparison to maintain constant time even on length mismatch
       timingSafeEqual(expectedBuf, expectedBuf);
       return false;
     }

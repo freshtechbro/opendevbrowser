@@ -36,7 +36,9 @@ function parseSelectArgs(rawArgs: string[]): { sessionId?: string; ref?: string;
       continue;
     }
     if (arg?.startsWith("--values=")) {
-      parsed.values = arg.split("=", 2)[1].split(",").map((entry) => entry.trim()).filter(Boolean);
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --values");
+      parsed.values = value.split(",").map((entry) => entry.trim()).filter(Boolean);
       continue;
     }
   }

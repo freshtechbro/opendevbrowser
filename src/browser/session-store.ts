@@ -1,6 +1,6 @@
 import type { Browser, BrowserContext } from "playwright-core";
 
-export type BrowserMode = "A" | "B" | "C";
+export type BrowserMode = "managed" | "cdpConnect" | "extension";
 
 export type BrowserSession = {
   id: string;

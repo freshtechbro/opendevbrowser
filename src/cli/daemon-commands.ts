@@ -12,11 +12,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     case "session.launch":
       return launchWithRelay(core, params);
     case "session.connect":
-      return core.manager.connect({
-        wsEndpoint: optionalString(params.wsEndpoint),
-        host: optionalString(params.host),
-        port: optionalNumber(params.port)
-      });
+      return connectWithRelayRouting(core, params);
     case "session.disconnect":
       await core.manager.disconnect(requireString(params.sessionId, "sessionId"), optionalBoolean(params.closeBrowser) ?? false);
       return { ok: true };
@@ -83,55 +79,121 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
 async function launchWithRelay(core: OpenDevBrowserCore, params: Record<string, unknown>) {
   let relayStatus = core.relay.status();
   const relayUrl = core.relay.getCdpUrl();
+  const relayPort = core.config.relayPort;
   const noExtension = optionalBoolean(params.noExtension) ?? false;
   const extensionOnly = optionalBoolean(params.extensionOnly) ?? false;
   const waitForExtension = optionalBoolean(params.waitForExtension) ?? false;
+  const headlessExplicit = optionalBoolean(params.headless) === true;
+  const managedExplicit = Boolean(noExtension || headlessExplicit);
+  const managedHeadless = headlessExplicit ? true : false;
   const waitTimeoutMs = optionalNumber(params.waitTimeoutMs) ?? 30000;
 
-  if (waitForExtension) {
+  if (waitForExtension && !managedExplicit) {
     const connected = await waitForRelay(core.relay, waitTimeoutMs);
     if (connected) {
       relayStatus = core.relay.status();
     }
   }
 
-  const useRelay = Boolean(!noExtension && relayStatus.extensionConnected && relayUrl);
-  let relayWarning: string | null = null;
+  const extensionReady = Boolean((relayStatus.extensionHandshakeComplete || relayStatus.extensionConnected) && relayUrl);
+  const observedStatus = extensionReady ? null : await fetchRelayObservedStatus(relayPort);
+  const diagnostics = observedStatus
+    ? `Diagnostics: relayPort=${relayPort} instance=${observedStatus.instanceId.slice(0, 8)} ext=${observedStatus.extensionConnected} handshake=${observedStatus.extensionHandshakeComplete} cdp=${observedStatus.cdpConnected}`
+    : null;
+  const missingReason = diagnostics ? `Extension not connected. ${diagnostics}` : "Extension not connected.";
 
-  if (extensionOnly && !useRelay) {
-    throw new Error("Extension not connected; use --no-extension to launch a new browser.");
+  if (extensionOnly && !extensionReady) {
+    throw new Error(buildExtensionMissingMessage(missingReason));
   }
 
-  if (useRelay && relayUrl) {
+  if (!managedExplicit) {
+    if (!extensionReady || !relayUrl) {
+      throw new Error(buildExtensionMissingMessage(missingReason));
+    }
     try {
       const result = await core.manager.connectRelay(relayUrl);
       return { ...result, warnings: result.warnings ?? [] };
     } catch (error) {
-      if (extensionOnly) {
-        throw error instanceof Error ? error : new Error("Extension relay connection failed.");
-      }
-      relayWarning = "Relay connection failed; falling back to managed Chrome.";
+      const message = error instanceof Error ? error.message : String(error);
+      const unauthorized = message.toLowerCase().includes("unauthorized") || message.includes("401");
+      const reason = unauthorized
+        ? "Extension relay connection failed: relay /cdp unauthorized (token mismatch)."
+        : "Extension relay connection failed.";
+      throw new Error(buildExtensionMissingMessage(reason));
     }
   }
 
-  if (relayUrl && !noExtension) {
-    relayWarning ??= "Extension not connected; launching managed Chrome instead.";
+  try {
+    const result = await core.manager.launch({
+      profile: optionalString(params.profile),
+      headless: managedHeadless,
+      startUrl: optionalString(params.startUrl),
+      chromePath: optionalString(params.chromePath),
+      flags: optionalStringArray(params.flags),
+      persistProfile: optionalBoolean(params.persistProfile)
+    });
+    return { ...result, warnings: result.warnings ?? [] };
+  } catch (error) {
+    throw new Error(buildManagedFailureMessage(error));
+  }
+}
+
+function normalizeRelayEndpoint(wsEndpoint: string | undefined): string | null {
+  if (!wsEndpoint) return null;
+  try {
+    const url = new URL(wsEndpoint);
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") return null;
+    if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return null;
+    if (!url.port || !/^\d+$/.test(url.port)) return null;
+    const normalizedPath = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
+    if (normalizedPath && normalizedPath !== "/cdp") return null;
+    return `${url.protocol}//${url.hostname}:${url.port}/cdp`;
+  } catch {
+    return null;
+  }
+}
+
+async function connectWithRelayRouting(core: OpenDevBrowserCore, params: Record<string, unknown>) {
+  const wsEndpoint = optionalString(params.wsEndpoint);
+  const relayUrl = core.relay.getCdpUrl();
+  const normalizedRelayEndpoint = normalizeRelayEndpoint(wsEndpoint);
+  const relayEndpoint = relayUrl && wsEndpoint === relayUrl ? relayUrl : normalizedRelayEndpoint;
+
+  if (relayEndpoint) {
+    return core.manager.connectRelay(relayEndpoint);
   }
 
-  const result = await core.manager.launch({
-    profile: optionalString(params.profile),
-    headless: optionalBoolean(params.headless),
-    startUrl: optionalString(params.startUrl),
-    chromePath: optionalString(params.chromePath),
-    flags: optionalStringArray(params.flags),
-    persistProfile: optionalBoolean(params.persistProfile)
+  return core.manager.connect({
+    wsEndpoint,
+    host: optionalString(params.host),
+    port: optionalNumber(params.port)
   });
+}
 
-  const warnings = [
-    ...(result.warnings ?? []),
-    ...(relayWarning ? [relayWarning] : [])
-  ];
-  return { ...result, warnings };
+function buildExtensionMissingMessage(reason: string): string {
+  return [
+    reason,
+    "Connect the extension: open the Chrome extension popup and click Connect, then retry.",
+    "Tip: If the popup says Connected, it may be connected to a different relay instance/port than the daemon expects.",
+    "",
+    "Other options (explicit):",
+    "- Managed (headed): npx opendevbrowser launch --no-extension",
+    "- Managed (headless): npx opendevbrowser launch --no-extension --headless",
+    "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
+    "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>",
+    "Note: CDPConnect requires Chrome started with --remote-debugging-port=9222."
+  ].join("\n");
+}
+
+function buildManagedFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return [
+    `Managed session failed: ${detail}`,
+    "",
+    "Final option (explicit):",
+    "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
+    "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>"
+  ].join("\n");
 }
 
 function requireString(value: unknown, label: string): string {
@@ -192,4 +254,45 @@ async function waitForRelay(relay: { status: () => { extensionConnected: boolean
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return false;
+}
+
+type RelayObservedStatus = {
+  instanceId: string;
+  running: boolean;
+  port?: number;
+  extensionConnected: boolean;
+  extensionHandshakeComplete: boolean;
+  cdpConnected: boolean;
+  pairingRequired: boolean;
+};
+
+async function fetchRelayObservedStatus(port: number): Promise<RelayObservedStatus | null> {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return null;
+  }
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/status`);
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    if (!data || typeof data !== "object") {
+      return null;
+    }
+    const record = data as Record<string, unknown>;
+    if (typeof record.instanceId !== "string") {
+      return null;
+    }
+    return {
+      instanceId: record.instanceId,
+      running: Boolean(record.running),
+      port: typeof record.port === "number" ? record.port : undefined,
+      extensionConnected: Boolean(record.extensionConnected),
+      extensionHandshakeComplete: Boolean(record.extensionHandshakeComplete),
+      cdpConnected: Boolean(record.cdpConnected),
+      pairingRequired: Boolean(record.pairingRequired)
+    };
+  } catch {
+    return null;
+  }
 }

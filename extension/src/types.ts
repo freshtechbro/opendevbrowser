@@ -8,6 +8,7 @@ export type PopupMessage =
 export type BackgroundMessage = {
   type: "status";
   status: ConnectionStatus;
+  note?: string;
 };
 
 export type RelayCommand = {
@@ -44,5 +45,14 @@ export type RelayHandshake = {
     title?: string;
     groupId?: number;
     pairingToken?: string;
+  };
+};
+
+export type RelayHandshakeAck = {
+  type: "handshakeAck";
+  payload: {
+    instanceId: string;
+    relayPort: number;
+    pairingRequired: boolean;
   };
 };

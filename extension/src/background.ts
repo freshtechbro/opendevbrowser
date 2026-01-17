@@ -24,6 +24,31 @@ const updateBadge = (status: ConnectionStatus): void => {
   });
 };
 
+const buildStatusMessage = (): BackgroundMessage => {
+  const error = connection.getLastError();
+  const status = connection.getStatus();
+  let note = error?.message;
+  if (!error && status === "connected") {
+    const identity = connection.getRelayIdentity();
+    if (identity.relayPort && identity.instanceId) {
+      note = `Connected to 127.0.0.1:${identity.relayPort} (relay ${identity.instanceId.slice(0, 8)})`;
+    } else if (identity.relayPort) {
+      note = `Connected to 127.0.0.1:${identity.relayPort}`;
+    }
+  }
+  return {
+    type: "status",
+    status,
+    note
+  };
+};
+
+const setStorage = (items: Record<string, unknown>): Promise<void> => {
+  return new Promise((resolve) => {
+    chrome.storage.local.set(items, () => resolve());
+  });
+};
+
 const parsePort = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
     return value;
@@ -93,13 +118,13 @@ const attemptAutoConnect = async (): Promise<void> => {
     const config = await fetchRelayConfig(DEFAULT_DISCOVERY_PORT);
     const relayPort = config?.relayPort ?? parsePort(data.relayPort) ?? DEFAULT_RELAY_PORT;
     if (config?.relayPort) {
-      chrome.storage.local.set({ relayPort: config.relayPort });
+      await setStorage({ relayPort: config.relayPort });
     }
     const pairingRequired = config?.pairingRequired ?? true;
     if (pairingRequired) {
       const fetchedToken = await fetchTokenFromPlugin(relayPort);
       if (fetchedToken) {
-        chrome.storage.local.set({ pairingToken: fetchedToken });
+        await setStorage({ pairingToken: fetchedToken });
       } else {
         return;
       }
@@ -151,17 +176,17 @@ chrome.runtime.onMessage.addListener((message: PopupMessage, _sender, sendRespon
   };
 
   if (message.type === "status") {
-    respond({ type: "status", status: connection.getStatus() });
+    respond(buildStatusMessage());
     return true;
   }
 
   if (message.type === "connect") {
     (async () => {
       await connection.connect();
-      respond({ type: "status", status: connection.getStatus() });
+      respond(buildStatusMessage());
     })().catch(() => {
       connection.disconnect();
-      respond({ type: "status", status: connection.getStatus() });
+      respond(buildStatusMessage());
     });
     return true;
   }
@@ -169,10 +194,12 @@ chrome.runtime.onMessage.addListener((message: PopupMessage, _sender, sendRespon
   if (message.type === "disconnect") {
     (async () => {
       await connection.disconnect();
-      respond({ type: "status", status: connection.getStatus() });
+      connection.clearLastError();
+      respond(buildStatusMessage());
     })().catch(() => {
       connection.disconnect();
-      respond({ type: "status", status: connection.getStatus() });
+      connection.clearLastError();
+      respond(buildStatusMessage());
     });
     return true;
   }

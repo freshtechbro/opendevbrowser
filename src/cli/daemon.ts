@@ -6,7 +6,7 @@ import { join } from "path";
 import { generateSecureToken } from "../utils/crypto";
 import { createOpenDevBrowserCore } from "../core";
 import { loadGlobalConfig, type OpenDevBrowserConfig } from "../config";
-import { handleDaemonCommand } from "./daemon-commands";
+import { handleDaemonCommand, type DaemonCommandRequest } from "./daemon-commands";
 
 const DEFAULT_DAEMON_PORT = 8788;
 
@@ -89,6 +89,16 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
   response.end(JSON.stringify(payload));
 }
 
+const isDaemonCommandRequest = (value: Record<string, unknown>): value is DaemonCommandRequest => {
+  if (typeof value.name !== "string") {
+    return false;
+  }
+  if (typeof value.params === "undefined") {
+    return true;
+  }
+  return typeof value.params === "object" && value.params !== null && !Array.isArray(value.params);
+};
+
 export async function startDaemon(options: DaemonOptions = {}): Promise<{ state: DaemonState; stop: () => Promise<void> }> {
   const config = options.config ?? loadGlobalConfig();
   const port = options.port ?? DEFAULT_DAEMON_PORT;
@@ -127,6 +137,9 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
     if (request.method === "POST" && url.pathname === "/command") {
       try {
         const body = await readJson(request);
+        if (!isDaemonCommandRequest(body)) {
+          throw new Error("Invalid daemon command request");
+        }
         const data = await handleDaemonCommand(core, body);
         sendJson(response, 200, { ok: true, data });
       } catch (error) {

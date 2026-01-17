@@ -25,8 +25,9 @@ if (!statusEl || !statusIndicator || !statusPill || !statusNote || !toggleButton
 
 const defaultNote = "Local relay only. Tokens stay on-device.";
 
-const setNote = (message: string = defaultNote) => {
-  statusNote.textContent = message;
+const setNote = (message?: string) => {
+  const next = message && message.trim() ? message : defaultNote;
+  statusNote.textContent = next;
 };
 
 const setStatus = (status: BackgroundMessage["status"]) => {
@@ -51,10 +52,16 @@ const sendMessage = (message: PopupMessage): Promise<BackgroundMessage> => {
   });
 };
 
+const setStorage = (items: Record<string, unknown>): Promise<void> => {
+  return new Promise((resolve) => {
+    chrome.storage.local.set(items, () => resolve());
+  });
+};
+
 const refreshStatus = async () => {
   const response = await sendMessage({ type: "status" });
   setStatus(response.status);
-  setNote();
+  setNote(response.note);
 };
 
 const fetchTokenFromPlugin = async (port: number): Promise<string | null> => {
@@ -174,7 +181,7 @@ const toggle = async () => {
       const fetchedToken = await fetchTokenFromPlugin(relayPort);
       if (fetchedToken) {
         pairingTokenInput.value = fetchedToken;
-        chrome.storage.local.set({ pairingToken: fetchedToken });
+        await setStorage({ pairingToken: fetchedToken });
       } else {
         setStatus("disconnected");
         setNote("Auto-pair failed. Start the plugin and retry.");
@@ -188,7 +195,7 @@ const toggle = async () => {
     type: isConnected ? "disconnect" : "connect"
   });
   setStatus(response.status);
-  setNote();
+  setNote(response.note);
 };
 
 toggleButton.addEventListener("click", () => {

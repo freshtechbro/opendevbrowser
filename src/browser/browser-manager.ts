@@ -136,7 +136,7 @@ export class BrowserManager {
 
       const managed: ManagedSession = {
         sessionId,
-        mode: "A",
+        mode: "managed",
         browser,
         context,
         profileDir,
@@ -148,7 +148,7 @@ export class BrowserManager {
         networkTracker
       };
 
-      this.store.add({ id: sessionId, mode: "A", browser, context });
+      this.store.add({ id: sessionId, mode: "managed", browser, context });
       this.sessions.set(sessionId, managed);
 
       this.attachTrackers(managed);
@@ -159,7 +159,7 @@ export class BrowserManager {
         ? wsEndpointProvider.wsEndpoint()
         : undefined;
 
-      return { sessionId, mode: "A", activeTargetId, warnings, wsEndpoint: wsEndpoint || undefined };
+      return { sessionId, mode: "managed", activeTargetId, warnings, wsEndpoint: wsEndpoint || undefined };
     } catch (error) {
       const launchMessage = error instanceof Error ? error.message : "Unknown error";
       const cleanupErrors: unknown[] = [];
@@ -193,12 +193,13 @@ export class BrowserManager {
 
   async connect(options: ConnectOptions): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
     const wsEndpoint = await this.resolveWsEndpoint(options);
-    return this.connectWithEndpoint(wsEndpoint, "B");
+    return this.connectWithEndpoint(wsEndpoint, "cdpConnect");
   }
 
   async connectRelay(wsEndpoint: string): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
     this.ensureLocalEndpoint(wsEndpoint);
-    return this.connectWithEndpoint(wsEndpoint, "C");
+    const { connectEndpoint, reportedEndpoint } = await this.resolveRelayEndpoints(wsEndpoint);
+    return this.connectWithEndpoint(connectEndpoint, "extension", reportedEndpoint);
   }
 
   async closeAll(): Promise<void> {
@@ -556,7 +557,7 @@ export class BrowserManager {
     const refStore = new RefStore();
     return {
       sessionId: "override",
-      mode: "A",
+      mode: "managed",
       browser: input.browser,
       context: input.context,
       profileDir: "",
@@ -695,8 +696,21 @@ export class BrowserManager {
     }
   }
 
-  private async connectWithEndpoint(wsEndpoint: string, mode: BrowserMode): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
-    const browser = await chromium.connectOverCDP(wsEndpoint);
+  private async connectWithEndpoint(
+    connectWsEndpoint: string,
+    mode: BrowserMode,
+    reportedWsEndpoint?: string
+  ): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
+    let browser: Browser;
+    try {
+      browser = await chromium.connectOverCDP(connectWsEndpoint);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("401") || message.toLowerCase().includes("unauthorized")) {
+        throw new Error("Relay /cdp rejected the connection (unauthorized). Check relayToken configuration and ensure clients use the current token.");
+      }
+      throw error;
+    }
     const contexts = browser.contexts();
     const context = contexts[0] ?? await browser.newContext();
 
@@ -735,7 +749,70 @@ export class BrowserManager {
     this.attachTrackers(managed);
     this.attachRefInvalidation(managed);
 
+    const wsEndpoint = reportedWsEndpoint ?? connectWsEndpoint;
     return { sessionId, mode, activeTargetId: targets.getActiveTargetId(), warnings: [], wsEndpoint };
+  }
+
+  private async resolveRelayEndpoints(wsEndpoint: string): Promise<{ connectEndpoint: string; reportedEndpoint: string }> {
+    const baseUrl = new URL(wsEndpoint);
+    baseUrl.search = "";
+    baseUrl.hash = "";
+
+    const httpProtocol = baseUrl.protocol === "wss:" ? "https:" : "http:";
+    const configBase = new URL(`${httpProtocol}//${baseUrl.hostname}:${baseUrl.port}`);
+    const configUrl = new URL("/config", configBase);
+    this.ensureLocalEndpoint(configUrl.toString());
+
+    const configResponse = await fetch(configUrl.toString());
+    if (!configResponse.ok) {
+      throw new Error("Failed to fetch relay config. Ensure the relay is running and reachable.");
+    }
+    const config = await configResponse.json() as { relayPort?: number; pairingRequired?: boolean; instanceId?: string };
+    const relayPort = typeof config.relayPort === "number" ? config.relayPort : null;
+    if (!relayPort || relayPort <= 0 || relayPort > 65535) {
+      throw new Error("Relay config missing relayPort. Ensure the relay is running.");
+    }
+
+    const relayWsBase = new URL(`${baseUrl.protocol}//${baseUrl.hostname}:${relayPort}/cdp`);
+    const reportedEndpoint = this.sanitizeWsEndpointForOutput(relayWsBase.toString());
+
+    const pairingRequired = Boolean(config.pairingRequired);
+    if (!pairingRequired) {
+      return { connectEndpoint: relayWsBase.toString(), reportedEndpoint };
+    }
+
+    const pairBase = new URL(`${httpProtocol}//${baseUrl.hostname}:${relayPort}`);
+    const pairUrl = new URL("/pair", pairBase);
+    this.ensureLocalEndpoint(pairUrl.toString());
+
+    const pairResponse = await fetch(pairUrl.toString());
+    if (!pairResponse.ok) {
+      throw new Error("Failed to fetch relay pairing token. Ensure the relay is running.");
+    }
+    const pairData = await pairResponse.json() as { token?: string; instanceId?: string };
+    if (config.instanceId && typeof pairData.instanceId === "string" && pairData.instanceId !== config.instanceId) {
+      throw new Error("Relay pairing mismatch detected. Restart the plugin and retry.");
+    }
+    if (!pairData.token || typeof pairData.token !== "string") {
+      throw new Error("Relay pairing token missing from /pair response.");
+    }
+
+    const connectUrl = new URL(relayWsBase.toString());
+    connectUrl.searchParams.set("token", pairData.token);
+    return { connectEndpoint: connectUrl.toString(), reportedEndpoint };
+  }
+
+  private sanitizeWsEndpointForOutput(wsEndpoint: string): string {
+    try {
+      const url = new URL(wsEndpoint);
+      url.searchParams.delete("token");
+      url.searchParams.delete("pairingToken");
+      url.hash = "";
+      const value = url.toString();
+      return value.replace(/\?$/, "");
+    } catch {
+      return wsEndpoint;
+    }
   }
 }
 

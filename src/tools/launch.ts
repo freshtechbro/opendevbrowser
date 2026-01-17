@@ -5,9 +5,20 @@ import { failure, ok, serializeError } from "./response";
 
 const z = tool.schema;
 
+type RelayStatus = ReturnType<NonNullable<ToolDeps["relay"]>["status"]>;
+type RelayObservedStatus = {
+  instanceId: string;
+  running: boolean;
+  port?: number;
+  extensionConnected: boolean;
+  extensionHandshakeComplete: boolean;
+  cdpConnected: boolean;
+  pairingRequired: boolean;
+};
+
 export function createLaunchTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "Launch a managed Chrome session and return a sessionId.",
+    description: "Launch a browser session (extension relay first) and return a sessionId.",
     args: {
       profile: z.string().optional().describe("Profile name for persistent browsing"),
       headless: z.boolean().optional().describe("Run Chrome in headless mode"),
@@ -22,63 +33,104 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
     },
     async execute(args) {
       try {
+        const config = deps.config.get();
         let relayStatus = deps.relay?.status();
-        const relayUrl = deps.relay?.getCdpUrl();
+        let relayUrl = deps.relay?.getCdpUrl() ?? null;
+        if (!relayUrl) {
+          const fallbackPort = resolveObservedPort(relayStatus, config.relayPort);
+          relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/cdp` : null;
+        }
         const waitTimeoutMs = args.waitTimeoutMs ?? 30000;
+        const headlessExplicit = args.headless === true;
+        const managedExplicit = Boolean(args.noExtension || headlessExplicit);
+        const managedHeadless = headlessExplicit ? true : false;
 
-        if (args.waitForExtension && deps.relay) {
+        if (args.waitForExtension && deps.relay && !managedExplicit) {
           const connected = await waitForExtension(deps.relay, waitTimeoutMs);
           if (connected) {
             relayStatus = deps.relay.status();
+            relayUrl = deps.relay.getCdpUrl() ?? null;
+            if (!relayUrl) {
+              const fallbackPort = resolveObservedPort(relayStatus, config.relayPort);
+              relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/cdp` : null;
+            }
           }
         }
 
-        const useRelay = Boolean(!args.noExtension && relayStatus?.extensionConnected && relayUrl);
+        const extensionReady = Boolean((relayStatus?.extensionHandshakeComplete || relayStatus?.extensionConnected) && relayUrl);
         let usedRelay = false;
-        let relayWarning: string | null = null;
         let result:
           | Awaited<ReturnType<typeof deps.manager.launch>>
           | Awaited<ReturnType<typeof deps.manager.connectRelay>>
           | null = null;
 
-        if (args.extensionOnly && !useRelay) {
-          return failure("Extension not connected; use --no-extension to launch a new browser.", "extension_not_connected");
+        if (args.extensionOnly && !extensionReady) {
+          const observedPort = resolveObservedPort(relayStatus, config.relayPort);
+          const observedStatus = await fetchRelayObservedStatus(observedPort);
+          const reason = buildRelayNotReadyReason("Extension not connected.", {
+            relayUrl,
+            relayStatus,
+            observedStatus,
+            observedPort
+          });
+          return failure(buildExtensionMissingMessage(reason), "extension_not_connected");
         }
 
-        if (useRelay && relayUrl) {
+        if (!managedExplicit) {
+          if (!extensionReady || !relayUrl) {
+            const observedPort = resolveObservedPort(relayStatus, config.relayPort);
+            const observedStatus = await fetchRelayObservedStatus(observedPort);
+            const reason = buildRelayNotReadyReason("Extension not connected.", {
+              relayUrl,
+              relayStatus,
+              observedStatus,
+              observedPort
+            });
+            return failure(buildExtensionMissingMessage(reason), "extension_not_connected");
+          }
           try {
             result = await deps.manager.connectRelay(relayUrl);
             usedRelay = true;
-          } catch {
-            if (args.extensionOnly) {
-              return failure("Extension relay connection failed.", "extension_connect_failed");
-            }
-            relayWarning = "Relay connection failed; falling back to managed Chrome.";
+          } catch (error) {
+            const errorMessage = serializeError(error).message;
+            const unauthorized = errorMessage.toLowerCase().includes("unauthorized") || errorMessage.includes("401");
+            const observedPort = resolveObservedPort(relayStatus, config.relayPort);
+            const observedStatus = await fetchRelayObservedStatus(observedPort);
+            const reason = buildRelayNotReadyReason(
+              unauthorized
+                ? "Extension relay connection failed: relay /cdp unauthorized (token mismatch)."
+                : `Extension relay connection failed: ${errorMessage}`,
+              {
+                relayUrl,
+                relayStatus,
+                observedStatus,
+                observedPort
+              }
+            );
+            return failure(buildExtensionMissingMessage(reason), "extension_connect_failed");
           }
         }
 
         if (!result) {
-          if (relayUrl && !args.noExtension) {
-            relayWarning ??= "Extension not connected; launching managed Chrome instead.";
+          try {
+            result = await deps.manager.launch({
+              profile: args.profile,
+              headless: managedHeadless,
+              startUrl: args.startUrl,
+              chromePath: args.chromePath,
+              flags: args.flags,
+              persistProfile: args.persistProfile
+            });
+          } catch (error) {
+            return failure(buildManagedFailureMessage(error), "launch_failed");
           }
-          result = await deps.manager.launch({
-            profile: args.profile,
-            headless: args.headless,
-            startUrl: args.startUrl,
-            chromePath: args.chromePath,
-            flags: args.flags,
-            persistProfile: args.persistProfile
-          });
         }
 
         if (usedRelay && args.startUrl && result.activeTargetId) {
           await deps.manager.goto(result.sessionId, args.startUrl, "load", 30000);
         }
 
-        const warnings = [
-          ...(result.warnings ?? []),
-          ...(relayWarning ? [relayWarning] : [])
-        ];
+        const warnings = result.warnings ?? [];
         return ok({
           sessionId: result.sessionId,
           mode: result.mode,
@@ -93,6 +145,32 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
   });
 }
 
+const buildExtensionMissingMessage = (reason: string): string => {
+  return [
+    reason,
+    "Connect the extension: open the Chrome extension popup and click Connect, then retry.",
+    "Tip: If the popup says Connected, it may be connected to a different relay instance/port than this tool expects.",
+    "",
+    "Other options (explicit):",
+    "- Managed (headed): npx opendevbrowser launch --no-extension",
+    "- Managed (headless): npx opendevbrowser launch --no-extension --headless",
+    "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
+    "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>",
+    "Note: CDPConnect requires Chrome started with --remote-debugging-port=9222."
+  ].join("\n");
+};
+
+const buildManagedFailureMessage = (error: unknown): string => {
+  const detail = serializeError(error).message;
+  return [
+    `Managed session failed: ${detail}`,
+    "",
+    "Final option (explicit):",
+    "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
+    "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>"
+  ].join("\n");
+};
+
 async function waitForExtension(relay: { status: () => { extensionConnected: boolean } }, timeoutMs: number): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -102,4 +180,122 @@ async function waitForExtension(relay: { status: () => { extensionConnected: boo
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return false;
+}
+
+function resolveObservedPort(relayStatus: RelayStatus | undefined, configPort: number): number | null {
+  if (isValidPort(relayStatus?.port)) return relayStatus?.port ?? null;
+  if (isValidPort(configPort)) return configPort;
+  return null;
+}
+
+function isValidPort(port: unknown): port is number {
+  return typeof port === "number" && Number.isInteger(port) && port > 0 && port <= 65535;
+}
+
+function shortInstanceId(value: string | undefined): string {
+  if (!value) return "?";
+  return value.slice(0, 8);
+}
+
+function formatRelayUrl(relayUrl: string | null): string {
+  return relayUrl ?? "null";
+}
+
+function formatLocalStatus(status: RelayStatus | undefined): string {
+  return [
+    "local(instance=",
+    shortInstanceId(status?.instanceId),
+    " port=",
+    typeof status?.port === "number" ? String(status.port) : "?",
+    " ext=",
+    String(Boolean(status?.extensionConnected)),
+    " handshake=",
+    String(Boolean(status?.extensionHandshakeComplete)),
+    " cdp=",
+    String(Boolean(status?.cdpConnected)),
+    " pairing=",
+    String(Boolean(status?.pairingRequired)),
+    ")"
+  ].join("");
+}
+
+function formatObservedStatus(status: RelayObservedStatus | null, port: number | null): string {
+  const label = port ?? "?";
+  if (!status) {
+    return `observed@${label}=none`;
+  }
+  return [
+    "observed@",
+    label,
+    "=instance=",
+    shortInstanceId(status.instanceId),
+    " ext=",
+    String(Boolean(status.extensionConnected)),
+    " handshake=",
+    String(Boolean(status.extensionHandshakeComplete)),
+    " cdp=",
+    String(Boolean(status.cdpConnected)),
+    " pairing=",
+    String(Boolean(status.pairingRequired))
+  ].join("");
+}
+
+function buildRelayNotReadyReason(
+  baseReason: string,
+  detail: {
+    relayUrl: string | null;
+    relayStatus: RelayStatus | undefined;
+    observedStatus: RelayObservedStatus | null;
+    observedPort: number | null;
+  }
+): string {
+  const localExt = Boolean(detail.relayStatus?.extensionConnected);
+  const observedExt = Boolean(detail.observedStatus?.extensionConnected);
+  let hint = "none";
+  if (detail.relayUrl === null) {
+    hint = "relayUrl_null";
+  } else if (detail.observedStatus && !localExt && observedExt) {
+    hint = "possible_mismatch";
+  } else if (detail.relayStatus?.instanceId && detail.observedStatus?.instanceId
+    && detail.relayStatus.instanceId !== detail.observedStatus.instanceId) {
+    hint = "possible_mismatch";
+  }
+  const diagnostics = [
+    "Diagnostics: relayUrl=",
+    formatRelayUrl(detail.relayUrl),
+    " ",
+    formatLocalStatus(detail.relayStatus),
+    " ",
+    formatObservedStatus(detail.observedStatus, detail.observedPort),
+    " hint=",
+    hint
+  ].join("");
+  return [baseReason, diagnostics].join("\n");
+}
+
+async function fetchRelayObservedStatus(port: number | null): Promise<RelayObservedStatus | null> {
+  if (!isValidPort(port)) return null;
+  if (typeof fetch !== "function") return null;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 500);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/status`, { signal: controller.signal });
+    if (!response.ok) return null;
+    const payload = await response.json() as Partial<RelayObservedStatus>;
+    if (!payload || typeof payload.instanceId !== "string") return null;
+    return {
+      instanceId: payload.instanceId,
+      running: Boolean(payload.running),
+      port: typeof payload.port === "number" ? payload.port : undefined,
+      extensionConnected: Boolean(payload.extensionConnected),
+      extensionHandshakeComplete: Boolean(payload.extensionHandshakeComplete),
+      cdpConnected: Boolean(payload.cdpConnected),
+      pairingRequired: Boolean(payload.pairingRequired)
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
