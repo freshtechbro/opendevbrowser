@@ -98,11 +98,21 @@ sequenceDiagram
   Extension->>Relay: GET /config (extension origin)
   Extension->>Relay: GET /pair (extension origin)
   Extension->>Relay: WS /extension
-  Tools->>Relay: WS /cdp
+  Tools->>Relay: GET /config
+  Tools->>Relay: GET /pair (when pairing required)
+  Tools->>Relay: WS /cdp?token=...
   Relay->>Browser: forward CDP commands
   Browser-->>Relay: CDP events
   Relay-->>Tools: forward events
 ```
+
+### Session modes
+
+- `extension`: attach to an existing tab via the Chrome extension relay.
+- `managed`: launch and manage a Chrome instance via Playwright (headed by default).
+- `cdpConnect`: attach to an existing Chrome via CDP (`/json/version`).
+- `connect` routing: local relay WS endpoints (for example `ws://127.0.0.1:<relayPort>` or `/cdp`) are normalized to `/cdp` and routed via the relay (`extension` mode).
+- Launch defaults to `extension` when available; managed/CDPConnect require explicit user choice.
 
 ---
 
@@ -125,7 +135,8 @@ Default extension values:
 
 - **Local-only CDP** by default; non-local requires opt-in config.
 - **Relay binding**: `127.0.0.1` only, with token-based pairing.
-- **Origin enforcement**: relay endpoints (`/config`, `/pair`) accept only `chrome-extension://` origins.
+- **CDP auth**: `/cdp` requires `?token=<relayToken>` when pairing is enabled.
+- **Origin enforcement**: relay endpoints (`/config`, `/pair`) reject explicit non-extension origins; missing `Origin` is accepted.
 - **Timing-safe compare**: pairing tokens checked with `crypto.timingSafeEqual`.
 - **Output redaction**: DevTools output strips sensitive tokens by default.
 - **Sanitized export**: export pipeline removes scripts, handlers, and unsafe URLs.

@@ -25,9 +25,9 @@ This document merges the CLI research report and extension pinning research with
 - Avoid interactive prompts by default; support `--no-interactive` and `--quiet`.
 
 ### Research summary (extension pinning)
-- Mode C (extension relay) remains the preferred pinning mechanism when connected.
+- Extension relay mode remains the preferred pinning mechanism when connected.
 - Auto-connect and auto-pair are opt-in and must remain local-only.
-- Discovery via `/config` is extension-origin only; CLI should not call it.
+- Discovery via `/config` rejects explicit non-extension origins; CLI should not call it.
 
 ### Audit and critique (codebase vs docs)
 
@@ -36,6 +36,7 @@ This document merges the CLI research report and extension pinning research with
 - CLI global flags and output formats align with docs (`src/cli/args.ts`).
 - Daemon-based session persistence is implemented (`src/cli/daemon.ts`, `src/cli/commands/serve.ts`).
 - Extension auto-connect and badge updates are implemented (`extension/src/background.ts`, `extension/src/popup.tsx`).
+- Extension connect flow now validates active tab URLs and surfaces failure notes (restricted tabs, debugger attach failures).
 - Relay origin validation and token handling align with security requirements (`src/relay/relay-server.ts`).
 
 #### Gaps / risks
@@ -43,7 +44,7 @@ This document merges the CLI research report and extension pinning research with
 - External web research was blocked (Exa 402); recommendations rely on codebase + existing references.
 
 #### Security-first recommendations
-- Keep `/pair` extension-origin only and document the policy.
+- Reject explicit non-extension origins for `/pair` and `/config`; allow missing `Origin` for extension fetches when Chrome omits it.
 - Document `stream-json` semantics and avoid implying per-step streaming unless implemented.
 
 ### Recommended options (resolved open questions)
@@ -163,7 +164,7 @@ Agents can run single-shot scripts via `run` or use `serve` for persistent sessi
 ## Task 4 — Extension pinning UX and relay-first controls
 
 ### Reasoning
-Mode C already provides pinning, but connection and user guidance are manual and unclear.
+Extension relay mode already provides pinning, but connection and user guidance are manual and unclear.
 
 ### What to do
 Add opt-in auto-connect, status indicators, and CLI flags to control relay usage.
@@ -317,18 +318,18 @@ CLI automation has consistent exit codes and JSON error output aligned with `--o
 
 ---
 
-## Task 9 — Clarify pairing endpoint policy (security hardening)
+## Task 9 — Clarify pairing endpoint policy (Origin handling)
 
 ### Reasoning
-The `/pair` endpoint currently accepts requests without an Origin header, which is local-only but more permissive than extension-only. Security-first guidance should be explicit.
+Chrome extension fetches can omit the `Origin` header, so `/pair` (and `/config`) must allow missing Origin while still rejecting explicit non-extension origins.
 
 ### What to do
-Require `/pair` to be extension-origin only and document the policy.
+Allow missing Origin for `/pair` and `/config`, but continue rejecting explicit non-extension origins, and document the policy.
 
 ### How
-1. Update `src/relay/relay-server.ts` to require `chrome-extension://` Origin for `/pair` (keep `/config` extension-only).
-2. Update `docs/EXTENSION.md` and this plan with the extension-only policy.
-3. Add or update tests for `/pair` origin handling.
+1. Update `src/relay/relay-server.ts` to allow missing Origin for `/pair` and `/config`, but reject explicit non-extension origins.
+2. Update `docs/EXTENSION.md` and this plan with the missing-Origin allowance.
+3. Add or update tests for `/pair` and `/config` origin handling.
 
 ### Files impacted
 - `src/relay/relay-server.ts`
@@ -336,11 +337,12 @@ Require `/pair` to be extension-origin only and document the policy.
 - `tests/relay-server.test.ts`
 
 ### End goal
-Pairing token access policy is explicit, documented, and enforced if needed.
+Pairing token access policy allows missing-Origin extension requests while still blocking explicit non-extension origins.
 
 ### Acceptance criteria
 - [x] Policy choice documented in `docs/EXTENSION.md`.
-- [x] `/pair` rejects non-extension origins with 403.
+- [x] `/pair` and `/config` reject explicit non-extension origins with 403.
+- [x] `/pair` and `/config` allow missing Origin requests.
 - [x] Tests cover the selected policy.
 
 ---

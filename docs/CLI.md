@@ -192,12 +192,27 @@ Flags:
 - `--wait-for-extension`
 - `--wait-timeout-ms`
 
+Default behavior:
+- Extension relay (`extension` mode) is the default when available.
+- If the extension is not connected, launch fails with guidance and exact commands for the explicit alternatives.
+- Headless is never the default; it is only used when explicitly requested.
+
+Interactive vs non-interactive:
+- Interactive CLI (TTY): you will be prompted to connect the extension, then explicitly choose Managed or CDPConnect if you want to proceed.
+- Non-interactive (agents/CI): the command fails fast and prints the exact commands to run for Managed or CDPConnect.
+
 ### Connect
 
 ```bash
 npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/...
 npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222
 ```
+
+This command starts a `cdpConnect` session (attach to an existing Chrome with remote debugging enabled).
+If the `--ws-endpoint` points at the local relay (for example `ws://127.0.0.1:8787` or `ws://127.0.0.1:8787/cdp`),
+the CLI will normalize to `/cdp` and route through the extension relay (`extension` mode).
+When routing through the relay, the CLI automatically fetches relay config and the pairing token (if required) and authenticates
+the `/cdp` connection. Direct `/cdp` connections without a token are rejected when pairing is enabled.
 
 ### Disconnect
 

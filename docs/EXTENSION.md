@@ -7,6 +7,7 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 - Connects to the local relay server (`ws://127.0.0.1:<port>/extension`).
 - Uses the Chrome Debugger API to forward CDP commands for the active tab.
 - Allows OpenDevBrowser to control tabs without launching a new browser.
+- Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
 
 ## Installation
 
@@ -49,7 +50,12 @@ When auto-pair is enabled:
 2. If pairing is required, it fetches the token from `/pair`.
 3. The extension connects to the relay with the pairing token.
 
-`/config` and `/pair` are restricted to `chrome-extension://` origins. The CLI should not call `/config` or `/pair`.
+`/config` and `/pair` reject explicit non-extension origins. Chrome extension requests may omit the `Origin` header, so the relay also accepts missing-Origin requests. CLI/tools may call `/config` and `/pair` to auto-fetch relay settings and tokens.
+
+Relay CDP endpoint: `ws://127.0.0.1:<relayPort>/cdp`. The CLI/tool `connect` command accepts base relay WS URLs
+(for example `ws://127.0.0.1:<relayPort>`) and normalizes them to `/cdp`.
+When pairing is enabled, `/cdp` requires a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
+to obtain the token before connecting, so users should not manually pass or share tokenized URLs.
 
 ## Security notes
 
@@ -63,3 +69,7 @@ When auto-pair is enabled:
 - **Extension not connecting**: Confirm the relay is running (`opendevbrowser serve`) and the port matches the popup.
 - **Auto-pair failing**: Ensure the plugin is running and the relay server is available on the configured port.
 - **Pairing token required**: Enable "Require pairing token" and provide the value from your `opendevbrowser.jsonc`.
+- **No active tab / restricted tab**: The popup cannot attach to `chrome://`, `chrome-extension://`, or Chrome Web Store pages. Focus a normal http(s) tab before connecting.
+- **Debugger attach failed**: Close DevTools on the target tab (or any other debugger) and retry.
+- **Launch fails due to missing extension**: The CLI/tool will print exact commands for Managed or CDPConnect fallbacks when the extension is not connected.
+- **Popup shows Connected but launch says not connected**: Check the popup note for the relay port/instance (it now includes the relay identity) and ensure it matches the daemon relay port.
