@@ -7,6 +7,7 @@ import { generateSecureToken } from "../utils/crypto";
 import { createOpenDevBrowserCore } from "../core";
 import { loadGlobalConfig, type OpenDevBrowserConfig } from "../config";
 import { handleDaemonCommand, type DaemonCommandRequest } from "./daemon-commands";
+import { clearBinding, getBindingDiagnostics, getHubInstanceId } from "./daemon-state";
 
 const DEFAULT_DAEMON_PORT = 8788;
 
@@ -26,7 +27,7 @@ type DaemonOptions = {
   worktree?: string | null;
 };
 
-function getCacheRoot(): string {
+export function getCacheRoot(): string {
   const base = process.env.OPENCODE_CACHE_DIR
     ?? process.env.XDG_CACHE_HOME
     ?? join(homedir(), ".cache");
@@ -123,7 +124,9 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
       sendJson(response, 200, {
         ok: true,
         pid: process.pid,
-        relay: core.relay.status()
+        hub: { instanceId: getHubInstanceId() },
+        relay: core.relay.status(),
+        binding: getBindingDiagnostics()
       });
       return;
     }
@@ -168,6 +171,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
 
   const stop = async () => {
     clearDaemonMetadata();
+    clearBinding();
     core.cleanup();
     await new Promise<void>((resolve) => {
       server.close(() => resolve());

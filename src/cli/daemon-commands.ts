@@ -1,4 +1,12 @@
 import type { OpenDevBrowserCore } from "../core";
+import {
+  bindRelay,
+  releaseRelay,
+  renewRelay,
+  requireBinding,
+  getBindingRenewConfig,
+  getHubInstanceId
+} from "./daemon-state";
 
 export type DaemonCommandRequest = {
   name: string;
@@ -7,18 +15,89 @@ export type DaemonCommandRequest = {
 
 export async function handleDaemonCommand(core: OpenDevBrowserCore, request: DaemonCommandRequest): Promise<unknown> {
   const params = request.params ?? {};
+  const bindingId = optionalString(params.bindingId);
 
   switch (request.name) {
+    case "relay.bind": {
+      const clientId = requireClientId(params);
+      const binding = bindRelay(clientId);
+      const relayStatus = core.relay.status();
+      return {
+        ...binding,
+        hubInstanceId: getHubInstanceId(),
+        relayInstanceId: relayStatus.instanceId,
+        relayPort: relayStatus.port ?? null,
+        bindingConfig: getBindingRenewConfig()
+      };
+    }
+    case "relay.renew": {
+      const clientId = requireClientId(params);
+      const binding = renewRelay(clientId, requireString(bindingId, "bindingId"));
+      const relayStatus = core.relay.status();
+      return {
+        ...binding,
+        hubInstanceId: getHubInstanceId(),
+        relayInstanceId: relayStatus.instanceId,
+        relayPort: relayStatus.port ?? null,
+        bindingConfig: getBindingRenewConfig()
+      };
+    }
+    case "relay.release": {
+      const clientId = requireClientId(params);
+      return releaseRelay(clientId, requireString(bindingId, "bindingId"));
+    }
     case "session.launch":
-      return launchWithRelay(core, params);
+      return launchWithRelay(core, params, requireClientId(params), bindingId);
     case "session.connect":
-      return connectWithRelayRouting(core, params);
+      return connectWithRelayRouting(core, params, requireClientId(params), bindingId);
     case "session.disconnect":
-      await core.manager.disconnect(requireString(params.sessionId, "sessionId"), optionalBoolean(params.closeBrowser) ?? false);
-      return { ok: true };
+      return disconnectSession(core, params, requireClientId(params), bindingId);
     case "session.status":
       return core.manager.status(requireString(params.sessionId, "sessionId"));
+    case "targets.list":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.listTargets(
+        requireString(params.sessionId, "sessionId"),
+        optionalBoolean(params.includeUrls) ?? false
+      );
+    case "targets.use":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.useTarget(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.targetId, "targetId")
+      );
+    case "targets.new":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.newTarget(
+        requireString(params.sessionId, "sessionId"),
+        optionalString(params.url)
+      );
+    case "targets.close":
+      await requireBindingForSession(core, params, bindingId);
+      await core.manager.closeTarget(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.targetId, "targetId")
+      );
+      return { ok: true };
+    case "page.open":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.page(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.name, "name"),
+        optionalString(params.url)
+      );
+    case "page.list":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.listPages(requireString(params.sessionId, "sessionId"));
+    case "page.close":
+      await requireBindingForSession(core, params, bindingId);
+      await core.manager.closePage(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.name, "name")
+      );
+      return { ok: true };
     case "nav.goto":
+      await requireBindingForSession(core, params, bindingId);
       return core.manager.goto(
         requireString(params.sessionId, "sessionId"),
         requireString(params.url, "url"),
@@ -26,6 +105,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalNumber(params.timeoutMs) ?? 30000
       );
     case "nav.wait":
+      await requireBindingForSession(core, params, bindingId);
       if (typeof params.ref === "string") {
         return core.manager.waitForRef(
           requireString(params.sessionId, "sessionId"),
@@ -40,6 +120,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalNumber(params.timeoutMs) ?? 30000
       );
     case "nav.snapshot":
+      await requireBindingForSession(core, params, bindingId);
       return core.manager.snapshot(
         requireString(params.sessionId, "sessionId"),
         requireSnapshotMode(params.mode),
@@ -47,11 +128,13 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalString(params.cursor)
       );
     case "interact.click":
+      await requireBindingForSession(core, params, bindingId);
       return core.manager.click(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "interact.type":
+      await requireBindingForSession(core, params, bindingId);
       return core.manager.type(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
@@ -60,23 +143,76 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalBoolean(params.submit) ?? false
       );
     case "interact.select":
+      await requireBindingForSession(core, params, bindingId);
       return core.manager.select(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
         requireStringArray(params.values, "values")
       );
     case "interact.scroll":
+      await requireBindingForSession(core, params, bindingId);
       return core.manager.scroll(
         requireString(params.sessionId, "sessionId"),
         optionalNumber(params.dy) ?? 0,
         optionalString(params.ref)
+      );
+    case "dom.getHtml":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.domGetHtml(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref"),
+        optionalNumber(params.maxChars) ?? 8000
+      );
+    case "dom.getText":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.domGetText(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref"),
+        optionalNumber(params.maxChars) ?? 8000
+      );
+    case "export.clonePage":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.clonePage(requireString(params.sessionId, "sessionId"));
+    case "export.cloneComponent":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.cloneComponent(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref")
+      );
+    case "devtools.perf":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.perfMetrics(requireString(params.sessionId, "sessionId"));
+    case "page.screenshot":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.screenshot(
+        requireString(params.sessionId, "sessionId"),
+        optionalString(params.path)
+      );
+    case "devtools.consolePoll":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.consolePoll(
+        requireString(params.sessionId, "sessionId"),
+        optionalNumber(params.sinceSeq),
+        optionalNumber(params.max) ?? 50
+      );
+    case "devtools.networkPoll":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.networkPoll(
+        requireString(params.sessionId, "sessionId"),
+        optionalNumber(params.sinceSeq),
+        optionalNumber(params.max) ?? 50
       );
     default:
       throw new Error(`Unknown daemon command: ${request.name}`);
   }
 }
 
-async function launchWithRelay(core: OpenDevBrowserCore, params: Record<string, unknown>) {
+async function launchWithRelay(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>,
+  clientId: string,
+  bindingId?: string
+) {
   let relayStatus = core.relay.status();
   let relayUrl = core.relay.getCdpUrl();
   const relayPort = core.config.relayPort;
@@ -86,11 +222,15 @@ async function launchWithRelay(core: OpenDevBrowserCore, params: Record<string, 
   const headlessExplicit = optionalBoolean(params.headless) === true;
   const managedExplicit = Boolean(noExtension || headlessExplicit);
   const managedHeadless = headlessExplicit ? true : false;
-  const waitTimeoutMs = optionalNumber(params.waitTimeoutMs) ?? 30000;
+  const waitTimeoutMs = clampWaitTimeout(optionalNumber(params.waitTimeoutMs) ?? 30000);
+
+  if (!managedExplicit) {
+    requireBinding(clientId, bindingId);
+  }
 
   if (waitForExtension && !managedExplicit) {
     const observedPort = resolveObservedPort(relayStatus, relayPort);
-    const connected = await waitForRelayAny(core.relay, observedPort, waitTimeoutMs);
+    const connected = await waitForRelayHandshake(core.relay, observedPort, waitTimeoutMs);
     if (connected) {
       relayStatus = core.relay.status();
       relayUrl = core.relay.getCdpUrl() ?? relayUrl;
@@ -107,8 +247,8 @@ async function launchWithRelay(core: OpenDevBrowserCore, params: Record<string, 
   const extensionReady = Boolean(
     relayUrl && (
       relayStatus.extensionHandshakeComplete ||
-      relayStatus.extensionConnected ||
       observedStatus?.extensionHandshakeComplete ||
+      relayStatus.extensionConnected ||
       observedStatus?.extensionConnected
     )
   );
@@ -168,13 +308,19 @@ function normalizeRelayEndpoint(wsEndpoint: string | undefined): string | null {
   }
 }
 
-async function connectWithRelayRouting(core: OpenDevBrowserCore, params: Record<string, unknown>) {
+async function connectWithRelayRouting(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>,
+  clientId: string,
+  bindingId?: string
+) {
   const wsEndpoint = optionalString(params.wsEndpoint);
   const relayUrl = core.relay.getCdpUrl();
   const normalizedRelayEndpoint = normalizeRelayEndpoint(wsEndpoint);
   const relayEndpoint = relayUrl && wsEndpoint === relayUrl ? relayUrl : normalizedRelayEndpoint;
 
   if (relayEndpoint) {
+    requireBinding(clientId, bindingId);
     return core.manager.connectRelay(relayEndpoint);
   }
 
@@ -183,6 +329,40 @@ async function connectWithRelayRouting(core: OpenDevBrowserCore, params: Record<
     host: optionalString(params.host),
     port: optionalNumber(params.port)
   });
+}
+
+async function disconnectSession(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>,
+  clientId: string,
+  bindingId?: string
+): Promise<{ ok: true; bindingReleased?: boolean }> {
+  const sessionId = requireString(params.sessionId, "sessionId");
+  const status = await core.manager.status(sessionId);
+  if (status.mode === "extension") {
+    requireBinding(clientId, bindingId);
+  }
+  await core.manager.disconnect(sessionId, optionalBoolean(params.closeBrowser) ?? false);
+  if (status.mode === "extension" && bindingId) {
+    releaseRelay(clientId, bindingId);
+    return { ok: true, bindingReleased: true };
+  }
+  return { ok: true };
+}
+
+async function requireBindingForSession(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>,
+  bindingId?: string
+): Promise<void> {
+  const sessionId = optionalString(params.sessionId);
+  if (!sessionId) return;
+  const status = await core.manager.status(sessionId);
+  if (status.mode !== "extension") {
+    return;
+  }
+  const clientId = requireClientId(params);
+  requireBinding(clientId, bindingId);
 }
 
 function buildExtensionMissingMessage(reason: string): string {
@@ -216,6 +396,10 @@ function requireString(value: unknown, label: string): string {
     throw new Error(`Missing ${label}`);
   }
   return value;
+}
+
+function requireClientId(params: Record<string, unknown>): string {
+  return requireString(params.clientId, "clientId");
 }
 
 function requireStringArray(value: unknown, label: string): string[] {
@@ -270,21 +454,34 @@ type RelayObservedStatus = {
   pairingRequired: boolean;
 };
 
-async function waitForRelayAny(
-  relay: { status: () => { extensionConnected: boolean } },
+const MIN_WAIT_TIMEOUT_MS = 3000;
+const WAIT_MIN_DELAY_MS = 250;
+const WAIT_MAX_DELAY_MS = 2000;
+
+function clampWaitTimeout(timeoutMs: number): number {
+  if (!Number.isFinite(timeoutMs)) {
+    return MIN_WAIT_TIMEOUT_MS;
+  }
+  return Math.max(timeoutMs, MIN_WAIT_TIMEOUT_MS);
+}
+
+async function waitForRelayHandshake(
+  relay: { status: () => { extensionHandshakeComplete: boolean } },
   observedPort: number | null,
   timeoutMs: number
 ): Promise<boolean> {
   const start = Date.now();
+  let delay = WAIT_MIN_DELAY_MS;
   while (Date.now() - start < timeoutMs) {
-    if (relay.status().extensionConnected) {
+    if (relay.status().extensionHandshakeComplete) {
       return true;
     }
     const observedStatus = await fetchRelayObservedStatus(observedPort);
-    if (observedStatus?.extensionConnected) {
+    if (observedStatus?.extensionHandshakeComplete) {
       return true;
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    delay = Math.min(delay * 2, WAIT_MAX_DELAY_MS);
   }
   return false;
 }
