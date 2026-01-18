@@ -15,7 +15,7 @@ export function createNetworkPollTool(deps: ToolDeps): ToolDefinition {
     },
     async execute(args) {
       try {
-        const result = deps.manager.networkPoll(
+        const result = await deps.manager.networkPoll(
           args.sessionId,
           args.sinceSeq,
           args.max ?? 50

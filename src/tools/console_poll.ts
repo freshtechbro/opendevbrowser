@@ -15,7 +15,7 @@ export function createConsolePollTool(deps: ToolDeps): ToolDefinition {
     },
     async execute(args) {
       try {
-        const result = deps.manager.consolePoll(
+        const result = await deps.manager.consolePoll(
           args.sessionId,
           args.sinceSeq,
           args.max ?? 50

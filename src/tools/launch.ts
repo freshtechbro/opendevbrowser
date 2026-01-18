@@ -40,14 +40,14 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
           const fallbackPort = resolveObservedPort(relayStatus, config.relayPort);
           relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/cdp` : null;
         }
-        const waitTimeoutMs = args.waitTimeoutMs ?? 30000;
+        const waitTimeoutMs = clampWaitTimeout(args.waitTimeoutMs ?? 30000);
         const headlessExplicit = args.headless === true;
         const managedExplicit = Boolean(args.noExtension || headlessExplicit);
         const managedHeadless = headlessExplicit ? true : false;
 
         if (args.waitForExtension && !managedExplicit) {
           const observedPort = resolveObservedPort(relayStatus, config.relayPort);
-          const connected = await waitForExtensionAny(deps.relay, observedPort, waitTimeoutMs);
+          const connected = await waitForExtensionHandshake(deps.relay, observedPort, waitTimeoutMs);
           if (connected) {
             relayStatus = deps.relay?.status() ?? relayStatus;
             relayUrl = deps.relay?.getCdpUrl() ?? relayUrl;
@@ -177,21 +177,34 @@ const buildManagedFailureMessage = (error: unknown): string => {
   ].join("\n");
 };
 
-async function waitForExtensionAny(
-  relay: { status: () => { extensionConnected: boolean } } | undefined,
+const MIN_WAIT_TIMEOUT_MS = 3000;
+const WAIT_MIN_DELAY_MS = 250;
+const WAIT_MAX_DELAY_MS = 2000;
+
+function clampWaitTimeout(timeoutMs: number): number {
+  if (!Number.isFinite(timeoutMs)) {
+    return MIN_WAIT_TIMEOUT_MS;
+  }
+  return Math.max(timeoutMs, MIN_WAIT_TIMEOUT_MS);
+}
+
+async function waitForExtensionHandshake(
+  relay: { status: () => { extensionHandshakeComplete: boolean } } | undefined,
   observedPort: number | null,
   timeoutMs: number
 ): Promise<boolean> {
   const start = Date.now();
+  let delay = WAIT_MIN_DELAY_MS;
   while (Date.now() - start < timeoutMs) {
-    if (relay?.status().extensionConnected) {
+    if (relay?.status().extensionHandshakeComplete) {
       return true;
     }
     const observedStatus = await fetchRelayObservedStatus(observedPort);
-    if (observedStatus?.extensionConnected) {
+    if (observedStatus?.extensionHandshakeComplete) {
       return true;
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    delay = Math.min(delay * 2, WAIT_MAX_DELAY_MS);
   }
   return false;
 }
