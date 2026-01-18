@@ -283,6 +283,118 @@ npx opendevbrowser scroll --session-id <session-id> --ref r12 --dy 300
 
 ---
 
+## Target commands (daemon required)
+
+### Targets list
+
+```bash
+npx opendevbrowser targets-list --session-id <session-id>
+```
+
+### Target use
+
+```bash
+npx opendevbrowser target-use --session-id <session-id> --target-id <target-id>
+```
+
+### Target new
+
+```bash
+npx opendevbrowser target-new --session-id <session-id> --url https://example.com
+```
+
+### Target close
+
+```bash
+npx opendevbrowser target-close --session-id <session-id> --target-id <target-id>
+```
+
+---
+
+## Page commands (daemon required)
+
+### Page open
+
+```bash
+npx opendevbrowser page --session-id <session-id> --name main
+npx opendevbrowser page --session-id <session-id> --name main --url https://example.com
+```
+
+### Pages list
+
+```bash
+npx opendevbrowser pages --session-id <session-id>
+```
+
+### Page close
+
+```bash
+npx opendevbrowser page-close --session-id <session-id> --name main
+```
+
+---
+
+## DOM commands (daemon required)
+
+### DOM HTML
+
+```bash
+npx opendevbrowser dom-html --session-id <session-id> --ref r12 --max-chars 8000
+```
+
+### DOM Text
+
+```bash
+npx opendevbrowser dom-text --session-id <session-id> --ref r12 --max-chars 8000
+```
+
+---
+
+## Export commands (daemon required)
+
+### Clone page
+
+```bash
+npx opendevbrowser clone-page --session-id <session-id>
+```
+
+### Clone component
+
+```bash
+npx opendevbrowser clone-component --session-id <session-id> --ref r12
+```
+
+---
+
+## Devtools commands (daemon required)
+
+### Performance metrics
+
+```bash
+npx opendevbrowser perf --session-id <session-id>
+```
+
+### Screenshot
+
+```bash
+npx opendevbrowser screenshot --session-id <session-id>
+npx opendevbrowser screenshot --session-id <session-id> --path ./capture.png
+```
+
+### Console poll
+
+```bash
+npx opendevbrowser console-poll --session-id <session-id> --since-seq 0 --max 50
+```
+
+### Network poll
+
+```bash
+npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
+```
+
+---
+
 ## Flags reference
 
 ### Global flags
