@@ -14,6 +14,7 @@ let autoConnectInFlight = false;
 type RelayConfig = {
   relayPort: number;
   pairingRequired: boolean;
+  instanceId: string | null;
 };
 
 const updateBadge = (status: ConnectionStatus): void => {
@@ -77,13 +78,14 @@ const fetchRelayConfig = async (port: number): Promise<RelayConfig | null> => {
       return null;
     }
     const pairingRequired = typeof data.pairingRequired === "boolean" ? data.pairingRequired : true;
-    return { relayPort, pairingRequired };
+    const instanceId = typeof data.instanceId === "string" ? data.instanceId : null;
+    return { relayPort, pairingRequired, instanceId };
   } catch {
     return null;
   }
 };
 
-const fetchTokenFromPlugin = async (port: number): Promise<string | null> => {
+const fetchTokenFromPlugin = async (port: number): Promise<{ token: string; instanceId: string | null } | null> => {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/pair`, {
       method: "GET",
@@ -93,7 +95,10 @@ const fetchTokenFromPlugin = async (port: number): Promise<string | null> => {
       return null;
     }
     const data = await response.json();
-    return typeof data.token === "string" ? data.token : null;
+    if (typeof data.token !== "string") {
+      return null;
+    }
+    return { token: data.token, instanceId: typeof data.instanceId === "string" ? data.instanceId : null };
   } catch {
     return null;
   }
@@ -122,12 +127,15 @@ const attemptAutoConnect = async (): Promise<void> => {
     }
     const pairingRequired = config?.pairingRequired ?? true;
     if (pairingRequired) {
-      const fetchedToken = await fetchTokenFromPlugin(relayPort);
-      if (fetchedToken) {
-        await setStorage({ pairingToken: fetchedToken });
-      } else {
+      const fetched = await fetchTokenFromPlugin(relayPort);
+      if (!fetched) {
         return;
       }
+      if (config?.instanceId && fetched.instanceId && config.instanceId !== fetched.instanceId) {
+        console.warn("[opendevbrowser] Relay instance mismatch during auto-pair. Retrying later.");
+        return;
+      }
+      await setStorage({ pairingToken: fetched.token });
     }
   }
 

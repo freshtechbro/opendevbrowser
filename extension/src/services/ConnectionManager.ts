@@ -98,7 +98,6 @@ export class ConnectionManager {
   private relayPort = DEFAULT_RELAY_PORT;
   private relayInstanceId: string | null = null;
   private relayConfirmedPort: number | null = null;
-  private readonly maxReconnectAttempts = 5;
   private readonly maxReconnectDelayMs = 5000;
 
   constructor() {
@@ -269,7 +268,7 @@ export class ConnectionManager {
     try {
       const ack = await relay.connect(this.buildHandshake());
       this.relayInstanceId = ack.payload.instanceId;
-      this.relayConfirmedPort = ack.payload.relayPort;
+      this.persistRelayPort(ack.payload.relayPort);
       logInfo("Relay WebSocket connected.");
       this.setStatus("connected");
       this.reconnectAttempts = 0;
@@ -299,11 +298,6 @@ export class ConnectionManager {
     if (this.reconnectTimer !== null) {
       return;
     }
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.disconnect().catch(() => {});
-      return;
-    }
-
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.reconnectAttempts += 1;
@@ -462,6 +456,15 @@ export class ConnectionManager {
       }
     }
     this.relayPort = DEFAULT_RELAY_PORT;
+  }
+
+  private persistRelayPort(value: number): void {
+    if (!Number.isInteger(value) || value <= 0 || value > 65535) {
+      return;
+    }
+    this.relayPort = value;
+    this.relayConfirmedPort = value;
+    chrome.storage.local.set({ relayPort: value });
   }
 
   /**
