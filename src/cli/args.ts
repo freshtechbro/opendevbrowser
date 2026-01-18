@@ -3,7 +3,12 @@ import { createUsageError } from "./errors";
 export type CliCommand = "install" | "update" | "uninstall" | "help" | "version" | "serve" | "run"
   | "launch" | "connect" | "disconnect" | "status"
   | "goto" | "wait" | "snapshot"
-  | "click" | "type" | "select" | "scroll";
+  | "click" | "type" | "select" | "scroll"
+  | "targets-list" | "target-use" | "target-new" | "target-close"
+  | "page" | "pages" | "page-close"
+  | "dom-html" | "dom-text"
+  | "clone-page" | "clone-component"
+  | "perf" | "screenshot" | "console-poll" | "network-poll";
 export type InstallMode = "global" | "local";
 export type SkillsMode = "global" | "local" | "none";
 export type OutputFormat = "text" | "json" | "stream-json";
@@ -77,7 +82,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (candidate === "install" || candidate === "update" || candidate === "uninstall" || candidate === "help" || candidate === "version" || candidate === "serve" || candidate === "run"
       || candidate === "launch" || candidate === "connect" || candidate === "disconnect" || candidate === "status"
       || candidate === "goto" || candidate === "wait" || candidate === "snapshot"
-      || candidate === "click" || candidate === "type" || candidate === "select" || candidate === "scroll") {
+      || candidate === "click" || candidate === "type" || candidate === "select" || candidate === "scroll"
+      || candidate === "targets-list" || candidate === "target-use" || candidate === "target-new" || candidate === "target-close"
+      || candidate === "page" || candidate === "pages" || candidate === "page-close"
+      || candidate === "dom-html" || candidate === "dom-text"
+      || candidate === "clone-page" || candidate === "clone-component"
+      || candidate === "perf" || candidate === "screenshot" || candidate === "console-poll" || candidate === "network-poll") {
       commandOverride = candidate;
       args = args.slice(1);
     } else {
@@ -173,6 +183,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     "--session-id", "--close-browser", "--ws-endpoint", "--host", "--cdp-port",
     "--url", "--wait-until", "--timeout-ms", "--ref", "--state", "--until", "--mode", "--max-chars", "--cursor",
     "--text", "--clear", "--submit", "--values", "--dy",
+    "--name", "--target-id", "--include-urls", "--path", "--since-seq", "--max",
     "--no-extension", "--extension-only", "--wait-for-extension", "--wait-timeout-ms",
     "--skills-global", "--skills-local", "--no-skills"
   ]);
@@ -224,6 +235,21 @@ COMMANDS:
   type             Type into an element by ref
   select           Select values in a select by ref
   scroll           Scroll the page or element by ref
+  targets-list     List page targets
+  target-use       Focus a target by id
+  target-new       Open a new target
+  target-close     Close a target by id
+  page             Open or focus a named page
+  pages            List named pages
+  page-close       Close a named page
+  dom-html         Capture HTML for a ref
+  dom-text         Capture text for a ref
+  clone-page       Clone the active page to React
+  clone-component  Clone a component by ref
+  perf             Capture performance metrics
+  screenshot       Capture a screenshot
+  console-poll     Poll console events
+  network-poll     Poll network events
   help             Show this help message
   version          Show version
 

@@ -22,6 +22,21 @@ import { runClick } from "./commands/interact/click";
 import { runType } from "./commands/interact/type";
 import { runSelect } from "./commands/interact/select";
 import { runScroll } from "./commands/interact/scroll";
+import { runTargetsList } from "./commands/targets/list";
+import { runTargetUse } from "./commands/targets/use";
+import { runTargetNew } from "./commands/targets/new";
+import { runTargetClose } from "./commands/targets/close";
+import { runPageOpen } from "./commands/pages/open";
+import { runPagesList } from "./commands/pages/list";
+import { runPageClose } from "./commands/pages/close";
+import { runDomHtml } from "./commands/dom/html";
+import { runDomText } from "./commands/dom/text";
+import { runClonePage } from "./commands/export/clone-page";
+import { runCloneComponent } from "./commands/export/clone-component";
+import { runPerf } from "./commands/devtools/perf";
+import { runScreenshot } from "./commands/devtools/screenshot";
+import { runConsolePoll } from "./commands/devtools/console-poll";
+import { runNetworkPoll } from "./commands/devtools/network-poll";
 import { extractExtension } from "../extension-extractor";
 import { writeOutput } from "./output";
 import type { InstallMode } from "./args";
@@ -377,6 +392,96 @@ async function main(): Promise<void> {
       name: "scroll",
       description: "Scroll the page or element by ref",
       run: async () => runScroll(args)
+    });
+
+    registerCommand({
+      name: "targets-list",
+      description: "List page targets",
+      run: async () => runTargetsList(args)
+    });
+
+    registerCommand({
+      name: "target-use",
+      description: "Focus a target by id",
+      run: async () => runTargetUse(args)
+    });
+
+    registerCommand({
+      name: "target-new",
+      description: "Open a new target",
+      run: async () => runTargetNew(args)
+    });
+
+    registerCommand({
+      name: "target-close",
+      description: "Close a target by id",
+      run: async () => runTargetClose(args)
+    });
+
+    registerCommand({
+      name: "page",
+      description: "Open or focus a named page",
+      run: async () => runPageOpen(args)
+    });
+
+    registerCommand({
+      name: "pages",
+      description: "List named pages",
+      run: async () => runPagesList(args)
+    });
+
+    registerCommand({
+      name: "page-close",
+      description: "Close a named page",
+      run: async () => runPageClose(args)
+    });
+
+    registerCommand({
+      name: "dom-html",
+      description: "Capture HTML for a ref",
+      run: async () => runDomHtml(args)
+    });
+
+    registerCommand({
+      name: "dom-text",
+      description: "Capture text for a ref",
+      run: async () => runDomText(args)
+    });
+
+    registerCommand({
+      name: "clone-page",
+      description: "Clone the active page to React",
+      run: async () => runClonePage(args)
+    });
+
+    registerCommand({
+      name: "clone-component",
+      description: "Clone a component by ref",
+      run: async () => runCloneComponent(args)
+    });
+
+    registerCommand({
+      name: "perf",
+      description: "Capture performance metrics",
+      run: async () => runPerf(args)
+    });
+
+    registerCommand({
+      name: "screenshot",
+      description: "Capture a screenshot",
+      run: async () => runScreenshot(args)
+    });
+
+    registerCommand({
+      name: "console-poll",
+      description: "Poll console events",
+      run: async () => runConsolePoll(args)
+    });
+
+    registerCommand({
+      name: "network-poll",
+      description: "Poll network events",
+      run: async () => runNetworkPoll(args)
     });
     const command = getCommand(args.command);
     if (!command) {
