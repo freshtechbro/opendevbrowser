@@ -85,6 +85,7 @@ describe("ConnectionManager", () => {
     const relay = relayInstances[0];
     expect(relay.url).toBe("ws://127.0.0.1:8787/extension");
     expect(relay.connect).toHaveBeenCalledTimes(1);
+    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ relayPort: 8787 });
 
     await manager.disconnect();
     expect(manager.getStatus()).toBe("disconnected");

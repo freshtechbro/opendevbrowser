@@ -475,7 +475,7 @@ describe("tools", () => {
     let connected = false;
     let currentRelayUrl: string | null = null;
     const relay = {
-      status: () => ({ extensionConnected: connected, port: 8787 }),
+      status: () => ({ extensionConnected: connected, extensionHandshakeComplete: connected, port: 8787 }),
       getCdpUrl: () => currentRelayUrl
     };
     const { createTools } = await import("../src/tools");
@@ -523,7 +523,7 @@ describe("tools", () => {
       const deps = createDeps();
       let connected = false;
       const relay = {
-        status: () => ({ extensionConnected: connected, port: 8787 }),
+        status: () => ({ extensionConnected: connected, extensionHandshakeComplete: connected, port: 8787 }),
         getCdpUrl: () => null
       };
       const { createTools } = await import("../src/tools");
@@ -541,18 +541,31 @@ describe("tools", () => {
     }
   });
 
+  it("clamps wait timeout when non-finite", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
+      getCdpUrl: () => "ws://relay"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ waitForExtension: true, waitTimeoutMs: Number.NaN } as never));
+    expect(launchResult.mode).toBe("extension");
+  });
+
   it("times out waiting for extension when it never connects", async () => {
     vi.useFakeTimers();
     const deps = createDeps();
     const relay = {
-      status: () => ({ extensionConnected: false }),
+      status: () => ({ extensionConnected: false, extensionHandshakeComplete: false }),
       getCdpUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
 
     const launchPromise = tools.opendevbrowser_launch.execute({ waitForExtension: true, waitTimeoutMs: 500, extensionOnly: true } as never);
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(4000);
     const launchResult = parse(await launchPromise);
     expect(launchResult.ok).toBe(false);
     vi.useRealTimers();

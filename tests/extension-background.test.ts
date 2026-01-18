@@ -95,6 +95,25 @@ describe("extension background auto-connect", () => {
     expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
   });
 
+  it("skips auto-connect when relay instance mismatches", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: true });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-a" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "secret", instanceId: "relay-b" })
+      }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.connect).not.toHaveBeenCalled();
+  });
+
   it("updates the badge when status changes", async () => {
     const mock = createChromeMock({ autoConnect: false });
     globalThis.chrome = mock.chrome;

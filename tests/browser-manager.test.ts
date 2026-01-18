@@ -758,9 +758,9 @@ describe("BrowserManager", () => {
 
     await manager.scroll(result.sessionId, 100);
     await manager.scroll(result.sessionId, 100, "r1");
-    const consolePoll = manager.consolePoll(result.sessionId);
+    const consolePoll = await manager.consolePoll(result.sessionId);
     expect(consolePoll.events).toEqual([]);
-    const networkPoll = manager.networkPoll(result.sessionId);
+    const networkPoll = await manager.networkPoll(result.sessionId);
     expect(networkPoll.events).toEqual([]);
 
     await manager.disconnect(result.sessionId, false);
