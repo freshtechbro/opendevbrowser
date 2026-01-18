@@ -1,0 +1,52 @@
+import type { ParsedArgs } from "../../args";
+import { callDaemon } from "../../client";
+import { createUsageError } from "../../errors";
+
+function parseDomHtmlArgs(rawArgs: string[]): { sessionId?: string; ref?: string; maxChars?: number } {
+  const parsed: { sessionId?: string; ref?: string; maxChars?: number } = {};
+  for (let i = 0; i < rawArgs.length; i += 1) {
+    const arg = rawArgs[i];
+    if (arg === "--session-id") {
+      const value = rawArgs[i + 1];
+      if (!value) throw createUsageError("Missing value for --session-id");
+      parsed.sessionId = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("--session-id=")) {
+      parsed.sessionId = arg.split("=", 2)[1];
+      continue;
+    }
+    if (arg === "--ref") {
+      const value = rawArgs[i + 1];
+      if (!value) throw createUsageError("Missing value for --ref");
+      parsed.ref = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("--ref=")) {
+      parsed.ref = arg.split("=", 2)[1];
+      continue;
+    }
+    if (arg === "--max-chars") {
+      const value = rawArgs[i + 1];
+      if (!value) throw createUsageError("Missing value for --max-chars");
+      parsed.maxChars = Number(value);
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("--max-chars=")) {
+      parsed.maxChars = Number(arg.split("=", 2)[1]);
+      continue;
+    }
+  }
+  return parsed;
+}
+
+export async function runDomHtml(args: ParsedArgs) {
+  const { sessionId, ref, maxChars } = parseDomHtmlArgs(args.rawArgs);
+  if (!sessionId) throw createUsageError("Missing --session-id");
+  if (!ref) throw createUsageError("Missing --ref");
+  const result = await callDaemon("dom.getHtml", { sessionId, ref, maxChars });
+  return { success: true, message: "DOM HTML captured.", data: result };
+}
