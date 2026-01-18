@@ -411,7 +411,7 @@ export class BrowserManager {
     return { timingMs: Date.now() - startTime };
   }
 
-  async snapshot(sessionId: string, mode: "outline" | "actionables", maxChars: number, cursor?: string): Promise<ReturnType<Snapshotter["snapshot"]>> {
+  async snapshot(sessionId: string, mode: "outline" | "actionables", maxChars: number, cursor?: string): ReturnType<Snapshotter["snapshot"]> {
     const mutex = this.getMutex(sessionId);
     return mutex.runExclusive(async () => {
       const managed = this.getManaged(sessionId);
@@ -543,12 +543,12 @@ export class BrowserManager {
     return { base64: buffer.toString("base64") };
   }
 
-  consolePoll(sessionId: string, sinceSeq?: number, max = 50): { events: ReturnType<ConsoleTracker["poll"]>["events"]; nextSeq: number } {
+  async consolePoll(sessionId: string, sinceSeq?: number, max = 50): Promise<{ events: ReturnType<ConsoleTracker["poll"]>["events"]; nextSeq: number }> {
     const managed = this.getManaged(sessionId);
     return managed.consoleTracker.poll(sinceSeq, max);
   }
 
-  networkPoll(sessionId: string, sinceSeq?: number, max = 50): { events: ReturnType<NetworkTracker["poll"]>["events"]; nextSeq: number } {
+  async networkPoll(sessionId: string, sinceSeq?: number, max = 50): Promise<{ events: ReturnType<NetworkTracker["poll"]>["events"]; nextSeq: number }> {
     const managed = this.getManaged(sessionId);
     return managed.networkTracker.poll(sinceSeq, max);
   }

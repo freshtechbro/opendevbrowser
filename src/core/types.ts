@@ -1,4 +1,4 @@
-import type { BrowserManager } from "../browser/browser-manager";
+import type { BrowserManagerLike } from "../browser/manager-types";
 import type { ScriptRunner } from "../browser/script-runner";
 import type { OpenDevBrowserConfig, ConfigStore } from "../config";
 import type { RelayServer } from "../relay/relay-server";
@@ -14,7 +14,7 @@ export type OpenDevBrowserCore = {
   cacheRoot: string;
   config: OpenDevBrowserConfig;
   configStore: ConfigStore;
-  manager: BrowserManager;
+  manager: BrowserManagerLike;
   runner: ScriptRunner;
   skills: SkillLoader;
   relay: RelayServer;

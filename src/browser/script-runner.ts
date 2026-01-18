@@ -1,4 +1,4 @@
-import type { BrowserManager } from "./browser-manager";
+import type { BrowserManagerLike } from "./manager-types";
 
 export type RunStep = {
   action: string;
@@ -13,9 +13,9 @@ export type RunResult = {
 };
 
 export class ScriptRunner {
-  private manager: BrowserManager;
+  private manager: BrowserManagerLike;
 
-  constructor(manager: BrowserManager) {
+  constructor(manager: BrowserManagerLike) {
     this.manager = manager;
   }
 
