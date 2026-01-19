@@ -41,6 +41,7 @@ export type RelayHandshakeAck = {
     instanceId: string;
     relayPort: number;
     pairingRequired: boolean;
+    epoch?: number;
   };
 };
 
@@ -58,10 +59,12 @@ export type RelayHttpConfig = {
   relayPort: number;
   pairingRequired: boolean;
   instanceId: string;
+  epoch?: number;
   discoveryPort: number | null;
 };
 
 export type RelayHttpPair = {
   token: string | null;
   instanceId: string;
+  epoch?: number;
 };

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EventEmitter } from "events";
-import { ConsoleTracker } from "../src/devtools/console-tracker";
+import { ConsoleTracker, __test__ as consoleTest } from "../src/devtools/console-tracker";
 import { NetworkTracker } from "../src/devtools/network-tracker";
 
 const createPage = () => {
@@ -108,6 +108,15 @@ describe("ConsoleTracker", () => {
     expect(poll.events[0]?.text).not.toContain("sk_live_abc123def456");
   });
 
+  it("redacts prefixed tokens via helper", () => {
+    expect(consoleTest.shouldRedactToken("sk_live_1234567890123456")).toBe(true);
+  });
+
+  it("redacts token-like strings without prefixes via helper", () => {
+    const redacted = consoleTest.redactText("session abcDEF1234567890");
+    expect(redacted).toContain("[REDACTED]");
+  });
+
   it("redacts pk_ prefixed tokens", () => {
     const page = createPage();
     const tracker = new ConsoleTracker(10);
@@ -166,6 +175,58 @@ describe("ConsoleTracker", () => {
 
     const poll = tracker.poll(0, 10);
     expect(poll.events[0]?.url).toBe("https://api.example.com/v1/users/profile");
+  });
+
+  it("keeps full response URLs when configured", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10, { showFullUrls: true });
+
+    tracker.attach(page as never);
+    const request = {
+      method: () => "GET",
+      url: () => "https://example.com/items",
+      resourceType: () => "xhr"
+    };
+    const response = {
+      url: () => "https://example.com/items?query=1#hash",
+      status: () => 200,
+      request: () => request
+    };
+
+    page.emit("response", response);
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toBe("https://example.com/items?query=1#hash");
+  });
+
+  it("falls back to raw URL parsing when URL is invalid", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("request", {
+      method: () => "GET",
+      url: () => "not a url?token=abc#frag",
+      resourceType: () => "xhr"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toBe("not a url");
+  });
+
+  it("returns raw URL when invalid URL starts with a query string", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("request", {
+      method: () => "GET",
+      url: () => "?token=abc123",
+      resourceType: () => "xhr"
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]?.url).toBe("?token=abc123");
   });
 
   it("redacts tokens with only 2 character categories", () => {

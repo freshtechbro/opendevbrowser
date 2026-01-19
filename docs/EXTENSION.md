@@ -7,7 +7,10 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 - Connects to the local relay server (`ws://127.0.0.1:<port>/extension`).
 - Uses the Chrome Debugger API to forward CDP commands for the active tab.
 - Allows OpenDevBrowser to control tabs without launching a new browser.
+- Supports multi-tab CDP routing with flat sessions (Chrome 125+).
+- Lists only top-level tabs for discovery; child targets (workers/OOPIF) are auto-attached internally.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
+- When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
 
 ## Installation
 
@@ -57,6 +60,16 @@ Relay CDP endpoint: `ws://127.0.0.1:<relayPort>/cdp`. The CLI/tool `connect` com
 When pairing is enabled, `/cdp` requires a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
 to obtain the token before connecting, so users should not manually pass or share tokenized URLs.
 
+## Chrome version requirement
+
+Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versions will fail fast with a clear error.
+
+## Multi-tab + primary tab behavior
+
+- Target discovery lists only top-level tabs.
+- Child targets are auto-attached recursively (not listed in `Target.getTargets`).
+- A single **primary tab** is used for relay handshake/status; switching tabs updates the handshake without disconnecting others.
+
 ## Security notes
 
 - Relay connections are local-only by default.
@@ -71,5 +84,6 @@ to obtain the token before connecting, so users should not manually pass or shar
 - **Pairing token required**: Enable "Require pairing token" and provide the value from your `opendevbrowser.jsonc`.
 - **No active tab / restricted tab**: The popup cannot attach to `chrome://`, `chrome-extension://`, or Chrome Web Store pages. Focus a normal http(s) tab before connecting.
 - **Debugger attach failed**: Close DevTools on the target tab (or any other debugger) and retry.
+- **Chrome too old**: Extension relay requires Chrome 125+ for flat sessions.
 - **Launch fails due to missing extension**: The CLI/tool will print exact commands for Managed or CDPConnect fallbacks when the extension is not connected.
 - **Popup shows Connected but launch says not connected**: Check the popup note for the relay port/instance (it now includes the relay identity) and ensure it matches the daemon relay port.

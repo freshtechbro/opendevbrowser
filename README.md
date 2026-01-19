@@ -19,8 +19,10 @@ OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents
 | **Stable refs** | Elements identified by `backendNodeId`, not fragile selectors |
 | **Security by default** | CDP localhost-only, timing-safe auth, HTML sanitization |
 | **3 browser modes** | Managed, CDP connect, or extension relay for logged-in sessions |
+| **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
+| **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
 | **5 bundled skill packs** | Best practices for login, forms, data extraction |
-| **33 tools** | Complete browser automation coverage |
+| **30 tools** | Complete browser automation coverage |
 | **95% test coverage** | Production-ready with strict TypeScript |
 
 ---
@@ -70,7 +72,7 @@ Manual fallback (edit OpenCode config):
 
 Config location: `~/.config/opencode/opencode.json`
 
-Restart OpenCode, then run `opendevbrowser_status` to verify the plugin is loaded.
+Restart OpenCode, then run `opendevbrowser_status` to verify the plugin is loaded (daemon status when hub is enabled).
 
 ---
 
@@ -155,7 +157,7 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ## Tool Reference
 
-OpenDevBrowser provides **33 tools** organized by category:
+OpenDevBrowser provides **30 tools** organized by category:
 
 ### Session Management
 | Tool | Description |
@@ -163,7 +165,7 @@ OpenDevBrowser provides **33 tools** organized by category:
 | `opendevbrowser_launch` | Launch a session (extension relay first; managed is explicit) |
 | `opendevbrowser_connect` | Connect to existing Chrome CDP endpoint (or relay /cdp) |
 | `opendevbrowser_disconnect` | Disconnect browser session |
-| `opendevbrowser_status` | Get session status and connection info |
+| `opendevbrowser_status` | Get session status and connection info (daemon status in hub mode) |
 
 ### Tab/Target Management
 | Tool | Description |
@@ -254,6 +256,8 @@ Load a skill: `opendevbrowser_skill_load` with `name` and optional `topic` filte
 
 Default behavior: `opendevbrowser_launch` prefers **Extension Relay** when available. Use `--no-extension` (and `--headless` if desired) for managed sessions.
 
+Extension relay relies on **flat CDP sessions (Chrome 125+)** and uses DebuggerSession `sessionId` routing for multi-tab and child-target support. When hub mode is enabled, the hub daemon is the sole relay owner and there is **no local relay fallback**.
+
 Relay CDP endpoint: `ws://127.0.0.1:<relayPort>/cdp`.
 The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/cdp`.
 When pairing is enabled, `/cdp` requires a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
@@ -267,6 +271,8 @@ When pairing is enabled, `/cdp` requires a relay token (`?token=<relayToken>`). 
 ## Chrome Extension (Optional)
 
 The extension enables **Extension Relay** mode - attach to existing logged-in browser tabs without launching a new browser.
+
+**Requirements:** Chrome 125+ (flat CDP sessions). Older versions will fail fast with a clear error.
 
 ### Auto-Connect + Auto-Pair
 
@@ -381,6 +387,10 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
   "relayPort": 8787,
   "relayToken": "auto-generated-on-first-run",
 
+  // Hub daemon (relay ownership + FIFO queue)
+  "daemonPort": 8788,
+  "daemonToken": "auto-generated-on-first-run",
+
   // Updates
   "checkForUpdates": false
 }
@@ -471,10 +481,12 @@ src/
 ├── relay/        # Extension relay server, protocol types
 ├── skills/       # SkillLoader for skill pack discovery
 ├── snapshot/     # AX-tree snapshots, ref management
-├── tools/        # 33 opendevbrowser_* tool definitions
+├── tools/        # 30 opendevbrowser_* tool definitions
 └── utils/        # Shared utilities
 ```
 
+Extension relay uses flat CDP sessions (Chrome 125+) with DebuggerSession `sessionId` routing for multi-tab support.
+When hub mode is enabled, the hub daemon is the sole relay owner and enforces a FIFO lease queue for multi-client safety.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed component diagrams.
 
 ---

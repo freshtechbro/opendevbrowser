@@ -10,9 +10,14 @@ extension/
 │   ├── background.ts    # Connection orchestration, message routing
 │   ├── popup.tsx        # Settings UI (port, token, auto-connect)
 │   └── services/        # CDP attach/detach, message forwarding
+│       ├── CDPRouter.ts          # Flat-session routing + Target lifecycle
+│       ├── TargetSessionMap.ts   # Root/child session mapping
+│       └── cdp-router-commands.ts # Target command helpers
 ├── manifest.json
 └── popup.html
 ```
+
+Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changing connection behavior.
 
 ## Key Behaviors
 
@@ -20,6 +25,9 @@ extension/
 - **Auto-connect**: Enabled by default, attempts on install/startup
 - **Auto-pair**: Fetches token from `/pair` endpoint
 - **Configurable**: `relayPort`/`relayToken` from popup settings
+- **Flat sessions**: Chrome 125+ only; route CDP by DebuggerSession `sessionId`
+- **Top-level discovery**: List tabs only; auto-attach child targets recursively
+- **Primary tab**: Handshake/diagnostics track a primary tab without detaching others
 
 ## Connection Flow
 

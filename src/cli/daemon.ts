@@ -17,6 +17,9 @@ export type DaemonState = {
   pid: number;
   relayPort: number;
   startedAt: string;
+  hubInstanceId?: string;
+  relayInstanceId?: string;
+  relayEpoch?: number;
 };
 
 type DaemonOptions = {
@@ -102,8 +105,9 @@ const isDaemonCommandRequest = (value: Record<string, unknown>): value is Daemon
 
 export async function startDaemon(options: DaemonOptions = {}): Promise<{ state: DaemonState; stop: () => Promise<void> }> {
   const config = options.config ?? loadGlobalConfig();
-  const port = options.port ?? DEFAULT_DAEMON_PORT;
-  const token = options.token ?? generateSecureToken();
+  const port = options.port ?? config.daemonPort ?? DEFAULT_DAEMON_PORT;
+  const token = options.token ?? config.daemonToken ?? generateSecureToken();
+  const startedAt = new Date().toISOString();
   const core = createOpenDevBrowserCore({
     directory: options.directory ?? process.cwd(),
     worktree: options.worktree ?? null,
@@ -121,11 +125,22 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
     if (request.method === "GET" && url.pathname === "/status") {
+      const relayStatus = core.relay.status();
+      writeDaemonMetadata({
+        port,
+        token,
+        pid: process.pid,
+        relayPort: relayStatus.port ?? config.relayPort,
+        startedAt,
+        hubInstanceId: getHubInstanceId(),
+        relayInstanceId: relayStatus.instanceId,
+        relayEpoch: relayStatus.epoch
+      });
       sendJson(response, 200, {
         ok: true,
         pid: process.pid,
         hub: { instanceId: getHubInstanceId() },
-        relay: core.relay.status(),
+        relay: relayStatus,
         binding: getBindingDiagnostics()
       });
       return;
@@ -165,7 +180,10 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
     token,
     pid: process.pid,
     relayPort: config.relayPort,
-    startedAt: new Date().toISOString()
+    startedAt,
+    hubInstanceId: getHubInstanceId(),
+    relayInstanceId: core.relay.status().instanceId,
+    relayEpoch: core.relay.status().epoch
   };
   writeDaemonMetadata(state);
 

@@ -30,6 +30,7 @@ export function createConnectTool(deps: ToolDeps): ToolDefinition {
     },
     async execute(args) {
       try {
+        await deps.relay?.refresh?.();
         const wsEndpoint = args.wsEndpoint;
         const relayUrl = deps.relay?.getCdpUrl();
         const normalizedRelayEndpoint = normalizeRelayEndpoint(wsEndpoint);

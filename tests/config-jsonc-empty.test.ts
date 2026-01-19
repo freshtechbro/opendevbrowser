@@ -5,7 +5,9 @@ import * as os from "os";
 vi.mock("fs");
 vi.mock("os");
 vi.mock("jsonc-parser", () => ({
-  parse: (_content: string, _errors: Array<{ error: number; offset: number; length: number }>) => undefined
+  parse: (_content: string, _errors: Array<{ error: number; offset: number; length: number }>) => undefined,
+  modify: () => [],
+  applyEdits: (content: string) => content
 }));
 
 describe("loadGlobalConfig with empty JSONC payload", () => {

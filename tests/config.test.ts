@@ -48,13 +48,16 @@ describe("loadGlobalConfig", () => {
     expect(config.relayPort).toBe(8787);
     expect(typeof config.relayToken).toBe("string");
     expect(config.relayToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(config.daemonPort).toBe(8788);
+    expect(typeof config.daemonToken).toBe("string");
+    expect(config.daemonToken).toMatch(/^[a-f0-9]{64}$/);
     expect(fs.mkdirSync).toHaveBeenCalledWith(
       path.join("/home/testuser", ".config", "opencode"),
       { recursive: true, mode: 0o700 }
     );
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       path.join("/home/testuser", ".config", "opencode", "opendevbrowser.jsonc"),
-      expect.stringMatching(/"relayToken": "[a-f0-9]{64}"/),
+      expect.stringMatching(/"relayToken": "[a-f0-9]{64}".*"daemonToken": "[a-f0-9]{64}"/s),
       { encoding: "utf-8", mode: 0o600 }
     );
   });

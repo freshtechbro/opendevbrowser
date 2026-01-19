@@ -101,17 +101,98 @@ describe("extension background auto-connect", () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-a" })
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-a", epoch: 1 })
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ token: "secret", instanceId: "relay-b" })
+        json: async () => ({ token: "secret", instanceId: "relay-b", epoch: 1 })
       }) as unknown as typeof fetch;
 
     await import("../extension/src/background");
     await flushMicrotasks();
 
     expect(lastConnectionManager?.connect).not.toHaveBeenCalled();
+  });
+
+  it("surfaces relay instance mismatch note in popup status", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: true });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-a", epoch: 1 })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "secret", instanceId: "relay-b", epoch: 1 })
+      }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const response = await new Promise<{ note?: string }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload: { note?: string }) => resolve(payload));
+    });
+
+    expect(String(response.note ?? "")).toContain("instance mismatch");
+  });
+
+  it("clears stored relay state when discovery config is unreachable", async () => {
+    const mock = createChromeMock({
+      autoConnect: true,
+      autoPair: true,
+      relayPort: 9999,
+      pairingToken: "stale",
+      relayInstanceId: "old",
+      relayEpoch: 1,
+      tokenEpoch: 1
+    });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({
+      relayPort: null,
+      relayInstanceId: null,
+      relayEpoch: null,
+      pairingToken: null,
+      tokenEpoch: null
+    }, expect.any(Function));
+  });
+
+  it("clears stored relay state when epoch changes", async () => {
+    const mock = createChromeMock({
+      autoConnect: true,
+      autoPair: true,
+      relayPort: 8787,
+      pairingToken: "stale",
+      relayInstanceId: "relay-a",
+      relayEpoch: 1,
+      tokenEpoch: 1
+    });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-a", epoch: 2 })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "fresh", instanceId: "relay-a", epoch: 2 })
+      }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({
+      relayPort: null,
+      relayInstanceId: null,
+      relayEpoch: null,
+      pairingToken: null,
+      tokenEpoch: null
+    }, expect.any(Function));
   });
 
   it("updates the badge when status changes", async () => {

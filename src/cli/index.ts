@@ -14,7 +14,7 @@ import { runScriptCommand } from "./commands/run";
 import { runSessionLaunch } from "./commands/session/launch";
 import { runSessionConnect } from "./commands/session/connect";
 import { runSessionDisconnect } from "./commands/session/disconnect";
-import { runSessionStatus } from "./commands/session/status";
+import { runStatus } from "./commands/status";
 import { runGoto } from "./commands/nav/goto";
 import { runWait } from "./commands/nav/wait";
 import { runSnapshot } from "./commands/nav/snapshot";
@@ -348,8 +348,8 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "status",
-      description: "Get daemon session status",
-      run: async () => runSessionStatus(args)
+      description: "Get daemon or session status",
+      run: async () => runStatus(args)
     });
 
     registerCommand({

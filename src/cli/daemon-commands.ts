@@ -1,6 +1,7 @@
 import type { OpenDevBrowserCore } from "../core";
 import {
   bindRelay,
+  waitForBinding,
   releaseRelay,
   renewRelay,
   requireBinding,
@@ -18,9 +19,26 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
   const bindingId = optionalString(params.bindingId);
 
   switch (request.name) {
+    case "relay.status":
+      return core.relay.status();
+    case "relay.cdpUrl":
+      return core.relay.getCdpUrl();
     case "relay.bind": {
       const clientId = requireClientId(params);
       const binding = bindRelay(clientId);
+      const relayStatus = core.relay.status();
+      return {
+        ...binding,
+        hubInstanceId: getHubInstanceId(),
+        relayInstanceId: relayStatus.instanceId,
+        relayPort: relayStatus.port ?? null,
+        bindingConfig: getBindingRenewConfig()
+      };
+    }
+    case "relay.wait": {
+      const clientId = requireClientId(params);
+      const timeoutMs = optionalNumber(params.timeoutMs);
+      const binding = await waitForBinding(clientId, timeoutMs);
       const relayStatus = core.relay.status();
       return {
         ...binding,

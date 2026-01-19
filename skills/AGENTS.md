@@ -42,6 +42,8 @@ Content organized by topic for filtering.
 - Keep guidance short, script-first, snapshot-first
 - Examples must use `opendevbrowser_*` tool names
 - Never include secrets or page data in content
+- Match the snapshot → refs → actions flow in `docs/ARCHITECTURE.md` and tool list in `docs/CLI.md`.
+- Note that extension relay requires Chrome 125+ and uses hub-only relay ownership when enabled.
 
 ## Adding Skills
 

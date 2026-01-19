@@ -1,26 +1,77 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-01-13 | **Commit:** 7756dee | **Branch:** main
+**Generated:** 2026-01-18 | **Commit:** af7d28d | **Branch:** main
 
 ## Overview
 
 OpenCode plugin providing AI agents with browser automation via Chrome DevTools Protocol. Script-first UX: snapshot → refs → actions.
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Distribution Layer                         │
+├──────────────────┬──────────────────┬──────────────────┬──────────────────────────┤
+│  OpenCode Plugin │       CLI        │    Hub Daemon    │    Chrome Extension       │
+│  (src/index.ts)  │ (src/cli/index)  │ (opendevbrowser  │   (extension/src/)        │
+│                  │                  │      serve)     │                           │
+└────────┬─────────┴────────┬─────────┴─────────┬────────┴──────────────┬────────────┘
+         │                  │                  │                       │
+         ▼                  ▼                  ▼                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Core Runtime (src/core/)                      │
+│  bootstrap.ts → wires managers, injects ToolDeps                 │
+└────────┬────────────────────────────────────────────────────────┘
+         │
+    ┌────┴────┬─────────────┬──────────────┬──────────────┐
+    ▼         ▼             ▼              ▼              ▼
+┌────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐
+│Browser │ │Script  │ │Snapshot  │ │  Relay     │ │  Skills    │
+│Manager │ │Runner  │ │Pipeline  │ │  Server    │ │  Loader    │
+└───┬────┘ └────────┘ └──────────┘ └─────┬──────┘ └────────────┘
+    │                                    │
+    ▼                                    ▼
+┌────────┐                        ┌────────────┐
+│Target  │                        │ Extension  │
+│Manager │                        │ (WS relay) │
+└────────┘                        └────────────┘
+```
+
+### Data Flow
+
+```
+Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
+                                   ↓
+                            Snapshot (AX-tree → refs)
+                                   ↓
+                            Action (ref → backendNodeId → DOM)
+```
+
+### Session Modes
+
+| Mode | Entry | Use Case |
+|------|-------|----------|
+| `extension` | `opendevbrowser_launch` (default) | Attach to logged-in tabs via relay |
+| `managed` | `--no-extension` | Fresh Playwright-controlled Chrome |
+| `cdpConnect` | `opendevbrowser_connect` | Attach to existing `--remote-debugging-port` |
+
+Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
+
 ## Structure
 
 ```
 .
-├── src/              # Plugin implementation (tools, managers, services)
+├── src/              # Plugin implementation
 │   ├── browser/      # BrowserManager, TargetManager, CDP lifecycle
 │   ├── cache/        # Chrome executable resolution
-│   ├── cli/          # CLI commands and installers
-│   ├── core/         # Bootstrap, runtime wiring
+│   ├── cli/          # CLI commands, daemon, installers
+│   ├── core/         # Bootstrap, runtime wiring, ToolDeps
 │   ├── devtools/     # Console/network trackers with redaction
 │   ├── export/       # DOM capture, React emitter, CSS extraction
-│   ├── relay/        # Extension relay protocol and server
+│   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 30+ opendevbrowser_* tool definitions
+│   ├── tools/        # 30 opendevbrowser_* tool definitions
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── skills/           # Bundled skill packs (5 total)
@@ -33,12 +84,17 @@ OpenCode plugin providing AI agents with browser automation via Chrome DevTools 
 | Task | Location | Notes |
 |------|----------|-------|
 | Add/modify tool | `src/tools/` | Keep thin; delegate to managers |
+| Tool registry | `src/tools/index.ts` | Source of truth for tool list/count |
 | Browser lifecycle | `src/browser/browser-manager.ts` | Owns Playwright, targets, cleanup |
-| Snapshot/refs | `src/snapshot/` | AX-tree, ref mapping |
-| Extension relay | `src/relay/` | Protocol types, server security |
-| CLI commands | `src/cli/commands/` | Grouped by category |
+| Snapshot/refs | `src/snapshot/` | AX-tree, RefStore, outline/actionables |
+| Extension relay | `src/relay/` | Protocol types, WebSocket security |
+| Hub/relay status | `src/cli/daemon-status.ts`, `src/cli/remote-relay.ts` | Daemon status + relay cache |
+| Hub enablement | `src/utils/hub-enabled.ts` | Hub-only gating + config checks |
+| Extension routing | `extension/src/services/TargetSessionMap.ts` | Root/child session routing |
+| CLI commands | `src/cli/commands/` | Registry-based, daemon mode |
 | Add skill pack | `skills/*/SKILL.md` | Follow naming conventions |
 | Config schema | `src/config.ts` | Zod schema, defaults |
+| DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
 
 ## Commands
 
@@ -70,7 +126,7 @@ npm run version:check     # Verify version alignment
 
 ### Code Organization
 - Tools: thin wrappers (validation + response shaping)
-- Managers: core logic (BrowserManager, ScriptRunner)
+- Managers: own lifecycle and state
 - Keep module boundaries clear
 
 ## Anti-Patterns
@@ -110,7 +166,8 @@ Entry: src/index.ts
   └── Exports: { tool, chat.message, experimental.chat.system.transform }
 
 Bootstrap: src/core/bootstrap.ts
-  └── Wires: BrowserManager, ScriptRunner, SkillLoader, RelayServer
+  └── Creates: BrowserManager, ScriptRunner, SkillLoader, RelayServer
+  └── Returns: ToolDeps (injected into all tools)
 
 Config: ~/.config/opencode/opendevbrowser.jsonc
   └── Schema: src/config.ts (Zod validation)
@@ -123,7 +180,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   return {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 30+ tools
+    // ... 30 tools
   };
 }
 ```
@@ -143,11 +200,13 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - CLI reference: `docs/CLI.md`
 - Refactor plans: `docs/REFACTORING_PLAN.md`
 - Keep docs in sync with implementation
+- If tool list or outputs change, update `docs/CLI.md` and this file together.
 
 ## Layered AGENTS.md
 
 Subdirectory guides override this root file:
 - `src/AGENTS.md` — module boundaries, manager patterns
+- `src/tools/AGENTS.md` — tool development patterns
 - `extension/AGENTS.md` — Chrome extension specifics
 - `tests/AGENTS.md` — testing conventions
 - `skills/AGENTS.md` — skill pack format

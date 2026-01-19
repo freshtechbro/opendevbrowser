@@ -5,6 +5,8 @@ import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
+import { fetchDaemonStatusFromMetadata } from "../cli/daemon-status";
+import { isHubEnabled } from "../utils/hub-enabled";
 
 const z = tool.schema;
 
@@ -50,17 +52,50 @@ async function fetchLatestVersion(packageName: string): Promise<string | undefin
 
 export function createStatusTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "Get status of a browser session.",
+    description: "Get daemon or session status.",
     args: {
-      sessionId: z.string().describe("Session id")
+      sessionId: z.string().optional().describe("Session id (required when hub is disabled)")
     },
     async execute(args) {
       try {
-        const status = await deps.manager.status(args.sessionId);
-        const extensionPath = deps.getExtensionPath?.() ?? null;
         const config = deps.config.get();
+        const hubEnabled = isHubEnabled(config);
+        const extensionPath = deps.getExtensionPath?.() ?? null;
         const version = getPackageVersion();
         let updateHint: string | undefined;
+        let sessionStatus: { mode: string; activeTargetId: string | null; url?: string; title?: string } | null = null;
+
+        if (hubEnabled) {
+          const daemonStatus = await fetchDaemonStatusFromMetadata();
+          if (!daemonStatus) {
+            return failure("Daemon not running. Start with `npx opendevbrowser serve`.", "status_failed");
+          }
+          if (args.sessionId) {
+            sessionStatus = await deps.manager.status(args.sessionId);
+          }
+
+          if (config.checkForUpdates && version) {
+            const latest = await fetchLatestVersion("opendevbrowser");
+            if (latest && latest !== version) {
+              updateHint = `Update available: ${version} -> ${latest}`;
+            }
+          }
+
+          return ok({
+            ...(sessionStatus ?? {}),
+            daemon: daemonStatus,
+            hubEnabled: true,
+            extensionPath: extensionPath ?? undefined,
+            version,
+            updateHint
+          });
+        }
+
+        if (!args.sessionId) {
+          return failure("Missing sessionId for status.", "status_failed");
+        }
+
+        sessionStatus = await deps.manager.status(args.sessionId);
 
         if (config.checkForUpdates && version) {
           const latest = await fetchLatestVersion("opendevbrowser");
@@ -70,10 +105,10 @@ export function createStatusTool(deps: ToolDeps): ToolDefinition {
         }
         
         return ok({
-          mode: status.mode,
-          activeTargetId: status.activeTargetId,
-          url: status.url,
-          title: status.title,
+          mode: sessionStatus.mode,
+          activeTargetId: sessionStatus.activeTargetId,
+          url: sessionStatus.url,
+          title: sessionStatus.title,
           extensionPath: extensionPath ?? undefined,
           version,
           updateHint

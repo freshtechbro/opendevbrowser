@@ -26,6 +26,9 @@ export const createChromeMock = (initial?: {
   pairingToken?: string | null;
   pairingEnabled?: boolean | null;
   relayPort?: number | null;
+  relayInstanceId?: string | null;
+  relayEpoch?: number | null;
+  tokenEpoch?: number | null;
   autoConnect?: boolean | null;
   autoPair?: boolean | null;
 }): ChromeMockState => {
@@ -35,10 +38,18 @@ export const createChromeMock = (initial?: {
     title: "Example",
     groupId: 1
   };
+  const tabsById = new Map<number, chrome.tabs.Tab>();
+  if (activeTab && typeof activeTab.id === "number") {
+    tabsById.set(activeTab.id, activeTab);
+  }
+  let nextTabId = activeTab && typeof activeTab.id === "number" ? activeTab.id + 1 : 1;
   let storageData: Record<string, unknown> = {
     pairingToken: initial?.pairingToken ?? null,
     pairingEnabled: initial?.pairingEnabled ?? true,
     relayPort: initial?.relayPort ?? 8787,
+    relayInstanceId: initial?.relayInstanceId ?? null,
+    relayEpoch: initial?.relayEpoch ?? null,
+    tokenEpoch: initial?.tokenEpoch ?? null,
     autoConnect: initial?.autoConnect ?? null,
     autoPair: initial?.autoPair ?? null
   };
@@ -51,6 +62,7 @@ export const createChromeMock = (initial?: {
   const startupListeners = new Set<RuntimeListener>();
   const installedListeners = new Set<RuntimeListener>();
   const messageListeners = new Set<MessageListener>();
+  let sessionCounter = 1;
 
   const chromeMock = {
     runtime: {
@@ -69,7 +81,14 @@ export const createChromeMock = (initial?: {
         addListener: (listener: MessageListener) => {
           messageListeners.add(listener);
         }
-      }
+      },
+      sendMessage: vi.fn((message: unknown, callback?: (response: unknown) => void) => {
+        for (const listener of messageListeners) {
+          listener(message, {} as chrome.runtime.MessageSender, (response) => {
+            callback?.(response);
+          });
+        }
+      })
     },
     action: {
       setBadgeText: vi.fn(),
@@ -95,10 +114,53 @@ export const createChromeMock = (initial?: {
     tabs: {
       query: vi.fn(async () => (activeTab ? [activeTab] : [])),
       get: vi.fn(async (tabId: number) => {
-        if (activeTab && activeTab.id === tabId) {
-          return activeTab;
+        return tabsById.get(tabId) ?? null;
+      }),
+      create: vi.fn((createProperties: chrome.tabs.CreateProperties, callback?: (tab: chrome.tabs.Tab) => void) => {
+        const tabId = nextTabId++;
+        const tab: chrome.tabs.Tab = {
+          id: tabId,
+          url: createProperties.url ?? "about:blank",
+          title: createProperties.url ?? "New Tab"
+        };
+        tabsById.set(tabId, tab);
+        if (createProperties.active ?? true) {
+          activeTab = tab;
         }
-        return null;
+        callback?.(tab);
+        return tab;
+      }),
+      update: vi.fn((tabId: number, updateProperties: chrome.tabs.UpdateProperties, callback?: (tab?: chrome.tabs.Tab) => void) => {
+        const existing = tabsById.get(tabId);
+        if (!existing) {
+          callback?.(undefined);
+          return null;
+        }
+        const updated: chrome.tabs.Tab = {
+          ...existing,
+          url: updateProperties.url ?? existing.url,
+          title: updateProperties.url ? updateProperties.url : existing.title
+        };
+        tabsById.set(tabId, updated);
+        if (updateProperties.active) {
+          activeTab = updated;
+        }
+        callback?.(updated);
+        return updated;
+      }),
+      remove: vi.fn((tabId: number | number[], callback?: () => void) => {
+        const ids = Array.isArray(tabId) ? tabId : [tabId];
+        for (const id of ids) {
+          tabsById.delete(id);
+          for (const listener of tabRemovedListeners) {
+            listener(id);
+          }
+        }
+        if (activeTab && typeof activeTab.id === "number" && !tabsById.has(activeTab.id)) {
+          const [first] = tabsById.values();
+          activeTab = first ?? null;
+        }
+        callback?.();
       }),
       onRemoved: {
         addListener: (listener: TabRemovedListener) => {
@@ -120,8 +182,14 @@ export const createChromeMock = (initial?: {
         void debuggee;
         callback();
       }),
-      sendCommand: vi.fn((debuggee: chrome.debugger.Debuggee, _method: string, _params: object, callback: (result?: unknown) => void) => {
+      sendCommand: vi.fn((debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
         void debuggee;
+        if (method === "Target.attachToTarget") {
+          const sessionId = `session-${sessionCounter}`;
+          sessionCounter += 1;
+          callback({ sessionId });
+          return;
+        }
         callback({ ok: true });
       }),
       onEvent: {
@@ -147,6 +215,9 @@ export const createChromeMock = (initial?: {
     chrome: chromeMock,
     setActiveTab: (tab) => {
       activeTab = tab;
+      if (tab && typeof tab.id === "number") {
+        tabsById.set(tab.id, tab);
+      }
     },
     emitStorageChange: (value) => {
       const updates = typeof value === "object" && value !== null
@@ -166,6 +237,9 @@ export const createChromeMock = (initial?: {
       }
     },
     emitTabUpdated: (tabId, tab) => {
+      if (tab && typeof tab.id === "number") {
+        tabsById.set(tab.id, tab);
+      }
       for (const listener of tabUpdatedListeners) {
         listener(tabId, {}, tab);
       }

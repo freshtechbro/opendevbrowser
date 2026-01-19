@@ -10,7 +10,7 @@ const relayInstances: Array<{
   sendEvent: ReturnType<typeof vi.fn>;
   sendResponse: ReturnType<typeof vi.fn>;
   isConnected: ReturnType<typeof vi.fn>;
-  triggerClose: () => void;
+  triggerClose: (detail?: { code?: number; reason?: string }) => void;
 }> = [];
 
 let attachShouldFail = false;
@@ -27,35 +27,42 @@ vi.mock("../extension/src/services/RelayClient", () => ({
     sendEvent = vi.fn();
     sendResponse = vi.fn();
     isConnected = vi.fn(() => true);
-    private handlers: { onClose: () => void };
+    private handlers: { onClose: (detail?: { code?: number; reason?: string }) => void };
 
-    constructor(url: string, handlers: { onCommand: (command: unknown) => void; onClose: () => void }) {
+    constructor(url: string, handlers: { onCommand: (command: unknown) => void; onClose: (detail?: { code?: number; reason?: string }) => void }) {
       this.url = url;
       this.handlers = { onClose: handlers.onClose };
       relayInstances.push(this);
     }
 
-    triggerClose(): void {
-      this.handlers.onClose();
+    triggerClose(detail?: { code?: number; reason?: string }): void {
+      this.handlers.onClose(detail);
     }
   }
 }));
 
 vi.mock("../extension/src/services/CDPRouter", () => ({
   CDPRouter: class CDPRouter {
-    attachedTabId: number | null = null;
+    attachedTabs = new Set<number>();
+    primaryTabId: number | null = null;
+    callbacks: { onPrimaryTabChange?: (tabId: number | null) => void } | null = null;
     attach = vi.fn(async (tabId: number) => {
       if (attachShouldFail) {
         throw new Error("Attach failed");
       }
-      this.attachedTabId = tabId;
+      this.attachedTabs.add(tabId);
+      this.primaryTabId = tabId;
     });
-    detach = vi.fn(async () => {
-      this.attachedTabId = null;
+    detachAll = vi.fn(async () => {
+      this.attachedTabs.clear();
+      this.primaryTabId = null;
     });
-    setCallbacks = vi.fn();
+    setCallbacks = vi.fn((callbacks: { onPrimaryTabChange?: (tabId: number | null) => void }) => {
+      this.callbacks = callbacks;
+    });
     handleCommand = vi.fn(async () => undefined);
-    getAttachedTabId = vi.fn(() => this.attachedTabId);
+    getPrimaryTabId = vi.fn(() => this.primaryTabId);
+    getAttachedTabIds = vi.fn(() => Array.from(this.attachedTabs));
   }
 }));
 
@@ -85,7 +92,7 @@ describe("ConnectionManager", () => {
     const relay = relayInstances[0];
     expect(relay.url).toBe("ws://127.0.0.1:8787/extension");
     expect(relay.connect).toHaveBeenCalledTimes(1);
-    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ relayPort: 8787 });
+    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith(expect.objectContaining({ relayPort: 8787 }));
 
     await manager.disconnect();
     expect(manager.getStatus()).toBe("disconnected");
@@ -144,6 +151,19 @@ describe("ConnectionManager", () => {
 
     await vi.advanceTimersByTimeAsync(600);
     expect(relayInstances.length).toBeGreaterThan(1);
+  });
+
+  it("clears pairing token on invalid pairing close", async () => {
+    const mock = createChromeMock({ pairingToken: "stale-token" });
+    globalThis.chrome = mock.chrome;
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const relay = relayInstances[0];
+    relay.triggerClose({ code: 1008, reason: "Invalid pairing token" });
+
+    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ pairingToken: null, tokenEpoch: null });
   });
 
   it("reports missing active tab errors", async () => {

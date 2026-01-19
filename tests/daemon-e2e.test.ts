@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import http from "http";
@@ -7,6 +7,7 @@ import type { AddressInfo } from "net";
 import type { OpenDevBrowserConfig } from "../src/config";
 import { startDaemon } from "../src/cli/daemon";
 import { DaemonClient } from "../src/cli/daemon-client";
+import { fetchDaemonStatusFromMetadata } from "../src/cli/daemon-status";
 
 const getAvailablePort = async (): Promise<number> => {
   const tempServer = http.createServer();
@@ -29,6 +30,8 @@ const makeConfig = (overrides: Partial<OpenDevBrowserConfig> = {}): OpenDevBrows
   continuity: { enabled: true, filePath: "/tmp/continuity.md", nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   relayPort: 0,
   relayToken: false,
+  daemonPort: 0,
+  daemonToken: "daemon-token",
   flags: [],
   checkForUpdates: false,
   persistProfile: true,
@@ -53,10 +56,12 @@ describe("daemon e2e", () => {
   let daemonStop: (() => Promise<void>) | null = null;
   let daemonPort = 0;
   const token = "test-token";
+  let previousConfigDir: string | undefined;
 
   beforeEach(async () => {
     tempRoot = await mkdtemp(join(tmpdir(), "odb-daemon-"));
     previousCacheDir = process.env.OPENCODE_CACHE_DIR;
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR;
     process.env.OPENCODE_CACHE_DIR = tempRoot;
   });
 
@@ -72,6 +77,11 @@ describe("daemon e2e", () => {
       delete process.env.OPENCODE_CACHE_DIR;
     } else {
       process.env.OPENCODE_CACHE_DIR = previousCacheDir;
+    }
+    if (previousConfigDir === undefined) {
+      delete process.env.OPENCODE_CONFIG_DIR;
+    } else {
+      process.env.OPENCODE_CONFIG_DIR = previousConfigDir;
     }
   });
 
@@ -103,5 +113,87 @@ describe("daemon e2e", () => {
 
     const statusFinal = await fetchStatus(daemonPort, token);
     expect(statusFinal.binding).toBeNull();
+  });
+
+  it("fetches daemon status from metadata", async () => {
+    daemonPort = await getAvailablePort();
+    const { stop } = await startDaemon({
+      port: daemonPort,
+      token,
+      config: makeConfig(),
+      directory: tempRoot,
+      worktree: null
+    });
+    daemonStop = stop;
+
+    const status = await fetchDaemonStatusFromMetadata();
+    expect(status).toEqual(expect.objectContaining({
+      ok: true,
+      pid: expect.any(Number),
+      hub: { instanceId: expect.any(String) },
+      relay: expect.any(Object)
+    }));
+  });
+
+  it("recovers daemon status when metadata is missing", async () => {
+    daemonPort = await getAvailablePort();
+    const configDir = join(tempRoot, "config");
+    await mkdir(configDir, { recursive: true });
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeFile(
+      join(configDir, "opendevbrowser.jsonc"),
+      JSON.stringify({ daemonPort, daemonToken: token, relayPort: 0, relayToken: false }),
+      "utf-8"
+    );
+
+    const { stop } = await startDaemon({
+      port: daemonPort,
+      token,
+      config: makeConfig({ daemonPort, daemonToken: token }),
+      directory: tempRoot,
+      worktree: null
+    });
+    daemonStop = stop;
+
+    const metadataPath = join(tempRoot, "opendevbrowser", "daemon.json");
+    await rm(metadataPath, { force: true });
+
+    const status = await fetchDaemonStatusFromMetadata();
+    expect(status?.ok).toBe(true);
+  });
+
+  it("refreshes relay instance metadata after daemon restart", async () => {
+    daemonPort = await getAvailablePort();
+    const { stop } = await startDaemon({
+      port: daemonPort,
+      token,
+      config: makeConfig({ daemonPort, daemonToken: token }),
+      directory: tempRoot,
+      worktree: null
+    });
+    daemonStop = stop;
+
+    await fetchDaemonStatusFromMetadata();
+    const metadataPath = join(tempRoot, "opendevbrowser", "daemon.json");
+    const first = JSON.parse(await readFile(metadataPath, "utf-8")) as { relayInstanceId?: string };
+
+    await stop();
+    daemonStop = null;
+
+    const { stop: stop2 } = await startDaemon({
+      port: daemonPort,
+      token,
+      config: makeConfig({ daemonPort, daemonToken: token }),
+      directory: tempRoot,
+      worktree: null
+    });
+    daemonStop = stop2;
+
+    await fetchDaemonStatusFromMetadata();
+    const second = JSON.parse(await readFile(metadataPath, "utf-8")) as { relayInstanceId?: string };
+
+    expect(first.relayInstanceId).toBeTruthy();
+    expect(second.relayInstanceId).toBeTruthy();
+    expect(second.relayInstanceId).not.toEqual(first.relayInstanceId);
   });
 });

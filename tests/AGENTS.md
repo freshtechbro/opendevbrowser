@@ -8,6 +8,8 @@ Testing conventions. Extends root `AGENTS.md`.
 - Coverage thresholds: ≥95% lines/functions/branches/statements
 - Config: `vitest.config.ts`
 
+Align integration coverage with runtime flows in `docs/ARCHITECTURE.md`.
+
 ## Conventions
 
 | Rule | Details |
@@ -35,6 +37,11 @@ npm run test -- -t "test name"      # Single test by name
 ## Coverage Scope
 
 Covers `src/**/*.ts` only. Extension excluded from thresholds.
+
+## Focus areas (current architecture)
+
+- Hub daemon queueing + metadata recovery (`tests/daemon-*.test.ts`)
+- Extension relay flat-session routing (`tests/extension-*.test.ts`)
 
 ## Documentation Sync
 

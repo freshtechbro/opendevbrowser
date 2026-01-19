@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, chmod } from "fs/promises";
-import { tmpdir } from "os";
+import * as os from "os";
 import { join } from "path";
 import { SkillLoader } from "../src/skills/skill-loader";
 
@@ -8,7 +8,7 @@ let tempRoot = "";
 let originalConfigDir: string | undefined;
 
 beforeEach(async () => {
-  tempRoot = await mkdtemp(join(tmpdir(), "odb-skill-"));
+  tempRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-"));
   originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
   process.env.OPENCODE_CONFIG_DIR = tempRoot;
   const skillDir = join(tempRoot, ".opencode", "skill", "opendevbrowser-best-practices");
@@ -64,7 +64,7 @@ describe("SkillLoader", () => {
   });
 
   it("falls back to global opencode skill directory when local is missing", async () => {
-    const missingRoot = await mkdtemp(join(tmpdir(), "odb-skill-global-"));
+    const missingRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-global-"));
     const globalSkillDir = join(tempRoot, "skill", "opendevbrowser-best-practices");
     await mkdir(globalSkillDir, { recursive: true });
     await writeFile(
@@ -87,15 +87,39 @@ Global content.
   });
 
   it("throws when skill file is missing", async () => {
-    const missingRoot = await mkdtemp(join(tmpdir(), "odb-skill-missing-"));
+    const missingRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-missing-"));
     const loader = new SkillLoader(missingRoot);
     await expect(loader.loadBestPractices()).rejects.toThrow("not found");
+  });
+
+  it("reports none when no skills are available", async () => {
+    const emptyRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-none-"));
+    const emptyConfig = await mkdtemp(join(os.tmpdir(), "odb-skill-none-config-"));
+    const originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    const originalHome = process.env.HOME;
+    process.env.OPENCODE_CONFIG_DIR = emptyConfig;
+    process.env.HOME = emptyConfig;
+    try {
+      const loader = new SkillLoader(emptyRoot);
+      await expect(loader.loadSkill("missing-skill")).rejects.toThrow("Available: none");
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = originalConfigDir;
+      }
+    }
   });
 
   it("rethrows unexpected readFile errors", async () => {
     if (process.platform === "win32") return;
 
-    const restrictedRoot = await mkdtemp(join(tmpdir(), "odb-skill-restricted-"));
+    const restrictedRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-restricted-"));
     const skillDir = join(restrictedRoot, ".opencode", "skill", "opendevbrowser-best-practices");
     const skillPath = join(skillDir, "SKILL.md");
     await mkdir(skillDir, { recursive: true });
@@ -126,6 +150,21 @@ describe("SkillLoader.listSkills", () => {
     expect(skill?.version).toBe("1.0.0");
   });
 
+  it("handles empty frontmatter blocks", async () => {
+    const skillDir = join(tempRoot, ".opencode", "skill", "empty-frontmatter");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, "SKILL.md"),
+      `---\n\n---\n# Empty Frontmatter\n`
+    );
+
+    const loader = new SkillLoader(tempRoot);
+    const skills = await loader.listSkills();
+    const skill = skills.find((s) => s.name === "empty-frontmatter");
+    expect(skill).toBeDefined();
+    expect(skill?.description).toBe("Skill: empty-frontmatter");
+  });
+
   it("caches skills after first discovery", async () => {
     const loader = new SkillLoader(tempRoot);
     const skills1 = await loader.listSkills();
@@ -143,7 +182,7 @@ describe("SkillLoader.listSkills", () => {
   });
 
   it("discovers skills from additional paths", async () => {
-    const additionalPath = await mkdtemp(join(tmpdir(), "odb-skill-extra-"));
+    const additionalPath = await mkdtemp(join(os.tmpdir(), "odb-skill-extra-"));
     await mkdir(join(additionalPath, "custom-skill"), { recursive: true });
     await writeFile(
       join(additionalPath, "custom-skill", "SKILL.md"),
@@ -167,14 +206,51 @@ description: A custom skill
     expect(skills.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("falls back to os.homedir when OPENCODE_CONFIG_DIR is unset", async () => {
+    const originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    const originalHome = process.env.HOME;
+    delete process.env.OPENCODE_CONFIG_DIR;
+    try {
+      process.env.HOME = tempRoot;
+      const loader = new SkillLoader(tempRoot);
+      const skills = await loader.listSkills();
+      expect(skills.some((s) => s.name === "opendevbrowser-best-practices")).toBe(true);
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = originalConfigDir;
+      }
+    }
+  });
+
   it("handles non-existent additional paths gracefully", async () => {
     const loader = new SkillLoader(tempRoot, ["/nonexistent/path/12345"]);
     const skills = await loader.listSkills();
     expect(skills.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("filters sections when skill content starts with a heading", async () => {
+    const additionalPath = await mkdtemp(join(os.tmpdir(), "odb-skill-heading-"));
+    await mkdir(join(additionalPath, "heading-skill"), { recursive: true });
+    await writeFile(
+      join(additionalPath, "heading-skill", "SKILL.md"),
+      `# Heading Skill\n\n## Topic\nKeep this.\n`
+    );
+
+    const loader = new SkillLoader(tempRoot, [additionalPath]);
+    const content = await loader.loadSkill("heading-skill", "topic");
+    expect(content).toContain("## Topic");
+    expect(content).toContain("Keep this.");
+  });
+
   it("deduplicates skills by name", async () => {
-    const additionalPath = await mkdtemp(join(tmpdir(), "odb-skill-dup-"));
+    const additionalPath = await mkdtemp(join(os.tmpdir(), "odb-skill-dup-"));
     await mkdir(join(additionalPath, "opendevbrowser-best-practices"), { recursive: true });
     await writeFile(
       join(additionalPath, "opendevbrowser-best-practices", "SKILL.md"),

@@ -2,8 +2,9 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { parse as parseJsonc } from "jsonc-parser";
+import { parse as parseJsonc, modify, applyEdits } from "jsonc-parser";
 import { generateSecureToken } from "./utils/crypto";
+import { writeFileAtomic } from "./utils/fs";
 
 function isExecutable(filePath: string): boolean {
   try {
@@ -68,6 +69,8 @@ export type OpenDevBrowserConfig = {
   continuity: ContinuityConfig;
   relayPort: number;
   relayToken: string | false;
+  daemonPort: number;
+  daemonToken: string;
   chromePath?: string;
   flags: string[];
   checkForUpdates: boolean;
@@ -76,12 +79,15 @@ export type OpenDevBrowserConfig = {
 };
 
 const DEFAULT_RELAY_PORT = 8787;
+const DEFAULT_DAEMON_PORT = 8788;
 
-function buildDefaultConfigJsonc(token: string): string {
+function buildDefaultConfigJsonc(relayToken: string, daemonToken: string): string {
   return `{
   // Set relayToken to false to disable extension pairing.
   "relayPort": ${DEFAULT_RELAY_PORT},
-  "relayToken": "${token}"
+  "relayToken": "${relayToken}",
+  "daemonPort": ${DEFAULT_DAEMON_PORT},
+  "daemonToken": "${daemonToken}"
 }
 `;
 }
@@ -170,6 +176,8 @@ const configSchema = z.object({
   continuity: continuitySchema.default({}),
   relayPort: z.number().int().min(0).max(65535).default(DEFAULT_RELAY_PORT),
   relayToken: z.union([z.string(), z.literal(false)]).optional(),
+  daemonPort: z.number().int().min(0).max(65535).default(DEFAULT_DAEMON_PORT),
+  daemonToken: z.string().min(1).optional(),
   chromePath: z.string().min(1).optional().refine(
     (val) => val === undefined || isExecutable(val),
     { message: "chromePath must point to an executable file" }
@@ -188,24 +196,38 @@ function getGlobalConfigPath(): string {
   return path.join(configDir, CONFIG_FILE_NAME);
 }
 
-function ensureConfigFile(filePath: string): string {
-  const token = generateSecureToken();
+function ensureConfigFile(filePath: string): { relayToken: string; daemonToken: string } {
+  const relayToken = generateSecureToken();
+  const daemonToken = generateSecureToken();
   if (fs.existsSync(filePath)) {
-    return token;
+    return { relayToken, daemonToken };
   }
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(filePath, buildDefaultConfigJsonc(token), { encoding: "utf-8", mode: 0o600 });
+    fs.writeFileSync(filePath, buildDefaultConfigJsonc(relayToken, daemonToken), { encoding: "utf-8", mode: 0o600 });
   } catch (error) {
     console.warn(`[opendevbrowser] Warning: Could not create config file at ${filePath}:`, error);
   }
-  return token;
+  return { relayToken, daemonToken };
 }
 
-function loadConfigFile(filePath: string): { raw: unknown; generatedToken: string | null } {
+function loadConfigFile(filePath: string): {
+  raw: unknown;
+  content: string;
+  generatedRelayToken: string | null;
+  generatedDaemonToken: string | null;
+  created: boolean;
+} {
   if (!fs.existsSync(filePath)) {
-    const token = ensureConfigFile(filePath);
-    return { raw: {}, generatedToken: token };
+    const tokens = ensureConfigFile(filePath);
+    const content = buildDefaultConfigJsonc(tokens.relayToken, tokens.daemonToken);
+    return {
+      raw: {},
+      content,
+      generatedRelayToken: tokens.relayToken,
+      generatedDaemonToken: tokens.daemonToken,
+      created: true
+    };
   }
   const content = fs.readFileSync(filePath, "utf-8");
   const errors: Array<{ error: number; offset: number; length: number }> = [];
@@ -217,12 +239,18 @@ function loadConfigFile(filePath: string): { raw: unknown; generatedToken: strin
     }
     throw new Error(`Invalid JSONC in opendevbrowser config at ${filePath}: parse error at offset ${firstError.offset}`);
   }
-  return { raw: parsed ?? {}, generatedToken: null };
+  return {
+    raw: parsed ?? {},
+    content,
+    generatedRelayToken: null,
+    generatedDaemonToken: null,
+    created: false
+  };
 }
 
 export function loadGlobalConfig(): OpenDevBrowserConfig {
   const configPath = getGlobalConfigPath();
-  const { raw, generatedToken } = loadConfigFile(configPath);
+  const { raw, content, generatedRelayToken, generatedDaemonToken, created } = loadConfigFile(configPath);
   const parsed = configSchema.safeParse(raw);
 
   if (!parsed.success) {
@@ -231,14 +259,63 @@ export function loadGlobalConfig(): OpenDevBrowserConfig {
   }
 
   const data = parsed.data;
-  const relayToken = data.relayToken ?? generatedToken ?? generateSecureToken();
+  const relayToken = data.relayToken ?? generatedRelayToken ?? generateSecureToken();
+  const daemonToken = data.daemonToken ?? generatedDaemonToken ?? generateSecureToken();
 
-  return { ...data, relayToken };
+  if (!created) {
+    persistDaemonConfigDefaults({
+      configPath,
+      content,
+      raw,
+      daemonPort: data.daemonPort,
+      daemonToken
+    });
+  }
+
+  return { ...data, relayToken, daemonToken };
 }
 
 export function resolveConfig(_config: unknown): OpenDevBrowserConfig {
   return loadGlobalConfig();
 }
+
+function persistDaemonConfigDefaults(params: {
+  configPath: string;
+  content: string;
+  raw: unknown;
+  daemonPort: number;
+  daemonToken: string;
+}): void {
+  if (!isRecord(params.raw)) {
+    return;
+  }
+  const hasDaemonPort = Object.prototype.hasOwnProperty.call(params.raw, "daemonPort");
+  const hasDaemonToken = Object.prototype.hasOwnProperty.call(params.raw, "daemonToken");
+  if (hasDaemonPort && hasDaemonToken) {
+    return;
+  }
+  const formattingOptions = { insertSpaces: true, tabSize: 2 };
+  let updatedContent = params.content;
+  if (!hasDaemonPort) {
+    const edits = modify(updatedContent, ["daemonPort"], params.daemonPort, { formattingOptions });
+    if (edits.length) {
+      updatedContent = applyEdits(updatedContent, edits);
+    }
+  }
+  if (!hasDaemonToken) {
+    const edits = modify(updatedContent, ["daemonToken"], params.daemonToken, { formattingOptions });
+    if (edits.length) {
+      updatedContent = applyEdits(updatedContent, edits);
+    }
+  }
+  if (updatedContent !== params.content) {
+    writeFileAtomic(params.configPath, updatedContent, { mode: 0o600 });
+  }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
 
 export class ConfigStore {
   private current: OpenDevBrowserConfig;
@@ -255,3 +332,7 @@ export class ConfigStore {
     this.current = next;
   }
 }
+
+export const __test__ = {
+  persistDaemonConfigDefaults
+};

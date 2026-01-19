@@ -1,9 +1,11 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { createOpenDevBrowserCore } from "./core";
 import { ScriptRunner } from "./browser/script-runner";
-import { readDaemonMetadata, startDaemon } from "./cli/daemon";
+import { startDaemon } from "./cli/daemon";
 import { DaemonClient } from "./cli/daemon-client";
 import { RemoteManager } from "./cli/remote-manager";
+import { RemoteRelay } from "./cli/remote-relay";
+import { fetchDaemonStatusFromMetadata } from "./cli/daemon-status";
 import {
   buildSkillNudgeMessage,
   clearSkillNudge,
@@ -25,10 +27,14 @@ import {
 } from "./skills/continuity-nudge";
 import { createTools } from "./tools";
 import { extractExtension } from "./extension-extractor";
+import { isHubEnabled } from "./utils/hub-enabled";
+import type { RelayLike } from "./relay/relay-types";
+import type { ToolDeps } from "./tools/deps";
 
 const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const core = createOpenDevBrowserCore({ directory, worktree });
-  const { config, configStore, skills, relay, ensureRelay, cleanup, getExtensionPath } = core;
+  const { config, configStore, skills, ensureRelay, cleanup, getExtensionPath } = core;
+  let relay: RelayLike = core.relay;
   let manager = core.manager;
   let runner = core.runner;
   let hubStop: (() => Promise<void>) | null = null;
@@ -49,26 +55,75 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     console.warn("Extension extraction failed:", error instanceof Error ? error.message : error);
   }
 
-  const hubEnabled = config.relayToken !== false && config.relayPort > 0;
-  if (hubEnabled) {
-    const metadata = readDaemonMetadata();
-    const status = metadata ? await fetchDaemonStatus(metadata.port, metadata.token) : null;
-    if (status?.ok) {
+  const toolDeps: ToolDeps = {
+    manager,
+    runner,
+    config: configStore,
+    skills,
+    relay,
+    getExtensionPath
+  };
+
+  const bindRemote = () => {
+    if (!daemonClient) {
       daemonClient = new DaemonClient({ autoRenew: true });
-      manager = new RemoteManager(daemonClient);
-      runner = new ScriptRunner(manager);
-    } else {
-      try {
-        const { stop } = await startDaemon({ config, directory, worktree });
-        hubStop = stop;
-        daemonClient = new DaemonClient({ autoRenew: true });
-        manager = new RemoteManager(daemonClient);
-        runner = new ScriptRunner(manager);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(`[opendevbrowser] Hub daemon start failed; falling back to local relay: ${message}`);
-        await ensureRelay(config.relayPort);
+    }
+    manager = new RemoteManager(daemonClient);
+    relay = new RemoteRelay(daemonClient);
+    runner = new ScriptRunner(manager);
+    toolDeps.manager = manager;
+    toolDeps.relay = relay;
+    toolDeps.runner = runner;
+  };
+
+  const ensureHub = async (): Promise<void> => {
+    const currentConfig = configStore.get();
+    if (!isHubEnabled(currentConfig)) {
+      return;
+    }
+    if (!daemonClient) {
+      daemonClient = new DaemonClient({ autoRenew: true });
+    }
+
+    const deadline = Date.now() + 2000;
+    let attempt = 0;
+    let lastError: Error | null = null;
+
+    while (attempt < 2 && Date.now() < deadline) {
+      attempt += 1;
+      const status = await fetchDaemonStatusFromMetadata(currentConfig);
+      if (status?.ok) {
+        bindRemote();
+        await relay?.refresh?.();
+        return;
       }
+      try {
+        const { stop } = await startDaemon({ config: currentConfig, directory, worktree });
+        hubStop = stop;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+      if (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+    throw new Error("Hub daemon unavailable.");
+  };
+
+  toolDeps.ensureHub = ensureHub;
+
+  const hubEnabled = isHubEnabled(config);
+  if (hubEnabled) {
+    bindRemote();
+    try {
+      await ensureHub();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[opendevbrowser] Hub daemon unavailable: ${message}`);
     }
   } else {
     await ensureRelay(config.relayPort);
@@ -87,7 +142,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   process.on("beforeExit", cleanupAll);
 
   return {
-    tool: createTools({ manager, runner, config: configStore, skills, relay, getExtensionPath }),
+    tool: createTools(toolDeps),
     "chat.message": async (_input, output) => {
       const config = configStore.get();
       if (output.message.role !== "user") return;
@@ -139,20 +194,5 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     }
   };
 };
-
-type DaemonStatus = { ok: boolean };
-
-async function fetchDaemonStatus(port: number, token: string): Promise<DaemonStatus | null> {
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/status`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (!response.ok) return null;
-    return await response.json() as DaemonStatus;
-  } catch {
-    return null;
-  }
-}
 
 export default OpenDevBrowserPlugin;

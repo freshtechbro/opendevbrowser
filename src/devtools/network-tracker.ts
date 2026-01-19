@@ -21,7 +21,7 @@ function redactUrl(rawUrl: string): string {
     parsed.pathname = redactedSegments.join("/");
     return parsed.toString();
   } catch {
-    return rawUrl.split(/[?#]/)[0] ?? rawUrl;
+    return rawUrl.split(/[?#]/)[0] || rawUrl;
   }
 }
 

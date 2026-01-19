@@ -54,5 +54,6 @@ export type RelayHandshakeAck = {
     instanceId: string;
     relayPort: number;
     pairingRequired: boolean;
+    epoch?: number;
   };
 };

@@ -227,7 +227,7 @@ COMMANDS:
   launch           Launch a managed browser session via daemon
   connect          Connect to an existing browser via daemon
   disconnect       Disconnect a daemon session
-  status           Get daemon session status
+  status           Get daemon status (or session status with --session-id)
   goto             Navigate current session to a URL
   wait             Wait for load or a ref to appear
   snapshot         Capture a snapshot of the active page

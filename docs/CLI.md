@@ -1,6 +1,7 @@
 # OpenDevBrowser CLI
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
+OpenDevBrowser exposes 30 `opendevbrowser_*` tools; see `README.md` for the full list.
 
 ## Installation
 
@@ -142,7 +143,8 @@ npx opendevbrowser serve --port 8788 --token my-token
 npx opendevbrowser serve --stop
 ```
 
-The daemon listens on `127.0.0.1` and requires a token. Metadata lives in `~/.cache/opendevbrowser/daemon.json`.
+The daemon listens on `127.0.0.1` and requires a token. Metadata lives in `~/.cache/opendevbrowser/daemon.json` (cache only);
+`/status` is the source of truth. The daemon port/token are persisted in `opendevbrowser.jsonc` as `daemonPort`/`daemonToken`.
 
 ### Run (single-shot script)
 
@@ -196,6 +198,8 @@ Default behavior:
 - Extension relay (`extension` mode) is the default when available.
 - If the extension is not connected, launch fails with guidance and exact commands for the explicit alternatives.
 - Headless is never the default; it is only used when explicitly requested.
+- When hub mode is enabled, there is no local relay fallback. If the hub is unavailable, commands fail with guidance.
+- Extension relay requires Chrome 125+ (flat CDP sessions).
 
 Interactive vs non-interactive:
 - Interactive CLI (TTY): you will be prompted to connect the extension, then explicitly choose Managed or CDPConnect if you want to proceed.
@@ -214,6 +218,11 @@ the CLI will normalize to `/cdp` and route through the extension relay (`extensi
 When routing through the relay, the CLI automatically fetches relay config and the pairing token (if required) and authenticates
 the `/cdp` connection. Direct `/cdp` connections without a token are rejected when pairing is enabled.
 
+### Relay binding queue
+
+Only one client can hold the hub relay binding at a time. Additional clients are queued FIFO and wait up to 30s by default.
+If you see `RELAY_WAIT_TIMEOUT`, retry after the current binding expires or stop the other client.
+
 ### Disconnect
 
 ```bash
@@ -223,6 +232,8 @@ npx opendevbrowser disconnect --session-id <session-id>
 ### Status
 
 ```bash
+npx opendevbrowser status               # daemon status (default)
+npx opendevbrowser status --daemon      # daemon status (explicit)
 npx opendevbrowser status --session-id <session-id>
 ```
 
@@ -477,7 +488,9 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
       "keywords": ["plan", "multi-step", "long-running", "refactor", "migration", "rollout", "continue"],
       "maxAgeMs": 60000
     }
-  }
+  },
+  "daemonPort": 8788,
+  "daemonToken": "auto-generated-on-first-run"
 }
 ```
 

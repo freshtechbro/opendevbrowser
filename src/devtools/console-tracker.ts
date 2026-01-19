@@ -99,3 +99,8 @@ export class ConsoleTracker {
     return { events, nextSeq };
   }
 }
+
+export const __test__ = {
+  redactText,
+  shouldRedactToken
+};

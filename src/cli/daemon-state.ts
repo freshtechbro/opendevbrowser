@@ -5,6 +5,7 @@ const BINDING_TTL_MS = 60_000;
 const RENEW_INTERVAL_MS = 20_000;
 const RENEW_GRACE_MS = RENEW_INTERVAL_MS * 2;
 const RENEW_JITTER_MS = 2000;
+const WAIT_MAX_MS = 30_000;
 
 export type RelayBindingState = {
   bindingId: string;
@@ -20,7 +21,23 @@ export type RelayBindingResponse = {
   renewAfterMs: number;
 };
 
+export type RelayQueueResponse = {
+  queued: true;
+  position: number;
+  waitUntil: string;
+  waitMs: number;
+};
+
+export type RelayBindResult = RelayBindingResponse | RelayQueueResponse;
+
+type RelayQueueEntry = {
+  clientId: string;
+  requestedAt: number;
+  timeoutAt: number;
+};
+
 let binding: RelayBindingState | null = null;
+let queue: RelayQueueEntry[] = [];
 
 export const getHubInstanceId = (): string => HUB_INSTANCE_ID;
 
@@ -40,32 +57,61 @@ const serializeBinding = (state: RelayBindingState): RelayBindingResponse => ({
   renewAfterMs: computeRenewAfterMs()
 });
 
-export const getBindingState = (): RelayBindingState | null => {
-  if (binding && isExpired(binding)) {
-    binding = null;
-  }
-  return binding;
+const serializeQueue = (entry: RelayQueueEntry): RelayQueueResponse => ({
+  queued: true,
+  position: queue.findIndex((item) => item.clientId === entry.clientId) + 1,
+  waitUntil: new Date(entry.timeoutAt).toISOString(),
+  waitMs: Math.max(0, entry.timeoutAt - nowMs())
+});
+
+const cleanupQueue = (): void => {
+  const now = nowMs();
+  queue = queue.filter((entry) => entry.timeoutAt > now);
 };
 
-export const clearBinding = (): void => {
-  binding = null;
+const getQueueEntry = (clientId: string): RelayQueueEntry | null => {
+  return queue.find((entry) => entry.clientId === clientId) ?? null;
 };
 
-export const bindRelay = (clientId: string): RelayBindingResponse => {
-  if (!clientId || !clientId.trim()) {
-    throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
+const enqueueClient = (clientId: string): RelayQueueEntry => {
+  cleanupQueue();
+  const existing = getQueueEntry(clientId);
+  if (existing) {
+    return existing;
   }
+  const entry: RelayQueueEntry = {
+    clientId,
+    requestedAt: nowMs(),
+    timeoutAt: nowMs() + WAIT_MAX_MS
+  };
+  queue.push(entry);
+  return entry;
+};
 
+const dequeueClient = (clientId: string): void => {
+  queue = queue.filter((entry) => entry.clientId !== clientId);
+};
+
+const maybeGrantBinding = (clientId: string): RelayBindingResponse | null => {
   const existing = getBindingState();
   const now = nowMs();
 
   if (existing) {
     if (existing.clientId !== clientId) {
-      throw new Error(`RELAY_BUSY: Relay binding held by another client until ${new Date(existing.expiresAt).toISOString()}.`);
+      return null;
     }
     existing.expiresAt = now + BINDING_TTL_MS;
     existing.lastRenewedAt = now;
     return serializeBinding(existing);
+  }
+
+  cleanupQueue();
+  const head = queue[0];
+  if (head && head.clientId !== clientId) {
+    return null;
+  }
+  if (head && head.clientId === clientId) {
+    queue.shift();
   }
 
   const state: RelayBindingState = {
@@ -76,6 +122,57 @@ export const bindRelay = (clientId: string): RelayBindingResponse => {
   };
   binding = state;
   return serializeBinding(state);
+};
+
+export const getBindingState = (): RelayBindingState | null => {
+  if (binding && isExpired(binding)) {
+    binding = null;
+  }
+  cleanupQueue();
+  return binding;
+};
+
+export const clearBinding = (): void => {
+  binding = null;
+  queue = [];
+};
+
+export const bindRelay = (clientId: string): RelayBindResult => {
+  if (!clientId || !clientId.trim()) {
+    throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
+  }
+
+  const result = maybeGrantBinding(clientId);
+  if (result) {
+    return result;
+  }
+
+  const entry = enqueueClient(clientId.trim());
+  return serializeQueue(entry);
+};
+
+export const waitForBinding = async (clientId: string, timeoutMs?: number): Promise<RelayBindingResponse> => {
+  if (!clientId || !clientId.trim()) {
+    throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
+  }
+
+  const entry = enqueueClient(clientId.trim());
+  const deadline = timeoutMs ? Math.min(entry.timeoutAt, nowMs() + timeoutMs) : entry.timeoutAt;
+
+  while (nowMs() <= deadline) {
+    const result = maybeGrantBinding(clientId);
+    if (result) {
+      return result;
+    }
+    cleanupQueue();
+    if (!getQueueEntry(clientId)) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  dequeueClient(clientId);
+  throw new Error("RELAY_WAIT_TIMEOUT: Timed out waiting for relay binding.");
 };
 
 export const renewRelay = (clientId: string, bindingId: string): RelayBindingResponse => {
@@ -138,6 +235,7 @@ export const getBindingDiagnostics = (): {
   clientId: string;
   expiresAt: string;
   expiresInMs: number;
+  queueLength: number;
 } | null => {
   const existing = getBindingState();
   if (!existing) return null;
@@ -146,12 +244,14 @@ export const getBindingDiagnostics = (): {
     bindingId: existing.bindingId,
     clientId: existing.clientId,
     expiresAt: new Date(existing.expiresAt).toISOString(),
-    expiresInMs
+    expiresInMs,
+    queueLength: queue.length
   };
 };
 
-export const getBindingRenewConfig = (): { ttlMs: number; renewIntervalMs: number; graceMs: number } => ({
+export const getBindingRenewConfig = (): { ttlMs: number; renewIntervalMs: number; graceMs: number; waitMaxMs: number } => ({
   ttlMs: BINDING_TTL_MS,
   renewIntervalMs: RENEW_INTERVAL_MS,
-  graceMs: RENEW_GRACE_MS
+  graceMs: RENEW_GRACE_MS,
+  waitMaxMs: WAIT_MAX_MS
 });

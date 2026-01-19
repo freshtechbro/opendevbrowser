@@ -32,36 +32,51 @@ import { createSkillListTool } from "./skill_list";
 import { createSkillLoadTool } from "./skill_load";
 
 export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
+  const wrap = (definition: ToolDefinition): ToolDefinition => {
+    if (!deps.ensureHub) return definition;
+    return {
+      ...definition,
+      execute: async (args, context) => {
+        try {
+          await deps.ensureHub?.();
+        } catch {
+          // Fall through to tool execution; tool-level error handling will surface issues.
+        }
+        return definition.execute(args, context);
+      }
+    };
+  };
+
   return {
-    opendevbrowser_launch: createLaunchTool(deps),
-    opendevbrowser_connect: createConnectTool(deps),
-    opendevbrowser_disconnect: createDisconnectTool(deps),
-    opendevbrowser_status: createStatusTool(deps),
-    opendevbrowser_targets_list: createTargetsListTool(deps),
-    opendevbrowser_target_use: createTargetUseTool(deps),
-    opendevbrowser_target_new: createTargetNewTool(deps),
-    opendevbrowser_target_close: createTargetCloseTool(deps),
-    opendevbrowser_page: createPageTool(deps),
-    opendevbrowser_list: createListTool(deps),
-    opendevbrowser_close: createCloseTool(deps),
-    opendevbrowser_goto: createGotoTool(deps),
-    opendevbrowser_wait: createWaitTool(deps),
-    opendevbrowser_snapshot: createSnapshotTool(deps),
-    opendevbrowser_click: createClickTool(deps),
-    opendevbrowser_type: createTypeTool(deps),
-    opendevbrowser_select: createSelectTool(deps),
-    opendevbrowser_scroll: createScrollTool(deps),
-    opendevbrowser_dom_get_html: createDomGetHtmlTool(deps),
-    opendevbrowser_dom_get_text: createDomGetTextTool(deps),
-    opendevbrowser_run: createRunTool(deps),
-    opendevbrowser_prompting_guide: createPromptingGuideTool(deps),
-    opendevbrowser_console_poll: createConsolePollTool(deps),
-    opendevbrowser_network_poll: createNetworkPollTool(deps),
-    opendevbrowser_clone_page: createClonePageTool(deps),
-    opendevbrowser_clone_component: createCloneComponentTool(deps),
-    opendevbrowser_perf: createPerfTool(deps),
-    opendevbrowser_screenshot: createScreenshotTool(deps),
-    opendevbrowser_skill_list: createSkillListTool(deps),
-    opendevbrowser_skill_load: createSkillLoadTool(deps)
+    opendevbrowser_launch: wrap(createLaunchTool(deps)),
+    opendevbrowser_connect: wrap(createConnectTool(deps)),
+    opendevbrowser_disconnect: wrap(createDisconnectTool(deps)),
+    opendevbrowser_status: wrap(createStatusTool(deps)),
+    opendevbrowser_targets_list: wrap(createTargetsListTool(deps)),
+    opendevbrowser_target_use: wrap(createTargetUseTool(deps)),
+    opendevbrowser_target_new: wrap(createTargetNewTool(deps)),
+    opendevbrowser_target_close: wrap(createTargetCloseTool(deps)),
+    opendevbrowser_page: wrap(createPageTool(deps)),
+    opendevbrowser_list: wrap(createListTool(deps)),
+    opendevbrowser_close: wrap(createCloseTool(deps)),
+    opendevbrowser_goto: wrap(createGotoTool(deps)),
+    opendevbrowser_wait: wrap(createWaitTool(deps)),
+    opendevbrowser_snapshot: wrap(createSnapshotTool(deps)),
+    opendevbrowser_click: wrap(createClickTool(deps)),
+    opendevbrowser_type: wrap(createTypeTool(deps)),
+    opendevbrowser_select: wrap(createSelectTool(deps)),
+    opendevbrowser_scroll: wrap(createScrollTool(deps)),
+    opendevbrowser_dom_get_html: wrap(createDomGetHtmlTool(deps)),
+    opendevbrowser_dom_get_text: wrap(createDomGetTextTool(deps)),
+    opendevbrowser_run: wrap(createRunTool(deps)),
+    opendevbrowser_prompting_guide: wrap(createPromptingGuideTool(deps)),
+    opendevbrowser_console_poll: wrap(createConsolePollTool(deps)),
+    opendevbrowser_network_poll: wrap(createNetworkPollTool(deps)),
+    opendevbrowser_clone_page: wrap(createClonePageTool(deps)),
+    opendevbrowser_clone_component: wrap(createCloneComponentTool(deps)),
+    opendevbrowser_perf: wrap(createPerfTool(deps)),
+    opendevbrowser_screenshot: wrap(createScreenshotTool(deps)),
+    opendevbrowser_skill_list: wrap(createSkillListTool(deps)),
+    opendevbrowser_skill_load: wrap(createSkillLoadTool(deps))
   };
 }

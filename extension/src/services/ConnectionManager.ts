@@ -97,6 +97,7 @@ export class ConnectionManager {
   private pairingEnabled = DEFAULT_PAIRING_ENABLED;
   private relayPort = DEFAULT_RELAY_PORT;
   private relayInstanceId: string | null = null;
+  private relayEpoch: number | null = null;
   private relayConfirmedPort: number | null = null;
   private readonly maxReconnectDelayMs = 5000;
 
@@ -158,15 +159,14 @@ export class ConnectionManager {
         this.relay.disconnect();
         this.relay = null;
       }
-      if (this.trackedTab !== null) {
-        await this.cdp.detach();
-        this.trackedTab = null;
-      }
+      await this.cdp.detachAll();
+      this.trackedTab = null;
     } finally {
       this.disconnecting = false;
       this.setStatus("disconnected");
       this.relayInstanceId = null;
       this.relayConfirmedPort = null;
+      this.relayEpoch = null;
     }
   }
 
@@ -227,9 +227,12 @@ export class ConnectionManager {
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown error";
       logWarn(`Debugger attach failed. ${detail}`);
+      const message = detail.includes("Chrome 125+")
+        ? detail
+        : "Debugger attach failed. Close DevTools for the tab and retry.";
       throw new ConnectionError(
         "debugger_attach_failed",
-        "Debugger attach failed. Close DevTools for the tab and retry."
+        message
       );
     }
     this.trackedTab = {
@@ -251,8 +254,8 @@ export class ConnectionManager {
           this.disconnect().catch(() => {});
         });
       },
-      onClose: () => {
-        this.handleRelayClose();
+      onClose: (detail) => {
+        this.handleRelayClose(detail);
       }
     });
 
@@ -262,13 +265,19 @@ export class ConnectionManager {
       onResponse: (response) => this.relay?.sendResponse(response),
       onDetach: () => {
         this.disconnect().catch(() => {});
+      },
+      onPrimaryTabChange: (tabId) => {
+        this.handlePrimaryTabChange(tabId).catch(() => {});
       }
     });
 
     try {
       const ack = await relay.connect(this.buildHandshake());
       this.relayInstanceId = ack.payload.instanceId;
-      this.persistRelayPort(ack.payload.relayPort);
+      this.relayEpoch = typeof ack.payload.epoch === "number" && Number.isFinite(ack.payload.epoch)
+        ? ack.payload.epoch
+        : null;
+      this.persistRelayIdentity(ack.payload.relayPort, this.relayInstanceId, this.relayEpoch);
       logInfo("Relay WebSocket connected.");
       this.setStatus("connected");
       this.reconnectAttempts = 0;
@@ -283,14 +292,18 @@ export class ConnectionManager {
     }
   }
 
-  private handleRelayClose(): void {
+  private handleRelayClose(detail?: { code?: number; reason?: string }): void {
     this.relay = null;
+    if (detail && (detail.code === 1008 || detail.reason?.includes("Invalid pairing token"))) {
+      this.clearStoredPairingToken();
+    }
     if (!this.shouldReconnect || !this.trackedTab) {
       return;
     }
     this.setStatus("disconnected");
     this.relayInstanceId = null;
     this.relayConfirmedPort = null;
+    this.relayEpoch = null;
     this.scheduleReconnect();
   }
 
@@ -309,25 +322,19 @@ export class ConnectionManager {
   }
 
   private async reconnectRelay(): Promise<void> {
-    if (!this.trackedTab || !this.shouldReconnect) {
+    if (!this.shouldReconnect) {
       return;
     }
-    const attachedId = this.cdp.getAttachedTabId();
-    if (attachedId !== this.trackedTab.id) {
+    const primaryId = this.cdp.getPrimaryTabId();
+    if (!primaryId) {
       this.disconnect().catch(() => {});
       return;
     }
-    const tab = await this.tabs.getTab(this.trackedTab.id);
-    if (!tab) {
+    await this.refreshTrackedTab(primaryId);
+    if (!this.trackedTab) {
       this.disconnect().catch(() => {});
       return;
     }
-    this.trackedTab = {
-      id: tab.id ?? this.trackedTab.id,
-      url: tab.url ?? this.trackedTab.url,
-      title: tab.title ?? this.trackedTab.title,
-      groupId: typeof tab.groupId === "number" ? tab.groupId : this.trackedTab.groupId
-    };
     await this.connectRelay();
   }
 
@@ -373,7 +380,10 @@ export class ConnectionManager {
   };
 
   private handleTabRemoved = (tabId: number) => {
-    if (this.trackedTab && this.trackedTab.id === tabId) {
+    if (!this.trackedTab || this.trackedTab.id !== tabId) {
+      return;
+    }
+    if (this.cdp.getAttachedTabIds().length <= 1) {
       this.disconnect().catch(() => {});
     }
   };
@@ -443,6 +453,11 @@ export class ConnectionManager {
     chrome.storage.local.set({ pairingToken: DEFAULT_PAIRING_TOKEN });
   }
 
+  private clearStoredPairingToken(): void {
+    this.pairingToken = null;
+    chrome.storage.local.set({ pairingToken: null, tokenEpoch: null });
+  }
+
   private updateRelayPort(value: unknown): void {
     if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
       this.relayPort = value;
@@ -467,6 +482,14 @@ export class ConnectionManager {
     chrome.storage.local.set({ relayPort: value });
   }
 
+  private persistRelayIdentity(port: number, instanceId: string | null, epoch: number | null): void {
+    this.persistRelayPort(port);
+    chrome.storage.local.set({
+      relayInstanceId: instanceId,
+      relayEpoch: epoch
+    });
+  }
+
   /**
    * Chrome automatically sends Origin: chrome-extension://EXTENSION_ID
    * for WebSocket connections from extensions. The relay server validates
@@ -480,6 +503,32 @@ export class ConnectionManager {
     if (this.status !== "connected") return;
     await this.disconnect();
     await this.connect();
+  }
+
+  private async handlePrimaryTabChange(tabId: number | null): Promise<void> {
+    if (!tabId) {
+      this.trackedTab = null;
+      if (this.relay?.isConnected()) {
+        this.relay.disconnect();
+      }
+      return;
+    }
+    await this.refreshTrackedTab(tabId);
+    this.refreshHandshake();
+  }
+
+  private async refreshTrackedTab(tabId: number): Promise<void> {
+    const tab = await this.tabs.getTab(tabId);
+    if (!tab || typeof tab.id !== "number") {
+      this.trackedTab = null;
+      return;
+    }
+    this.trackedTab = {
+      id: tab.id,
+      url: tab.url ?? this.trackedTab?.url,
+      title: tab.title ?? this.trackedTab?.title,
+      groupId: typeof tab.groupId === "number" ? tab.groupId : this.trackedTab?.groupId
+    };
   }
 
   private clearReconnectTimer(): void {

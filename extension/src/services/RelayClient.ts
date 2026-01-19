@@ -2,7 +2,7 @@ import type { RelayCommand, RelayEvent, RelayHandshake, RelayHandshakeAck, Relay
 
 type RelayHandlers = {
   onCommand: (command: RelayCommand) => void;
-  onClose: () => void;
+  onClose: (detail?: { code?: number; reason?: string }) => void;
 };
 
 export class RelayClient {
@@ -59,14 +59,14 @@ export class RelayClient {
         }
       });
 
-      this.socket.addEventListener("close", () => {
+      this.socket.addEventListener("close", (event) => {
         if (this.pendingHandshakeAckReject) {
           const reject = this.pendingHandshakeAckReject;
           this.clearHandshakeAckWait();
           reject(new Error("Relay socket closed before handshake acknowledgment"));
         }
         this.lastHandshakeAck = null;
-        this.handlers.onClose();
+        this.handlers.onClose({ code: event.code, reason: event.reason });
       });
     }
 

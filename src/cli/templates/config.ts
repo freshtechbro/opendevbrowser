@@ -4,7 +4,7 @@ import * as os from "os";
 import { generateSecureToken } from "../../utils/crypto";
 import { writeFileAtomic } from "../../utils/fs";
 
-function buildConfigTemplate(token: string): string {
+function buildConfigTemplate(relayToken: string, daemonToken: string): string {
   return `{
   // OpenDevBrowser Plugin Configuration
   // See: https://github.com/anthropics/opendevbrowser#configuration
@@ -68,7 +68,9 @@ function buildConfigTemplate(token: string): string {
   },
 
   "relayPort": 8787,
-  "relayToken": "${token}",
+  "relayToken": "${relayToken}",
+  "daemonPort": 8788,
+  "daemonToken": "${daemonToken}",
 
   "flags": [],
 
@@ -98,11 +100,12 @@ export function createPluginConfig(mode: "global" | "local"): { created: boolean
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const token = generateSecureToken();
-  writeFileAtomic(configPath, buildConfigTemplate(token));
+  const relayToken = generateSecureToken();
+  const daemonToken = generateSecureToken();
+  writeFileAtomic(configPath, buildConfigTemplate(relayToken, daemonToken));
   return { created: true, path: configPath };
 }
 
 export function getConfigTemplate(): string {
-  return buildConfigTemplate(generateSecureToken());
+  return buildConfigTemplate(generateSecureToken(), generateSecureToken());
 }

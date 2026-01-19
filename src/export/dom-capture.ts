@@ -107,7 +107,7 @@ export async function captureDom(
         const isDangerousSrcset = (value: string) => {
           const entries = value.split(",");
           return entries.some((entry) => {
-            const url = entry.trim().split(/\s+/)[0] ?? "";
+            const url = entry.trim().split(/\s+/)[0] || "";
             return isDangerousUrl(url);
           });
         };

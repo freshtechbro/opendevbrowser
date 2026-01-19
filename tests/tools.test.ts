@@ -62,7 +62,8 @@ const createDeps = () => {
     run: vi.fn().mockResolvedValue({ results: [], timingMs: 1 })
   };
 
-  const config = new ConfigStore(resolveConfig({}));
+  const baseConfig = resolveConfig({});
+  const config = new ConfigStore({ ...baseConfig, relayToken: false });
   const skills = { loadBestPractices: vi.fn().mockResolvedValue("guide") };
   const getExtensionPath = vi.fn().mockReturnValue("/path/to/extension");
 
@@ -106,6 +107,30 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
+  });
+
+  it("wraps tool execution with ensureHub when provided", async () => {
+    const deps = createDeps();
+    const ensureHub = vi.fn().mockResolvedValue(undefined);
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, ensureHub } as never);
+
+    const statusResult = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(statusResult.ok).toBe(true);
+    expect(ensureHub).toHaveBeenCalledTimes(1);
+    expect(deps.manager.status).toHaveBeenCalled();
+  });
+
+  it("continues tool execution when ensureHub fails", async () => {
+    const deps = createDeps();
+    const ensureHub = vi.fn().mockRejectedValue(new Error("hub down"));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, ensureHub } as never);
+
+    const statusResult = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(statusResult.ok).toBe(true);
+    expect(ensureHub).toHaveBeenCalledTimes(1);
+    expect(deps.manager.status).toHaveBeenCalled();
   });
 
   it("includes warnings when present", async () => {
@@ -216,6 +241,21 @@ describe("tools", () => {
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionOnly: true } as never));
     expect(launchResult.ok).toBe(false);
     expect(String(launchResult.error?.message)).toContain("relay failed");
+  });
+
+  it("surfaces unauthorized relay connection errors", async () => {
+    const deps = createDeps();
+    deps.manager.connectRelay.mockRejectedValue(new Error("401 Unauthorized"));
+    const relay = {
+      status: () => ({ extensionConnected: true }),
+      getCdpUrl: () => "ws://relay"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionOnly: true } as never));
+    expect(launchResult.ok).toBe(false);
+    expect(String(launchResult.error?.message)).toContain("relay /cdp unauthorized");
   });
 
   it("falls back when relay connect fails", async () => {
@@ -337,6 +377,102 @@ describe("tools", () => {
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionOnly: true } as never));
     expect(launchResult.ok).toBe(false);
     expect(String(launchResult.error?.message)).toContain("hint=possible_mismatch");
+  });
+
+  it("retries mismatch once when extension-only is missing and ids differ", async () => {
+    const deps = createDeps();
+    const ensureHub = vi.fn().mockResolvedValue(undefined);
+    const relay = {
+      status: vi.fn().mockReturnValue({
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        instanceId: "local-12345678",
+        port: 8787
+      }),
+      getCdpUrl: () => "ws://relay",
+      refresh: vi.fn().mockResolvedValue(undefined)
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-12345678",
+        running: true,
+        port: 8787,
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createLaunchTool } = await import("../src/tools/launch");
+    const tool = createLaunchTool({ ...deps, relay, ensureHub } as never);
+
+    const launchResult = parse(await tool.execute({ extensionOnly: true } as never));
+    expect(launchResult.ok).toBe(false);
+    expect(ensureHub).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries mismatch once when relay is not ready without extension-only", async () => {
+    const deps = createDeps();
+    const ensureHub = vi.fn().mockResolvedValue(undefined);
+    const relay = {
+      status: vi.fn().mockReturnValue({
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        instanceId: "local-aaaaaaaa",
+        port: 8787
+      }),
+      getCdpUrl: () => "ws://relay",
+      refresh: vi.fn().mockResolvedValue(undefined)
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-bbbbbbbb",
+        running: true,
+        port: 8787,
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createLaunchTool } = await import("../src/tools/launch");
+    const tool = createLaunchTool({ ...deps, relay, ensureHub } as never);
+
+    const launchResult = parse(await tool.execute({} as never));
+    expect(launchResult.ok).toBe(false);
+    expect(ensureHub).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries hub mismatch once when ensureHub is available", async () => {
+    const deps = createDeps();
+    deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
+    const ensureHub = vi.fn().mockResolvedValue(undefined);
+    const relay = {
+      status: vi.fn().mockReturnValue({ extensionConnected: false, instanceId: "local-12345678" }),
+      getCdpUrl: () => "ws://relay",
+      refresh: vi.fn().mockResolvedValue(undefined)
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-12345678",
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createLaunchTool } = await import("../src/tools/launch");
+    const tool = createLaunchTool({ ...deps, relay, ensureHub } as never);
+
+    const launchResult = parse(await tool.execute({ extensionOnly: true } as never));
+    expect(launchResult.ok).toBe(false);
+    expect(ensureHub).toHaveBeenCalledTimes(1);
+    expect(relay.refresh).toHaveBeenCalled();
   });
 
   it("handles observed status fetch failures gracefully", async () => {
@@ -491,6 +627,21 @@ describe("tools", () => {
     vi.useRealTimers();
   });
 
+  it("refreshes relay status after wait when handshake is already complete", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: vi.fn().mockReturnValue({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
+      getCdpUrl: vi.fn().mockReturnValue("ws://relay")
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ waitForExtension: true } as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(relay.status).toHaveBeenCalled();
+    expect(relay.getCdpUrl).toHaveBeenCalled();
+  });
+
   it("waits for extension using observed status", async () => {
     const deps = createDeps();
     const relay = {
@@ -515,6 +666,33 @@ describe("tools", () => {
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ waitForExtension: true, waitTimeoutMs: 500 } as never));
     expect(launchResult.mode).toBe("extension");
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
+  });
+
+  it("uses observed status port when relay URL is missing", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), relayPort: 8787 });
+    const relay = {
+      status: () => ({ extensionConnected: false, extensionHandshakeComplete: false }),
+      getCdpUrl: () => null
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-9999",
+        running: true,
+        port: 9999,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:9999/cdp");
   });
 
   it("falls back to relayUrl after wait when relay URL remains null", async () => {
@@ -672,6 +850,39 @@ describe("tools", () => {
     expect(deps.manager.connectRelay).not.toHaveBeenCalled();
   });
 
+  it("does not route connect to relay for non-ws protocols", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "http://localhost:8787/cdp" } as never));
+    expect(connectResult.mode).toBe("cdpConnect");
+    expect(deps.manager.connect).toHaveBeenCalledWith(expect.objectContaining({ wsEndpoint: "http://localhost:8787/cdp" }));
+    expect(deps.manager.connectRelay).not.toHaveBeenCalled();
+  });
+
+  it("does not route connect to relay when wsEndpoint has no port", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://localhost/cdp" } as never));
+    expect(connectResult.mode).toBe("cdpConnect");
+    expect(deps.manager.connect).toHaveBeenCalledWith(expect.objectContaining({ wsEndpoint: "ws://localhost/cdp" }));
+    expect(deps.manager.connectRelay).not.toHaveBeenCalled();
+  });
+
+  it("does not route connect to relay for non-cdp paths", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787/devtools" } as never));
+    expect(connectResult.mode).toBe("cdpConnect");
+    expect(deps.manager.connect).toHaveBeenCalledWith(expect.objectContaining({ wsEndpoint: "ws://127.0.0.1:8787/devtools" }));
+    expect(deps.manager.connectRelay).not.toHaveBeenCalled();
+  });
+
   it("handles tool failures", async () => {
     const deps = createDeps();
     deps.manager.click.mockRejectedValue(new Error("boom"));
@@ -778,6 +989,145 @@ describe("tools", () => {
     const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
     expect(result.ok).toBe(true);
     expect(result.extensionPath).toBeUndefined();
+  });
+
+  it("status tool returns daemon status in hub mode", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), relayToken: "token", relayPort: 8787 });
+    vi.resetModules();
+    const daemonStatus = {
+      ok: true,
+      pid: 123,
+      hub: { instanceId: "hub-1" },
+      relay: {
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        pairingRequired: true,
+        instanceId: "relay-1",
+        epoch: 1
+      },
+      binding: null
+    };
+    vi.doMock("../src/cli/daemon-status", () => ({
+      fetchDaemonStatusFromMetadata: vi.fn().mockResolvedValue(daemonStatus)
+    }));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({} as never));
+    expect(result.ok).toBe(true);
+    expect(result.hubEnabled).toBe(true);
+    expect(result.daemon).toEqual(daemonStatus);
+
+    vi.doUnmock("../src/cli/daemon-status");
+  });
+
+  it("status tool fails in hub mode when daemon is missing", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), relayToken: "token", relayPort: 8787 });
+    vi.resetModules();
+    vi.doMock("../src/cli/daemon-status", () => ({
+      fetchDaemonStatusFromMetadata: vi.fn().mockResolvedValue(null)
+    }));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({} as never));
+    expect(result.ok).toBe(false);
+    expect(String(result.error?.message)).toContain("Daemon not running");
+
+    vi.doUnmock("../src/cli/daemon-status");
+  });
+
+  it("status tool returns session fields and update hint in hub mode", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), relayToken: "token", relayPort: 8787, checkForUpdates: true });
+    vi.resetModules();
+    const daemonStatus = {
+      ok: true,
+      pid: 123,
+      hub: { instanceId: "hub-1" },
+      relay: {
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        pairingRequired: true,
+        instanceId: "relay-1",
+        epoch: 1
+      },
+      binding: null
+    };
+    vi.doMock("../src/cli/daemon-status", () => ({
+      fetchDaemonStatusFromMetadata: vi.fn().mockResolvedValue(daemonStatus)
+    }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: "9.9.9" })
+    }));
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
+    expect(result.mode).toBe("managed");
+    expect(result.updateHint).toContain("Update available");
+
+    vi.doUnmock("../src/cli/daemon-status");
+  });
+
+  it("status tool omits update hint and extension path in hub mode when latest matches", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), relayToken: "token", relayPort: 8787, checkForUpdates: true });
+    deps.getExtensionPath.mockReturnValue(null);
+    vi.resetModules();
+    const daemonStatus = {
+      ok: true,
+      pid: 123,
+      hub: { instanceId: "hub-1" },
+      relay: {
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        pairingRequired: true,
+        instanceId: "relay-1",
+        epoch: 1
+      },
+      binding: null
+    };
+    vi.doMock("../src/cli/daemon-status", () => ({
+      fetchDaemonStatusFromMetadata: vi.fn().mockResolvedValue(daemonStatus)
+    }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: "0.1.0" })
+    }));
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({} as never));
+    expect(result.ok).toBe(true);
+    expect(result.updateHint).toBeUndefined();
+    expect(result.extensionPath).toBeUndefined();
+
+    vi.doUnmock("../src/cli/daemon-status");
+  });
+
+  it("status tool fails without sessionId when hub is disabled", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_status.execute({} as never));
+    expect(result.ok).toBe(false);
+    expect(String(result.error?.message)).toContain("Missing sessionId");
   });
 
   it("status tool skips update check when disabled", async () => {

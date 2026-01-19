@@ -10,11 +10,13 @@ import type { BackgroundMessage, ConnectionStatus, PopupMessage } from "./types.
 
 const connection = new ConnectionManager();
 let autoConnectInFlight = false;
+let statusNoteOverride: string | null = null;
 
 type RelayConfig = {
   relayPort: number;
   pairingRequired: boolean;
   instanceId: string | null;
+  epoch: number | null;
 };
 
 const updateBadge = (status: ConnectionStatus): void => {
@@ -29,12 +31,16 @@ const buildStatusMessage = (): BackgroundMessage => {
   const error = connection.getLastError();
   const status = connection.getStatus();
   let note = error?.message;
-  if (!error && status === "connected") {
-    const identity = connection.getRelayIdentity();
-    if (identity.relayPort && identity.instanceId) {
-      note = `Connected to 127.0.0.1:${identity.relayPort} (relay ${identity.instanceId.slice(0, 8)})`;
-    } else if (identity.relayPort) {
-      note = `Connected to 127.0.0.1:${identity.relayPort}`;
+  if (!error) {
+    if (status === "connected") {
+      const identity = connection.getRelayIdentity();
+      if (identity.relayPort && identity.instanceId) {
+        note = `Connected to 127.0.0.1:${identity.relayPort} (relay ${identity.instanceId.slice(0, 8)})`;
+      } else if (identity.relayPort) {
+        note = `Connected to 127.0.0.1:${identity.relayPort}`;
+      }
+    } else if (statusNoteOverride) {
+      note = statusNoteOverride;
     }
   }
   return {
@@ -50,6 +56,10 @@ const setStorage = (items: Record<string, unknown>): Promise<void> => {
   });
 };
 
+const setStatusNoteOverride = (note: string | null): void => {
+  statusNoteOverride = note;
+};
+
 const parsePort = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535) {
     return value;
@@ -59,6 +69,13 @@ const parsePort = (value: unknown): number | null => {
     if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) {
       return parsed;
     }
+  }
+  return null;
+};
+
+const parseEpoch = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
   }
   return null;
 };
@@ -79,13 +96,16 @@ const fetchRelayConfig = async (port: number): Promise<RelayConfig | null> => {
     }
     const pairingRequired = typeof data.pairingRequired === "boolean" ? data.pairingRequired : true;
     const instanceId = typeof data.instanceId === "string" ? data.instanceId : null;
-    return { relayPort, pairingRequired, instanceId };
+    const epoch = parseEpoch(data.epoch);
+    return { relayPort, pairingRequired, instanceId, epoch };
   } catch {
     return null;
   }
 };
 
-const fetchTokenFromPlugin = async (port: number): Promise<{ token: string; instanceId: string | null } | null> => {
+const fetchTokenFromPlugin = async (
+  port: number
+): Promise<{ token: string; instanceId: string | null; epoch: number | null } | null> => {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/pair`, {
       method: "GET",
@@ -98,17 +118,34 @@ const fetchTokenFromPlugin = async (port: number): Promise<{ token: string; inst
     if (typeof data.token !== "string") {
       return null;
     }
-    return { token: data.token, instanceId: typeof data.instanceId === "string" ? data.instanceId : null };
+    return {
+      token: data.token,
+      instanceId: typeof data.instanceId === "string" ? data.instanceId : null,
+      epoch: parseEpoch(data.epoch)
+    };
   } catch {
     return null;
   }
 };
 
+const clearStoredRelayState = async (): Promise<void> => {
+  await setStorage({
+    relayPort: null,
+    relayInstanceId: null,
+    relayEpoch: null,
+    pairingToken: null,
+    tokenEpoch: null
+  });
+};
+
 const attemptAutoConnect = async (): Promise<void> => {
   const data = await new Promise<Record<string, unknown>>((resolve) => {
-    chrome.storage.local.get(["autoConnect", "autoPair", "pairingEnabled", "pairingToken", "relayPort"], (items) => {
-      resolve(items);
-    });
+    chrome.storage.local.get(
+      ["autoConnect", "autoPair", "pairingEnabled", "pairingToken", "relayPort", "relayInstanceId", "relayEpoch", "tokenEpoch"],
+      (items) => {
+        resolve(items);
+      }
+    );
   });
 
   const autoConnect = typeof data.autoConnect === "boolean" ? data.autoConnect : DEFAULT_AUTO_CONNECT;
@@ -121,10 +158,38 @@ const attemptAutoConnect = async (): Promise<void> => {
 
   if (autoPair && pairingEnabled) {
     const config = await fetchRelayConfig(DEFAULT_DISCOVERY_PORT);
-    const relayPort = config?.relayPort ?? parsePort(data.relayPort) ?? DEFAULT_RELAY_PORT;
-    if (config?.relayPort) {
-      await setStorage({ relayPort: config.relayPort });
+    const storedRelayEpoch = parseEpoch(data.relayEpoch);
+    const storedRelayInstanceId = typeof data.relayInstanceId === "string" ? data.relayInstanceId : null;
+    const storedTokenEpoch = parseEpoch(data.tokenEpoch);
+
+    if (!config) {
+      await clearStoredRelayState();
+      setStatusNoteOverride("Relay config unreachable. Start the daemon and retry.");
     }
+
+    const relayPort = config?.relayPort ?? (config ? parsePort(data.relayPort) : DEFAULT_RELAY_PORT) ?? DEFAULT_RELAY_PORT;
+    const configEpoch = config?.epoch ?? null;
+    const hasEpoch = config?.epoch !== null;
+    if (config?.relayPort) {
+      await setStorage({
+        relayPort: config.relayPort,
+        relayInstanceId: config.instanceId,
+        relayEpoch: config.epoch
+      });
+    }
+
+    if (config && hasEpoch && storedRelayEpoch !== null && storedRelayEpoch !== configEpoch) {
+      await clearStoredRelayState();
+      setStatusNoteOverride("Relay restarted. Refresh the connection.");
+    }
+    if (config && config.instanceId && storedRelayInstanceId && config.instanceId !== storedRelayInstanceId) {
+      await clearStoredRelayState();
+      setStatusNoteOverride("Relay instance mismatch. Open the popup and click Connect.");
+    }
+    if (config && hasEpoch && storedTokenEpoch !== null && storedTokenEpoch !== configEpoch) {
+      await setStorage({ pairingToken: null, tokenEpoch: null });
+    }
+
     const pairingRequired = config?.pairingRequired ?? true;
     if (pairingRequired) {
       const fetched = await fetchTokenFromPlugin(relayPort);
@@ -133,13 +198,16 @@ const attemptAutoConnect = async (): Promise<void> => {
       }
       if (config?.instanceId && fetched.instanceId && config.instanceId !== fetched.instanceId) {
         console.warn("[opendevbrowser] Relay instance mismatch during auto-pair. Retrying later.");
+        setStatusNoteOverride("Relay instance mismatch. Open the popup and click Connect.");
         return;
       }
-      await setStorage({ pairingToken: fetched.token });
+      const tokenEpoch = fetched.epoch ?? configEpoch;
+      await setStorage({ pairingToken: fetched.token, tokenEpoch });
     }
   }
 
   await connection.connect();
+  setStatusNoteOverride(null);
 };
 
 const autoConnect = async () => {
@@ -156,7 +224,12 @@ const autoConnect = async () => {
   }
 };
 
-connection.onStatus(updateBadge);
+connection.onStatus((status) => {
+  updateBadge(status);
+  if (status === "connected") {
+    setStatusNoteOverride(null);
+  }
+});
 updateBadge(connection.getStatus());
 
 chrome.runtime.onStartup.addListener(() => {

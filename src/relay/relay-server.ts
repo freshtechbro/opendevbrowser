@@ -17,12 +17,26 @@ type ExtensionInfo = {
   groupId?: number;
 };
 
+export type RelayStatus = {
+  running: boolean;
+  url?: string;
+  port?: number;
+  extensionConnected: boolean;
+  extensionHandshakeComplete: boolean;
+  cdpConnected: boolean;
+  pairingRequired: boolean;
+  instanceId: string;
+  extension?: ExtensionInfo;
+  epoch: number;
+};
+
 type RelayServerOptions = {
   discoveryPort?: number;
 };
 
 export class RelayServer {
   private readonly instanceId = randomUUID();
+  private readonly epoch = Date.now();
   private running = false;
   private baseUrl: string | null = null;
   private port: number | null = null;
@@ -140,7 +154,7 @@ export class RelayServer {
         }
         
         response.writeHead(200, { "Content-Type": "application/json" });
-        response.end(JSON.stringify({ token: this.pairingToken, instanceId: this.instanceId }));
+        response.end(JSON.stringify({ token: this.pairingToken, instanceId: this.instanceId, epoch: this.epoch }));
         return;
       }
       
@@ -175,6 +189,11 @@ export class RelayServer {
       }
       if (pathname === "/cdp") {
         const token = this.getCdpTokenFromRequestUrl(request.url);
+        // DEBUG: Token validation logging
+        console.error('[CDP-DEBUG] request.url:', request.url);
+        console.error('[CDP-DEBUG] extracted token:', token ? `${token.slice(0, 16)}... (len=${token.length})` : 'NULL');
+        console.error('[CDP-DEBUG] expected token:', this.pairingToken ? `${this.pairingToken.slice(0, 16)}... (len=${this.pairingToken.length})` : 'NULL');
+        console.error('[CDP-DEBUG] tokens match:', token === this.pairingToken);
         if (!this.isTokenValid(token)) {
           this.logSecurityEvent("cdp_unauthorized", { ip });
           socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
@@ -243,17 +262,7 @@ export class RelayServer {
     this.server = null;
   }
 
-  status(): {
-    running: boolean;
-    url?: string;
-    port?: number;
-    extensionConnected: boolean;
-    extensionHandshakeComplete: boolean;
-    cdpConnected: boolean;
-    pairingRequired: boolean;
-    instanceId: string;
-    extension?: ExtensionInfo;
-  } {
+  status(): RelayStatus {
     return {
       running: this.running,
       url: this.baseUrl || undefined,
@@ -263,7 +272,8 @@ export class RelayServer {
       cdpConnected: Boolean(this.cdpSocket),
       pairingRequired: Boolean(this.pairingToken),
       instanceId: this.instanceId,
-      extension: this.extensionInfo ?? undefined
+      extension: this.extensionInfo ?? undefined,
+      epoch: this.epoch
     };
   }
 
@@ -353,6 +363,7 @@ export class RelayServer {
       relayPort: this.port,
       pairingRequired: Boolean(this.pairingToken),
       instanceId: this.instanceId,
+      epoch: this.epoch,
       discoveryPort: this.getDiscoveryPort()
     }));
   }
@@ -538,7 +549,8 @@ export class RelayServer {
           payload: {
             instanceId: this.instanceId,
             relayPort: this.port,
-            pairingRequired: Boolean(this.pairingToken)
+            pairingRequired: Boolean(this.pairingToken),
+            epoch: this.epoch
           }
         };
         this.sendJson(this.extensionSocket, ack);

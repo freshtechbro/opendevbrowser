@@ -121,7 +121,7 @@ export class SkillLoader {
       };
     }
 
-    const frontmatter = frontmatterMatch[1] ?? "";
+    const frontmatter = frontmatterMatch[1] || "";
     const metadata: SkillMetadata = {
       name: dirName,
       description: ""
@@ -191,7 +191,7 @@ function filterSections(content: string, topic: string): string | null {
     const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
     if (headingMatch) {
       flush();
-      currentHeading = headingMatch[2]?.trim() ?? "";
+      currentHeading = (headingMatch[2] || "").trim();
       currentBody.push(line);
       continue;
     }

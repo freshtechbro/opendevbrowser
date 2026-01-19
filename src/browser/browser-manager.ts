@@ -712,15 +712,29 @@ export class BrowserManager {
       throw error;
     }
     const contexts = browser.contexts();
-    const context = contexts[0] ?? await browser.newContext();
+    let context = contexts[0] ?? null;
+    if (!context) {
+      if (mode === "extension") {
+        throw new Error("Extension relay did not expose a browser context. Ensure a normal tab is active and retry.");
+      }
+      context = await browser.newContext();
+    }
 
     const sessionId = randomUUID();
     const targets = new TargetManager();
     const pages = context.pages();
 
     if (pages.length === 0) {
-      const page = await context.newPage();
-      targets.registerPage(page);
+      if (mode === "extension") {
+        const page = await waitForPage(context, 3000);
+        if (!page) {
+          throw new Error("Extension relay connected but no page was detected. Focus a normal tab and retry.");
+        }
+        targets.registerPage(page);
+      } else {
+        const page = await context.newPage();
+        targets.registerPage(page);
+      }
     } else {
       targets.registerExistingPages(pages);
     }
@@ -799,6 +813,9 @@ export class BrowserManager {
 
     const connectUrl = new URL(relayWsBase.toString());
     connectUrl.searchParams.set("token", pairData.token);
+    // DEBUG: Token flow logging
+    console.error('[RELAY-DEBUG] Token from /pair:', pairData.token ? `${pairData.token.slice(0, 16)}... (len=${pairData.token.length})` : 'NULL');
+    console.error('[RELAY-DEBUG] Final connectEndpoint:', connectUrl.toString().replace(/token=[^&]+/, 'token=***'));
     return { connectEndpoint: connectUrl.toString(), reportedEndpoint };
   }
 
@@ -815,6 +832,16 @@ export class BrowserManager {
     }
   }
 }
+
+const waitForPage = async (context: BrowserContext, timeoutMs: number): Promise<Page | null> => {
+  const existing = context.pages()[0];
+  if (existing) return existing;
+  try {
+    return await context.waitForEvent("page", { timeout: timeoutMs });
+  } catch {
+    return context.pages()[0] ?? null;
+  }
+};
 
 function truncateHtml(value: string, maxChars: number): { outerHTML: string; truncated: boolean } {
   if (value.length <= maxChars) {

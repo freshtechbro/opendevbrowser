@@ -11,6 +11,7 @@ OpenDevBrowser provides three entry points that share a single runtime core:
 - **Plugin**: OpenCode runtime entry that exposes `opendevbrowser_*` tools.
 - **CLI**: Installer + automation commands (daemon or single-shot `run`).
 - **Extension**: Relay mode for attaching to existing logged-in tabs.
+- **Hub daemon**: `opendevbrowser serve` process that owns the relay and enforces FIFO leases when hub mode is enabled.
 
 The shared runtime core is in `src/core/` and wires `BrowserManager`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
 
@@ -23,6 +24,7 @@ flowchart LR
   subgraph Distribution
     Plugin[OpenCode Plugin]
     CLI[CLI]
+    Hub[Hub Daemon]
     Extension[Chrome Extension]
   end
 
@@ -39,6 +41,7 @@ flowchart LR
 
   Plugin --> CoreBootstrap
   CLI --> CoreBootstrap
+  Hub --> CoreBootstrap
   Extension --> Relay
 
   CoreBootstrap --> BrowserManager
@@ -74,6 +77,7 @@ sequenceDiagram
 
   User->>CLI: opendevbrowser serve
   CLI->>Daemon: start local server (127.0.0.1)
+  Note over Daemon,Relay: Hub daemon owns relay + FIFO leases
   Daemon->>Core: create core runtime
   Core->>Relay: start relay server
   User->>CLI: opendevbrowser launch
@@ -90,6 +94,7 @@ sequenceDiagram
 sequenceDiagram
   actor User
   participant Extension
+  participant Hub
   participant Relay
   participant Browser
   participant Tools
@@ -100,8 +105,9 @@ sequenceDiagram
   Extension->>Relay: WS /extension
   Tools->>Relay: GET /config
   Tools->>Relay: GET /pair (when pairing required)
+  Tools->>Hub: acquire relay lease (FIFO)
   Tools->>Relay: WS /cdp?token=...
-  Relay->>Browser: forward CDP commands
+  Relay->>Browser: forward CDP commands (flat sessions)
   Browser-->>Relay: CDP events
   Relay-->>Tools: forward events
 ```
@@ -113,6 +119,7 @@ sequenceDiagram
 - `cdpConnect`: attach to an existing Chrome via CDP (`/json/version`).
 - `connect` routing: local relay WS endpoints (for example `ws://127.0.0.1:<relayPort>` or `/cdp`) are normalized to `/cdp` and routed via the relay (`extension` mode).
 - Launch defaults to `extension` when available; managed/CDPConnect require explicit user choice.
+- Extension relay requires **Chrome 125+** and uses flat-session routing with DebuggerSession `sessionId`.
 
 ---
 
@@ -120,6 +127,8 @@ sequenceDiagram
 
 - **Plugin config**: `~/.config/opencode/opendevbrowser.jsonc` (optional).
 - **Daemon metadata**: `~/.cache/opendevbrowser/daemon.json` (port, token, pid).
+- **Daemon status**: `/status` is the source of truth; cached metadata may be stale.
+- **Daemon config**: `daemonPort`/`daemonToken` persisted in `opendevbrowser.jsonc` for hub discovery.
 - **Extension storage**: `chrome.storage.local` (relay port, token, auto-connect).
 
 Default extension values:
@@ -140,6 +149,20 @@ Default extension values:
 - **Timing-safe compare**: pairing tokens checked with `crypto.timingSafeEqual`.
 - **Output redaction**: DevTools output strips sensitive tokens by default.
 - **Sanitized export**: export pipeline removes scripts, handlers, and unsafe URLs.
+
+---
+
+## Extension relay routing (flat sessions)
+
+Extension relay mode uses **flat CDP sessions (Chrome 125+)**. The extension CDP router:
+
+- Lists only top-level tabs for discovery.
+- Auto-attaches child targets recursively (workers/OOPIF) but does not surface them in `Target.getTargets`.
+- Routes all commands and events by DebuggerSession `sessionId` (no `Target.sendMessageToTarget`).
+- Maintains root vs child mappings in `TargetSessionMap` to route each `sessionId` to the correct `tabId`.
+- Tracks a primary tab for relay handshake/diagnostics without disconnecting other tabs.
+
+When hub mode is enabled, the hub daemon is the **sole relay owner** and enforces a FIFO lease queue for multi-client safety. There is no local relay fallback in hub mode.
 
 ---
 

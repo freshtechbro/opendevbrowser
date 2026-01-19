@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenDevBrowserConfig } from "../src/config";
 import type { OpenDevBrowserCore } from "../src/core";
 import { handleDaemonCommand } from "../src/cli/daemon-commands";
-import { bindRelay, clearBinding, getBindingState } from "../src/cli/daemon-state";
+import { bindRelay, clearBinding, getBindingState, releaseRelay, waitForBinding } from "../src/cli/daemon-state";
 
 type RelayStatus = {
   running: boolean;
@@ -25,6 +25,8 @@ const makeConfig = (overrides: Partial<OpenDevBrowserConfig> = {}): OpenDevBrows
   continuity: { enabled: true, filePath: "/tmp/continuity.md", nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   relayPort: 8787,
   relayToken: false,
+  daemonPort: 8788,
+  daemonToken: "daemon-token",
   flags: [],
   checkForUpdates: false,
   persistProfile: true,
@@ -122,5 +124,38 @@ describe("daemon-commands integration", () => {
       renewIntervalMs: expect.any(Number),
       graceMs: expect.any(Number)
     }));
+  });
+
+  it("queues relay bindings in FIFO order", async () => {
+    const first = bindRelay("client-1");
+    const queued = bindRelay("client-2");
+    expect("queued" in queued && queued.queued).toBe(true);
+
+    const released = releaseRelay("client-1", first.bindingId);
+    expect(released).toEqual({ released: true });
+
+    const binding = await waitForBinding("client-2", 1000);
+    expect(binding.bindingId).toEqual(expect.any(String));
+  });
+
+  it("returns relay status and cdp url", async () => {
+    const core = makeCore({
+      relayStatus: {
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        pairingRequired: true,
+        instanceId: "relay-status"
+      }
+    });
+    core.relay.getCdpUrl = vi.fn(() => "ws://127.0.0.1:8787/cdp");
+
+    const status = await handleDaemonCommand(core, { name: "relay.status" }) as RelayStatus;
+    expect(status.instanceId).toBe("relay-status");
+
+    const cdpUrl = await handleDaemonCommand(core, { name: "relay.cdpUrl" });
+    expect(cdpUrl).toBe("ws://127.0.0.1:8787/cdp");
   });
 });

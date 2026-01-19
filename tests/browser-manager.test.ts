@@ -439,6 +439,77 @@ describe("BrowserManager", () => {
     expect(result.wsEndpoint).toBe("ws://127.0.0.1:8787/cdp");
   });
 
+  it("waits for an existing page when connecting via relay with no pages", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes, { initialPages: 0 });
+    context.waitForEvent = vi.fn().mockResolvedValue(page);
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-1" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "secret-token", instanceId: "relay-1" })
+      }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    expect(result.mode).toBe("extension");
+    expect(context.waitForEvent).toHaveBeenCalled();
+    expect(context.newPage).not.toHaveBeenCalled();
+  });
+
+  it("throws when relay connects with no context in extension mode", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes, { contextsEmpty: true });
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: false })
+      }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects.toThrow("Extension relay did not expose a browser context");
+  });
+
+  it("throws when relay connects without any detectable page", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes, { initialPages: 0 });
+    context.waitForEvent = vi.fn().mockRejectedValue(new Error("timeout"));
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: false })
+      }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects.toThrow("Extension relay connected but no page was detected");
+  });
+
   it("throws when relay config fetch fails", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
