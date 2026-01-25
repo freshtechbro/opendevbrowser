@@ -189,11 +189,6 @@ export class RelayServer {
       }
       if (pathname === "/cdp") {
         const token = this.getCdpTokenFromRequestUrl(request.url);
-        // DEBUG: Token validation logging
-        console.error('[CDP-DEBUG] request.url:', request.url);
-        console.error('[CDP-DEBUG] extracted token:', token ? `${token.slice(0, 16)}... (len=${token.length})` : 'NULL');
-        console.error('[CDP-DEBUG] expected token:', this.pairingToken ? `${this.pairingToken.slice(0, 16)}... (len=${this.pairingToken.length})` : 'NULL');
-        console.error('[CDP-DEBUG] tokens match:', token === this.pairingToken);
         if (!this.isTokenValid(token)) {
           this.logSecurityEvent("cdp_unauthorized", { ip });
           socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
@@ -303,6 +298,9 @@ export class RelayServer {
 
   private isAllowedOrigin(origin: string | undefined): boolean {
     if (!origin) {
+      return true;
+    }
+    if (origin === "null") {
       return true;
     }
     if (origin.startsWith("chrome-extension://")) {

@@ -24,6 +24,8 @@ export type LaunchOptions = {
   chromePath?: string;
   flags?: string[];
   persistProfile?: boolean;
+  // Used by hub/daemon callers to force managed launch when routing through relay.
+  noExtension?: boolean;
 };
 
 export type ConnectOptions = {
@@ -225,8 +227,21 @@ export class BrowserManager {
       }
 
       try {
-        if (closeBrowser) {
-          await managed.browser.close();
+        const shouldCloseBrowser = closeBrowser || managed.mode !== "managed";
+        if (shouldCloseBrowser) {
+          if (managed.mode !== "managed") {
+            const closePromise = managed.browser.close();
+            const result = await Promise.race([
+              closePromise.then(() => "closed"),
+              delay(5000).then(() => "timeout")
+            ]);
+            if (result === "timeout") {
+              closePromise.catch(() => {});
+              console.warn("BrowserManager.disconnect: timed out closing CDP connection; continuing cleanup.");
+            }
+          } else {
+            await managed.browser.close();
+          }
         } else {
           await managed.context.close();
         }
@@ -443,6 +458,54 @@ export class BrowserManager {
     });
   }
 
+  async hover(sessionId: string, ref: string): Promise<{ timingMs: number }> {
+    const mutex = this.getMutex(sessionId);
+    return mutex.runExclusive(async () => {
+      const startTime = Date.now();
+      const managed = this.getManaged(sessionId);
+      const selector = this.resolveSelector(managed, ref);
+      await managed.targets.getActivePage().locator(selector).hover();
+      return { timingMs: Date.now() - startTime };
+    });
+  }
+
+  async press(sessionId: string, key: string, ref?: string): Promise<{ timingMs: number }> {
+    const mutex = this.getMutex(sessionId);
+    return mutex.runExclusive(async () => {
+      const startTime = Date.now();
+      const managed = this.getManaged(sessionId);
+      const page = managed.targets.getActivePage();
+      if (ref) {
+        const selector = this.resolveSelector(managed, ref);
+        await page.locator(selector).focus();
+      }
+      await page.keyboard.press(key);
+      return { timingMs: Date.now() - startTime };
+    });
+  }
+
+  async check(sessionId: string, ref: string): Promise<{ timingMs: number }> {
+    const mutex = this.getMutex(sessionId);
+    return mutex.runExclusive(async () => {
+      const startTime = Date.now();
+      const managed = this.getManaged(sessionId);
+      const selector = this.resolveSelector(managed, ref);
+      await managed.targets.getActivePage().locator(selector).check();
+      return { timingMs: Date.now() - startTime };
+    });
+  }
+
+  async uncheck(sessionId: string, ref: string): Promise<{ timingMs: number }> {
+    const mutex = this.getMutex(sessionId);
+    return mutex.runExclusive(async () => {
+      const startTime = Date.now();
+      const managed = this.getManaged(sessionId);
+      const selector = this.resolveSelector(managed, ref);
+      await managed.targets.getActivePage().locator(selector).uncheck();
+      return { timingMs: Date.now() - startTime };
+    });
+  }
+
   async type(sessionId: string, ref: string, text: string, clear = false, submit = false): Promise<{ timingMs: number }> {
     const mutex = this.getMutex(sessionId);
     return mutex.runExclusive(async () => {
@@ -480,6 +543,17 @@ export class BrowserManager {
     }
   }
 
+  async scrollIntoView(sessionId: string, ref: string): Promise<{ timingMs: number }> {
+    const mutex = this.getMutex(sessionId);
+    return mutex.runExclusive(async () => {
+      const startTime = Date.now();
+      const managed = this.getManaged(sessionId);
+      const selector = this.resolveSelector(managed, ref);
+      await managed.targets.getActivePage().locator(selector).scrollIntoViewIfNeeded();
+      return { timingMs: Date.now() - startTime };
+    });
+  }
+
   async domGetHtml(sessionId: string, ref: string, maxChars = 8000): Promise<{ outerHTML: string; truncated: boolean }> {
     const managed = this.getManaged(sessionId);
     const selector = this.resolveSelector(managed, ref);
@@ -492,6 +566,41 @@ export class BrowserManager {
     const selector = this.resolveSelector(managed, ref);
     const text = await managed.targets.getActivePage().$eval(selector, (el) => (el as HTMLElement).innerText || el.textContent || "");
     return truncateText(text, maxChars);
+  }
+
+  async domGetAttr(sessionId: string, ref: string, name: string): Promise<{ value: string | null }> {
+    const managed = this.getManaged(sessionId);
+    const selector = this.resolveSelector(managed, ref);
+    const locator = managed.targets.getActivePage().locator(selector);
+    return { value: await locator.getAttribute(name) };
+  }
+
+  async domGetValue(sessionId: string, ref: string): Promise<{ value: string }> {
+    const managed = this.getManaged(sessionId);
+    const selector = this.resolveSelector(managed, ref);
+    const locator = managed.targets.getActivePage().locator(selector);
+    return { value: await locator.inputValue() };
+  }
+
+  async domIsVisible(sessionId: string, ref: string): Promise<{ value: boolean }> {
+    const managed = this.getManaged(sessionId);
+    const selector = this.resolveSelector(managed, ref);
+    const locator = managed.targets.getActivePage().locator(selector);
+    return { value: await locator.isVisible() };
+  }
+
+  async domIsEnabled(sessionId: string, ref: string): Promise<{ value: boolean }> {
+    const managed = this.getManaged(sessionId);
+    const selector = this.resolveSelector(managed, ref);
+    const locator = managed.targets.getActivePage().locator(selector);
+    return { value: await locator.isEnabled() };
+  }
+
+  async domIsChecked(sessionId: string, ref: string): Promise<{ value: boolean }> {
+    const managed = this.getManaged(sessionId);
+    const selector = this.resolveSelector(managed, ref);
+    const locator = managed.targets.getActivePage().locator(selector);
+    return { value: await locator.isChecked() };
   }
 
   async clonePage(sessionId: string): Promise<ReactExport> {
@@ -593,7 +702,15 @@ export class BrowserManager {
   private async safePageTitle(page: Page | null, context: string): Promise<string | undefined> {
     if (!page) return undefined;
     try {
-      return await page.title();
+      const result = await Promise.race([
+        page.title(),
+        delay(2000).then(() => null)
+      ]);
+      if (result === null) {
+        console.warn(`${context}: timed out reading page title`);
+        return undefined;
+      }
+      return result;
     } catch {
       console.warn(`${context}: failed to read page title`);
       return undefined;
@@ -711,60 +828,69 @@ export class BrowserManager {
       }
       throw error;
     }
-    const contexts = browser.contexts();
-    let context = contexts[0] ?? null;
-    if (!context) {
-      if (mode === "extension") {
-        throw new Error("Extension relay did not expose a browser context. Ensure a normal tab is active and retry.");
-      }
-      context = await browser.newContext();
-    }
-
-    const sessionId = randomUUID();
-    const targets = new TargetManager();
-    const pages = context.pages();
-
-    if (pages.length === 0) {
-      if (mode === "extension") {
-        const page = await waitForPage(context, 3000);
-        if (!page) {
-          throw new Error("Extension relay connected but no page was detected. Focus a normal tab and retry.");
+    try {
+      const contexts = browser.contexts();
+      let context = contexts[0] ?? null;
+      if (!context) {
+        if (mode === "extension") {
+          throw new Error("Extension relay did not expose a browser context. Ensure a normal tab is active and retry.");
         }
-        targets.registerPage(page);
-      } else {
-        const page = await context.newPage();
-        targets.registerPage(page);
+        context = await browser.newContext();
       }
-    } else {
-      targets.registerExistingPages(pages);
+
+      const sessionId = randomUUID();
+      const targets = new TargetManager();
+      const pages = context.pages();
+
+      if (pages.length === 0) {
+        if (mode === "extension") {
+          const page = await waitForPage(context, 8000);
+          if (!page) {
+            throw new Error("Extension relay connected but no page was detected. Focus a normal tab and retry.");
+          }
+          targets.registerPage(page);
+        } else {
+          const page = await context.newPage();
+          targets.registerPage(page);
+        }
+      } else {
+        targets.registerExistingPages(pages);
+      }
+
+      const refStore = new RefStore();
+      const snapshotter = new Snapshotter(refStore);
+      const consoleTracker = new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole });
+      const networkTracker = new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls });
+
+      const managed: ManagedSession = {
+        sessionId,
+        mode,
+        browser,
+        context,
+        profileDir: "",
+        persistProfile: true,
+        targets,
+        refStore,
+        snapshotter,
+        consoleTracker,
+        networkTracker
+      };
+
+      this.store.add({ id: sessionId, mode, browser, context });
+      this.sessions.set(sessionId, managed);
+      this.attachTrackers(managed);
+      this.attachRefInvalidation(managed);
+
+      const wsEndpoint = reportedWsEndpoint ?? connectWsEndpoint;
+      return { sessionId, mode, activeTargetId: targets.getActiveTargetId(), warnings: [], wsEndpoint };
+    } catch (error) {
+      try {
+        await browser.close();
+      } catch {
+        // Best-effort cleanup to avoid orphaned /cdp connections.
+      }
+      throw error;
     }
-
-    const refStore = new RefStore();
-    const snapshotter = new Snapshotter(refStore);
-    const consoleTracker = new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole });
-    const networkTracker = new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls });
-
-    const managed: ManagedSession = {
-      sessionId,
-      mode,
-      browser,
-      context,
-      profileDir: "",
-      persistProfile: true,
-      targets,
-      refStore,
-      snapshotter,
-      consoleTracker,
-      networkTracker
-    };
-
-    this.store.add({ id: sessionId, mode, browser, context });
-    this.sessions.set(sessionId, managed);
-    this.attachTrackers(managed);
-    this.attachRefInvalidation(managed);
-
-    const wsEndpoint = reportedWsEndpoint ?? connectWsEndpoint;
-    return { sessionId, mode, activeTargetId: targets.getActiveTargetId(), warnings: [], wsEndpoint };
   }
 
   private async resolveRelayEndpoints(wsEndpoint: string): Promise<{ connectEndpoint: string; reportedEndpoint: string }> {
@@ -813,9 +939,6 @@ export class BrowserManager {
 
     const connectUrl = new URL(relayWsBase.toString());
     connectUrl.searchParams.set("token", pairData.token);
-    // DEBUG: Token flow logging
-    console.error('[RELAY-DEBUG] Token from /pair:', pairData.token ? `${pairData.token.slice(0, 16)}... (len=${pairData.token.length})` : 'NULL');
-    console.error('[RELAY-DEBUG] Final connectEndpoint:', connectUrl.toString().replace(/token=[^&]+/, 'token=***'));
     return { connectEndpoint: connectUrl.toString(), reportedEndpoint };
   }
 
@@ -849,6 +972,8 @@ function truncateHtml(value: string, maxChars: number): { outerHTML: string; tru
   }
   return { outerHTML: value.slice(0, maxChars), truncated: true };
 }
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function truncateText(value: string, maxChars: number): { text: string; truncated: boolean } {
   if (value.length <= maxChars) {
