@@ -23,6 +23,7 @@ export type RouterCommandContext = {
   emitTargetCreated: (targetInfo: TargetInfo) => void;
   emitRootAttached: (targetInfo: TargetInfo) => void;
   emitRootDetached: () => void;
+  resetRootAttached: () => void;
   updatePrimaryTab: (tabId: number | null) => void;
   detachTabState: (tabId: number) => void;
   safeDetach: (debuggee: chrome.debugger.Debuggee) => Promise<void>;
@@ -31,7 +32,6 @@ export type RouterCommandContext = {
   applyAutoAttach: (debuggee: chrome.debugger.Debuggee) => Promise<void>;
   sendCommand: (debuggee: DebuggerSession, method: string, params: object) => Promise<unknown>;
   getPrimaryDebuggee: () => DebuggerSession | null;
-  getBrowserContextId: (tabId: number) => string;
 };
 
 export async function handleSetDiscoverTargets(
@@ -69,6 +69,9 @@ export async function handleSetAutoAttach(
   const autoAttach = params.autoAttach === true;
   const waitForDebuggerOnStart = params.waitForDebuggerOnStart === true;
   ctx.setAutoAttachOptions({ autoAttach, waitForDebuggerOnStart, flatten: true, filter: params.filter });
+  if (autoAttach && !sessionId) {
+    ctx.resetRootAttached();
+  }
 
   try {
     for (const debuggee of ctx.debuggees.values()) {
@@ -204,7 +207,7 @@ export async function handleAttachToTarget(
       const targetInfo: TargetInfo = {
         targetId,
         type: "page",
-        browserContextId: ctx.getBrowserContextId(debuggee.tabId as number)
+        browserContextId: "default"
       };
       ctx.sessions.registerChildSession(debuggee.tabId as number, targetInfo, childSessionId);
     }

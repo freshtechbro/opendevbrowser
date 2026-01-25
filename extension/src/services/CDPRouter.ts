@@ -22,13 +22,13 @@ type RelayCallbacks = {
 
 const FLAT_SESSION_ERROR = "Chrome 125+ required for extension relay (flat sessions).";
 const DEPRECATED_SEND_MESSAGE = "Target.sendMessageToTarget is deprecated in flat session mode. Use sessionId routing.";
+const DEFAULT_BROWSER_CONTEXT_ID = "default";
 
 export class CDPRouter {
   private readonly debuggees = new Map<number, chrome.debugger.Debuggee>();
   private readonly sessions = new TargetSessionMap();
   private readonly tabManager = new TabManager();
   private readonly rootAttachedSessions = new Set<string>();
-  private readonly browserContextByTab = new Map<number, string>();
   private callbacks: RelayCallbacks | null = null;
   private autoAttachOptions: AutoAttachOptions = { autoAttach: false, waitForDebuggerOnStart: false, flatten: true };
   private discoverTargets = false;
@@ -189,6 +189,7 @@ export class CDPRouter {
       emitTargetCreated: this.emitTargetCreated.bind(this),
       emitRootAttached: this.emitRootAttached.bind(this),
       emitRootDetached: this.emitRootDetached.bind(this),
+      resetRootAttached: this.resetRootAttached.bind(this),
       updatePrimaryTab: this.updatePrimaryTab.bind(this),
       detachTabState: this.detachTabState.bind(this),
       safeDetach: this.safeDetach.bind(this),
@@ -196,8 +197,7 @@ export class CDPRouter {
       registerRootTab: this.registerRootTab.bind(this),
       applyAutoAttach: this.applyAutoAttach.bind(this),
       sendCommand: this.sendCommand.bind(this),
-      getPrimaryDebuggee: this.getPrimaryDebuggee.bind(this),
-      getBrowserContextId: this.getBrowserContextId.bind(this)
+      getPrimaryDebuggee: this.getPrimaryDebuggee.bind(this)
     };
   }
 
@@ -366,19 +366,10 @@ export class CDPRouter {
     return {
       targetId: `tab-${tabId}`,
       type: "page",
-      browserContextId: this.getBrowserContextId(tabId),
+      browserContextId: DEFAULT_BROWSER_CONTEXT_ID,
       title: tab?.title ?? undefined,
       url: tab?.url ?? undefined
     };
-  }
-
-  private getBrowserContextId(tabId: number): string {
-    const existing = this.browserContextByTab.get(tabId);
-    if (existing) return existing;
-    const contextId = `pw-context-${this.sessionCounter}`;
-    this.sessionCounter += 1;
-    this.browserContextByTab.set(tabId, contextId);
-    return contextId;
   }
 
   private emitTargetCreated(targetInfo: TargetInfo): void {
@@ -413,6 +404,10 @@ export class CDPRouter {
       this.rootAttachedSessions.delete(record.sessionId);
       this.emitTargetDetached(record.sessionId, targetInfo.targetId);
     }
+  }
+
+  private resetRootAttached(): void {
+    this.rootAttachedSessions.clear();
   }
 
   private createRootSessionId(): string {
