@@ -39,9 +39,19 @@ const createPage = (nodes: LegacyNode[]) => {
   const url = vi.fn(() => currentUrl);
   const locator = {
     click: vi.fn().mockResolvedValue(undefined),
+    hover: vi.fn().mockResolvedValue(undefined),
     fill: vi.fn().mockResolvedValue(undefined),
+    focus: vi.fn().mockResolvedValue(undefined),
     press: vi.fn().mockResolvedValue(undefined),
+    check: vi.fn().mockResolvedValue(undefined),
+    uncheck: vi.fn().mockResolvedValue(undefined),
     selectOption: vi.fn().mockResolvedValue(undefined),
+    scrollIntoViewIfNeeded: vi.fn().mockResolvedValue(undefined),
+    getAttribute: vi.fn().mockResolvedValue("attr"),
+    inputValue: vi.fn().mockResolvedValue("value"),
+    isVisible: vi.fn().mockResolvedValue(true),
+    isEnabled: vi.fn().mockResolvedValue(true),
+    isChecked: vi.fn().mockResolvedValue(false),
     waitFor: vi.fn().mockResolvedValue(undefined),
     evaluate: vi.fn(async (fn: (el: { scrollBy: (x: number, y: number) => void }, delta: number) => unknown, delta: number) => {
       const element = { scrollBy: vi.fn() };
@@ -73,6 +83,7 @@ const createPage = (nodes: LegacyNode[]) => {
     evaluate: vi.fn().mockResolvedValue(nodes),
     screenshot: vi.fn(async () => Buffer.from("image")),
     mouse: { wheel: vi.fn().mockResolvedValue(undefined) },
+    keyboard: { press: vi.fn().mockResolvedValue(undefined) },
     close: vi.fn().mockResolvedValue(undefined),
     on: emitter.on.bind(emitter),
     off: emitter.off.bind(emitter)
@@ -964,6 +975,89 @@ describe("BrowserManager", () => {
     expect(browser.close).toHaveBeenCalled();
   });
 
+  it("closes all sessions", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, browser } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    await manager.launch({ profile: "default" });
+
+    await manager.closeAll();
+    expect(browser.close).toHaveBeenCalled();
+  });
+
+  it("warns when CDP disconnect times out but later resolves", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+
+    connectOverCDP.mockResolvedValue(browser);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
+    }) as never;
+
+    const closeSpy = vi.fn(() => new Promise<void>((resolve) => setTimeout(resolve, 10000)));
+    browser.close = closeSpy;
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+      const result = await manager.connect({ host: "127.0.0.1", port: 9222 });
+      const disconnectPromise = manager.disconnect(result.sessionId, false);
+      await vi.advanceTimersByTimeAsync(5000);
+      await disconnectPromise;
+      await vi.advanceTimersByTimeAsync(5000);
+      await Promise.resolve();
+      expect(closeSpy).toHaveBeenCalled();
+      if (!warnSpy) throw new Error("Missing warnSpy");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("timed out closing CDP connection"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("swallows late CDP close rejections after timeout", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+
+    connectOverCDP.mockResolvedValue(browser);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
+    }) as never;
+
+    const closeSpy = vi.fn(() => new Promise<void>((_resolve, reject) => setTimeout(() => reject(new Error("close fail")), 10000)));
+    browser.close = closeSpy;
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+      const result = await manager.connect({ host: "127.0.0.1", port: 9222 });
+      const disconnectPromise = manager.disconnect(result.sessionId, false);
+      await vi.advanceTimersByTimeAsync(5000);
+      await disconnectPromise;
+      await vi.advanceTimersByTimeAsync(5000);
+      await Promise.resolve();
+      expect(closeSpy).toHaveBeenCalled();
+      if (!warnSpy) throw new Error("Missing warnSpy");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("timed out closing CDP connection"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("cleans up session state when disconnect throws", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -1176,6 +1270,34 @@ describe("BrowserManager", () => {
     expect(used.title).toBeUndefined();
   });
 
+  it("times out reading the title in useTarget", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+    page.title.mockImplementationOnce(() => new Promise(() => {}));
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+      const result = await manager.launch({ profile: "default" });
+
+      const active = result.activeTargetId as string;
+      const usePromise = manager.useTarget(result.sessionId, active);
+      await vi.advanceTimersByTimeAsync(2000);
+      const used = await usePromise;
+      expect(used.title).toBeUndefined();
+      if (!warnSpy) throw new Error("Missing warnSpy");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("timed out reading page title"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("manages named pages", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -1240,6 +1362,50 @@ describe("BrowserManager", () => {
 
     await manager.select(launch.sessionId, "r1", ["one"]);
     expect(locator.selectOption).toHaveBeenCalledWith(["one"]);
+  });
+
+  it("supports hover/press/check helpers and dom state getters", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, locator, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    await manager.snapshot(launch.sessionId, "outline", 500);
+
+    await manager.hover(launch.sessionId, "r1");
+    await manager.press(launch.sessionId, "Enter", "r1");
+    await manager.check(launch.sessionId, "r1");
+    await manager.uncheck(launch.sessionId, "r1");
+    await manager.scrollIntoView(launch.sessionId, "r1");
+
+    expect(locator.hover).toHaveBeenCalled();
+    expect(locator.focus).toHaveBeenCalled();
+    expect(page.keyboard.press).toHaveBeenCalledWith("Enter");
+    expect(locator.check).toHaveBeenCalled();
+    expect(locator.uncheck).toHaveBeenCalled();
+    expect(locator.scrollIntoViewIfNeeded).toHaveBeenCalled();
+
+    const attr = await manager.domGetAttr(launch.sessionId, "r1", "data-test");
+    expect(attr.value).toBe("attr");
+
+    const value = await manager.domGetValue(launch.sessionId, "r1");
+    expect(value.value).toBe("value");
+
+    const visible = await manager.domIsVisible(launch.sessionId, "r1");
+    expect(visible.value).toBe(true);
+
+    const enabled = await manager.domIsEnabled(launch.sessionId, "r1");
+    expect(enabled.value).toBe(true);
+
+    const checked = await manager.domIsChecked(launch.sessionId, "r1");
+    expect(checked.value).toBe(false);
   });
 
   it("exports clones and collects perf metrics", async () => {

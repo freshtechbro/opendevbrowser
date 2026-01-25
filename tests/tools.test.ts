@@ -45,11 +45,21 @@ const createDeps = () => {
     waitForLoad: vi.fn().mockResolvedValue({ timingMs: 1 }),
     snapshot: vi.fn().mockResolvedValue({ snapshotId: "snap", content: "", truncated: false, refCount: 0, timingMs: 1 }),
     click: vi.fn().mockResolvedValue({ timingMs: 1, navigated: false }),
+    hover: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    press: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    check: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    uncheck: vi.fn().mockResolvedValue({ timingMs: 1 }),
     type: vi.fn().mockResolvedValue({ timingMs: 1 }),
     select: vi.fn().mockResolvedValue(undefined),
     scroll: vi.fn().mockResolvedValue(undefined),
+    scrollIntoView: vi.fn().mockResolvedValue({ timingMs: 1 }),
     domGetHtml: vi.fn().mockResolvedValue({ outerHTML: "<div></div>", truncated: false }),
     domGetText: vi.fn().mockResolvedValue({ text: "hi", truncated: false }),
+    domGetAttr: vi.fn().mockResolvedValue({ value: "attr" }),
+    domGetValue: vi.fn().mockResolvedValue({ value: "value" }),
+    domIsVisible: vi.fn().mockResolvedValue({ value: true }),
+    domIsEnabled: vi.fn().mockResolvedValue({ value: true }),
+    domIsChecked: vi.fn().mockResolvedValue({ value: false }),
     clonePage: vi.fn().mockResolvedValue({ component: "<Component />", css: ".css{}" }),
     cloneComponent: vi.fn().mockResolvedValue({ component: "<Component />", css: ".css{}" }),
     perfMetrics: vi.fn().mockResolvedValue({ metrics: [{ name: "Nodes", value: 1 }] }),
@@ -94,11 +104,21 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_snapshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_click.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_hover.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_press.execute({ sessionId: "s1", key: "Enter" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_check.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_uncheck.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_type.execute({ sessionId: "s1", ref: "r1", text: "hi" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_select.execute({ sessionId: "s1", ref: "r1", values: ["v"] } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_scroll.execute({ sessionId: "s1", dy: 10 } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_scroll_into_view.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_dom_get_html.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_dom_get_text.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_get_attr.execute({ sessionId: "s1", ref: "r1", name: "id" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_get_value.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_is_visible.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_is_enabled.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_is_checked.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_run.execute({ sessionId: "s1", steps: [] } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_prompting_guide.execute({} as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_console_poll.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
@@ -933,11 +953,21 @@ describe("tools", () => {
     deps.manager.goto.mockRejectedValue(new Error("boom"));
     deps.manager.waitForLoad.mockRejectedValue(new Error("boom"));
     deps.manager.snapshot.mockRejectedValue(new Error("boom"));
+    deps.manager.hover.mockRejectedValue(new Error("boom"));
+    deps.manager.press.mockRejectedValue(new Error("boom"));
+    deps.manager.check.mockRejectedValue(new Error("boom"));
+    deps.manager.uncheck.mockRejectedValue(new Error("boom"));
     deps.manager.type.mockRejectedValue(new Error("boom"));
     deps.manager.select.mockRejectedValue(new Error("boom"));
     deps.manager.scroll.mockRejectedValue(new Error("boom"));
+    deps.manager.scrollIntoView.mockRejectedValue(new Error("boom"));
     deps.manager.domGetHtml.mockRejectedValue(new Error("boom"));
     deps.manager.domGetText.mockRejectedValue(new Error("boom"));
+    deps.manager.domGetAttr.mockRejectedValue(new Error("boom"));
+    deps.manager.domGetValue.mockRejectedValue(new Error("boom"));
+    deps.manager.domIsVisible.mockRejectedValue(new Error("boom"));
+    deps.manager.domIsEnabled.mockRejectedValue(new Error("boom"));
+    deps.manager.domIsChecked.mockRejectedValue(new Error("boom"));
     deps.manager.clonePage.mockRejectedValue(new Error("boom"));
     deps.manager.cloneComponent.mockRejectedValue(new Error("boom"));
     deps.manager.perfMetrics.mockRejectedValue(new Error("boom"));
@@ -966,11 +996,21 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_goto.execute({ sessionId: "s1", url: "https://" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", until: "load" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_snapshot.execute({ sessionId: "s1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_hover.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_press.execute({ sessionId: "s1", key: "Enter" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_check.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_uncheck.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_type.execute({ sessionId: "s1", ref: "r1", text: "hi" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_select.execute({ sessionId: "s1", ref: "r1", values: ["v"] } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_scroll.execute({ sessionId: "s1", dy: 10 } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_scroll_into_view.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_dom_get_html.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_dom_get_text.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_get_attr.execute({ sessionId: "s1", ref: "r1", name: "id" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_get_value.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_is_visible.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_is_enabled.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_is_checked.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_run.execute({ sessionId: "s1", steps: [] } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_console_poll.execute({ sessionId: "s1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_network_poll.execute({ sessionId: "s1" } as never)).ok).toBe(false);
