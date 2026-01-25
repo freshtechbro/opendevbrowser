@@ -5,7 +5,7 @@ Testing conventions. Extends root `AGENTS.md`.
 ## Framework
 
 - **Vitest** for unit/integration tests
-- Coverage thresholds: ≥95% lines/functions/branches/statements
+- Coverage thresholds: ≥95% lines/functions/branches/statements (target >97% for releases)
 - Config: `vitest.config.ts`
 
 Align integration coverage with runtime flows in `docs/ARCHITECTURE.md`.
@@ -46,3 +46,7 @@ Covers `src/**/*.ts` only. Extension excluded from thresholds.
 ## Documentation Sync
 
 Update `docs/CLI.md` when CLI output or exit codes change.
+
+## CLI Smoke Tests
+
+Use `node scripts/cli-smoke-test.mjs` for managed-mode coverage; document extension/CDP-connect runs in `docs/CLI.md`.

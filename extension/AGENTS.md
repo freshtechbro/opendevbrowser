@@ -36,6 +36,13 @@ Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changi
 3. Connects to `ws://127.0.0.1:<port>/extension`
 4. Badge shows ON/OFF status
 
+## Status Fields (Relay /status)
+
+- `extensionConnected`: Extension WebSocket connected to relay.
+- `extensionHandshakeComplete`: Handshake finished (preferred readiness signal).
+- `cdpConnected`: Active `/cdp` client connected (false until a tool/CLI attaches).
+- `pairingRequired`: Relay requires pairing token (auto-pair should satisfy).
+
 ## Constraints
 
 | Never | Why |

@@ -13,7 +13,7 @@ src/
 ├── browser/
 │   ├── browser-manager.ts   # Playwright lifecycle, session state
 │   └── target-manager.ts    # Tab management, active tracking
-├── tools/                # 30 tool definitions (see tools/AGENTS.md)
+├── tools/                # 40 tool definitions (see tools/AGENTS.md)
 ├── snapshot/             # AX-tree capture, RefStore
 ├── relay/                # WebSocket relay server
 ├── devtools/             # Console/network with redaction
@@ -41,7 +41,7 @@ src/
 | `relay/` | Extension relay server, protocol types |
 | `skills/` | SkillLoader, topic filtering |
 | `snapshot/` | AX-tree snapshots, ref management |
-| `tools/` | 30 tool definitions (thin wrappers) |
+| `tools/` | 40 tool definitions (thin wrappers) |
 | `utils/` | Shared utilities |
 
 ## Manager Pattern
@@ -123,6 +123,11 @@ Config toggles: `devtools.showFullUrls`, `snapshot.maxNodes`, `security.allowUns
 ## Hub-only relay semantics
 
 When hub mode is enabled, the daemon is the sole relay owner and tools are bound through `RemoteManager`/`RemoteRelay`. There is no local relay fallback; ensureHub handles bounded retries and status refresh.
+
+## Connection Flags (Reference)
+
+- Use root `AGENTS.md` for authoritative flag semantics.
+- `--no-extension` forces managed mode; `--extension-only` fails if extension is not ready; `--wait-for-extension` waits for handshake.
 
 ## Anti-Patterns
 

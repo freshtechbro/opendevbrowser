@@ -13,6 +13,16 @@ The daemon `/status` response includes:
 - `binding` – current binding owner + expiry
 The daemon port/token are persisted in `opendevbrowser.jsonc` as `daemonPort`/`daemonToken` to recover from stale cache metadata.
 
+### Relay status quick read
+
+`npx opendevbrowser status --daemon` includes a legend for:
+- `extensionConnected` – popup websocket connected
+- `extensionHandshakeComplete` – extension handshake finished
+- `cdpConnected` – any `/cdp` client attached (expected **false** until you launch/connect)
+- `pairingRequired` – relay token required for `/cdp`
+
+If `cdpConnected` stays `false` after `launch`/`connect`, restart the daemon and reconnect the extension.
+
 ## Relay binding busy
 
 When multiple plugin instances run, only one client can hold the relay binding at a time.
@@ -34,6 +44,10 @@ Fixes:
 - Open the extension popup and click **Connect** to refresh pairing
 - Ensure the daemon and extension are both using the same relay port
 - If needed, restart the daemon and reconnect the extension
+
+If the daemon logs `handshake_failed` with `invalid_token`, the extension is using a stale pairing token:
+- Click **Connect** in the extension popup (auto-pair fetches the current token)
+- Verify `relayPort` matches the daemon’s relay port
 
 ## Chrome version too old
 

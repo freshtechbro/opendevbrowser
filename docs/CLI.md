@@ -1,7 +1,7 @@
 # OpenDevBrowser CLI
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
-OpenDevBrowser exposes 30 `opendevbrowser_*` tools; see `README.md` for the full list.
+OpenDevBrowser exposes 40 `opendevbrowser_*` tools; see `README.md` for the full list.
 
 ## Installation
 
@@ -205,6 +205,19 @@ Interactive vs non-interactive:
 - Interactive CLI (TTY): you will be prompted to connect the extension, then explicitly choose Managed or CDPConnect if you want to proceed.
 - Non-interactive (agents/CI): the command fails fast and prints the exact commands to run for Managed or CDPConnect.
 
+### Connection flags & status semantics
+
+| Flag / Status | Meaning | Notes |
+|---|---|---|
+| `--no-extension` | Force managed mode | Bypasses relay and extension entirely. |
+| `--extension-only` | Require extension mode | Fails if extension is not connected/handshaken. |
+| `--wait-for-extension` | Wait for extension handshake | Only applies to extension mode; waits up to `--wait-timeout-ms`. |
+| `--wait-timeout-ms` | Max wait for extension | Defaults to 30s. |
+| `extensionConnected` | Extension websocket connected | `false` means popup isn’t connected to relay. |
+| `extensionHandshakeComplete` | Extension handshake done | `false` means reconnect/repair from popup. |
+| `cdpConnected` | Active `/cdp` client attached | Expected `false` until a session launches/connects. |
+| `pairingRequired` | Relay token required | When `true`, `/cdp` requires a token (auto-fetched). |
+
 ### Connect
 
 ```bash
@@ -272,6 +285,26 @@ npx opendevbrowser snapshot --session-id <session-id> --max-chars 16000 --cursor
 npx opendevbrowser click --session-id <session-id> --ref r12
 ```
 
+### Hover
+
+```bash
+npx opendevbrowser hover --session-id <session-id> --ref r12
+```
+
+### Press
+
+```bash
+npx opendevbrowser press --session-id <session-id> --key Enter
+npx opendevbrowser press --session-id <session-id> --key Enter --ref r12
+```
+
+### Check / Uncheck
+
+```bash
+npx opendevbrowser check --session-id <session-id> --ref r12
+npx opendevbrowser uncheck --session-id <session-id> --ref r12
+```
+
 ### Type
 
 ```bash
@@ -290,6 +323,12 @@ npx opendevbrowser select --session-id <session-id> --ref r12 --values value1,va
 ```bash
 npx opendevbrowser scroll --session-id <session-id> --dy 500
 npx opendevbrowser scroll --session-id <session-id> --ref r12 --dy 300
+```
+
+### Scroll into view
+
+```bash
+npx opendevbrowser scroll-into-view --session-id <session-id> --ref r12
 ```
 
 ---
@@ -357,6 +396,26 @@ npx opendevbrowser dom-html --session-id <session-id> --ref r12 --max-chars 8000
 
 ```bash
 npx opendevbrowser dom-text --session-id <session-id> --ref r12 --max-chars 8000
+```
+
+### DOM Attribute
+
+```bash
+npx opendevbrowser dom-attr --session-id <session-id> --ref r12 --attr aria-label
+```
+
+### DOM Value
+
+```bash
+npx opendevbrowser dom-value --session-id <session-id> --ref r12
+```
+
+### DOM State Checks
+
+```bash
+npx opendevbrowser dom-visible --session-id <session-id> --ref r12
+npx opendevbrowser dom-enabled --session-id <session-id> --ref r12
+npx opendevbrowser dom-checked --session-id <session-id> --ref r12
 ```
 
 ---
@@ -435,6 +494,35 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 | `--port` | Override daemon port |
 | `--token` | Override daemon token |
 | `--stop` | Stop the daemon |
+
+### Command-specific flags
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--session-id` | daemon commands | Active session id from `launch`/`connect` |
+| `--ref` | element commands | Element ref from `snapshot` |
+| `--key` | `press` | Keyboard key name (e.g. `Enter`, `ArrowDown`) |
+| `--attr` | `dom-attr` | Attribute name to read |
+
+---
+
+## CLI smoke test
+
+Run the automated CLI coverage script (managed mode):
+
+```bash
+npm run build
+node scripts/cli-smoke-test.mjs
+```
+
+The script uses temporary config/cache directories and exercises all CLI commands, including the new interaction and DOM state checks.
+Validate extension mode separately with `launch` + `disconnect` while the extension is connected.
+
+### Latest validation (2026-01-19)
+
+- Managed mode: PASS (`node scripts/cli-smoke-test.mjs`)
+- CDP-connect: PASS (`connect --cdp-port 9222`, `status`, `disconnect`)
+- Extension relay: BLOCKED (extension not connected to relay at test time; `launch --wait-for-extension` returned `extension_not_connected`)
 
 ---
 

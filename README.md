@@ -22,7 +22,7 @@ OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents
 | **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
 | **5 bundled skill packs** | Best practices for login, forms, data extraction |
-| **30 tools** | Complete browser automation coverage |
+| **40 tools** | Complete browser automation coverage |
 | **95% test coverage** | Production-ready with strict TypeScript |
 
 ---
@@ -157,7 +157,7 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ## Tool Reference
 
-OpenDevBrowser provides **30 tools** organized by category:
+OpenDevBrowser provides **40 tools** organized by category:
 
 ### Session Management
 | Tool | Description |
@@ -189,9 +189,14 @@ OpenDevBrowser provides **30 tools** organized by category:
 | `opendevbrowser_wait` | Wait for load state or element |
 | `opendevbrowser_snapshot` | Capture page accessibility tree with refs |
 | `opendevbrowser_click` | Click element by ref |
+| `opendevbrowser_hover` | Hover element by ref |
+| `opendevbrowser_press` | Press a keyboard key (optionally focusing a ref) |
+| `opendevbrowser_check` | Check checkbox/toggle by ref |
+| `opendevbrowser_uncheck` | Uncheck checkbox/toggle by ref |
 | `opendevbrowser_type` | Type text into input by ref |
 | `opendevbrowser_select` | Select dropdown option by ref |
 | `opendevbrowser_scroll` | Scroll page or element |
+| `opendevbrowser_scroll_into_view` | Scroll element into view by ref |
 | `opendevbrowser_run` | Execute multiple actions in sequence |
 
 ### DOM Inspection
@@ -199,6 +204,11 @@ OpenDevBrowser provides **30 tools** organized by category:
 |------|-------------|
 | `opendevbrowser_dom_get_html` | Get outerHTML of element by ref |
 | `opendevbrowser_dom_get_text` | Get innerText of element by ref |
+| `opendevbrowser_get_attr` | Get attribute value by ref |
+| `opendevbrowser_get_value` | Get input value by ref |
+| `opendevbrowser_is_visible` | Check if element is visible |
+| `opendevbrowser_is_enabled` | Check if element is enabled |
+| `opendevbrowser_is_checked` | Check if element is checked |
 
 ### DevTools & Analysis
 | Tool | Description |
@@ -481,7 +491,7 @@ src/
 ├── relay/        # Extension relay server, protocol types
 ├── skills/       # SkillLoader for skill pack discovery
 ├── snapshot/     # AX-tree snapshots, ref management
-├── tools/        # 30 opendevbrowser_* tool definitions
+├── tools/        # 40 opendevbrowser_* tool definitions
 └── utils/        # Shared utilities
 ```
 

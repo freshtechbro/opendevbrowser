@@ -1,29 +1,28 @@
 Goal (incl. success criteria):
-- Bump version to 0.0.13, sync extension manifest, tag v0.0.13, and push commit + tag.
+- Perform code review per user protocol (survey git state, run context_builder review, report findings with file/line references).
 
 Constraints/Assumptions:
-- Use package.json as source of truth.
-- Keep extension manifest version aligned via `npm run extension:sync`.
-- Use git tag format `vX.Y.Z` per distribution guidance.
+- Use RepoPrompt MCP tools for git and context_builder.
+- Ask user to confirm review scope if not specified.
+- Follow code review output format and max bullet limits.
+- Cannot use TodoWrite/Task tools (per system/dev constraints).
 
 Key decisions:
-- Use `npm version 0.0.13 --no-git-tag-version` + manual commit/tag for controlled ordering.
+- Start with git status/log/diff to survey changes, then confirm scope.
+- Use context_builder response_type="review" on confirmed scope.
 
 State:
   - Done:
-    - Bumped package version to 0.0.13 (package.json + package-lock.json).
-    - Synced extension manifest version.
-    - Version check passed.
+    - Read and updated CONTINUITY.md.
   - Now:
-    - Commit version bump, create tag `v0.0.13`, and push.
+    - Run git status/log/diff to survey changes.
   - Next:
-    - None.
+    - Ask user to confirm review scope (uncommitted/staged/back:N/main...HEAD).
+    - Run context_builder review on confirmed scope.
+    - Provide findings in required format.
 
 Open questions (UNCONFIRMED if needed):
-- None.
+- Review scope: uncommitted, staged, back:N, or main...HEAD?
 
 Working set (files/ids/commands):
-- `package.json`
-- `package-lock.json`
-- `extension/manifest.json`
-- Commands: `npm version 0.0.13 --no-git-tag-version`, `npm run extension:sync`, `npm run version:check`, `git commit`, `git tag`, `git push --tags`
+- CONTINUITY.md

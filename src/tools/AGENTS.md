@@ -4,7 +4,7 @@ Tool development patterns. Extends `src/AGENTS.md`.
 
 ## Overview
 
-30 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
+40 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
 Hub mode is enforced via `ensureHub` in `src/tools/index.ts` to rebind remote managers and avoid local relay fallback.
 
 ## Tool Structure
@@ -29,19 +29,19 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 
 ## File Organization
 
-| File | Tools |
+| Category | Tools |
 |------|-------|
-| `session.ts` | launch, connect, disconnect, status |
-| `navigation.ts` | goto, wait, snapshot |
-| `interaction.ts` | click, type, select, scroll |
-| `targets.ts` | targets_list, target_use, target_new, target_close |
-| `pages.ts` | page, list, close |
-| `dom.ts` | dom_get_html, dom_get_text |
-| `devtools.ts` | console_poll, network_poll, perf |
-| `export.ts` | clone_page, clone_component, screenshot |
-| `skills.ts` | skill_list, skill_load |
-| `run.ts` | run (multi-action) |
-| `prompting.ts` | prompting_guide |
+| Session | launch, connect, disconnect, status |
+| Navigation | goto, wait, snapshot |
+| Interaction | click, hover, press, check, uncheck, type, select, scroll, scroll_into_view |
+| Targets | targets_list, target_use, target_new, target_close |
+| Pages | page, list, close |
+| DOM | dom_get_html, dom_get_text, get_attr, get_value, is_visible, is_enabled, is_checked |
+| Devtools | console_poll, network_poll, perf, screenshot |
+| Export | clone_page, clone_component |
+| Skills | skill_list, skill_load |
+| Run | run (multi-action) |
+| Prompting | prompting_guide |
 
 ## Where Logic Lives
 

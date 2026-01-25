@@ -47,6 +47,13 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
                             Action (ref → backendNodeId → DOM)
 ```
 
+### System Workflow (Happy Path)
+
+1. `launch` (extension or managed) → sessionId
+2. `snapshot` → refs
+3. Action tools (`click`, `type`, `press`, `hover`, `check`, etc.) → repeat snapshot
+4. `disconnect` on completion
+
 ### Session Modes
 
 | Mode | Entry | Use Case |
@@ -56,6 +63,16 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 | `cdpConnect` | `opendevbrowser_connect` | Attach to existing `--remote-debugging-port` |
 
 Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
+
+### Connection Flags & Status Semantics
+
+- `--no-extension`: Force managed mode (ignores relay). `--headless` also implies managed mode.
+- `--extension-only`: Fail unless extension is connected/handshaken.
+- `--wait-for-extension`: Polls for extension handshake up to `--wait-timeout-ms` (min 3s).
+- `extensionConnected`: Extension WebSocket is connected to relay.
+- `extensionHandshakeComplete`: Extension handshake finished (preferred readiness signal).
+- `cdpConnected`: At least one active `/cdp` client; false is normal until a tool/CLI connects.
+- `pairingRequired`: Relay requires pairing token; extension auto-pair should handle this.
 
 ## Structure
 
@@ -71,7 +88,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 30 opendevbrowser_* tool definitions
+│   ├── tools/        # 40 opendevbrowser_* tool definitions
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── skills/           # Bundled skill packs (5 total)
@@ -180,7 +197,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   return {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 30 tools
+    // ... 40 tools
   };
 }
 ```
@@ -188,10 +205,15 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 ## Testing
 
 - Framework: Vitest
-- Coverage: ≥95% lines/functions/branches/statements
+- Coverage: ≥95% lines/functions/branches/statements (target >97% for releases)
 - Location: `tests/*.test.ts`
 - Mocking: Use existing Chrome/Playwright mocks
 - Never weaken tests; fix root cause
+
+### CLI Smoke Tests
+
+- Managed mode: `node scripts/cli-smoke-test.mjs`
+- Extension/CDP-connect: run `opendevbrowser launch` / `connect` with `--output json`, then `status` + `disconnect`.
 
 ## Documentation
 
@@ -201,6 +223,10 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Refactor plans: `docs/REFACTORING_PLAN.md`
 - Keep docs in sync with implementation
 - If tool list or outputs change, update `docs/CLI.md` and this file together.
+
+## AGENTS.md Governance
+
+- Root `AGENTS.md` changes require maintainer approval (MCAF governance).
 
 ## Layered AGENTS.md
 
