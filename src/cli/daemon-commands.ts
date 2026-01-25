@@ -151,6 +151,31 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
+    case "interact.hover":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.hover(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref")
+      );
+    case "interact.press":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.press(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.key, "key"),
+        optionalString(params.ref)
+      );
+    case "interact.check":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.check(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref")
+      );
+    case "interact.uncheck":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.uncheck(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref")
+      );
     case "interact.type":
       await requireBindingForSession(core, params, bindingId);
       return core.manager.type(
@@ -174,6 +199,12 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalNumber(params.dy) ?? 0,
         optionalString(params.ref)
       );
+    case "interact.scrollIntoView":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.scrollIntoView(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref")
+      );
     case "dom.getHtml":
       await requireBindingForSession(core, params, bindingId);
       return core.manager.domGetHtml(
@@ -187,6 +218,37 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
         optionalNumber(params.maxChars) ?? 8000
+      );
+    case "dom.getAttr":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.domGetAttr(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref"),
+        requireString(params.name, "name")
+      );
+    case "dom.getValue":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.domGetValue(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref")
+      );
+    case "dom.isVisible":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.domIsVisible(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref")
+      );
+    case "dom.isEnabled":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.domIsEnabled(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref")
+      );
+    case "dom.isChecked":
+      await requireBindingForSession(core, params, bindingId);
+      return core.manager.domIsChecked(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.ref, "ref")
       );
     case "export.clonePage":
       await requireBindingForSession(core, params, bindingId);
@@ -291,7 +353,7 @@ async function launchWithRelay(
       const unauthorized = message.toLowerCase().includes("unauthorized") || message.includes("401");
       const reason = unauthorized
         ? "Extension relay connection failed: relay /cdp unauthorized (token mismatch)."
-        : "Extension relay connection failed.";
+        : `Extension relay connection failed: ${message}`;
       throw new Error(buildExtensionMissingMessage(reason));
     }
   }
@@ -388,6 +450,7 @@ function buildExtensionMissingMessage(reason: string): string {
     reason,
     "Connect the extension: open the Chrome extension popup and click Connect, then retry.",
     "Tip: If the popup says Connected, it may be connected to a different relay instance/port than the daemon expects.",
+    "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, pairing=token required.",
     "",
     "Other options (explicit):",
     "- Managed (headed): npx opendevbrowser launch --no-extension",

@@ -51,7 +51,8 @@ export async function runStatus(args: ParsedArgs) {
     `Relay: port=${daemonStatus.relay.port ?? "n/a"} ext=${daemonStatus.relay.extensionConnected ? "on" : "off"} ` +
       `handshake=${daemonStatus.relay.extensionHandshakeComplete ? "on" : "off"} ` +
       `cdp=${daemonStatus.relay.cdpConnected ? "on" : "off"} ` +
-      `pairing=${daemonStatus.relay.pairingRequired ? "on" : "off"}`
+      `pairing=${daemonStatus.relay.pairingRequired ? "on" : "off"}`,
+    "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, pairing=token required"
   ].join("\n");
 
   const message = daemon || args.outputFormat !== "text"

@@ -3,10 +3,10 @@ import { createUsageError } from "./errors";
 export type CliCommand = "install" | "update" | "uninstall" | "help" | "version" | "serve" | "run"
   | "launch" | "connect" | "disconnect" | "status"
   | "goto" | "wait" | "snapshot"
-  | "click" | "type" | "select" | "scroll"
+  | "click" | "hover" | "press" | "check" | "uncheck" | "type" | "select" | "scroll" | "scroll-into-view"
   | "targets-list" | "target-use" | "target-new" | "target-close"
   | "page" | "pages" | "page-close"
-  | "dom-html" | "dom-text"
+  | "dom-html" | "dom-text" | "dom-attr" | "dom-value" | "dom-visible" | "dom-enabled" | "dom-checked"
   | "clone-page" | "clone-component"
   | "perf" | "screenshot" | "console-poll" | "network-poll";
 export type InstallMode = "global" | "local";
@@ -82,10 +82,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (candidate === "install" || candidate === "update" || candidate === "uninstall" || candidate === "help" || candidate === "version" || candidate === "serve" || candidate === "run"
       || candidate === "launch" || candidate === "connect" || candidate === "disconnect" || candidate === "status"
       || candidate === "goto" || candidate === "wait" || candidate === "snapshot"
-      || candidate === "click" || candidate === "type" || candidate === "select" || candidate === "scroll"
+      || candidate === "click" || candidate === "hover" || candidate === "press" || candidate === "check" || candidate === "uncheck"
+      || candidate === "type" || candidate === "select" || candidate === "scroll" || candidate === "scroll-into-view"
       || candidate === "targets-list" || candidate === "target-use" || candidate === "target-new" || candidate === "target-close"
       || candidate === "page" || candidate === "pages" || candidate === "page-close"
-      || candidate === "dom-html" || candidate === "dom-text"
+      || candidate === "dom-html" || candidate === "dom-text" || candidate === "dom-attr" || candidate === "dom-value"
+      || candidate === "dom-visible" || candidate === "dom-enabled" || candidate === "dom-checked"
       || candidate === "clone-page" || candidate === "clone-component"
       || candidate === "perf" || candidate === "screenshot" || candidate === "console-poll" || candidate === "network-poll") {
       commandOverride = candidate;
@@ -182,8 +184,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
     "--script", "--headless", "--profile", "--persist-profile", "--chrome-path", "--start-url", "--flag",
     "--session-id", "--close-browser", "--ws-endpoint", "--host", "--cdp-port",
     "--url", "--wait-until", "--timeout-ms", "--ref", "--state", "--until", "--mode", "--max-chars", "--cursor",
-    "--text", "--clear", "--submit", "--values", "--dy",
+    "--text", "--clear", "--submit", "--values", "--dy", "--key", "--attr",
     "--name", "--target-id", "--include-urls", "--path", "--since-seq", "--max",
+    "--daemon",
     "--no-extension", "--extension-only", "--wait-for-extension", "--wait-timeout-ms",
     "--skills-global", "--skills-local", "--no-skills"
   ]);
@@ -232,9 +235,14 @@ COMMANDS:
   wait             Wait for load or a ref to appear
   snapshot         Capture a snapshot of the active page
   click            Click an element by ref
+  hover            Hover an element by ref
+  press            Press a keyboard key
+  check            Check a checkbox by ref
+  uncheck          Uncheck a checkbox by ref
   type             Type into an element by ref
   select           Select values in a select by ref
   scroll           Scroll the page or element by ref
+  scroll-into-view Scroll an element into view by ref
   targets-list     List page targets
   target-use       Focus a target by id
   target-new       Open a new target
@@ -244,6 +252,11 @@ COMMANDS:
   page-close       Close a named page
   dom-html         Capture HTML for a ref
   dom-text         Capture text for a ref
+  dom-attr         Capture attribute value for a ref
+  dom-value        Capture input value for a ref
+  dom-visible      Check visibility for a ref
+  dom-enabled      Check enabled state for a ref
+  dom-checked      Check checked state for a ref
   clone-page       Clone the active page to React
   clone-component  Clone a component by ref
   perf             Capture performance metrics

@@ -19,9 +19,14 @@ import { runGoto } from "./commands/nav/goto";
 import { runWait } from "./commands/nav/wait";
 import { runSnapshot } from "./commands/nav/snapshot";
 import { runClick } from "./commands/interact/click";
+import { runHover } from "./commands/interact/hover";
+import { runPress } from "./commands/interact/press";
+import { runCheck } from "./commands/interact/check";
+import { runUncheck } from "./commands/interact/uncheck";
 import { runType } from "./commands/interact/type";
 import { runSelect } from "./commands/interact/select";
 import { runScroll } from "./commands/interact/scroll";
+import { runScrollIntoView } from "./commands/interact/scroll-into-view";
 import { runTargetsList } from "./commands/targets/list";
 import { runTargetUse } from "./commands/targets/use";
 import { runTargetNew } from "./commands/targets/new";
@@ -31,6 +36,11 @@ import { runPagesList } from "./commands/pages/list";
 import { runPageClose } from "./commands/pages/close";
 import { runDomHtml } from "./commands/dom/html";
 import { runDomText } from "./commands/dom/text";
+import { runDomAttr } from "./commands/dom/attr";
+import { runDomValue } from "./commands/dom/value";
+import { runDomVisible } from "./commands/dom/visible";
+import { runDomEnabled } from "./commands/dom/enabled";
+import { runDomChecked } from "./commands/dom/checked";
 import { runClonePage } from "./commands/export/clone-page";
 import { runCloneComponent } from "./commands/export/clone-component";
 import { runPerf } from "./commands/devtools/perf";
@@ -377,6 +387,30 @@ async function main(): Promise<void> {
     });
 
     registerCommand({
+      name: "hover",
+      description: "Hover an element by ref",
+      run: async () => runHover(args)
+    });
+
+    registerCommand({
+      name: "press",
+      description: "Press a keyboard key",
+      run: async () => runPress(args)
+    });
+
+    registerCommand({
+      name: "check",
+      description: "Check a checkbox by ref",
+      run: async () => runCheck(args)
+    });
+
+    registerCommand({
+      name: "uncheck",
+      description: "Uncheck a checkbox by ref",
+      run: async () => runUncheck(args)
+    });
+
+    registerCommand({
       name: "type",
       description: "Type into an element by ref",
       run: async () => runType(args)
@@ -392,6 +426,12 @@ async function main(): Promise<void> {
       name: "scroll",
       description: "Scroll the page or element by ref",
       run: async () => runScroll(args)
+    });
+
+    registerCommand({
+      name: "scroll-into-view",
+      description: "Scroll an element into view by ref",
+      run: async () => runScrollIntoView(args)
     });
 
     registerCommand({
@@ -446,6 +486,36 @@ async function main(): Promise<void> {
       name: "dom-text",
       description: "Capture text for a ref",
       run: async () => runDomText(args)
+    });
+
+    registerCommand({
+      name: "dom-attr",
+      description: "Capture attribute value for a ref",
+      run: async () => runDomAttr(args)
+    });
+
+    registerCommand({
+      name: "dom-value",
+      description: "Capture input value for a ref",
+      run: async () => runDomValue(args)
+    });
+
+    registerCommand({
+      name: "dom-visible",
+      description: "Check visibility for a ref",
+      run: async () => runDomVisible(args)
+    });
+
+    registerCommand({
+      name: "dom-enabled",
+      description: "Check enabled state for a ref",
+      run: async () => runDomEnabled(args)
+    });
+
+    registerCommand({
+      name: "dom-checked",
+      description: "Check checked state for a ref",
+      run: async () => runDomChecked(args)
     });
 
     registerCommand({
