@@ -141,7 +141,8 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
                 startUrl: args.startUrl,
                 chromePath: args.chromePath,
                 flags: args.flags,
-                persistProfile: args.persistProfile
+                persistProfile: args.persistProfile,
+                noExtension: args.noExtension
               });
             } catch (error) {
               return failure(buildManagedFailureMessage(error), "launch_failed");
@@ -173,6 +174,7 @@ const buildExtensionMissingMessage = (reason: string): string => {
     reason,
     "Connect the extension: open the Chrome extension popup and click Connect, then retry.",
     "Tip: If the popup says Connected, it may be connected to a different relay instance/port than this tool expects.",
+    "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, pairing=token required.",
     "",
     "Other options (explicit):",
     "- Managed (headed): npx opendevbrowser launch --no-extension",

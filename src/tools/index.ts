@@ -15,11 +15,21 @@ import { createGotoTool } from "./goto";
 import { createWaitTool } from "./wait";
 import { createSnapshotTool } from "./snapshot";
 import { createClickTool } from "./click";
+import { createHoverTool } from "./hover";
+import { createPressTool } from "./press";
+import { createCheckTool } from "./check";
+import { createUncheckTool } from "./uncheck";
 import { createTypeTool } from "./type";
 import { createSelectTool } from "./select";
 import { createScrollTool } from "./scroll";
+import { createScrollIntoViewTool } from "./scroll_into_view";
 import { createDomGetHtmlTool } from "./dom_get_html";
 import { createDomGetTextTool } from "./dom_get_text";
+import { createGetAttrTool } from "./get_attr";
+import { createGetValueTool } from "./get_value";
+import { createIsVisibleTool } from "./is_visible";
+import { createIsEnabledTool } from "./is_enabled";
+import { createIsCheckedTool } from "./is_checked";
 import { createRunTool } from "./run";
 import { createPromptingGuideTool } from "./prompting_guide";
 import { createConsolePollTool } from "./console_poll";
@@ -63,11 +73,21 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_wait: wrap(createWaitTool(deps)),
     opendevbrowser_snapshot: wrap(createSnapshotTool(deps)),
     opendevbrowser_click: wrap(createClickTool(deps)),
+    opendevbrowser_hover: wrap(createHoverTool(deps)),
+    opendevbrowser_press: wrap(createPressTool(deps)),
+    opendevbrowser_check: wrap(createCheckTool(deps)),
+    opendevbrowser_uncheck: wrap(createUncheckTool(deps)),
     opendevbrowser_type: wrap(createTypeTool(deps)),
     opendevbrowser_select: wrap(createSelectTool(deps)),
     opendevbrowser_scroll: wrap(createScrollTool(deps)),
+    opendevbrowser_scroll_into_view: wrap(createScrollIntoViewTool(deps)),
     opendevbrowser_dom_get_html: wrap(createDomGetHtmlTool(deps)),
     opendevbrowser_dom_get_text: wrap(createDomGetTextTool(deps)),
+    opendevbrowser_get_attr: wrap(createGetAttrTool(deps)),
+    opendevbrowser_get_value: wrap(createGetValueTool(deps)),
+    opendevbrowser_is_visible: wrap(createIsVisibleTool(deps)),
+    opendevbrowser_is_enabled: wrap(createIsEnabledTool(deps)),
+    opendevbrowser_is_checked: wrap(createIsCheckedTool(deps)),
     opendevbrowser_run: wrap(createRunTool(deps)),
     opendevbrowser_prompting_guide: wrap(createPromptingGuideTool(deps)),
     opendevbrowser_console_poll: wrap(createConsolePollTool(deps)),
