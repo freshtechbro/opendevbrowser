@@ -38,9 +38,9 @@ Add BrowserManager methods for the new actions and queries.
 BrowserManager exposes the new action/query surface for both tools and CLI.
 
 ### Acceptance criteria
-- [ ] All new manager methods resolve refs and execute with Playwright primitives.
-- [ ] Interactive methods use session mutex for stability.
-- [ ] Query methods return deterministic values without side effects.
+- [x] All new manager methods resolve refs and execute with Playwright primitives.
+- [x] Interactive methods use session mutex for stability.
+- [x] Query methods return deterministic values without side effects.
 
 ---
 
@@ -66,8 +66,8 @@ Add daemon command handlers and RemoteManager methods for the new actions.
 All new actions are callable through daemon and remote manager.
 
 ### Acceptance criteria
-- [ ] Daemon handles each new action without throwing "Unknown command".
-- [ ] RemoteManager methods match BrowserManager signatures.
+- [x] Daemon handles each new action without throwing "Unknown command".
+- [x] RemoteManager methods match BrowserManager signatures.
 
 ---
 
@@ -93,8 +93,8 @@ Add tool wrappers for each new action and register them.
 New tools are exposed and covered by tests.
 
 ### Acceptance criteria
-- [ ] Tools validate inputs with Zod and return ok/failure responses.
-- [ ] `tests/tools.test.ts` includes all new tools.
+- [x] Tools validate inputs with Zod and return ok/failure responses.
+- [x] `tests/tools.test.ts` includes all new tools.
 
 ---
 
@@ -122,8 +122,8 @@ Add CLI commands and argument parsing for each new action.
 CLI supports the same new actions as tools and passes smoke tests.
 
 ### Acceptance criteria
-- [ ] CLI commands parse flags correctly and call daemon.
-- [ ] Smoke test runs new commands without failures.
+- [x] CLI commands parse flags correctly and call daemon.
+- [x] Smoke test runs new commands without failures.
 
 ---
 
@@ -154,8 +154,8 @@ Update CLI docs, tool list references, and AGENTS guidance.
 Documentation and agent guidance stay in sync with implementation.
 
 ### Acceptance criteria
-- [ ] Docs list all new commands/tools accurately.
-- [ ] AGENTS mention the CLI smoke test and coverage expectations.
+- [x] Docs list all new commands/tools accurately.
+- [x] AGENTS mention the CLI smoke test and coverage expectations.
 
 ---
 

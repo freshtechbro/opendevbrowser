@@ -7,6 +7,7 @@ type DebuggerEventListener = (source: chrome.debugger.Debuggee, method: string, 
 type DebuggerDetachListener = (source: chrome.debugger.Debuggee) => void;
 type RuntimeListener = () => void;
 type MessageListener = (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void) => void;
+type AlarmListener = (alarm: chrome.alarms.Alarm) => void;
 
 export type ChromeMockState = {
   chrome: typeof chrome;
@@ -19,6 +20,7 @@ export type ChromeMockState = {
   setRuntimeError: (message: string | null) => void;
   emitStartup: () => void;
   emitInstalled: () => void;
+  emitAlarm: (name: string) => void;
 };
 
 export const createChromeMock = (initial?: {
@@ -62,6 +64,8 @@ export const createChromeMock = (initial?: {
   const startupListeners = new Set<RuntimeListener>();
   const installedListeners = new Set<RuntimeListener>();
   const messageListeners = new Set<MessageListener>();
+  const alarmListeners = new Set<AlarmListener>();
+  const scheduledAlarms = new Map<string, chrome.alarms.Alarm>();
   let sessionCounter = 1;
 
   const chromeMock = {
@@ -93,6 +97,27 @@ export const createChromeMock = (initial?: {
     action: {
       setBadgeText: vi.fn(),
       setBadgeBackgroundColor: vi.fn()
+    },
+    alarms: {
+      create: vi.fn((name: string, alarmInfo: chrome.alarms.AlarmCreateInfo) => {
+        const scheduled: chrome.alarms.Alarm = {
+          name,
+          scheduledTime: alarmInfo.when ?? Date.now()
+        };
+        scheduledAlarms.set(name, scheduled);
+      }),
+      clear: vi.fn((name: string, callback?: (wasCleared: boolean) => void) => {
+        const removed = scheduledAlarms.delete(name);
+        callback?.(removed);
+      }),
+      get: vi.fn((name: string, callback: (alarm?: chrome.alarms.Alarm) => void) => {
+        callback(scheduledAlarms.get(name));
+      }),
+      onAlarm: {
+        addListener: (listener: AlarmListener) => {
+          alarmListeners.add(listener);
+        }
+      }
     },
     storage: {
       local: {
@@ -265,6 +290,12 @@ export const createChromeMock = (initial?: {
     emitInstalled: () => {
       for (const listener of installedListeners) {
         listener();
+      }
+    },
+    emitAlarm: (name: string) => {
+      const alarm = scheduledAlarms.get(name) ?? { name, scheduledTime: Date.now() };
+      for (const listener of alarmListeners) {
+        listener(alarm);
       }
     }
   };

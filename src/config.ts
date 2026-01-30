@@ -275,8 +275,19 @@ export function loadGlobalConfig(): OpenDevBrowserConfig {
   return { ...data, relayToken, daemonToken };
 }
 
-export function resolveConfig(_config: unknown): OpenDevBrowserConfig {
-  return loadGlobalConfig();
+export function resolveConfig(config: unknown): OpenDevBrowserConfig {
+  if (typeof config === "undefined") {
+    return loadGlobalConfig();
+  }
+  const parsed = configSchema.safeParse(config);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => issue.message).join("; ");
+    throw new Error(`Invalid opendevbrowser config override: ${issues}`);
+  }
+  const data = parsed.data;
+  const relayToken = data.relayToken ?? generateSecureToken();
+  const daemonToken = data.daemonToken ?? generateSecureToken();
+  return { ...data, relayToken, daemonToken };
 }
 
 function persistDaemonConfigDefaults(params: {

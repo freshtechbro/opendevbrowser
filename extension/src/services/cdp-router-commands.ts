@@ -100,12 +100,14 @@ export async function handleCreateTarget(
 ): Promise<void> {
   const url = typeof params.url === "string" ? params.url : undefined;
   const background = params.background === true;
+  let createdTabId: number | null = null;
 
   try {
     const tab = await ctx.tabManager.createTab(url, !background);
     if (typeof tab.id !== "number") {
       throw new Error("Target.createTarget did not yield a tab id");
     }
+    createdTabId = tab.id;
     await ctx.attach(tab.id);
 
     const targetInfo = await ctx.registerRootTab(tab.id);
@@ -121,6 +123,18 @@ export async function handleCreateTarget(
 
     ctx.respond(commandId, { targetId: targetInfo.targetId });
   } catch (error) {
+    if (createdTabId !== null) {
+      const debuggee = ctx.debuggees.get(createdTabId) ?? null;
+      ctx.detachTabState(createdTabId);
+      if (debuggee) {
+        await ctx.safeDetach(debuggee);
+      }
+      try {
+        await ctx.tabManager.closeTab(createdTabId);
+      } catch {
+        // Best-effort cleanup for partially created targets.
+      }
+    }
     ctx.respondError(commandId, getErrorMessage(error));
   }
 }
@@ -141,13 +155,17 @@ export async function handleCloseTarget(
     return;
   }
 
-  const debuggee = ctx.debuggees.get(session.tabId) ?? null;
-  ctx.detachTabState(session.tabId);
-  if (debuggee) {
-    await ctx.safeDetach(debuggee);
+  try {
+    const debuggee = ctx.debuggees.get(session.tabId) ?? null;
+    ctx.detachTabState(session.tabId);
+    if (debuggee) {
+      await ctx.safeDetach(debuggee);
+    }
+    await ctx.tabManager.closeTab(session.tabId);
+    ctx.respond(commandId, { success: true });
+  } catch (error) {
+    ctx.respondError(commandId, getErrorMessage(error));
   }
-  await ctx.tabManager.closeTab(session.tabId);
-  ctx.respond(commandId, { success: true });
 }
 
 export async function handleActivateTarget(
@@ -166,9 +184,13 @@ export async function handleActivateTarget(
     return;
   }
 
-  await ctx.tabManager.activateTab(session.tabId);
-  ctx.updatePrimaryTab(session.tabId);
-  ctx.respond(commandId, {});
+  try {
+    await ctx.tabManager.activateTab(session.tabId);
+    ctx.updatePrimaryTab(session.tabId);
+    ctx.respond(commandId, {});
+  } catch (error) {
+    ctx.respondError(commandId, getErrorMessage(error));
+  }
 }
 
 export async function handleAttachToTarget(

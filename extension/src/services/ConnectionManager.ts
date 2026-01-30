@@ -100,6 +100,7 @@ export class ConnectionManager {
   private relayEpoch: number | null = null;
   private relayConfirmedPort: number | null = null;
   private readonly maxReconnectDelayMs = 5000;
+  private connectPromise: Promise<void> | null = null;
 
   constructor() {
     this.loadSettings().catch(() => {});
@@ -128,24 +129,39 @@ export class ConnectionManager {
   }
 
   async connect(): Promise<void> {
-    if (this.status === "connected") {
-      return;
+    if (this.connectPromise) {
+      return await this.connectPromise;
     }
 
+    const run = (async () => {
+      if (this.status === "connected") {
+        return;
+      }
+
+      try {
+        this.clearLastError();
+        this.shouldReconnect = true;
+        this.reconnectAttempts = 0;
+        await this.loadSettings();
+        await this.attachToActiveTab();
+        await this.connectRelay();
+        this.clearLastError();
+      } catch (error) {
+        const info = this.normalizeError(error);
+        this.setLastError(info);
+        const detail = error instanceof Error ? error.message : "Unknown error";
+        logWarn(`Connect failed (${info.code}). ${detail}`);
+        await this.disconnect();
+      }
+    })();
+
+    this.connectPromise = run;
     try {
-      this.clearLastError();
-      this.shouldReconnect = true;
-      this.reconnectAttempts = 0;
-      await this.loadSettings();
-      await this.attachToActiveTab();
-      await this.connectRelay();
-      this.clearLastError();
-    } catch (error) {
-      const info = this.normalizeError(error);
-      this.setLastError(info);
-      const detail = error instanceof Error ? error.message : "Unknown error";
-      logWarn(`Connect failed (${info.code}). ${detail}`);
-      await this.disconnect();
+      return await run;
+    } finally {
+      if (this.connectPromise === run) {
+        this.connectPromise = null;
+      }
     }
   }
 
@@ -245,7 +261,7 @@ export class ConnectionManager {
 
   private async connectRelay(): Promise<void> {
     if (!this.trackedTab) {
-      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the plugin and retry.");
+      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the daemon and retry.");
     }
 
     const relay = new RelayClient(this.buildRelayUrl(), {
@@ -288,7 +304,7 @@ export class ConnectionManager {
       if (this.relay === relay) {
         this.relay = null;
       }
-      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the plugin and retry.");
+      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the daemon and retry.");
     }
   }
 

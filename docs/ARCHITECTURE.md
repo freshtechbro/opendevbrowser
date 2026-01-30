@@ -100,11 +100,11 @@ sequenceDiagram
   participant Tools
 
   User->>Extension: Enable auto-connect
-  Extension->>Relay: GET /config (extension origin)
-  Extension->>Relay: GET /pair (extension origin)
+  Extension->>Relay: GET /config (extension origin or loopback no-Origin)
+  Extension->>Relay: GET /pair (extension origin or loopback no-Origin)
   Extension->>Relay: WS /extension
-  Tools->>Relay: GET /config
-  Tools->>Relay: GET /pair (when pairing required)
+  Tools->>Relay: GET /config (loopback)
+  Tools->>Relay: GET /pair (when pairing required, loopback)
   Tools->>Hub: acquire relay lease (FIFO)
   Tools->>Relay: WS /cdp?token=...
   Relay->>Browser: forward CDP commands (flat sessions)
@@ -137,6 +137,7 @@ Default extension values:
 - `autoPair`: `true`
 - `pairingEnabled`: `true`
 - `pairingToken`: `null` (fetched via `/pair`)
+- Background auto-retry/backoff uses `chrome.alarms` to reconnect when the relay is unreachable.
 
 ---
 
@@ -145,7 +146,9 @@ Default extension values:
 - **Local-only CDP** by default; non-local requires opt-in config.
 - **Relay binding**: `127.0.0.1` only, with token-based pairing.
 - **CDP auth**: `/cdp` requires `?token=<relayToken>` when pairing is enabled.
-- **Origin enforcement**: relay endpoints (`/config`, `/pair`) reject explicit non-extension origins; missing `Origin` is accepted.
+- **Origin enforcement**: `/extension` requires `chrome-extension://` origin; `/config`, `/status`, `/pair` allow extension origins and loopback no-Origin (including `Origin: null`), and reject explicit non-extension origins.
+- **PNA/CORS**: preflights include `Access-Control-Allow-Private-Network: true` when requested.
+- **HTTP rate limiting**: `/config`, `/status`, `/pair` are rate-limited per IP.
 - **Timing-safe compare**: pairing tokens checked with `crypto.timingSafeEqual`.
 - **Output redaction**: DevTools output strips sensitive tokens by default.
 - **Sanitized export**: export pipeline removes scripts, handlers, and unsafe URLs.
@@ -156,8 +159,8 @@ Default extension values:
 
 Extension relay mode uses **flat CDP sessions (Chrome 125+)**. The extension CDP router:
 
-- Lists only top-level tabs for discovery.
-- Auto-attaches child targets recursively (workers/OOPIF) but does not surface them in `Target.getTargets`.
+- Lists top-level tabs and child targets for discovery.
+- Auto-attaches child targets recursively (workers/OOPIF) and surfaces them in `Target.getTargets` and `Target.getTargetInfo`.
 - Routes all commands and events by DebuggerSession `sessionId` (no `Target.sendMessageToTarget`).
 - Maintains root vs child mappings in `TargetSessionMap` to route each `sessionId` to the correct `tabId`.
 - Tracks a primary tab for relay handshake/diagnostics without disconnecting other tabs.
@@ -168,7 +171,7 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 
 ## Testing and verification
 
-- **Unit/integration tests** via Vitest (`npm run test`), coverage >=95%.
+- **Unit/integration tests** via Vitest (`npm run test`), coverage >=97%.
 - **Extension build** via `npm run extension:build`.
 - **CLI build** via `npm run build`.
 

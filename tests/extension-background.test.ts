@@ -153,13 +153,21 @@ describe("extension background auto-connect", () => {
     await import("../extension/src/background");
     await flushMicrotasks();
 
-    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({
-      relayPort: null,
-      relayInstanceId: null,
-      relayEpoch: null,
-      pairingToken: null,
-      tokenEpoch: null
-    }, expect.any(Function));
+    expect(globalThis.chrome.alarms.create).toHaveBeenCalled();
+  });
+
+  it("schedules retry when relay config is unreachable", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: true });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    expect(globalThis.chrome.alarms.create).toHaveBeenCalledWith(
+      "opendevbrowser-auto-connect",
+      expect.objectContaining({ when: expect.any(Number) })
+    );
   });
 
   it("clears stored relay state when epoch changes", async () => {

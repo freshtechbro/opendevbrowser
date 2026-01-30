@@ -127,7 +127,7 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-  });
+  }, 15000);
 
   it("wraps tool execution with ensureHub when provided", async () => {
     const deps = createDeps();

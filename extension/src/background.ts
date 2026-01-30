@@ -11,6 +11,11 @@ import type { BackgroundMessage, ConnectionStatus, PopupMessage } from "./types.
 const connection = new ConnectionManager();
 let autoConnectInFlight = false;
 let statusNoteOverride: string | null = null;
+let retryScheduled = false;
+let retryDelayMs = 5000;
+
+const RETRY_ALARM_NAME = "opendevbrowser-auto-connect";
+const RETRY_MAX_MS = 60_000;
 
 type RelayConfig = {
   relayPort: number;
@@ -58,6 +63,33 @@ const setStorage = (items: Record<string, unknown>): Promise<void> => {
 
 const setStatusNoteOverride = (note: string | null): void => {
   statusNoteOverride = note;
+};
+
+const clearRetry = (): void => {
+  retryScheduled = false;
+  retryDelayMs = 5000;
+  if (chrome.alarms?.clear) {
+    chrome.alarms.clear(RETRY_ALARM_NAME);
+  }
+};
+
+const scheduleRetry = (): void => {
+  if (retryScheduled) {
+    return;
+  }
+  retryScheduled = true;
+  const delayMs = retryDelayMs;
+  retryDelayMs = Math.min(retryDelayMs * 2, RETRY_MAX_MS);
+
+  if (chrome.alarms?.create) {
+    chrome.alarms.create(RETRY_ALARM_NAME, { when: Date.now() + delayMs });
+    return;
+  }
+
+  setTimeout(() => {
+    retryScheduled = false;
+    autoConnect().catch(() => {});
+  }, delayMs);
 };
 
 const parsePort = (value: unknown): number | null => {
@@ -150,27 +182,34 @@ const attemptAutoConnect = async (): Promise<void> => {
 
   const autoConnect = typeof data.autoConnect === "boolean" ? data.autoConnect : DEFAULT_AUTO_CONNECT;
   if (!autoConnect || connection.getStatus() === "connected") {
+    clearRetry();
     return;
   }
 
   const autoPair = typeof data.autoPair === "boolean" ? data.autoPair : DEFAULT_AUTO_PAIR;
   const pairingEnabled = typeof data.pairingEnabled === "boolean" ? data.pairingEnabled : DEFAULT_PAIRING_ENABLED;
+  const storedRelayPort = parsePort(data.relayPort) ?? DEFAULT_RELAY_PORT;
+  const storedPairingToken = typeof data.pairingToken === "string" ? data.pairingToken : null;
 
   if (autoPair && pairingEnabled) {
-    const config = await fetchRelayConfig(DEFAULT_DISCOVERY_PORT);
+    let config = await fetchRelayConfig(DEFAULT_DISCOVERY_PORT);
+    if (!config && storedRelayPort !== DEFAULT_DISCOVERY_PORT) {
+      config = await fetchRelayConfig(storedRelayPort);
+    }
     const storedRelayEpoch = parseEpoch(data.relayEpoch);
     const storedRelayInstanceId = typeof data.relayInstanceId === "string" ? data.relayInstanceId : null;
     const storedTokenEpoch = parseEpoch(data.tokenEpoch);
 
     if (!config) {
-      await clearStoredRelayState();
       setStatusNoteOverride("Relay config unreachable. Start the daemon and retry.");
+      scheduleRetry();
+      return;
     }
 
-    const relayPort = config?.relayPort ?? (config ? parsePort(data.relayPort) : DEFAULT_RELAY_PORT) ?? DEFAULT_RELAY_PORT;
-    const configEpoch = config?.epoch ?? null;
-    const hasEpoch = config?.epoch !== null;
-    if (config?.relayPort) {
+    const relayPort = config.relayPort ?? storedRelayPort;
+    const configEpoch = config.epoch ?? null;
+    const hasEpoch = config.epoch !== null;
+    if (config.relayPort) {
       await setStorage({
         relayPort: config.relayPort,
         relayInstanceId: config.instanceId,
@@ -178,36 +217,41 @@ const attemptAutoConnect = async (): Promise<void> => {
       });
     }
 
-    if (config && hasEpoch && storedRelayEpoch !== null && storedRelayEpoch !== configEpoch) {
+    if (hasEpoch && storedRelayEpoch !== null && storedRelayEpoch !== configEpoch) {
       await clearStoredRelayState();
       setStatusNoteOverride("Relay restarted. Refresh the connection.");
     }
-    if (config && config.instanceId && storedRelayInstanceId && config.instanceId !== storedRelayInstanceId) {
+    if (config.instanceId && storedRelayInstanceId && config.instanceId !== storedRelayInstanceId) {
       await clearStoredRelayState();
       setStatusNoteOverride("Relay instance mismatch. Open the popup and click Connect.");
     }
-    if (config && hasEpoch && storedTokenEpoch !== null && storedTokenEpoch !== configEpoch) {
+    if (hasEpoch && storedTokenEpoch !== null && storedTokenEpoch !== configEpoch) {
       await setStorage({ pairingToken: null, tokenEpoch: null });
     }
 
-    const pairingRequired = config?.pairingRequired ?? true;
+    const pairingRequired = config.pairingRequired ?? true;
     if (pairingRequired) {
-      const fetched = await fetchTokenFromPlugin(relayPort);
-      if (!fetched) {
-        return;
+      if (!storedPairingToken) {
+        const fetched = await fetchTokenFromPlugin(relayPort);
+        if (!fetched) {
+          setStatusNoteOverride("Auto-pair failed. Start the daemon and retry.");
+          scheduleRetry();
+          return;
+        }
+        if (config.instanceId && fetched.instanceId && config.instanceId !== fetched.instanceId) {
+          console.warn("[opendevbrowser] Relay instance mismatch during auto-pair. Retrying later.");
+          setStatusNoteOverride("Relay instance mismatch. Open the popup and click Connect.");
+          return;
+        }
+        const tokenEpoch = fetched.epoch ?? configEpoch;
+        await setStorage({ pairingToken: fetched.token, tokenEpoch });
       }
-      if (config?.instanceId && fetched.instanceId && config.instanceId !== fetched.instanceId) {
-        console.warn("[opendevbrowser] Relay instance mismatch during auto-pair. Retrying later.");
-        setStatusNoteOverride("Relay instance mismatch. Open the popup and click Connect.");
-        return;
-      }
-      const tokenEpoch = fetched.epoch ?? configEpoch;
-      await setStorage({ pairingToken: fetched.token, tokenEpoch });
     }
   }
 
   await connection.connect();
   setStatusNoteOverride(null);
+  clearRetry();
 };
 
 const autoConnect = async () => {
@@ -228,6 +272,7 @@ connection.onStatus((status) => {
   updateBadge(status);
   if (status === "connected") {
     setStatusNoteOverride(null);
+    clearRetry();
   }
 });
 updateBadge(connection.getStatus());
@@ -239,6 +284,15 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.runtime.onInstalled.addListener(() => {
   autoConnect().catch(() => {});
 });
+
+if (chrome.alarms?.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === RETRY_ALARM_NAME) {
+      retryScheduled = false;
+      autoConnect().catch(() => {});
+    }
+  });
+}
 
 autoConnect().catch(() => {});
 

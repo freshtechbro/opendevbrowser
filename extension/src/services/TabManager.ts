@@ -17,14 +17,26 @@ export class TabManager {
   }
 
   async closeTab(tabId: number): Promise<void> {
-    await new Promise<void>((resolve) => {
-      chrome.tabs.remove(tabId, () => resolve());
+    await new Promise<void>((resolve, reject) => {
+      chrome.tabs.remove(tabId, () => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
+        }
+        resolve();
+      });
     });
   }
 
   async activateTab(tabId: number): Promise<chrome.tabs.Tab | null> {
-    return await new Promise((resolve) => {
+    return await new Promise((resolve, reject) => {
       chrome.tabs.update(tabId, { active: true }, (tab) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
+        }
         resolve(tab ?? null);
       });
     });

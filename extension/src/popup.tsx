@@ -45,8 +45,17 @@ const setStatus = (status: BackgroundMessage["status"]) => {
 };
 
 const sendMessage = (message: PopupMessage): Promise<BackgroundMessage> => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(message, (response: BackgroundMessage) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        reject(new Error(lastError.message));
+        return;
+      }
+      if (!response) {
+        reject(new Error("No response from background"));
+        return;
+      }
       resolve(response);
     });
   });
@@ -59,9 +68,15 @@ const setStorage = (items: Record<string, unknown>): Promise<void> => {
 };
 
 const refreshStatus = async () => {
-  const response = await sendMessage({ type: "status" });
-  setStatus(response.status);
-  setNote(response.note);
+  try {
+    const response = await sendMessage({ type: "status" });
+    setStatus(response.status);
+    setNote(response.note);
+  } catch (error) {
+    setStatus("disconnected");
+    const message = error instanceof Error ? error.message : "Background unavailable";
+    setNote(message);
+  }
 };
 
 const fetchTokenFromPlugin = async (port: number): Promise<string | null> => {
@@ -184,18 +199,24 @@ const toggle = async () => {
         await setStorage({ pairingToken: fetchedToken });
       } else {
         setStatus("disconnected");
-        setNote("Auto-pair failed. Start the plugin and retry.");
+        setNote("Auto-pair failed. Start the daemon and retry.");
         setTimeout(() => refreshStatus(), 2000);
         return;
       }
     }
   }
   
-  const response = await sendMessage({
-    type: isConnected ? "disconnect" : "connect"
-  });
-  setStatus(response.status);
-  setNote(response.note);
+  try {
+    const response = await sendMessage({
+      type: isConnected ? "disconnect" : "connect"
+    });
+    setStatus(response.status);
+    setNote(response.note);
+  } catch (error) {
+    setStatus("disconnected");
+    const message = error instanceof Error ? error.message : "Background unavailable";
+    setNote(message);
+  }
 };
 
 toggleButton.addEventListener("click", () => {

@@ -129,6 +129,37 @@ describe("captureDom", () => {
     expect(result.html).not.toContain("style=");
   });
 
+  it("skips inline style attributes when computed values are empty", async () => {
+    const originalGetComputedStyle = window.getComputedStyle;
+    window.getComputedStyle = (() => ({
+      getPropertyValue: () => "",
+      [Symbol.iterator]: function* () {
+        yield "color";
+      }
+    })) as unknown as typeof window.getComputedStyle;
+
+    document.body.innerHTML = "<div id=\"root\"><span>Hi</span></div>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    window.getComputedStyle = originalGetComputedStyle;
+    expect(result.html).not.toContain("style=");
+  });
+
+  it("handles missing clone elements during style inlining", async () => {
+    const originalClone = Element.prototype.cloneNode;
+    Element.prototype.cloneNode = function () {
+      return originalClone.call(this, false);
+    };
+
+    document.body.innerHTML = "<div id=\"root\"><span>Hi</span></div>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    Element.prototype.cloneNode = originalClone;
+    expect(result.html).toContain("id=\"root\"");
+  });
+
   it("preserves safe URL attributes", async () => {
     document.body.innerHTML = "<div id=\"root\"><a href=\"https://example.com\">Link</a></div>";
     const page = createPage();
@@ -232,6 +263,14 @@ describe("captureDom", () => {
     const result = await captureDom(page as never, "#root");
 
     expect(result.html).not.toContain("url(");
+  });
+
+  it("returns empty html when root is sanitized away", async () => {
+    document.body.innerHTML = "<script id=\"root\">alert(1)</script>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).toBe("");
   });
 
   it("sanitizes repeated dangerous styles across elements", async () => {

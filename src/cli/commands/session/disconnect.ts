@@ -30,6 +30,6 @@ export async function runSessionDisconnect(args: ParsedArgs) {
   if (!sessionId) {
     throw createUsageError("Missing --session-id");
   }
-  await callDaemon("session.disconnect", { sessionId, closeBrowser });
+  await callDaemon("session.disconnect", { sessionId, closeBrowser }, { timeoutMs: 20000 });
   return { success: true, message: `Session disconnected: ${sessionId}` };
 }

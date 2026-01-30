@@ -10,6 +10,7 @@ import { installSkills } from "./installers/skills";
 import { runUpdate } from "./commands/update";
 import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
 import { runServe } from "./commands/serve";
+import { runDaemonCommand } from "./commands/daemon";
 import { runScriptCommand } from "./commands/run";
 import { runSessionLaunch } from "./commands/session/launch";
 import { runSessionConnect } from "./commands/session/connect";
@@ -330,6 +331,12 @@ async function main(): Promise<void> {
       name: "serve",
       description: "Start or stop the local daemon",
       run: async () => runServe(args)
+    });
+
+    registerCommand({
+      name: "daemon",
+      description: "Install/uninstall/status daemon auto-start",
+      run: async () => runDaemonCommand(args)
     });
 
     registerCommand({

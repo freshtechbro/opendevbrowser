@@ -1,12 +1,20 @@
 import type { ParsedArgs } from "../args";
 import { startDaemon, readDaemonMetadata } from "../daemon";
 import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
+import { parseNumberFlag } from "../utils/parse";
+import { fetchWithTimeout } from "../utils/http";
 
 type ServeArgs = {
   port?: number;
   token?: string;
   stop: boolean;
 };
+
+type DaemonHandle = {
+  stop: () => Promise<void>;
+};
+
+let daemonHandle: DaemonHandle | null = null;
 
 function parseServeArgs(rawArgs: string[]): ServeArgs {
   const parsed: ServeArgs = { stop: false };
@@ -21,12 +29,12 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
       if (!value) {
         throw createUsageError("Missing value for --port");
       }
-      parsed.port = Number(value);
+      parsed.port = parseNumberFlag(value, "--port", { min: 1, max: 65535 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--port=")) {
-      parsed.port = Number(arg.split("=", 2)[1]);
+      parsed.port = parseNumberFlag(arg.split("=", 2)[1], "--port", { min: 1, max: 65535 });
       continue;
     }
     if (arg === "--token") {
@@ -52,11 +60,16 @@ export async function runServe(args: ParsedArgs) {
   if (serveArgs.stop) {
     const metadata = readDaemonMetadata();
     if (!metadata) {
+      if (daemonHandle) {
+        await daemonHandle.stop();
+        daemonHandle = null;
+        return { success: true, message: "Daemon stopped." };
+      }
       return { success: false, message: "Daemon not running.", exitCode: EXIT_DISCONNECTED };
     }
 
     try {
-      const response = await fetch(`http://127.0.0.1:${metadata.port}/stop`, {
+      const response = await fetchWithTimeout(`http://127.0.0.1:${metadata.port}/stop`, {
         method: "POST",
         headers: { Authorization: `Bearer ${metadata.token}` }
       });
@@ -70,10 +83,12 @@ export async function runServe(args: ParsedArgs) {
     }
   }
 
-  const { state } = await startDaemon({
+  const handle = await startDaemon({
     port: serveArgs.port,
     token: serveArgs.token
   });
+  daemonHandle = handle;
+  const { state } = handle;
 
   return {
     success: true,

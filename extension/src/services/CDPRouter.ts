@@ -146,7 +146,8 @@ export class CDPRouter {
       case "Target.getTargetInfo": {
         const targetId = typeof commandParams.targetId === "string" ? commandParams.targetId : "";
         const record = targetId ? this.sessions.getByTargetId(targetId) : null;
-        const targetInfo = record?.kind === "root" ? this.sessions.getByTabId(record.tabId)?.targetInfo ?? null : null;
+        const targetInfo = record?.targetInfo
+          ?? (record?.kind === "root" ? this.sessions.getByTabId(record.tabId)?.targetInfo ?? null : null);
         this.respond(command.id, { targetInfo });
         return;
       }

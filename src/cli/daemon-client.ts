@@ -6,6 +6,7 @@ import { CliError, createDisconnectedError, EXIT_EXECUTION } from "./errors";
 import { writeFileAtomic } from "../utils/fs";
 import { loadGlobalConfig } from "../config";
 import { fetchDaemonStatus } from "./daemon-status";
+import { fetchWithTimeout } from "./utils/http";
 
 const CLIENT_ID_FILE = "client.json";
 const DEFAULT_RENEW_AFTER_MS = 20_000;
@@ -49,6 +50,7 @@ type BindingState = {
 
 type CallOptions = {
   requireBinding?: boolean;
+  timeoutMs?: number;
 };
 
 let cachedClientId: string | null = null;
@@ -116,11 +118,11 @@ export class DaemonClient {
 
   async call<T>(name: string, params: Record<string, unknown> = {}, options: CallOptions = {}): Promise<T> {
     try {
-      return await this.callWithBinding<T>(name, params, options.requireBinding ?? false);
+      return await this.callWithBinding<T>(name, params, options);
     } catch (error) {
       if (!options.requireBinding && isBindingRequiredError(error)) {
         await this.ensureBinding();
-        return await this.callWithBinding<T>(name, params, true);
+        return await this.callWithBinding<T>(name, params, { ...options, requireBinding: true });
       }
       throw error;
     }
@@ -136,14 +138,15 @@ export class DaemonClient {
     }
   }
 
-  private async callWithBinding<T>(name: string, params: Record<string, unknown>, requireBinding: boolean): Promise<T> {
+  private async callWithBinding<T>(name: string, params: Record<string, unknown>, options: CallOptions): Promise<T> {
+    const requireBinding = options.requireBinding ?? false;
     const bindingId = requireBinding ? await this.ensureBinding() : this.binding?.bindingId;
     const payload = {
       ...params,
       clientId: this.clientId,
       ...(bindingId ? { bindingId } : {})
     };
-    return await this.callRaw<T>(name, payload);
+    return await this.callRaw<T>(name, payload, options.timeoutMs);
   }
 
   private async ensureBinding(): Promise<string> {
@@ -209,21 +212,21 @@ export class DaemonClient {
     }
   }
 
-  private async callRaw<T>(name: string, params: Record<string, unknown>): Promise<T> {
+  private async callRaw<T>(name: string, params: Record<string, unknown>, timeoutMs?: number): Promise<T> {
     const connection = await resolveDaemonConnection();
 
     let response: Response;
     try {
-      response = await fetch(`http://127.0.0.1:${connection.port}/command`, {
+      response = await fetchWithTimeout(`http://127.0.0.1:${connection.port}/command`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${connection.token}`
         },
         body: JSON.stringify({ name, params })
-      });
+      }, timeoutMs);
     } catch {
-      response = await retryWithRefreshedConnection(name, params);
+      response = await retryWithRefreshedConnection(name, params, timeoutMs);
     }
 
     if (!response.ok) {
@@ -298,7 +301,11 @@ const resolveDaemonConnection = async (): Promise<DaemonConnection> => {
   throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
 };
 
-const retryWithRefreshedConnection = async (name: string, params: Record<string, unknown>): Promise<Response> => {
+const retryWithRefreshedConnection = async (
+  name: string,
+  params: Record<string, unknown>,
+  timeoutMs?: number
+): Promise<Response> => {
   const config = loadGlobalConfig();
   if (config.daemonPort <= 0 || !config.daemonToken) {
     throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
@@ -315,14 +322,14 @@ const retryWithRefreshedConnection = async (name: string, params: Record<string,
       relayInstanceId: status.relay.instanceId,
       relayEpoch: status.relay.epoch
     });
-    return await fetch(`http://127.0.0.1:${config.daemonPort}/command`, {
+    return await fetchWithTimeout(`http://127.0.0.1:${config.daemonPort}/command`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${config.daemonToken}`
       },
       body: JSON.stringify({ name, params })
-    });
+    }, timeoutMs);
   }
   throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
 };

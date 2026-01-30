@@ -20,6 +20,7 @@ export type SessionRecord = {
   tabId: number;
   targetId: string;
   debuggerSession: DebuggerSession;
+  targetInfo?: TargetInfo;
 };
 
 export class TargetSessionMap {
@@ -35,7 +36,8 @@ export class TargetSessionMap {
       sessionId,
       tabId,
       targetId: targetInfo.targetId,
-      debuggerSession: { tabId }
+      debuggerSession: { tabId },
+      targetInfo
     };
     this.sessionsById.set(sessionId, session);
     this.sessionByTarget.set(targetInfo.targetId, sessionId);
@@ -48,7 +50,8 @@ export class TargetSessionMap {
       sessionId,
       tabId,
       targetId: targetInfo.targetId,
-      debuggerSession: { tabId, sessionId }
+      debuggerSession: { tabId, sessionId },
+      targetInfo
     };
     this.sessionsById.set(sessionId, session);
     this.sessionByTarget.set(targetInfo.targetId, sessionId);
@@ -72,7 +75,11 @@ export class TargetSessionMap {
   }
 
   listTargetInfos(): TargetInfo[] {
-    return Array.from(this.tabTargets.values()).map((record) => record.targetInfo);
+    const rootTargets = Array.from(this.tabTargets.values()).map((record) => record.targetInfo);
+    const childTargets = Array.from(this.sessionsById.values())
+      .filter((session) => session.kind === "child" && session.targetInfo)
+      .map((session) => session.targetInfo as TargetInfo);
+    return [...rootTargets, ...childTargets];
   }
 
   listTabIds(): number[] {

@@ -819,6 +819,8 @@ export class BrowserManager {
     reportedWsEndpoint?: string
   ): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
     let browser: Browser;
+    const connectStart = Date.now();
+    const sanitizedEndpoint = this.sanitizeWsEndpointForOutput(connectWsEndpoint);
     try {
       browser = await chromium.connectOverCDP(connectWsEndpoint);
     } catch (error) {
@@ -826,7 +828,10 @@ export class BrowserManager {
       if (message.includes("401") || message.toLowerCase().includes("unauthorized")) {
         throw new Error("Relay /cdp rejected the connection (unauthorized). Check relayToken configuration and ensure clients use the current token.");
       }
-      throw error;
+      throw new Error(
+        `Relay /cdp connectOverCDP failed after ${Date.now() - connectStart}ms (mode=${mode}, endpoint=${sanitizedEndpoint}): ${message}`,
+        { cause: error }
+      );
     }
     try {
       const contexts = browser.contexts();
@@ -903,7 +908,13 @@ export class BrowserManager {
     const configUrl = new URL("/config", configBase);
     this.ensureLocalEndpoint(configUrl.toString());
 
-    const configResponse = await fetch(configUrl.toString());
+    const relayToken = typeof this.config.relayToken === "string" ? this.config.relayToken.trim() : "";
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (relayToken) {
+      headers.Authorization = `Bearer ${relayToken}`;
+    }
+
+    const configResponse = await fetch(configUrl.toString(), { headers });
     if (!configResponse.ok) {
       throw new Error("Failed to fetch relay config. Ensure the relay is running and reachable.");
     }
@@ -925,7 +936,7 @@ export class BrowserManager {
     const pairUrl = new URL("/pair", pairBase);
     this.ensureLocalEndpoint(pairUrl.toString());
 
-    const pairResponse = await fetch(pairUrl.toString());
+    const pairResponse = await fetch(pairUrl.toString(), { headers });
     if (!pairResponse.ok) {
       throw new Error("Failed to fetch relay pairing token. Ensure the relay is running.");
     }

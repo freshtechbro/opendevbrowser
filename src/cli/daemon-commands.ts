@@ -8,6 +8,7 @@ import {
   getBindingRenewConfig,
   getHubInstanceId
 } from "./daemon-state";
+import { fetchWithTimeout } from "./utils/http";
 
 export type DaemonCommandRequest = {
   name: string;
@@ -37,7 +38,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     }
     case "relay.wait": {
       const clientId = requireClientId(params);
-      const timeoutMs = optionalNumber(params.timeoutMs);
+      const timeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
       const binding = await waitForBinding(clientId, timeoutMs);
       const relayStatus = core.relay.status();
       return {
@@ -120,7 +121,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.sessionId, "sessionId"),
         requireString(params.url, "url"),
         requireWaitUntil(params.waitUntil),
-        optionalNumber(params.timeoutMs) ?? 30000
+        optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
       );
     case "nav.wait":
       await requireBindingForSession(core, params, bindingId);
@@ -129,20 +130,20 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           requireString(params.sessionId, "sessionId"),
           requireString(params.ref, "ref"),
           requireState(params.state),
-          optionalNumber(params.timeoutMs) ?? 30000
+          optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
         );
       }
       return core.manager.waitForLoad(
         requireString(params.sessionId, "sessionId"),
         requireWaitUntil(params.until),
-        optionalNumber(params.timeoutMs) ?? 30000
+        optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
       );
     case "nav.snapshot":
       await requireBindingForSession(core, params, bindingId);
       return core.manager.snapshot(
         requireString(params.sessionId, "sessionId"),
         requireSnapshotMode(params.mode),
-        optionalNumber(params.maxChars) ?? 16000,
+        optionalNumber(params.maxChars, "maxChars") ?? 16000,
         optionalString(params.cursor)
       );
     case "interact.click":
@@ -196,7 +197,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       await requireBindingForSession(core, params, bindingId);
       return core.manager.scroll(
         requireString(params.sessionId, "sessionId"),
-        optionalNumber(params.dy) ?? 0,
+        optionalNumber(params.dy, "dy") ?? 0,
         optionalString(params.ref)
       );
     case "interact.scrollIntoView":
@@ -210,14 +211,14 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return core.manager.domGetHtml(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        optionalNumber(params.maxChars) ?? 8000
+        optionalNumber(params.maxChars, "maxChars") ?? 8000
       );
     case "dom.getText":
       await requireBindingForSession(core, params, bindingId);
       return core.manager.domGetText(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        optionalNumber(params.maxChars) ?? 8000
+        optionalNumber(params.maxChars, "maxChars") ?? 8000
       );
     case "dom.getAttr":
       await requireBindingForSession(core, params, bindingId);
@@ -272,15 +273,15 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       await requireBindingForSession(core, params, bindingId);
       return core.manager.consolePoll(
         requireString(params.sessionId, "sessionId"),
-        optionalNumber(params.sinceSeq),
-        optionalNumber(params.max) ?? 50
+        optionalNumber(params.sinceSeq, "sinceSeq"),
+        optionalNumber(params.max, "max") ?? 50
       );
     case "devtools.networkPoll":
       await requireBindingForSession(core, params, bindingId);
       return core.manager.networkPoll(
         requireString(params.sessionId, "sessionId"),
-        optionalNumber(params.sinceSeq),
-        optionalNumber(params.max) ?? 50
+        optionalNumber(params.sinceSeq, "sinceSeq"),
+        optionalNumber(params.max, "max") ?? 50
       );
     default:
       throw new Error(`Unknown daemon command: ${request.name}`);
@@ -302,7 +303,7 @@ async function launchWithRelay(
   const headlessExplicit = optionalBoolean(params.headless) === true;
   const managedExplicit = Boolean(noExtension || headlessExplicit);
   const managedHeadless = headlessExplicit ? true : false;
-  const waitTimeoutMs = clampWaitTimeout(optionalNumber(params.waitTimeoutMs) ?? 30000);
+  const waitTimeoutMs = clampWaitTimeout(optionalNumber(params.waitTimeoutMs, "waitTimeoutMs") ?? 30000);
 
   if (!managedExplicit) {
     requireBinding(clientId, bindingId);
@@ -407,7 +408,7 @@ async function connectWithRelayRouting(
   return core.manager.connect({
     wsEndpoint,
     host: optionalString(params.host),
-    port: optionalNumber(params.port)
+    port: optionalNumber(params.port, "port")
   });
 }
 
@@ -500,8 +501,14 @@ function optionalStringArray(value: unknown): string[] | undefined {
     : undefined;
 }
 
-function optionalNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+function optionalNumber(value: unknown, label: string): number | undefined {
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  throw new Error(`Invalid ${label}`);
 }
 
 function optionalBoolean(value: unknown): boolean | undefined {
@@ -538,6 +545,7 @@ type RelayObservedStatus = {
 const MIN_WAIT_TIMEOUT_MS = 3000;
 const WAIT_MIN_DELAY_MS = 250;
 const WAIT_MAX_DELAY_MS = 2000;
+const RELAY_STATUS_TIMEOUT_MS = 1500;
 
 function clampWaitTimeout(timeoutMs: number): number {
   if (!Number.isFinite(timeoutMs)) {
@@ -582,7 +590,11 @@ async function fetchRelayObservedStatus(port: number | null): Promise<RelayObser
     return null;
   }
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/status`);
+    const response = await fetchWithTimeout(
+      `http://127.0.0.1:${port}/status`,
+      undefined,
+      RELAY_STATUS_TIMEOUT_MS
+    );
     if (!response.ok) {
       return null;
     }

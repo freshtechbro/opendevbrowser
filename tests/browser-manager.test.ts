@@ -279,6 +279,41 @@ describe("BrowserManager", () => {
     await expect(manager.launch({ profile: "default" })).rejects.toThrow("Browser instance unavailable");
   });
 
+  it("handles non-Error launch failures without context cleanup", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockRejectedValueOnce("boom");
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.launch({ profile: "default" }))
+      .rejects
+      .toThrow("Failed to launch browser context: Unknown error");
+  });
+
+  it("aggregates cleanup errors when profile cleanup fails on launch", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockRejectedValueOnce(new Error("launch fail"));
+    rm.mockRejectedValueOnce(new Error("rm fail"));
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.launch({ profile: "default", persistProfile: false }))
+      .rejects
+      .toThrow("Failed to launch browser context: launch fail. Cleanup failed.");
+  });
+
   it("launches startUrl with default profile", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -644,6 +679,22 @@ describe("BrowserManager", () => {
       .rejects.toThrow("Unexpected server response: 500");
   });
 
+  it("wraps non-Error connectOverCDP failures", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockRejectedValueOnce("boom");
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
+      .rejects
+      .toThrow("connectOverCDP failed");
+  });
+
   it("connects using default host and port", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -905,6 +956,51 @@ describe("BrowserManager", () => {
     await manager.closeTarget(result.sessionId, created.targetId);
   });
 
+  it("creates new targets without navigating when url is omitted", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    const gotoSpy = nextPage.page.goto;
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+
+    const created = await manager.newTarget(result.sessionId);
+    expect(created.targetId).toBeTruthy();
+    expect(gotoSpy).not.toHaveBeenCalled();
+  });
+
+  it("clears refs on top-level frame navigation", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+
+    await manager.snapshot(result.sessionId, "outline", 500);
+
+    const managed = (manager as unknown as { sessions: Map<string, unknown> }).sessions
+      .get(result.sessionId) as { refStore: { getRefCount: (id: string) => number }; targets: { getActiveTargetId: () => string } };
+    const targetId = managed.targets.getActiveTargetId();
+    expect(managed.refStore.getRefCount(targetId)).toBeGreaterThan(0);
+
+    page.emit("framenavigated", { parentFrame: () => null });
+    expect(managed.refStore.getRefCount(targetId)).toBe(0);
+  });
+
   it("creates a page when none exist", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -1098,6 +1194,56 @@ describe("BrowserManager", () => {
     await expect(manager.disconnect(result.sessionId, false))
       .rejects
       .toThrow("Failed to disconnect browser session.");
+  });
+
+  it("captures cleanup errors from listeners and trackers on disconnect", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+
+    const sessions = (manager as unknown as { sessions: Map<string, unknown> }).sessions;
+    const managed = sessions.get(result.sessionId) as {
+      targets: { listPageEntries: () => Array<{ page: unknown }> };
+      consoleTracker: { detach: () => void };
+      networkTracker: { detach: () => void };
+    };
+    const entry = managed.targets.listPageEntries()[0];
+    let cleanupSpy: ReturnType<typeof vi.fn> | null = null;
+    if (entry) {
+      cleanupSpy = vi.fn(() => {
+        throw new Error("listener fail");
+      });
+      (manager as unknown as { pageListeners: Map<unknown, () => void> }).pageListeners.set(entry.page, cleanupSpy);
+    }
+
+    managed.consoleTracker.detach = vi.fn(() => {
+      throw new Error("console fail");
+    });
+    managed.networkTracker.detach = vi.fn(() => {
+      throw new Error("network fail");
+    });
+
+    await expect(manager.disconnect(result.sessionId, false))
+      .rejects
+      .toThrow("Failed to disconnect browser session.");
+
+    if (entry) {
+      const cleanup = (manager as unknown as { pageListeners: Map<unknown, () => void> }).pageListeners.get(entry.page);
+      expect(cleanup).toBeUndefined();
+    }
+    if (cleanupSpy) {
+      expect(cleanupSpy).toHaveBeenCalled();
+    }
+    expect(managed.consoleTracker.detach).toHaveBeenCalled();
+    expect(managed.networkTracker.detach).toHaveBeenCalled();
   });
 
   it("rejects unknown refs and snapshots with no target", async () => {
@@ -1362,6 +1508,29 @@ describe("BrowserManager", () => {
 
     await manager.select(launch.sessionId, "r1", ["one"]);
     expect(locator.selectOption).toHaveBeenCalledWith(["one"]);
+  });
+
+  it("types without clear/submit and presses without ref", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, locator, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    await manager.snapshot(launch.sessionId, "outline", 500);
+    await manager.type(launch.sessionId, "r1", "hello");
+    await manager.press(launch.sessionId, "Enter");
+
+    expect(locator.fill).toHaveBeenCalledWith("hello");
+    expect(locator.press).not.toHaveBeenCalled();
+    expect(locator.focus).not.toHaveBeenCalled();
+    expect(page.keyboard.press).toHaveBeenCalledWith("Enter");
   });
 
   it("supports hover/press/check helpers and dom state getters", async () => {

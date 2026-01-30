@@ -52,9 +52,11 @@ export class RelayServer {
   private configuredDiscoveryPort: number;
   private discoveryPort: number | null = null;
   private handshakeAttempts = new Map<string, { count: number; resetAt: number }>();
+  private httpAttempts = new Map<string, { count: number; resetAt: number }>();
   private cdpAllowlist: Set<string> | null = null;
   private static readonly MAX_HANDSHAKE_ATTEMPTS = 5;
   private static readonly RATE_LIMIT_WINDOW_MS = 60_000;
+  private static readonly MAX_HTTP_ATTEMPTS = 60;
 
   constructor(options: RelayServerOptions = {}) {
     this.configuredDiscoveryPort = options.discoveryPort ?? DEFAULT_DISCOVERY_PORT;
@@ -112,30 +114,31 @@ export class RelayServer {
       const origin = request.headers.origin;
       
       if (pathname === CONFIG_PATH && request.method === "OPTIONS") {
-        this.handleConfigPreflight(origin, response);
+        this.handleConfigPreflight(origin, request, response);
         return;
       }
       
       if (pathname === CONFIG_PATH && request.method === "GET") {
-        this.handleConfigRequest(origin, response);
+        this.handleConfigRequest(request, origin, response);
         return;
       }
 
       if (pathname === STATUS_PATH && request.method === "OPTIONS") {
-        this.handleConfigPreflight(origin, response);
+        this.handleConfigPreflight(origin, request, response);
         return;
       }
 
       if (pathname === STATUS_PATH && request.method === "GET") {
-        this.handleStatusRequest(origin, response);
+        this.handleStatusRequest(request, origin, response);
         return;
       }
       
       if (pathname === PAIR_PATH && request.method === "OPTIONS") {
-        if (origin && origin.startsWith("chrome-extension://")) {
-          response.setHeader("Access-Control-Allow-Origin", origin);
+        if (origin && (origin.startsWith("chrome-extension://") || this.isNullOrigin(origin))) {
+          this.applyCorsOrigin(origin, response);
           response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-          response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+          response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+          this.applyPrivateNetworkPreflight(request, response);
         }
         response.writeHead(204);
         response.end();
@@ -143,16 +146,13 @@ export class RelayServer {
       }
       
       if (pathname === PAIR_PATH && request.method === "GET") {
-        if (origin && !this.isExtensionOrigin(origin)) {
-          response.writeHead(403, { "Content-Type": "application/json" });
-          response.end(JSON.stringify({ error: "Forbidden: extension origin required" }));
+        if (!this.authorizeHttpRequest(origin, request, response)) {
           return;
         }
-        
-        if (origin) {
-        response.setHeader("Access-Control-Allow-Origin", origin);
-        }
-        
+
+        this.applyCorsOrigin(origin, response);
+        this.applyPrivateNetworkResponse(origin, response);
+
         response.writeHead(200, { "Content-Type": "application/json" });
         response.end(JSON.stringify({ token: this.pairingToken, instanceId: this.instanceId, epoch: this.epoch }));
         return;
@@ -163,31 +163,49 @@ export class RelayServer {
     });
 
     this.server.on("upgrade", (request: IncomingMessage, socket, head) => {
-      const origin = request.headers.origin;
+      const rawOrigin = request.headers.origin;
+      const origin = this.normalizeOrigin(rawOrigin);
       const ip = request.socket.remoteAddress ?? "unknown";
-
-      if (!this.isAllowedOrigin(origin)) {
-        this.logSecurityEvent("origin_blocked", { origin, ip });
-        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-
-      if (this.isRateLimited(ip)) {
-        this.logSecurityEvent("rate_limited", { ip });
-        socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-
       const pathname = new URL(request.url ?? "", "http://127.0.0.1").pathname;
+
       if (pathname === "/extension") {
+        if (!this.isExtensionOrigin(origin)) {
+          this.logSecurityEvent("origin_blocked", { origin: rawOrigin ?? "", ip, path: pathname });
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (this.isRateLimited(ip)) {
+          this.logSecurityEvent("rate_limited", { ip, path: pathname });
+          socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         this.extensionWss?.handleUpgrade(request, socket, head, (ws: WebSocket) => {
           this.extensionWss?.emit("connection", ws, request);
         });
         return;
       }
+
       if (pathname === "/cdp") {
+        if (this.isRateLimited(ip)) {
+          this.logSecurityEvent("rate_limited", { ip, path: pathname });
+          socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (origin && !this.isExtensionOrigin(origin)) {
+          this.logSecurityEvent("origin_blocked", { origin: rawOrigin ?? "", ip, path: pathname });
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (!origin && !this.isLoopbackAddress(ip)) {
+          this.logSecurityEvent("origin_blocked", { origin: rawOrigin ?? "", ip, path: pathname });
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         const token = this.getCdpTokenFromRequestUrl(request.url);
         if (!this.isTokenValid(token)) {
           this.logSecurityEvent("cdp_unauthorized", { ip });
@@ -200,6 +218,7 @@ export class RelayServer {
         });
         return;
       }
+
       socket.destroy();
     });
 
@@ -296,21 +315,91 @@ export class RelayServer {
     this.cdpAllowlist = new Set(methods);
   }
 
-  private isAllowedOrigin(origin: string | undefined): boolean {
-    if (!origin) {
-      return true;
-    }
-    if (origin === "null") {
-      return true;
-    }
-    if (origin.startsWith("chrome-extension://")) {
-      return true;
-    }
-    return false;
-  }
-
   private isExtensionOrigin(origin: string | undefined): boolean {
     return Boolean(origin && origin.startsWith("chrome-extension://"));
+  }
+
+  private isNullOrigin(origin: string | undefined): boolean {
+    return origin === "null";
+  }
+
+  private applyPrivateNetworkPreflight(request: IncomingMessage, response: ServerResponse): void {
+    const pna = request.headers["access-control-request-private-network"];
+    if (typeof pna === "string" && pna.toLowerCase() === "true") {
+      response.setHeader("Access-Control-Allow-Private-Network", "true");
+    }
+  }
+
+  private applyPrivateNetworkResponse(origin: string | undefined, response: ServerResponse): void {
+    if (origin && (this.isExtensionOrigin(origin) || this.isNullOrigin(origin))) {
+      response.setHeader("Access-Control-Allow-Private-Network", "true");
+    }
+  }
+
+  private applyCorsOrigin(origin: string | undefined, response: ServerResponse): void {
+    if (origin && this.isExtensionOrigin(origin)) {
+      response.setHeader("Access-Control-Allow-Origin", origin);
+      return;
+    }
+    if (this.isNullOrigin(origin)) {
+      response.setHeader("Access-Control-Allow-Origin", "null");
+    }
+  }
+
+  private normalizeOrigin(origin: string | undefined): string | undefined {
+    if (!origin || origin === "null") {
+      return undefined;
+    }
+    return origin;
+  }
+
+  private isLoopbackAddress(ip: string): boolean {
+    if (!ip) return false;
+    return ip === "127.0.0.1"
+      || ip === "::1"
+      || ip.startsWith("::ffff:127.");
+  }
+
+  private isHttpRateLimited(ip: string): boolean {
+    const now = Date.now();
+    const record = this.httpAttempts.get(ip);
+
+    if (!record || now > record.resetAt) {
+      this.httpAttempts.set(ip, { count: 1, resetAt: now + RelayServer.RATE_LIMIT_WINDOW_MS });
+      return false;
+    }
+
+    record.count++;
+    return record.count > RelayServer.MAX_HTTP_ATTEMPTS;
+  }
+
+  private authorizeHttpRequest(origin: string | undefined, request: IncomingMessage, response: ServerResponse): boolean {
+    const normalizedOrigin = this.normalizeOrigin(origin);
+    const ip = request.socket.remoteAddress ?? "unknown";
+
+    if (this.isHttpRateLimited(ip)) {
+      this.logSecurityEvent("http_rate_limited", { ip });
+      response.writeHead(429, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "Too Many Requests" }));
+      return false;
+    }
+
+    if (normalizedOrigin) {
+      if (!this.isExtensionOrigin(normalizedOrigin)) {
+        response.writeHead(403, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: "Forbidden: extension origin required" }));
+        return false;
+      }
+      return true;
+    }
+
+    if (!this.isLoopbackAddress(ip)) {
+      response.writeHead(403, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "Forbidden: local requests only" }));
+      return false;
+    }
+
+    return true;
   }
 
   private getCdpTokenFromRequestUrl(requestUrl: string | undefined): string | null {
@@ -326,26 +415,24 @@ export class RelayServer {
     }
   }
 
-  private handleConfigPreflight(origin: string | undefined, response: ServerResponse): void {
-    if (origin && this.isExtensionOrigin(origin)) {
-      response.setHeader("Access-Control-Allow-Origin", origin);
+  private handleConfigPreflight(origin: string | undefined, request: IncomingMessage, response: ServerResponse): void {
+    if (origin && (this.isExtensionOrigin(origin) || this.isNullOrigin(origin))) {
+      this.applyCorsOrigin(origin, response);
       response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-      response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      this.applyPrivateNetworkPreflight(request, response);
     }
     response.writeHead(204);
     response.end();
   }
 
-  private handleConfigRequest(origin: string | undefined, response: ServerResponse): void {
-    if (origin && !this.isExtensionOrigin(origin)) {
-      response.writeHead(403, { "Content-Type": "application/json" });
-      response.end(JSON.stringify({ error: "Forbidden: extension origin required" }));
+  private handleConfigRequest(request: IncomingMessage, origin: string | undefined, response: ServerResponse): void {
+    if (!this.authorizeHttpRequest(origin, request, response)) {
       return;
     }
 
-    if (origin) {
-      response.setHeader("Access-Control-Allow-Origin", origin);
-    }
+    this.applyCorsOrigin(origin, response);
+    this.applyPrivateNetworkResponse(origin, response);
 
     if (this.port === null) {
       response.writeHead(503, { "Content-Type": "application/json" });
@@ -366,16 +453,13 @@ export class RelayServer {
     }));
   }
 
-  private handleStatusRequest(origin: string | undefined, response: ServerResponse): void {
-    if (origin && !this.isExtensionOrigin(origin)) {
-      response.writeHead(403, { "Content-Type": "application/json" });
-      response.end(JSON.stringify({ error: "Forbidden: extension origin required" }));
+  private handleStatusRequest(request: IncomingMessage, origin: string | undefined, response: ServerResponse): void {
+    if (!this.authorizeHttpRequest(origin, request, response)) {
       return;
     }
 
-    if (origin) {
-      response.setHeader("Access-Control-Allow-Origin", origin);
-    }
+    this.applyCorsOrigin(origin, response);
+    this.applyPrivateNetworkResponse(origin, response);
 
     response.writeHead(200, {
       "Content-Type": "application/json",
@@ -406,22 +490,22 @@ export class RelayServer {
       const origin = request.headers.origin;
 
       if (pathname === CONFIG_PATH && request.method === "OPTIONS") {
-        this.handleConfigPreflight(origin, response);
+        this.handleConfigPreflight(origin, request, response);
         return;
       }
 
       if (pathname === CONFIG_PATH && request.method === "GET") {
-        this.handleConfigRequest(origin, response);
+        this.handleConfigRequest(request, origin, response);
         return;
       }
 
       if (pathname === STATUS_PATH && request.method === "OPTIONS") {
-        this.handleConfigPreflight(origin, response);
+        this.handleConfigPreflight(origin, request, response);
         return;
       }
 
       if (pathname === STATUS_PATH && request.method === "GET") {
-        this.handleStatusRequest(origin, response);
+        this.handleStatusRequest(request, origin, response);
         return;
       }
 
@@ -600,11 +684,13 @@ export class RelayServer {
       return true;
     }
 
-    const expected = this.pairingToken;
-    const value = received ?? "";
+    if (typeof received !== "string") {
+      return false;
+    }
 
+    const expected = this.pairingToken;
     const expectedBuf = Buffer.from(expected, "utf-8");
-    const receivedBuf = Buffer.from(value, "utf-8");
+    const receivedBuf = Buffer.from(received, "utf-8");
 
     if (expectedBuf.length !== receivedBuf.length) {
       timingSafeEqual(expectedBuf, expectedBuf);

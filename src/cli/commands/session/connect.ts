@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseNumberFlag } from "../../utils/parse";
 
 type ConnectArgs = {
   wsEndpoint?: string;
@@ -37,12 +38,12 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
     if (arg === "--cdp-port") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --cdp-port");
-      parsed.port = Number(value);
+      parsed.port = parseNumberFlag(value, "--cdp-port", { min: 1, max: 65535 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--cdp-port=")) {
-      parsed.port = Number(arg.split("=", 2)[1]);
+      parsed.port = parseNumberFlag(arg.split("=", 2)[1], "--cdp-port", { min: 1, max: 65535 });
       continue;
     }
   }

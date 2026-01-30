@@ -13,6 +13,7 @@ export class RelayClient {
   private pendingHandshakeAckReject: ((error: Error) => void) | null = null;
   private pendingHandshakeAckTimeoutId: number | null = null;
   private lastHandshakeAck: RelayHandshakeAck | null = null;
+  private connectPromise: Promise<RelayHandshakeAck> | null = null;
 
   constructor(url: string, handlers: RelayHandlers) {
     this.url = url;
@@ -20,71 +21,94 @@ export class RelayClient {
   }
 
   async connect(handshake: RelayHandshake): Promise<RelayHandshakeAck> {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      if (this.lastHandshakeAck) {
-        return this.lastHandshakeAck;
-      }
-    } else {
-      this.socket = new WebSocket(this.url);
-
-      await new Promise<void>((resolve, reject) => {
-        if (!this.socket) {
-          reject(new Error("Relay socket not created"));
-          return;
+    if (this.connectPromise) {
+      return await this.connectPromise;
+    }
+    const run = (async () => {
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        if (this.lastHandshakeAck) {
+          return this.lastHandshakeAck;
         }
-        this.socket.addEventListener("open", () => resolve(), { once: true });
-        this.socket.addEventListener("error", () => reject(new Error("Relay socket error")), {
-          once: true
-        });
-      });
+      } else {
+        this.socket = new WebSocket(this.url);
 
-      this.socket.addEventListener("message", (event) => {
-        const message = parseJson(event.data);
-        if (!message || typeof message !== "object") return;
-        const record = message as Record<string, unknown>;
-        if (record.type === "handshakeAck") {
-          const ack = record as RelayHandshakeAck;
-          if (ack.payload && typeof ack.payload.instanceId === "string" && typeof ack.payload.relayPort === "number") {
+        await new Promise<void>((resolve, reject) => {
+          if (!this.socket) {
+            reject(new Error("Relay socket not created"));
+            return;
+          }
+          this.socket.addEventListener("open", () => resolve(), { once: true });
+          this.socket.addEventListener("error", () => reject(new Error("Relay socket error")), {
+            once: true
+          });
+        });
+
+        this.socket.addEventListener("message", (event) => {
+          const message = parseJson(event.data);
+          if (!message || typeof message !== "object") return;
+          const record = message as Record<string, unknown>;
+          if (record.type === "handshakeAck") {
+            if (!isValidHandshakeAck(record)) {
+              if (this.pendingHandshakeAckReject) {
+                const reject = this.pendingHandshakeAckReject;
+                this.clearHandshakeAckWait();
+                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                  this.socket.close(1002, "Invalid handshake acknowledgment");
+                }
+                reject(new Error("Relay handshake acknowledgement invalid"));
+              }
+              return;
+            }
+            const ack = record;
             this.lastHandshakeAck = ack;
             if (this.pendingHandshakeAckResolve) {
               const resolve = this.pendingHandshakeAckResolve;
               this.clearHandshakeAckWait();
               resolve(ack);
             }
+            return;
           }
-          return;
-        }
-        if (record.method === "forwardCDPCommand") {
-          this.handlers.onCommand(record as RelayCommand);
-        }
-      });
+          if (record.method === "forwardCDPCommand") {
+            this.handlers.onCommand(record as RelayCommand);
+          }
+        });
 
-      this.socket.addEventListener("close", (event) => {
-        if (this.pendingHandshakeAckReject) {
-          const reject = this.pendingHandshakeAckReject;
-          this.clearHandshakeAckWait();
-          reject(new Error("Relay socket closed before handshake acknowledgment"));
-        }
-        this.lastHandshakeAck = null;
-        this.handlers.onClose({ code: event.code, reason: event.reason });
-      });
-    }
+        this.socket.addEventListener("close", (event) => {
+          if (this.pendingHandshakeAckReject) {
+            const reject = this.pendingHandshakeAckReject;
+            this.clearHandshakeAckWait();
+            reject(new Error("Relay socket closed before handshake acknowledgment"));
+          }
+          this.lastHandshakeAck = null;
+          this.handlers.onClose({ code: event.code, reason: event.reason });
+        });
+      }
 
-    const ackPromise = new Promise<RelayHandshakeAck>((resolve, reject) => {
-      this.clearHandshakeAckWait();
-      this.pendingHandshakeAckResolve = resolve;
-      this.pendingHandshakeAckReject = reject;
-      this.pendingHandshakeAckTimeoutId = setTimeout(() => {
+      const ackPromise = new Promise<RelayHandshakeAck>((resolve, reject) => {
         this.clearHandshakeAckWait();
-        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-          this.socket.close(1000, "Handshake ack timeout");
-        }
-        reject(new Error("Relay handshake not acknowledged"));
-      }, 2000);
-    });
+        this.pendingHandshakeAckResolve = resolve;
+        this.pendingHandshakeAckReject = reject;
+        this.pendingHandshakeAckTimeoutId = setTimeout(() => {
+          this.clearHandshakeAckWait();
+          if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.close(1000, "Handshake ack timeout");
+          }
+          reject(new Error("Relay handshake not acknowledged"));
+        }, 2000);
+      });
 
-    this.send(handshake);
-    return await ackPromise;
+      this.send(handshake);
+      return await ackPromise;
+    })();
+
+    this.connectPromise = run;
+    try {
+      return await run;
+    } finally {
+      if (this.connectPromise === run) {
+        this.connectPromise = null;
+      }
+    }
   }
 
   disconnect(): void {
@@ -139,4 +163,12 @@ const parseJson = (data: unknown): unknown => {
   } catch {
     return null;
   }
+};
+
+const isValidHandshakeAck = (value: Record<string, unknown>): value is RelayHandshakeAck => {
+  if (value.type !== "handshakeAck") return false;
+  const payload = value.payload;
+  if (!payload || typeof payload !== "object") return false;
+  const record = payload as Record<string, unknown>;
+  return typeof record.instanceId === "string" && typeof record.relayPort === "number";
 };

@@ -126,6 +126,14 @@ describe("daemon-commands integration", () => {
     }));
   });
 
+  it("rejects invalid numeric params", async () => {
+    const core = makeCore();
+    await expect(handleDaemonCommand(core, {
+      name: "relay.wait",
+      params: { clientId: "client-1", timeoutMs: "nope" }
+    })).rejects.toThrow("Invalid timeoutMs");
+  });
+
   it("queues relay bindings in FIFO order", async () => {
     const first = bindRelay("client-1");
     const queued = bindRelay("client-2");

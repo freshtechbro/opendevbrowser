@@ -55,6 +55,17 @@ Errors are emitted even when `--quiet` is set. For JSON output, errors are emitt
 
 ---
 
+## Argument validation
+
+The CLI validates common flags early and returns a usage error (`exitCode: 1`) when inputs are invalid.
+
+- Conflicting flags are rejected (examples: `--global` + `--local`, `--skills-global` + `--skills-local`).
+- Numeric flags must be positive integers:
+  - `--port`, `--cdp-port`
+  - `--wait-timeout-ms`, `--timeout-ms`
+
+---
+
 ## Commands
 
 ### Install (default)
@@ -145,6 +156,55 @@ npx opendevbrowser serve --stop
 
 The daemon listens on `127.0.0.1` and requires a token. Metadata lives in `~/.cache/opendevbrowser/daemon.json` (cache only);
 `/status` is the source of truth. The daemon port/token are persisted in `opendevbrowser.jsonc` as `daemonPort`/`daemonToken`.
+
+Relay HTTP endpoints (`/config`, `/status`, `/pair`) accept extension origins and loopback requests with no `Origin` (including
+`Origin: null`) to support MV3 + PNA. Non-extension origins are rejected; preflights include
+`Access-Control-Allow-Private-Network: true` when requested.
+
+#### Manual recovery (if the daemon is down or stuck)
+
+```bash
+# Start the daemon manually
+npx opendevbrowser serve
+
+# Stop/kill an existing daemon before restarting
+npx opendevbrowser serve --stop
+```
+
+### Daemon auto-start
+
+Install or remove OS-level auto-start for the daemon. This uses a stable, absolute CLI entrypoint (no PATH reliance), and returns
+machine-readable output with `--output-format json`.
+
+```bash
+npx opendevbrowser daemon install
+npx opendevbrowser daemon uninstall
+npx opendevbrowser daemon status
+```
+
+Behavior:
+- macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute CLI entrypoint.
+- Windows: per-user Task Scheduler logon task targeting an absolute CLI entrypoint.
+- `daemon status` reports `{ installed, running, status? }` and does not throw a usage error when missing.
+
+Exit codes align with the CLI:
+- `0`: success
+- `1`: usage error
+- `2`: execution error (permissions, missing binary, OS service failure)
+- `10`: disconnected/not running (status only)
+
+#### Auto-start install + manual fallback
+
+```bash
+# Install auto-start (recommended)
+npx opendevbrowser daemon install
+
+# If auto-start fails, start manually
+npx opendevbrowser serve
+
+# Stop/kill before restarting
+npx opendevbrowser serve --stop
+```
 
 ### Run (single-shot script)
 
@@ -518,13 +578,26 @@ node scripts/cli-smoke-test.mjs
 The script uses temporary config/cache directories and exercises all CLI commands, including the new interaction and DOM state checks.
 Validate extension mode separately with `launch` + `disconnect` while the extension is connected.
 
-### Latest validation (2026-01-19)
+### Latest validation (2026-01-30)
 
 - Managed mode: PASS (`node scripts/cli-smoke-test.mjs`)
 - CDP-connect: PASS (`connect --cdp-port 9222`, `status`, `disconnect`)
-- Extension relay: BLOCKED (extension not connected to relay at test time; `launch --wait-for-extension` returned `extension_not_connected`)
+- Extension relay: PASS (`launch --extension-only --wait-for-extension`, `disconnect`)
 
 ---
+
+## Extension-only manual test (no OpenCode plugin)
+
+Use this to validate the Chrome extension + relay without starting OpenCode.
+
+1. Ensure the daemon is running: `npx opendevbrowser daemon install` (auto-start) or `npx opendevbrowser serve` (manual).
+2. Build and load the extension: `npm run extension:build`, then Chrome → `chrome://extensions` → Developer mode → Load unpacked → `extension/`.
+3. Open a normal `http(s)` tab (not `chrome://` or extension pages).
+4. Open the extension popup, confirm Auto-connect + Auto-pair are ON, click Connect.
+5. Verify the popup shows **Connected** and `npx opendevbrowser status --daemon` reports `extensionConnected: true` and `extensionHandshakeComplete: true`.
+6. Optional session check: `npx opendevbrowser launch --extension-only --wait-for-extension`, then `npx opendevbrowser disconnect --session-id <id>`.
+
+If it fails, run `npx opendevbrowser serve --stop` then `npx opendevbrowser serve`, and confirm site access includes `http://127.0.0.1/*` and `http://localhost/*` in the extension settings.
 
 ## Configuration files
 

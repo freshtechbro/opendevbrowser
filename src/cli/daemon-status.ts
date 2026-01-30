@@ -2,6 +2,7 @@ import type { RelayStatus } from "../relay/relay-server";
 import type { OpenDevBrowserConfig } from "../config";
 import { loadGlobalConfig } from "../config";
 import { readDaemonMetadata, writeDaemonMetadata, type DaemonState } from "./daemon";
+import { fetchWithTimeout } from "./utils/http";
 
 export type DaemonStatusPayload = {
   ok: true;
@@ -18,7 +19,7 @@ export type DaemonStatusPayload = {
 
 export async function fetchDaemonStatus(port: number, token: string): Promise<DaemonStatusPayload | null> {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/status`, {
+    const response = await fetchWithTimeout(`http://127.0.0.1:${port}/status`, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` }
     });

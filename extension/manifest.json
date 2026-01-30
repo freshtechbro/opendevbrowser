@@ -5,6 +5,7 @@
   "description": "Optional bridge to reuse existing Chrome tabs with OpenDevBrowser.",
   "permissions": [
     "debugger",
+    "alarms",
     "tabs",
     "storage"
   ],

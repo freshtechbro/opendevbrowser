@@ -1,6 +1,6 @@
 import { createUsageError } from "./errors";
 
-export type CliCommand = "install" | "update" | "uninstall" | "help" | "version" | "serve" | "run"
+export type CliCommand = "install" | "update" | "uninstall" | "help" | "version" | "serve" | "daemon" | "run"
   | "launch" | "connect" | "disconnect" | "status"
   | "goto" | "wait" | "snapshot"
   | "click" | "hover" | "press" | "check" | "uncheck" | "type" | "select" | "scroll" | "scroll-into-view"
@@ -40,13 +40,18 @@ function expandShortFlags(args: string[]): string[] {
 }
 
 function parseSkillsMode(args: string[]): SkillsMode {
+  const hasLocal = args.includes("--skills-local");
+  const hasGlobal = args.includes("--skills-global");
+  if (hasLocal && hasGlobal) {
+    throw createUsageError("Choose either --skills-local or --skills-global.");
+  }
   if (args.includes("--no-skills")) {
     return "none";
   }
-  if (args.includes("--skills-local")) {
+  if (hasLocal) {
     return "local";
   }
-  if (args.includes("--skills-global")) {
+  if (hasGlobal) {
     return "global";
   }
   return "global";
@@ -79,7 +84,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
   if (args[0] && !args[0].startsWith("-")) {
     const candidate = args[0];
-    if (candidate === "install" || candidate === "update" || candidate === "uninstall" || candidate === "help" || candidate === "version" || candidate === "serve" || candidate === "run"
+    if (candidate === "install" || candidate === "update" || candidate === "uninstall" || candidate === "help" || candidate === "version" || candidate === "serve" || candidate === "daemon" || candidate === "run"
       || candidate === "launch" || candidate === "connect" || candidate === "disconnect" || candidate === "status"
       || candidate === "goto" || candidate === "wait" || candidate === "snapshot"
       || candidate === "click" || candidate === "hover" || candidate === "press" || candidate === "check" || candidate === "uncheck"
@@ -96,6 +101,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
       throw createUsageError(`Unknown command: ${candidate}`);
     }
   }
+  const hasGlobal = args.includes("--global");
+  const hasLocal = args.includes("--local");
+  if (hasGlobal && hasLocal) {
+    throw createUsageError("Choose either --global or --local.");
+  }
+
   const skillsMode = parseSkillsMode(args);
   const fullInstall = args.includes("--full");
   const outputFormat = parseOutputFormat(args);
@@ -226,6 +237,7 @@ COMMANDS:
   update           Clear cached plugin to trigger reinstall
   uninstall        Remove plugin from config
   serve            Start or stop the local daemon
+  daemon           Install/uninstall/status daemon auto-start
   run              Execute a JSON script in a single process
   launch           Launch a managed browser session via daemon
   connect          Connect to an existing browser via daemon

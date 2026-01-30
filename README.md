@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
 [![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-green.svg?style=flat-square)](https://opencode.ai)
-[![Test Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
+[![Test Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
 
 > **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
@@ -23,7 +23,7 @@ OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
 | **5 bundled skill packs** | Best practices for login, forms, data extraction |
 | **40 tools** | Complete browser automation coverage |
-| **95% test coverage** | Production-ready with strict TypeScript |
+| **97% test coverage** | Production-ready with strict TypeScript |
 
 ---
 
@@ -105,6 +105,12 @@ Run a local daemon for persistent sessions, then drive automation via CLI comman
 ```bash
 # Start daemon
 npx opendevbrowser serve
+
+# Install auto-start (recommended for resilience)
+npx opendevbrowser daemon install
+
+# Stop/kill the daemon before restarting
+npx opendevbrowser serve --stop
 
 # Launch a session
 npx opendevbrowser launch --start-url https://example.com
@@ -294,6 +300,7 @@ The plugin and extension can automatically pair:
 4. Connection established with color indicator (green = connected)
 
 **Auto-connect** and **Auto-pair** are enabled by default for a seamless setup. The extension badge shows status (ON/OFF).
+If the relay is unavailable, the background worker retries `/config` + `/pair` with exponential backoff (using `chrome.alarms`).
 
 ### Default Settings (Extension)
 
@@ -312,13 +319,14 @@ The plugin and extension can automatically pair:
 3. If pairing is required and Auto-pair is on, it fetches the token from `http://127.0.0.1:<relayPort>/pair`.
 4. It connects to `ws://127.0.0.1:<relayPort>/extension` using the extension origin.
 
-`/config` and `/pair` are extension-origin only for CSWSH protection.
+`/config` and `/pair` accept loopback requests with no `Origin` (including `Origin: null`) to support MV3 + PNA; non-extension origins are still rejected, and preflights include `Access-Control-Allow-Private-Network: true`.
 
 ### Troubleshooting: Extension Won't Connect
 
 - Ensure the active tab is a normal `http(s)` page (not `chrome://` or extension pages).
 - Confirm `relayPort` and `relayToken` in `~/.config/opencode/opendevbrowser.jsonc` match the popup (Auto-pair should fetch the token).
 - If pairing is disabled (`relayToken: false`) or `relayPort` is `0`, the relay is off.
+- Install auto-start with `npx opendevbrowser daemon install` so the relay is available on login.
 - Clear extension local data and retry if the token/port seem stuck.
 - If another process owns the port, change `relayPort` or stop it; `opencode` listening is expected.
 
@@ -454,8 +462,9 @@ OpenDevBrowser is **secure by default** with defense-in-depth protections:
 |------------|---------|
 | **CDP Localhost-Only** | Remote endpoints blocked; hostname normalized to prevent bypass |
 | **Timing-Safe Auth** | `crypto.timingSafeEqual()` for token comparison |
-| **Origin Validation** | Only `chrome-extension://` origins can connect to relay |
-| **Rate Limiting** | 5 handshake attempts/minute per IP |
+| **Origin Validation** | Only `chrome-extension://` origins can connect to relay WebSocket; loopback no-Origin is allowed for `/config`, `/status`, `/pair` |
+| **PNA Preflights** | HTTP preflights include `Access-Control-Allow-Private-Network: true` when requested |
+| **Rate Limiting** | 5 handshake attempts/minute per IP, plus HTTP rate limiting for `/config`, `/status`, `/pair` |
 | **Data Redaction** | Tokens, API keys, sensitive paths auto-redacted |
 | **Export Sanitization** | Scripts, event handlers, dangerous CSS stripped |
 | **Atomic Writes** | Config writes are atomic to prevent corruption |
@@ -506,7 +515,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed component diagrams
 ```bash
 npm install
 npm run build      # Compile to dist/
-npm run test       # Run tests with coverage (95% threshold)
+npm run test       # Run tests with coverage (97% threshold)
 npm run lint       # ESLint checks (strict TypeScript)
 npm run extension:build  # Compile extension
 npm run version:check    # Verify package/extension version alignment

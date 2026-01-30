@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { WebSocket } from "ws";
 import http from "http";
-import type { ServerResponse } from "http";
+import type { IncomingMessage, ServerResponse } from "http";
 import type { AddressInfo } from "net";
 import { RelayServer } from "../src/relay/relay-server";
 
@@ -15,8 +15,11 @@ const getAvailablePort = async (): Promise<number> => {
   return address.port;
 };
 
-const connect = async (url: string, timeoutMs = 3000): Promise<WebSocket> => {
-  const socket = new WebSocket(url);
+const EXTENSION_ORIGIN = "chrome-extension://abcdefghijklmnop";
+
+const connect = async (url: string, timeoutMs = 3000, origin?: string): Promise<WebSocket> => {
+  const headers = origin ? { Origin: origin } : (url.endsWith("/extension") ? { Origin: EXTENSION_ORIGIN } : undefined);
+  const socket = headers ? new WebSocket(url, { headers }) : new WebSocket(url);
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`Timed out connecting to ${url}`));
@@ -129,6 +132,83 @@ describe("RelayServer", () => {
     server.stop();
     const status3 = server.status();
     expect(status3.running).toBe(false);
+  });
+
+  it("returns null cdp url before start", () => {
+    server = new RelayServer();
+    expect(server.getCdpUrl()).toBeNull();
+  });
+
+  it("parses loopback helpers", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      isLoopbackAddress: (value: string) => boolean;
+      getCdpTokenFromRequestUrl: (value?: string) => string | null;
+    };
+
+    expect(internal.isLoopbackAddress("127.0.0.1")).toBe(true);
+    expect(internal.isLoopbackAddress("::1")).toBe(true);
+    expect(internal.isLoopbackAddress("::ffff:127.0.0.1")).toBe(true);
+    expect(internal.isLoopbackAddress("10.0.0.1")).toBe(false);
+
+    expect(internal.getCdpTokenFromRequestUrl("http://127.0.0.1/cdp?token=abc")).toBe("abc");
+    expect(internal.getCdpTokenFromRequestUrl("http://[::")).toBeNull();
+  });
+
+  it("rejects non-loopback http requests and rate limits", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      authorizeHttpRequest: (origin: string | undefined, req: IncomingMessage, res: ServerResponse) => boolean;
+      httpAttempts: Map<string, { count: number; resetAt: number }>;
+    };
+    const response = {
+      setHeader: vi.fn(),
+      writeHead: vi.fn(),
+      end: vi.fn()
+    } as unknown as ServerResponse;
+    const request = {
+      headers: {},
+      socket: { remoteAddress: "10.0.0.1" }
+    } as unknown as IncomingMessage;
+
+    expect(internal.authorizeHttpRequest(undefined, request, response)).toBe(false);
+    expect(response.writeHead).toHaveBeenCalledWith(403, { "Content-Type": "application/json" });
+
+    const limitedResponse = {
+      setHeader: vi.fn(),
+      writeHead: vi.fn(),
+      end: vi.fn()
+    } as unknown as ServerResponse;
+    internal.httpAttempts.set("127.0.0.1", {
+      count: (RelayServer as unknown as { MAX_HTTP_ATTEMPTS: number }).MAX_HTTP_ATTEMPTS,
+      resetAt: Date.now() + 60_000
+    });
+    const limitedRequest = {
+      headers: {},
+      socket: { remoteAddress: "127.0.0.1" }
+    } as unknown as IncomingMessage;
+    expect(internal.authorizeHttpRequest(undefined, limitedRequest, limitedResponse)).toBe(false);
+    expect(limitedResponse.writeHead).toHaveBeenCalledWith(429, { "Content-Type": "application/json" });
+  });
+
+  it("sets CORS headers for config preflight helper", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      handleConfigPreflight: (origin: string | undefined, req: IncomingMessage, res: ServerResponse) => void;
+    };
+    const request = {
+      headers: {
+        "access-control-request-private-network": "true"
+      }
+    } as unknown as IncomingMessage;
+    const response = {
+      setHeader: vi.fn(),
+      writeHead: vi.fn(),
+      end: vi.fn()
+    } as unknown as ServerResponse;
+    internal.handleConfigPreflight(EXTENSION_ORIGIN, request, response);
+    expect(response.setHeader).toHaveBeenCalledWith("Access-Control-Allow-Origin", EXTENSION_ORIGIN);
+    expect(response.writeHead).toHaveBeenCalledWith(204);
   });
 
   it("rejects unknown upgrade paths", async () => {
@@ -419,7 +499,24 @@ describe("RelayServer", () => {
       expect(typeof data.instanceId).toBe("string");
     });
 
-    it("allows /pair without an Origin header", async () => {
+    it("handles /pair preflight for extension origins", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/pair`, {
+        method: "OPTIONS",
+        headers: {
+          "Origin": EXTENSION_ORIGIN,
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Private-Network": "true"
+        }
+      });
+      expect(response.status).toBe(204);
+      expect(response.headers.get("access-control-allow-origin")).toBe(EXTENSION_ORIGIN);
+      expect(response.headers.get("access-control-allow-private-network")).toBe("true");
+    });
+
+    it("allows /pair without an Origin header when token is set", async () => {
       server = new RelayServer();
       server.setToken("secret");
       const started = await server.start(0);
@@ -450,6 +547,21 @@ describe("RelayServer", () => {
         headers: { "Origin": "chrome-extension://abcdefghijklmnop" }
       });
       expect(response.status).toBe(200);
+      expect(response.headers.get("Access-Control-Allow-Private-Network")).toBe("true");
+      const data = await response.json();
+      expect(data.token).toBe("secret");
+    });
+
+    it("allows /pair from null origins on loopback", async () => {
+      server = new RelayServer();
+      server.setToken("secret");
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/pair`, {
+        headers: { "Origin": "null" }
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe("null");
       const data = await response.json();
       expect(data.token).toBe("secret");
     });
@@ -467,6 +579,7 @@ describe("RelayServer", () => {
       });
       expect(response.status).toBe(204);
       expect(response.headers.get("Access-Control-Allow-Origin")).toBe("chrome-extension://abcdefghijklmnop");
+      expect(response.headers.get("Access-Control-Allow-Headers")).toContain("Authorization");
     });
 
     it("returns 404 for unknown HTTP paths", async () => {
@@ -490,11 +603,27 @@ describe("RelayServer", () => {
         headers: { "Origin": extensionOrigin }
       });
       expect(response.status).toBe(200);
+      expect(response.headers.get("Access-Control-Allow-Private-Network")).toBe("true");
       const data = await response.json();
       expect(data.relayPort).toBe(started.port);
       expect(data.pairingRequired).toBe(true);
       expect(typeof data.instanceId).toBe("string");
       expect("discoveryPort" in data).toBe(true);
+    });
+
+    it("allows null origins on loopback", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      server.setToken("secret");
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/config`, {
+        headers: { "Origin": "null" }
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe("null");
+      const data = await response.json();
+      expect(data.relayPort).toBe(started.port);
+      expect(data.pairingRequired).toBe(true);
     });
 
     it("returns pairingRequired false when no token is set", async () => {
@@ -518,9 +647,13 @@ describe("RelayServer", () => {
       } as unknown as ServerResponse;
 
       const internal = server as unknown as {
-        handleConfigRequest: (origin: string | undefined, res: ServerResponse) => void;
+        handleConfigRequest: (req: IncomingMessage, origin: string | undefined, res: ServerResponse) => void;
       };
-      internal.handleConfigRequest(extensionOrigin, response);
+      const request = {
+        headers: { origin: extensionOrigin },
+        socket: { remoteAddress: "127.0.0.1" }
+      } as unknown as IncomingMessage;
+      internal.handleConfigRequest(request, extensionOrigin, response);
 
       expect(response.writeHead).toHaveBeenCalledWith(503, { "Content-Type": "application/json" });
       expect(response.end).toHaveBeenCalledWith(JSON.stringify({ error: "Relay not running" }));
@@ -536,7 +669,7 @@ describe("RelayServer", () => {
       expect(response.status).toBe(403);
     });
 
-    it("allows config requests without an Origin header", async () => {
+    it("allows loopback config requests without an Origin header when token is set", async () => {
       server = new RelayServer({ discoveryPort: 0 });
       server.setToken("secret");
       const started = await server.start(0);
@@ -556,11 +689,14 @@ describe("RelayServer", () => {
         method: "OPTIONS",
         headers: {
           "Origin": extensionOrigin,
-          "Access-Control-Request-Method": "GET"
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Private-Network": "true"
         }
       });
       expect(response.status).toBe(204);
       expect(response.headers.get("Access-Control-Allow-Origin")).toBe(extensionOrigin);
+      expect(response.headers.get("Access-Control-Allow-Headers")).toContain("Authorization");
+      expect(response.headers.get("Access-Control-Allow-Private-Network")).toBe("true");
     });
 
     it("serves discovery config on a dedicated discovery server", async () => {
@@ -669,7 +805,9 @@ describe("RelayServer", () => {
       server.setToken("secret");
       const started = await server.start(0);
 
-      const response = await fetch(`http://127.0.0.1:${started.port}/status`);
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`, {
+        headers: { Authorization: "Bearer secret" }
+      });
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(typeof data.instanceId).toBe("string");
@@ -713,6 +851,24 @@ describe("RelayServer", () => {
       expect(response.headers.get("Access-Control-Allow-Origin")).toBe("chrome-extension://abcdefghijklmnop");
     });
 
+    it("handles status preflight on the main server", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`, {
+        method: "OPTIONS",
+        headers: {
+          "Origin": "chrome-extension://abcdefghijklmnop",
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Private-Network": "true"
+        }
+      });
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe("chrome-extension://abcdefghijklmnop");
+      expect(response.headers.get("Access-Control-Allow-Headers")).toContain("Authorization");
+      expect(response.headers.get("Access-Control-Allow-Private-Network")).toBe("true");
+    });
+
     it("handles status preflight on the discovery server", async () => {
       server = new RelayServer({ discoveryPort: 0 });
       await server.start(0);
@@ -728,6 +884,7 @@ describe("RelayServer", () => {
       });
       expect(response.status).toBe(204);
       expect(response.headers.get("Access-Control-Allow-Origin")).toBe("chrome-extension://abcdefghijklmnop");
+      expect(response.headers.get("Access-Control-Allow-Headers")).toContain("Authorization");
     });
   });
 
@@ -767,6 +924,48 @@ describe("RelayServer", () => {
 
       const valid = await upgradeRequest({ port: started.port, path: "/cdp?token=secret-token" });
       expect(valid).toBe(101);
+    });
+
+    it("rejects /cdp upgrades from non-extension origins", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const response = await upgradeRequest({ port: started.port, path: "/cdp", origin: "https://evil.com" });
+      expect(response).toBe(403);
+    });
+
+    it("rejects /cdp upgrades from non-loopback without origin", async () => {
+      server = new RelayServer();
+      await server.start(0);
+
+      const internal = server as unknown as { server?: { emit: (event: string, ...args: unknown[]) => void } };
+      const socket = { write: vi.fn(), destroy: vi.fn() };
+      const request = { url: "/cdp", headers: {}, socket: { remoteAddress: "10.0.0.1" } };
+      internal.server?.emit("upgrade", request, socket, Buffer.from(""));
+
+      expect(socket.write).toHaveBeenCalledWith(expect.stringContaining("403"));
+      expect(socket.destroy).toHaveBeenCalled();
+    });
+
+    it("rate limits repeated /cdp upgrades", async () => {
+      server = new RelayServer();
+      await server.start(0);
+
+      const internal = server as unknown as {
+        server?: { emit: (event: string, ...args: unknown[]) => void };
+        handshakeAttempts: Map<string, { count: number; resetAt: number }>;
+      };
+      internal.handshakeAttempts.set("127.0.0.1", {
+        count: (RelayServer as unknown as { MAX_HANDSHAKE_ATTEMPTS: number }).MAX_HANDSHAKE_ATTEMPTS,
+        resetAt: Date.now() + 60_000
+      });
+
+      const socket = { write: vi.fn(), destroy: vi.fn() };
+      const request = { url: "/cdp", headers: {}, socket: { remoteAddress: "127.0.0.1" } };
+      internal.server?.emit("upgrade", request, socket, Buffer.from(""));
+
+      expect(socket.write).toHaveBeenCalledWith(expect.stringContaining("429"));
+      expect(socket.destroy).toHaveBeenCalled();
     });
 
     it("blocks web page origins (CSWSH prevention)", async () => {
@@ -842,6 +1041,7 @@ describe("RelayServer", () => {
         headers: {
           "Connection": "Upgrade",
           "Upgrade": "websocket",
+          "Origin": "chrome-extension://abcdefghijklmnop",
           "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
           "Sec-WebSocket-Version": "13"
         }

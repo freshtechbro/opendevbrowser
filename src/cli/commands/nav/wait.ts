@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseNumberFlag } from "../../utils/parse";
 
 function parseWaitArgs(rawArgs: string[]): { sessionId?: string; ref?: string; state?: string; until?: string; timeoutMs?: number } {
   const parsed: { sessionId?: string; ref?: string; state?: string; until?: string; timeoutMs?: number } = {};
@@ -53,12 +54,12 @@ function parseWaitArgs(rawArgs: string[]): { sessionId?: string; ref?: string; s
     if (arg === "--timeout-ms") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --timeout-ms");
-      parsed.timeoutMs = Number(value);
+      parsed.timeoutMs = parseNumberFlag(value, "--timeout-ms", { min: 1 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--timeout-ms=")) {
-      parsed.timeoutMs = Number(arg.split("=", 2)[1]);
+      parsed.timeoutMs = parseNumberFlag(arg.split("=", 2)[1], "--timeout-ms", { min: 1 });
       continue;
     }
   }
