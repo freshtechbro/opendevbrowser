@@ -39,9 +39,9 @@ State:
     - Fixed `serve` command to retain daemon handle so the daemon stays alive; rebuilt CLI.
     - Daemon started on 127.0.0.1:8788 with relay on 127.0.0.1:8787; ports confirmed listening.
   - Now:
-    - Documentation updates in progress (CLI PNA/origin note, manual extension test steps, daemon start/stop instructions).
+    - Docs/README/architecture updated; extension/daemon tested via CLI and ready for PR.
   - Next:
-    - Re-run any doc-only validations if needed and finalize summary.
+    - Publish PR (push branch and open PR with summary + tests).
 
 Open questions (UNCONFIRMED if needed):
 - Any remaining gaps vs autostart/spec/expansion plan docs? (UNCONFIRMED - needs review)
