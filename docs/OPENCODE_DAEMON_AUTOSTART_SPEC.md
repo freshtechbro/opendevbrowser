@@ -15,6 +15,7 @@ This document defines the cross-platform auto-start strategy for the opendevbrow
 **Goal**: Make the extension auto-pair seamless on macOS + Windows by:
 1) Auto-starting `opendevbrowser serve` at user login (using a stable, absolute CLI entrypoint, not PATH-only).
 2) Adding background retry/backoff in the extension so it re-attempts `/config` + `/pair` until the relay is reachable.
+3) Installing auto-start automatically on first successful CLI install (best effort on supported OS).
 
 **Success criteria**
 - A fresh boot + login results in relay reachable at the configured relay port (default `127.0.0.1:8787`) without opening opencode.

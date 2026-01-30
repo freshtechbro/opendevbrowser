@@ -102,6 +102,9 @@ npx opendevbrowser --skills-local
 npx opendevbrowser --no-skills
 ```
 
+On first successful install, the CLI attempts to install daemon auto-start on supported platforms (macOS/Windows) so the relay is
+available on login. You can remove it later with `npx opendevbrowser daemon uninstall`.
+
 ### Update
 
 Clear the OpenCode cache to trigger reinstallation of the latest version.
@@ -154,7 +157,8 @@ npx opendevbrowser serve --port 8788 --token my-token
 npx opendevbrowser serve --stop
 ```
 
-The daemon listens on `127.0.0.1` and requires a token. Metadata lives in `~/.cache/opendevbrowser/daemon.json` (cache only);
+The daemon listens on `127.0.0.1` and starts the relay the extension connects to. Metadata lives in
+`~/.cache/opendevbrowser/daemon.json` (cache only);
 `/status` is the source of truth. The daemon port/token are persisted in `opendevbrowser.jsonc` as `daemonPort`/`daemonToken`.
 
 Relay HTTP endpoints (`/config`, `/status`, `/pair`) accept extension origins and loopback requests with no `Origin` (including

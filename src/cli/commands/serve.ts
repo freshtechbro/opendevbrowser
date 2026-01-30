@@ -92,7 +92,7 @@ export async function runServe(args: ParsedArgs) {
 
   return {
     success: true,
-    message: `Daemon running on 127.0.0.1:${state.port}`,
+    message: `Daemon running on 127.0.0.1:${state.port} (relay ${state.relayPort})`,
     data: { port: state.port, pid: state.pid, relayPort: state.relayPort },
     exitCode: null
   };

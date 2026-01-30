@@ -45,6 +45,9 @@ npx opendevbrowser --full
 
 Restart OpenCode after installation.
 
+On first successful install, the CLI attempts to install daemon auto-start on supported platforms so the relay is available on login.
+You can remove it later with `npx opendevbrowser daemon uninstall`.
+
 OpenCode discovers skills in `.opencode/skill` (project) and `~/.config/opencode/skill` (global) first; `.claude/skills` is compatibility-only. The CLI installs bundled skills into the OpenCode-native locations by default.
 
 ### Agent Installation (OpenCode)

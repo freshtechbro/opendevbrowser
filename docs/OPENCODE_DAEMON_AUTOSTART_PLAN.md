@@ -10,6 +10,7 @@ This document consolidates `docs/OPENCODE_DAEMON_AUTOSTART_SPEC.md` and the daem
 - Ensure the relay daemon is available without OpenCode running by auto-starting `opendevbrowser serve` on login (macOS + Windows).
 - Make the extension auto-pair resilient via retry/backoff until `/config` + `/pair` are reachable.
 - Keep CLI contracts consistent with existing conventions (`--output-format`, exit codes).
+- Automatically install daemon auto-start on first successful CLI install (best-effort, non-fatal on unsupported OS).
 
 ### Scope
 - New CLI-only `daemon` subcommands for install/uninstall/status.
@@ -33,6 +34,7 @@ This document consolidates `docs/OPENCODE_DAEMON_AUTOSTART_SPEC.md` and the daem
 - Use `--output-format` (not `--json`) to align with existing CLI output conventions.
 - Require absolute CLI entrypoints in OS service configs to avoid PATH issues at login.
 - Prefer `chrome.alarms` for reliable MV3 scheduling; allow a `setTimeout` fallback if avoiding new permissions.
+- Auto-install daemon autostart only on first successful install; users can remove via `daemon uninstall`.
 
 ---
 

@@ -15,6 +15,9 @@ OpenDevBrowser provides three entry points that share a single runtime core:
 
 The shared runtime core is in `src/core/` and wires `BrowserManager`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
 
+The CLI installer attempts to set up daemon auto-start on first successful install (macOS LaunchAgent, Windows Task Scheduler),
+so the relay is ready on user login without manual steps.
+
 ---
 
 ## Component map
@@ -76,7 +79,7 @@ sequenceDiagram
   participant Browser
 
   User->>CLI: opendevbrowser serve
-  CLI->>Daemon: start local server (127.0.0.1)
+  CLI->>Daemon: start local server (127.0.0.1) and relay
   Note over Daemon,Relay: Hub daemon owns relay + FIFO leases
   Daemon->>Core: create core runtime
   Core->>Relay: start relay server

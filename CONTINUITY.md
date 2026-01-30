@@ -1,5 +1,5 @@
 Goal (incl. success criteria):
-- Own all changes end-to-end: verify relay/extension/daemon changes, docs correctness, and quality gates (build/lint/tests/CLI/extension), with any fixes applied and documented.
+- Simplify startup: ensure `npx opendevbrowser serve` leaves relay ready for extension, auto-install daemon on first install, update docs/version, and prepare release artifacts.
 
 Constraints/Assumptions:
 - Use RepoPrompt MCP for repo context before starting work.
@@ -39,12 +39,14 @@ State:
     - Fixed `serve` command to retain daemon handle so the daemon stays alive; rebuilt CLI.
     - Daemon started on 127.0.0.1:8788 with relay on 127.0.0.1:8787; ports confirmed listening.
   - Now:
-    - Docs/README/architecture updated; extension/daemon tested via CLI and ready for PR.
+    - Auto-install daemon on first install implemented; docs/version updated; tests and packaging re-run.
   - Next:
-    - Publish PR (push branch and open PR with summary + tests).
+    - Commit latest changes and update PR.
+    - Provide release/publish commands for GitHub + NPM (user-run).
 
 Open questions (UNCONFIRMED if needed):
-- Any remaining gaps vs autostart/spec/expansion plan docs? (UNCONFIRMED - needs review)
+- Which version bump should we ship (patch vs minor)? (UNCONFIRMED)
+- Should auto-install be opt-out or always-on for CLI install? (UNCONFIRMED)
 
 Working set (files/ids/commands):
 - `src/cli/daemon-autostart.ts`
