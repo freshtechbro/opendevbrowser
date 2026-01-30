@@ -39,9 +39,8 @@ State:
     - Fixed `serve` command to retain daemon handle so the daemon stays alive; rebuilt CLI.
     - Daemon started on 127.0.0.1:8788 with relay on 127.0.0.1:8787; ports confirmed listening.
   - Now:
-    - Auto-install daemon on first install implemented; docs/version updated; tests and packaging re-run.
+    - Auto-install daemon on first install implemented; docs/version updated; tests/packaging re-run; PR opened.
   - Next:
-    - Commit latest changes and update PR.
     - Provide release/publish commands for GitHub + NPM (user-run).
 
 Open questions (UNCONFIRMED if needed):
