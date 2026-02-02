@@ -176,7 +176,7 @@ describe("tools", () => {
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ noExtension: true } as never));
     expect(launchResult.warnings).toEqual(["warn"]);
 
-    const connectResult = parse(await tools.opendevbrowser_connect.execute({} as never));
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ host: "127.0.0.1" } as never));
     expect(connectResult.warnings).toEqual(["warn"]);
   });
 
@@ -199,7 +199,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -209,11 +209,25 @@ describe("tools", () => {
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
   });
 
+  it("uses legacy relay when extensionLegacy is set", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: true }),
+      getCdpUrl: () => "ws://relay-legacy"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionLegacy: true } as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay-legacy");
+  });
+
   it("uses observed status when local relay is disconnected", async () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -223,6 +237,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -239,7 +254,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -253,7 +268,7 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -268,14 +283,14 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("401 Unauthorized"));
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
 
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionOnly: true } as never));
     expect(launchResult.ok).toBe(false);
-    expect(String(launchResult.error?.message)).toContain("relay /cdp unauthorized");
+    expect(String(launchResult.error?.message)).toContain("relay /ops unauthorized");
   });
 
   it("falls back when relay connect fails", async () => {
@@ -283,7 +298,7 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -317,14 +332,14 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
 
     const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
     expect(launchResult.ok).toBe(false);
-    expect(String(launchResult.error?.message)).toContain("relayUrl=ws://127.0.0.1:8787/cdp");
+    expect(String(launchResult.error?.message)).toContain("relayUrl=ws://127.0.0.1:8787/ops");
   });
 
   it("adds relayUrl_null hint when relay URL cannot be resolved", async () => {
@@ -332,7 +347,7 @@ describe("tools", () => {
     deps.config.set({ ...deps.config.get(), relayPort: 0 });
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -349,7 +364,7 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
     const relay = {
       status: () => ({ extensionConnected: false, instanceId: "local-12345678" }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -359,6 +374,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: true
       })
@@ -377,7 +393,7 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
     const relay = {
       status: () => ({ extensionConnected: true, instanceId: "local-aaaaaaaa" }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -387,6 +403,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: true
       })
@@ -409,7 +426,7 @@ describe("tools", () => {
         instanceId: "local-12345678",
         port: 8787
       }),
-      getCdpUrl: () => "ws://relay",
+      getOpsUrl: () => "ws://relay",
       refresh: vi.fn().mockResolvedValue(undefined)
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -420,6 +437,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: false,
         extensionHandshakeComplete: false,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -442,7 +460,7 @@ describe("tools", () => {
         instanceId: "local-aaaaaaaa",
         port: 8787
       }),
-      getCdpUrl: () => "ws://relay",
+      getOpsUrl: () => "ws://relay",
       refresh: vi.fn().mockResolvedValue(undefined)
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -453,6 +471,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: false,
         extensionHandshakeComplete: false,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -471,7 +490,7 @@ describe("tools", () => {
     const ensureHub = vi.fn().mockResolvedValue(undefined);
     const relay = {
       status: vi.fn().mockReturnValue({ extensionConnected: false, instanceId: "local-12345678" }),
-      getCdpUrl: () => "ws://relay",
+      getOpsUrl: () => "ws://relay",
       refresh: vi.fn().mockResolvedValue(undefined)
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -482,6 +501,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -499,7 +519,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("fetch failed")));
     const { createTools } = await import("../src/tools");
@@ -514,7 +534,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", undefined as unknown as typeof fetch);
     const { createTools } = await import("../src/tools");
@@ -529,7 +549,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -547,7 +567,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -556,6 +576,7 @@ describe("tools", () => {
         running: true,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: true
       })
@@ -573,7 +594,7 @@ describe("tools", () => {
     deps.config.set({ ...deps.config.get(), relayPort: 0 });
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -587,7 +608,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false, port: 5555 }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -601,7 +622,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -614,7 +635,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -632,7 +653,7 @@ describe("tools", () => {
     let currentRelayUrl: string | null = null;
     const relay = {
       status: () => ({ extensionConnected: connected, extensionHandshakeComplete: connected, port: 8787 }),
-      getCdpUrl: () => currentRelayUrl
+      getOpsUrl: () => currentRelayUrl
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -651,7 +672,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: vi.fn().mockReturnValue({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
-      getCdpUrl: vi.fn().mockReturnValue("ws://relay")
+      getOpsUrl: vi.fn().mockReturnValue("ws://relay")
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -659,14 +680,14 @@ describe("tools", () => {
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ waitForExtension: true } as never));
     expect(launchResult.mode).toBe("extension");
     expect(relay.status).toHaveBeenCalled();
-    expect(relay.getCdpUrl).toHaveBeenCalled();
+    expect(relay.getOpsUrl).toHaveBeenCalled();
   });
 
   it("waits for extension using observed status", async () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false, port: 8787 }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -676,6 +697,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -693,7 +715,7 @@ describe("tools", () => {
     deps.config.set({ ...deps.config.get(), relayPort: 8787 });
     const relay = {
       status: () => ({ extensionConnected: false, extensionHandshakeComplete: false }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -703,6 +725,7 @@ describe("tools", () => {
         port: 9999,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -712,7 +735,7 @@ describe("tools", () => {
 
     const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
     expect(launchResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:9999/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:9999/ops");
   });
 
   it("falls back to relayUrl after wait when relay URL remains null", async () => {
@@ -722,7 +745,7 @@ describe("tools", () => {
       let connected = false;
       const relay = {
         status: () => ({ extensionConnected: connected, extensionHandshakeComplete: connected, port: 8787 }),
-        getCdpUrl: () => null
+        getOpsUrl: () => null
       };
       const { createTools } = await import("../src/tools");
       const tools = createTools({ ...deps, relay } as never);
@@ -733,7 +756,7 @@ describe("tools", () => {
 
       const launchResult = parse(await launchPromise);
       expect(launchResult.mode).toBe("extension");
-      expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+      expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
     } finally {
       vi.useRealTimers();
     }
@@ -743,7 +766,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -757,7 +780,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false, extensionHandshakeComplete: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -773,7 +796,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -786,7 +809,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -796,18 +819,18 @@ describe("tools", () => {
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
   });
 
-  it("routes connect to relay for local /cdp wsEndpoint", async () => {
+  it("routes connect to relay for local /ops wsEndpoint", async () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
 
-    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787/cdp" } as never));
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787/ops" } as never));
     expect(connectResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
     expect(deps.manager.connect).not.toHaveBeenCalled();
   });
 
@@ -815,25 +838,25 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
 
     const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787" } as never));
     expect(connectResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
     expect(deps.manager.connect).not.toHaveBeenCalled();
   });
 
-  it("routes connect to relay for localhost /cdp", async () => {
+  it("routes connect to relay for localhost /ops", async () => {
     const deps = createDeps();
     const { createTools } = await import("../src/tools");
     const tools = createTools(deps as never);
 
-    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://localhost:8787/cdp" } as never));
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://localhost:8787/ops" } as never));
     expect(connectResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://localhost:8787/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://localhost:8787/ops");
     expect(deps.manager.connect).not.toHaveBeenCalled();
   });
 
@@ -844,8 +867,28 @@ describe("tools", () => {
 
     const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://localhost:8787" } as never));
     expect(connectResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://localhost:8787/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://localhost:8787/ops");
     expect(deps.manager.connect).not.toHaveBeenCalled();
+  });
+
+  it("rejects local /cdp wsEndpoint without legacy opt-in", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787/cdp" } as never));
+    expect(connectResult.ok).toBe(false);
+    expect(String(connectResult.error?.message)).toContain("extensionLegacy");
+  });
+
+  it("routes connect to relay for local /cdp with legacy opt-in", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787/cdp", extensionLegacy: true } as never));
+    expect(connectResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
   });
 
   it("does not route connect to relay for non-local /cdp", async () => {
@@ -928,7 +971,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => { throw new Error("boom"); },
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);

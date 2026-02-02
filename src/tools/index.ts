@@ -38,6 +38,7 @@ import { createClonePageTool } from "./clone_page";
 import { createCloneComponentTool } from "./clone_component";
 import { createPerfTool } from "./perf";
 import { createScreenshotTool } from "./screenshot";
+import { createAnnotateTool } from "./annotate";
 import { createSkillListTool } from "./skill_list";
 import { createSkillLoadTool } from "./skill_load";
 
@@ -96,6 +97,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_clone_component: wrap(createCloneComponentTool(deps)),
     opendevbrowser_perf: wrap(createPerfTool(deps)),
     opendevbrowser_screenshot: wrap(createScreenshotTool(deps)),
+    opendevbrowser_annotate: wrap(createAnnotateTool(deps)),
     opendevbrowser_skill_list: wrap(createSkillListTool(deps)),
     opendevbrowser_skill_load: wrap(createSkillLoadTool(deps))
   };

@@ -8,6 +8,8 @@ describe("RemoteRelay", () => {
       extensionConnected: true,
       extensionHandshakeComplete: true,
       cdpConnected: false,
+      annotationConnected: false,
+      opsConnected: false,
       pairingRequired: true,
       instanceId: "relay-1",
       epoch: 1,
@@ -18,6 +20,8 @@ describe("RemoteRelay", () => {
       call: vi.fn()
         .mockResolvedValueOnce(status)
         .mockResolvedValueOnce("ws://127.0.0.1:8787/cdp")
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
     };
 
     const relay = new RemoteRelay(client as never);

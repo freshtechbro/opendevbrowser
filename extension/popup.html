@@ -285,10 +285,95 @@
         transform: translateY(0);
       }
 
+      .secondary {
+        width: 100%;
+        padding: 9px 10px;
+        border-radius: 12px;
+        border: 1px solid var(--stroke);
+        background: var(--panel-strong);
+        color: var(--text);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .secondary:hover {
+        transform: translateY(-1px);
+        border-color: rgba(32, 213, 198, 0.4);
+        box-shadow: 0 10px 22px rgba(32, 213, 198, 0.12);
+      }
+
+      .secondary:active {
+        transform: translateY(0);
+      }
+
+      .secondary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
+      }
+
       .field-note {
         font-size: 10px;
         color: var(--muted);
         margin-top: 6px;
+      }
+
+      .panel-title {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.24em;
+        color: var(--muted);
+      }
+
+      .health-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .health-item {
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--stroke);
+        background: var(--panel-strong);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .health-label {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        color: var(--muted);
+      }
+
+      .health-value {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+      }
+
+      .health-value[data-tone="ok"] {
+        color: var(--accent);
+      }
+
+      .health-value[data-tone="warn"] {
+        color: #f6c56f;
+      }
+
+      .health-value[data-tone="off"] {
+        color: var(--muted);
+      }
+
+      .button-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -358,6 +443,54 @@
           <label for="pairingToken">Pairing token</label>
           <input id="pairingToken" type="text" placeholder="Enter token or enable auto-pair" />
           <div id="statusNote" class="field-note">Local relay only. Tokens stay on-device.</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">Diagnostics</div>
+        <div class="health-grid">
+          <div class="health-item">
+            <div class="health-label">Relay</div>
+            <div id="healthRelay" class="health-value" data-tone="off">Unknown</div>
+          </div>
+          <div class="health-item">
+            <div class="health-label">Handshake</div>
+            <div id="healthHandshake" class="health-value" data-tone="off">Unknown</div>
+          </div>
+          <div class="health-item">
+            <div class="health-label">Annotate</div>
+            <div id="healthAnnotation" class="health-value" data-tone="off">Unknown</div>
+          </div>
+          <div class="health-item">
+            <div class="health-label">Injected</div>
+            <div id="healthInjected" class="health-value" data-tone="off">Unknown</div>
+          </div>
+          <div class="health-item">
+            <div class="health-label">CDP</div>
+            <div id="healthCdp" class="health-value" data-tone="off">Unknown</div>
+          </div>
+          <div class="health-item">
+            <div class="health-label">Pairing</div>
+            <div id="healthPairing" class="health-value" data-tone="off">Unknown</div>
+          </div>
+          <div class="health-item">
+            <div class="health-label">Native</div>
+            <div id="healthNative" class="health-value" data-tone="off">Unknown</div>
+          </div>
+        </div>
+        <div id="healthNote" class="field-note">Health check pending.</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">Annotation</div>
+        <div class="field">
+          <label for="annotationContext">Request</label>
+          <input id="annotationContext" type="text" placeholder="Optional context for this review" />
+          <div id="annotationNote" class="field-note">No annotations captured yet.</div>
+        </div>
+        <div class="button-row">
+          <button id="annotationStart" class="secondary">Annotate</button>
+          <button id="annotationCopy" class="secondary" disabled>Copy payload</button>
         </div>
       </section>
 

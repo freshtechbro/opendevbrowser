@@ -41,7 +41,7 @@ export type AutostartDeps = {
 
 const defaultDeps = (): Required<AutostartDeps> => ({
   platform: process.platform,
-  argv1: process.argv[1],
+  argv1: process.argv[1] ?? "",
   moduleUrl: import.meta.url,
   uid: typeof process.getuid === "function" ? process.getuid() : 0,
   homedir,

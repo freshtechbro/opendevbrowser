@@ -14,6 +14,8 @@ import { extractCss } from "../export/css-extract";
 import { emitReactComponent, type ReactExport } from "../export/react-emitter";
 import { RefStore } from "../snapshot/refs";
 import { Snapshotter } from "../snapshot/snapshotter";
+import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
+import { ensureLocalEndpoint } from "../utils/endpoint-validation";
 import { SessionStore, type BrowserMode } from "./session-store";
 import { TargetManager, type TargetInfo } from "./target-manager";
 
@@ -199,7 +201,7 @@ export class BrowserManager {
   }
 
   async connectRelay(wsEndpoint: string): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
-    this.ensureLocalEndpoint(wsEndpoint);
+    ensureLocalEndpoint(wsEndpoint, this.config.security.allowNonLocalCdp);
     const { connectEndpoint, reportedEndpoint } = await this.resolveRelayEndpoints(wsEndpoint);
     return this.connectWithEndpoint(connectEndpoint, "extension", reportedEndpoint);
   }
@@ -297,6 +299,19 @@ export class BrowserManager {
     };
   }
 
+  async withPage<T>(
+    sessionId: string,
+    targetId: string | null,
+    fn: (page: Page) => Promise<T>
+  ): Promise<T> {
+    const managed = this.getManaged(sessionId);
+    const page = targetId ? managed.targets.getPage(targetId) : managed.targets.getActivePage();
+    if (managed.mode === "extension") {
+      await this.waitForExtensionTargetReady(page, "withPage");
+    }
+    return await fn(page);
+  }
+
   async listTargets(sessionId: string, includeUrls = false): Promise<{ activeTargetId: string | null; targets: TargetInfo[] }> {
     const managed = this.getManaged(sessionId);
     const targets = await managed.targets.listTargets(includeUrls);
@@ -315,11 +330,32 @@ export class BrowserManager {
     if (targetId) {
       managed.targets.setActiveTarget(targetId);
     } else {
-      const page = await managed.context.newPage();
-      targetId = managed.targets.registerPage(page, name);
-      managed.targets.setActiveTarget(targetId);
-      this.attachRefInvalidationForPage(managed, targetId, page);
-      created = true;
+      if (managed.mode === "extension") {
+        try {
+          const page = await this.createExtensionPage(managed, "page");
+          targetId = managed.targets.registerPage(page, name);
+          managed.targets.setActiveTarget(targetId);
+          this.attachRefInvalidationForPage(managed, targetId, page);
+          created = true;
+        } catch (error) {
+          if (!this.isDetachedFrameError(error)) {
+            throw error;
+          }
+          const activeTargetId = managed.targets.getActiveTargetId();
+          if (!activeTargetId) {
+            throw error;
+          }
+          managed.targets.setName(activeTargetId, name);
+          targetId = activeTargetId;
+          created = true;
+        }
+      } else {
+        const page = await managed.context.newPage();
+        targetId = managed.targets.registerPage(page, name);
+        managed.targets.setActiveTarget(targetId);
+        this.attachRefInvalidationForPage(managed, targetId, page);
+        created = true;
+      }
     }
 
     this.attachTrackers(managed);
@@ -356,6 +392,14 @@ export class BrowserManager {
     if (!targetId) {
       throw new Error(`Unknown page name: ${name}`);
     }
+    if (managed.mode === "extension") {
+      const entries = managed.targets.listPageEntries();
+      if (entries.length <= 1) {
+        managed.targets.removeName(name);
+        managed.refStore.clearTarget(targetId);
+        return;
+      }
+    }
     await managed.targets.closeTarget(targetId);
     managed.refStore.clearTarget(targetId);
     this.attachTrackers(managed);
@@ -378,6 +422,63 @@ export class BrowserManager {
 
   async newTarget(sessionId: string, url?: string): Promise<{ targetId: string }> {
     const managed = this.getManaged(sessionId);
+    if (managed.mode === "extension") {
+      const previousTargetId = managed.targets.getActiveTargetId();
+      let createdTargetId: string | null = null;
+      try {
+        const page = await this.createExtensionPage(managed, "target-new");
+        const targetId = managed.targets.registerPage(page);
+        createdTargetId = targetId;
+        this.attachRefInvalidationForPage(managed, targetId, page);
+        if (url) {
+          await this.waitForExtensionTargetReady(page, "target-new");
+          try {
+            await page.goto(url, { waitUntil: "load" });
+          } catch (error) {
+            if (!this.isDetachedFrameError(error)) {
+              throw error;
+            }
+            await delay(200);
+            await this.waitForExtensionTargetReady(page, "target-new");
+            await page.goto(url, { waitUntil: "load" });
+          }
+        }
+        managed.targets.setActiveTarget(targetId);
+        this.attachTrackers(managed);
+        return { targetId };
+      } catch (error) {
+        if (!this.isDetachedFrameError(error)) {
+          throw error;
+        }
+        if (createdTargetId) {
+          try {
+            await managed.targets.closeTarget(createdTargetId);
+          } catch {
+            // Best-effort cleanup; fall back to the existing tab.
+          }
+        }
+        const fallbackTargetId = previousTargetId ?? managed.targets.getActiveTargetId();
+        if (!fallbackTargetId) {
+          throw error;
+        }
+        managed.targets.setActiveTarget(fallbackTargetId);
+        const page = managed.targets.getPage(fallbackTargetId);
+        if (url) {
+          try {
+            await page.goto(url, { waitUntil: "load" });
+          } catch (retryError) {
+            if (!this.isDetachedFrameError(retryError)) {
+              throw retryError;
+            }
+            await delay(200);
+            await page.goto(url, { waitUntil: "load" });
+          }
+        }
+        this.attachTrackers(managed);
+        return { targetId: fallbackTargetId };
+      }
+    }
+
     const page = await managed.context.newPage();
     const targetId = managed.targets.registerPage(page);
     managed.targets.setActiveTarget(targetId);
@@ -391,6 +492,13 @@ export class BrowserManager {
 
   async closeTarget(sessionId: string, targetId: string): Promise<void> {
     const managed = this.getManaged(sessionId);
+    if (managed.mode === "extension") {
+      const entries = managed.targets.listPageEntries();
+      if (entries.length <= 1) {
+        managed.refStore.clearTarget(targetId);
+        return;
+      }
+    }
     await managed.targets.closeTarget(targetId);
     managed.refStore.clearTarget(targetId);
     this.attachTrackers(managed);
@@ -727,6 +835,72 @@ export class BrowserManager {
     }
   }
 
+  private async createExtensionPage(managed: ManagedSession, context: string): Promise<Page> {
+    try {
+      return await managed.context.newPage();
+    } catch (error) {
+      if (managed.mode !== "extension" || !this.isDetachedFrameError(error)) {
+        throw error;
+      }
+    }
+
+    await delay(200);
+
+    try {
+      return await managed.context.newPage();
+    } catch (error) {
+      throw this.describeExtensionFailure(context, error, managed);
+    }
+  }
+
+  private async waitForExtensionTargetReady(page: Page, context: string, timeoutMs = 5000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let lastError: string | null = null;
+
+    while (Date.now() < deadline) {
+      if (page.isClosed()) {
+        throw new Error(`EXTENSION_TARGET_READY_CLOSED: ${context} page closed before navigation.`);
+      }
+      try {
+        const frame = page.mainFrame();
+        if (!frame.isDetached()) {
+          const remaining = Math.max(250, Math.min(750, deadline - Date.now()));
+          await frame.waitForLoadState("domcontentloaded", { timeout: remaining });
+          return;
+        }
+      } catch (error) {
+        if (this.isDetachedFrameError(error)) {
+          lastError = error instanceof Error ? error.message : String(error);
+        } else if (error instanceof Error && error.name === "TimeoutError") {
+          // Continue polling until deadline.
+        } else {
+          throw error;
+        }
+      }
+      await delay(100);
+    }
+
+    const detail = lastError ? ` Last error: ${lastError}` : "";
+    throw new Error(`EXTENSION_TARGET_READY_TIMEOUT: ${context} exceeded ${timeoutMs}ms.${detail}`);
+  }
+
+  private isDetachedFrameError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("Frame has been detached");
+  }
+
+  private describeExtensionFailure(context: string, error: unknown, managed: ManagedSession): Error {
+    const message = error instanceof Error ? error.message : String(error);
+    let url: string | undefined;
+    try {
+      url = this.safePageUrl(managed.targets.getActivePage(), `BrowserManager.${context}`);
+    } catch {
+      url = undefined;
+    }
+    const urlInfo = url ? ` Active tab: ${url}.` : "";
+    return new Error(`Extension mode ${context} failed. Focus a stable http(s) tab and retry.${urlInfo} ${message}`);
+  }
+
   private attachTrackers(managed: ManagedSession): void {
     const activeTargetId = managed.targets.getActiveTargetId();
     if (!activeTargetId) return;
@@ -766,14 +940,14 @@ export class BrowserManager {
 
   private async resolveWsEndpoint(options: ConnectOptions): Promise<string> {
     if (options.wsEndpoint) {
-      this.ensureLocalEndpoint(options.wsEndpoint);
+      ensureLocalEndpoint(options.wsEndpoint, this.config.security.allowNonLocalCdp);
       return options.wsEndpoint;
     }
 
     const host = options.host ?? "127.0.0.1";
     const port = options.port ?? 9222;
     const url = `http://${host}:${port}/json/version`;
-    this.ensureLocalEndpoint(url);
+    ensureLocalEndpoint(url, this.config.security.allowNonLocalCdp);
 
     const response = await fetch(url);
     if (!response.ok) {
@@ -785,32 +959,9 @@ export class BrowserManager {
       throw new Error("webSocketDebuggerUrl missing from /json/version response");
     }
 
-    this.ensureLocalEndpoint(data.webSocketDebuggerUrl);
+    ensureLocalEndpoint(data.webSocketDebuggerUrl, this.config.security.allowNonLocalCdp);
 
     return data.webSocketDebuggerUrl;
-  }
-
-  private ensureLocalEndpoint(endpoint: string): void {
-    if (this.config.security.allowNonLocalCdp) return;
-    
-    const ALLOWED_PROTOCOLS = new Set(["ws:", "wss:", "http:", "https:"]);
-    const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-    
-    let parsed: URL;
-    try {
-      parsed = new URL(endpoint);
-    } catch {
-      throw new Error("Invalid CDP endpoint URL.");
-    }
-    
-    if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
-      throw new Error(`Disallowed protocol "${parsed.protocol}" for CDP endpoint. Allowed: ws, wss, http, https.`);
-    }
-    
-    const hostname = parsed.hostname.toLowerCase();
-    if (!LOCAL_HOSTNAMES.has(hostname) && !hostname.toLowerCase().startsWith("::ffff:127.")) {
-      throw new Error("Non-local CDP endpoints are disabled by default.");
-    }
   }
 
   private async connectWithEndpoint(
@@ -899,71 +1050,12 @@ export class BrowserManager {
   }
 
   private async resolveRelayEndpoints(wsEndpoint: string): Promise<{ connectEndpoint: string; reportedEndpoint: string }> {
-    const baseUrl = new URL(wsEndpoint);
-    baseUrl.search = "";
-    baseUrl.hash = "";
-
-    const httpProtocol = baseUrl.protocol === "wss:" ? "https:" : "http:";
-    const configBase = new URL(`${httpProtocol}//${baseUrl.hostname}:${baseUrl.port}`);
-    const configUrl = new URL("/config", configBase);
-    this.ensureLocalEndpoint(configUrl.toString());
-
-    const relayToken = typeof this.config.relayToken === "string" ? this.config.relayToken.trim() : "";
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (relayToken) {
-      headers.Authorization = `Bearer ${relayToken}`;
-    }
-
-    const configResponse = await fetch(configUrl.toString(), { headers });
-    if (!configResponse.ok) {
-      throw new Error("Failed to fetch relay config. Ensure the relay is running and reachable.");
-    }
-    const config = await configResponse.json() as { relayPort?: number; pairingRequired?: boolean; instanceId?: string };
-    const relayPort = typeof config.relayPort === "number" ? config.relayPort : null;
-    if (!relayPort || relayPort <= 0 || relayPort > 65535) {
-      throw new Error("Relay config missing relayPort. Ensure the relay is running.");
-    }
-
-    const relayWsBase = new URL(`${baseUrl.protocol}//${baseUrl.hostname}:${relayPort}/cdp`);
-    const reportedEndpoint = this.sanitizeWsEndpointForOutput(relayWsBase.toString());
-
-    const pairingRequired = Boolean(config.pairingRequired);
-    if (!pairingRequired) {
-      return { connectEndpoint: relayWsBase.toString(), reportedEndpoint };
-    }
-
-    const pairBase = new URL(`${httpProtocol}//${baseUrl.hostname}:${relayPort}`);
-    const pairUrl = new URL("/pair", pairBase);
-    this.ensureLocalEndpoint(pairUrl.toString());
-
-    const pairResponse = await fetch(pairUrl.toString(), { headers });
-    if (!pairResponse.ok) {
-      throw new Error("Failed to fetch relay pairing token. Ensure the relay is running.");
-    }
-    const pairData = await pairResponse.json() as { token?: string; instanceId?: string };
-    if (config.instanceId && typeof pairData.instanceId === "string" && pairData.instanceId !== config.instanceId) {
-      throw new Error("Relay pairing mismatch detected. Restart the plugin and retry.");
-    }
-    if (!pairData.token || typeof pairData.token !== "string") {
-      throw new Error("Relay pairing token missing from /pair response.");
-    }
-
-    const connectUrl = new URL(relayWsBase.toString());
-    connectUrl.searchParams.set("token", pairData.token);
-    return { connectEndpoint: connectUrl.toString(), reportedEndpoint };
+    const result = await resolveRelayEndpoint({ wsEndpoint, path: "cdp", config: this.config });
+    return { connectEndpoint: result.connectEndpoint, reportedEndpoint: result.reportedEndpoint };
   }
 
   private sanitizeWsEndpointForOutput(wsEndpoint: string): string {
-    try {
-      const url = new URL(wsEndpoint);
-      url.searchParams.delete("token");
-      url.searchParams.delete("pairingToken");
-      url.hash = "";
-      const value = url.toString();
-      return value.replace(/\?$/, "");
-    } catch {
-      return wsEndpoint;
-    }
+    return sanitizeWsEndpoint(wsEndpoint);
   }
 }
 

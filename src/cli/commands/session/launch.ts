@@ -14,6 +14,7 @@ type LaunchArgs = {
   extensionOnly?: boolean;
   waitForExtension?: boolean;
   waitTimeoutMs?: number;
+  extensionLegacy?: boolean;
 };
 
 function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
@@ -67,6 +68,10 @@ function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
     }
     if (arg === "--extension-only") {
       parsed.extensionOnly = true;
+      continue;
+    }
+    if (arg === "--extension-legacy") {
+      parsed.extensionLegacy = true;
       continue;
     }
     if (arg === "--wait-for-extension") {

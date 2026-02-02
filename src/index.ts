@@ -37,6 +37,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   let relay: RelayLike = core.relay;
   let manager = core.manager;
   let runner = core.runner;
+  let annotationManager = core.annotationManager;
   let hubStop: (() => Promise<void>) | null = null;
   let daemonClient: DaemonClient | null = null;
   const skillNudgeState = createSkillNudgeState();
@@ -57,6 +58,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
 
   const toolDeps: ToolDeps = {
     manager,
+    annotationManager,
     runner,
     config: configStore,
     skills,
@@ -70,6 +72,8 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     }
     manager = new RemoteManager(daemonClient);
     relay = new RemoteRelay(daemonClient);
+    annotationManager.setRelay(relay);
+    annotationManager.setBrowserManager(manager);
     runner = new ScriptRunner(manager);
     toolDeps.manager = manager;
     toolDeps.relay = relay;

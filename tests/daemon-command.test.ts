@@ -53,6 +53,7 @@ const buildArgs = (rawArgs: string[]): ParsedArgs => ({
   noInteractive: true,
   quiet: false,
   outputFormat: "json",
+  transport: "relay",
   skillsMode: "none",
   fullInstall: false,
   rawArgs

@@ -34,7 +34,11 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
       continue;
     }
     if (arg?.startsWith("--port=")) {
-      parsed.port = parseNumberFlag(arg.split("=", 2)[1], "--port", { min: 1, max: 65535 });
+      const value = arg.split("=", 2)[1];
+      if (!value) {
+        throw createUsageError("Missing value for --port");
+      }
+      parsed.port = parseNumberFlag(value, "--port", { min: 1, max: 65535 });
       continue;
     }
     if (arg === "--token") {
@@ -47,7 +51,11 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
       continue;
     }
     if (arg?.startsWith("--token=")) {
-      parsed.token = arg.split("=", 2)[1];
+      const value = arg.split("=", 2)[1];
+      if (!value) {
+        throw createUsageError("Missing value for --token");
+      }
+      parsed.token = value;
       continue;
     }
   }
@@ -92,7 +100,7 @@ export async function runServe(args: ParsedArgs) {
 
   return {
     success: true,
-    message: `Daemon running on 127.0.0.1:${state.port}`,
+    message: `Daemon running on 127.0.0.1:${state.port} (relay ${state.relayPort})`,
     data: { port: state.port, pid: state.pid, relayPort: state.relayPort },
     exitCode: null
   };

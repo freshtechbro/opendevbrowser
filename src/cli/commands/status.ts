@@ -1,7 +1,8 @@
 import type { ParsedArgs } from "../args";
-import { createUsageError } from "../errors";
+import { createUsageError, EXIT_DISCONNECTED } from "../errors";
 import { fetchDaemonStatusFromMetadata } from "../daemon-status";
 import { runSessionStatus } from "./session/status";
+import { getNativeStatusSnapshot } from "./native";
 
 type StatusArgs = {
   sessionId?: string;
@@ -41,18 +42,46 @@ export async function runStatus(args: ParsedArgs) {
     return runSessionStatus(args);
   }
 
+  if (!daemon && args.transport === "native") {
+    const nativeStatus = getNativeStatusSnapshot();
+    if (!nativeStatus.installed) {
+      return {
+        success: false,
+        message: "Native host not installed.",
+        data: nativeStatus,
+        exitCode: EXIT_DISCONNECTED
+      };
+    }
+    return {
+      success: true,
+      message: nativeStatus.extensionId
+        ? `Native host installed for extension ${nativeStatus.extensionId}.`
+        : "Native host installed.",
+      data: nativeStatus
+    };
+  }
+
   const daemonStatus = await fetchDaemonStatusFromMetadata();
   if (!daemonStatus) {
     throw createUsageError("Daemon not running. Start with `opendevbrowser serve`.");
   }
+
+  const nativeStatus = getNativeStatusSnapshot();
 
   const baseMessage = [
     `Daemon OK (pid=${daemonStatus.pid})`,
     `Relay: port=${daemonStatus.relay.port ?? "n/a"} ext=${daemonStatus.relay.extensionConnected ? "on" : "off"} ` +
       `handshake=${daemonStatus.relay.extensionHandshakeComplete ? "on" : "off"} ` +
       `cdp=${daemonStatus.relay.cdpConnected ? "on" : "off"} ` +
-      `pairing=${daemonStatus.relay.pairingRequired ? "on" : "off"}`,
-    "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, pairing=token required"
+      `annotate=${daemonStatus.relay.annotationConnected ? "on" : "off"} ` +
+      `ops=${daemonStatus.relay.opsConnected ? "on" : "off"} ` +
+      `pairing=${daemonStatus.relay.pairingRequired ? "on" : "off"} ` +
+      `health=${daemonStatus.relay.health?.reason ?? "n/a"}`,
+    `Native: ${nativeStatus.installed ? "installed" : "not installed"}${nativeStatus.extensionId ? ` (${nativeStatus.extensionId})` : ""}`,
+    daemonStatus.relay.lastHandshakeError
+      ? `Relay last handshake error: ${daemonStatus.relay.lastHandshakeError.code} (${daemonStatus.relay.lastHandshakeError.message})`
+      : "Relay last handshake error: none",
+    "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, annotate=annotation channel, ops=ops clients, pairing=token required, health=relay status"
   ].join("\n");
 
   const message = daemon || args.outputFormat !== "text"
@@ -65,6 +94,6 @@ export async function runStatus(args: ParsedArgs) {
   return {
     success: true,
     message,
-    data: daemonStatus
+    data: { ...daemonStatus, native: nativeStatus }
   };
 }

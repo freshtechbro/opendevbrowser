@@ -11,6 +11,8 @@ import { runUpdate } from "./commands/update";
 import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
 import { runServe } from "./commands/serve";
 import { runDaemonCommand } from "./commands/daemon";
+import { runNativeCommand } from "./commands/native";
+import { getAutostartStatus, installAutostart } from "./daemon-autostart";
 import { runScriptCommand } from "./commands/run";
 import { runSessionLaunch } from "./commands/session/launch";
 import { runSessionConnect } from "./commands/session/connect";
@@ -19,6 +21,7 @@ import { runStatus } from "./commands/status";
 import { runGoto } from "./commands/nav/goto";
 import { runWait } from "./commands/nav/wait";
 import { runSnapshot } from "./commands/nav/snapshot";
+import { runAnnotate } from "./commands/annotate";
 import { runClick } from "./commands/interact/click";
 import { runHover } from "./commands/interact/hover";
 import { runPress } from "./commands/interact/press";
@@ -265,6 +268,23 @@ async function main(): Promise<void> {
           ? installGlobal(args.withConfig)
           : installLocal(args.withConfig);
 
+        const maybeInstallAutostart = () => {
+          const status = getAutostartStatus();
+          if (!status.supported) {
+            return { status, installed: false, message: `Autostart not supported on ${status.platform}.` };
+          }
+          if (status.installed) {
+            return { status, installed: true, message: "Autostart already installed." };
+          }
+          try {
+            const result = installAutostart();
+            return { status: result, installed: result.installed, message: `Autostart installed (${result.platform}).` };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { status, installed: false, message };
+          }
+        };
+
         if (args.outputFormat !== "text") {
           const payload: Record<string, unknown> = {
             alreadyInstalled: result.alreadyInstalled
@@ -281,6 +301,14 @@ async function main(): Promise<void> {
               payload.extensionPath = extensionPath;
             } catch (error) {
               payload.extensionError = error instanceof Error ? error.message : String(error);
+            }
+          }
+
+          if (result.success && !result.alreadyInstalled) {
+            const autostart = maybeInstallAutostart();
+            payload.autostart = autostart.status;
+            if (!autostart.installed) {
+              payload.autostartError = autostart.message;
             }
           }
 
@@ -317,6 +345,15 @@ async function main(): Promise<void> {
         }
 
         if (result.success && !result.alreadyInstalled) {
+          const autostart = maybeInstallAutostart();
+          if (autostart.installed) {
+            log(autostart.message);
+          } else {
+            warn(`Autostart install skipped: ${autostart.message}`);
+          }
+        }
+
+        if (result.success && !result.alreadyInstalled) {
           log("\nNext steps:");
           log("  1. Start or restart OpenCode");
           log("  2. Use opendevbrowser_status to verify the plugin is loaded");
@@ -337,6 +374,12 @@ async function main(): Promise<void> {
       name: "daemon",
       description: "Install/uninstall/status daemon auto-start",
       run: async () => runDaemonCommand(args)
+    });
+
+    registerCommand({
+      name: "native",
+      description: "Install/uninstall/status native messaging host",
+      run: async () => runNativeCommand(args)
     });
 
     registerCommand({
@@ -385,6 +428,12 @@ async function main(): Promise<void> {
       name: "snapshot",
       description: "Capture a snapshot of the active page",
       run: async () => runSnapshot(args)
+    });
+
+    registerCommand({
+      name: "annotate",
+      description: "Request interactive annotations (extension relay)",
+      run: async () => runAnnotate(args)
     });
 
     registerCommand({

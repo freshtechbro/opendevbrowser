@@ -5,6 +5,11 @@ import {
   releaseRelay,
   renewRelay,
   requireBinding,
+  registerSessionLease,
+  getSessionLease,
+  requireSessionLease,
+  releaseSessionLease,
+  touchSessionLease,
   getBindingRenewConfig,
   getHubInstanceId
 } from "./daemon-state";
@@ -24,6 +29,10 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return core.relay.status();
     case "relay.cdpUrl":
       return core.relay.getCdpUrl();
+    case "relay.annotationUrl":
+      return core.relay.getAnnotationUrl?.() ?? null;
+    case "relay.opsUrl":
+      return core.relay.getOpsUrl?.() ?? null;
     case "relay.bind": {
       const clientId = requireClientId(params);
       const binding = bindRelay(clientId);
@@ -72,51 +81,82 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     case "session.disconnect":
       return disconnectSession(core, params, requireClientId(params), bindingId);
     case "session.status":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.status(requireString(params.sessionId, "sessionId"));
+    case "annotate": {
+      const sessionId = requireString(params.sessionId, "sessionId");
+      const clientId = requireClientId(params);
+      const status = await core.manager.status(sessionId);
+      const transport = requireAnnotationTransport(params.transport);
+      if (status.mode === "extension") {
+        requireBinding(clientId, bindingId);
+      }
+      if (transport === "relay" && status.mode !== "extension") {
+        throw new Error("Relay annotations require extension mode.");
+      }
+      const url = optionalString(params.url);
+      const targetId = optionalString(params.targetId);
+      const tabId = optionalNumber(params.tabId, "tabId");
+      const screenshotMode = requireScreenshotMode(params.screenshotMode);
+      const debug = optionalBoolean(params.debug) ?? false;
+      const context = optionalString(params.context);
+      const timeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
+      return core.annotationManager.requestAnnotation({
+        sessionId,
+        transport,
+        targetId,
+        tabId,
+        url,
+        screenshotMode,
+        debug,
+        context,
+        timeoutMs
+      });
+    }
     case "targets.list":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.listTargets(
         requireString(params.sessionId, "sessionId"),
         optionalBoolean(params.includeUrls) ?? false
       );
     case "targets.use":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.useTarget(
         requireString(params.sessionId, "sessionId"),
         requireString(params.targetId, "targetId")
       );
     case "targets.new":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.newTarget(
         requireString(params.sessionId, "sessionId"),
         optionalString(params.url)
       );
     case "targets.close":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       await core.manager.closeTarget(
         requireString(params.sessionId, "sessionId"),
         requireString(params.targetId, "targetId")
       );
       return { ok: true };
     case "page.open":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.page(
         requireString(params.sessionId, "sessionId"),
         requireString(params.name, "name"),
         optionalString(params.url)
       );
     case "page.list":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.listPages(requireString(params.sessionId, "sessionId"));
     case "page.close":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       await core.manager.closePage(
         requireString(params.sessionId, "sessionId"),
         requireString(params.name, "name")
       );
       return { ok: true };
     case "nav.goto":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.goto(
         requireString(params.sessionId, "sessionId"),
         requireString(params.url, "url"),
@@ -124,7 +164,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
       );
     case "nav.wait":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       if (typeof params.ref === "string") {
         return core.manager.waitForRef(
           requireString(params.sessionId, "sessionId"),
@@ -139,7 +179,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
       );
     case "nav.snapshot":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.snapshot(
         requireString(params.sessionId, "sessionId"),
         requireSnapshotMode(params.mode),
@@ -147,38 +187,38 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalString(params.cursor)
       );
     case "interact.click":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.click(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "interact.hover":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.hover(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "interact.press":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.press(
         requireString(params.sessionId, "sessionId"),
         requireString(params.key, "key"),
         optionalString(params.ref)
       );
     case "interact.check":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.check(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "interact.uncheck":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.uncheck(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "interact.type":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.type(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
@@ -187,97 +227,97 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalBoolean(params.submit) ?? false
       );
     case "interact.select":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.select(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
         requireStringArray(params.values, "values")
       );
     case "interact.scroll":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.scroll(
         requireString(params.sessionId, "sessionId"),
         optionalNumber(params.dy, "dy") ?? 0,
         optionalString(params.ref)
       );
     case "interact.scrollIntoView":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.scrollIntoView(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "dom.getHtml":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetHtml(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
         optionalNumber(params.maxChars, "maxChars") ?? 8000
       );
     case "dom.getText":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetText(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
         optionalNumber(params.maxChars, "maxChars") ?? 8000
       );
     case "dom.getAttr":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetAttr(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
         requireString(params.name, "name")
       );
     case "dom.getValue":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetValue(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "dom.isVisible":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domIsVisible(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "dom.isEnabled":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domIsEnabled(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "dom.isChecked":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domIsChecked(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "export.clonePage":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.clonePage(requireString(params.sessionId, "sessionId"));
     case "export.cloneComponent":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.cloneComponent(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref")
       );
     case "devtools.perf":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.perfMetrics(requireString(params.sessionId, "sessionId"));
     case "page.screenshot":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.screenshot(
         requireString(params.sessionId, "sessionId"),
         optionalString(params.path)
       );
     case "devtools.consolePoll":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.consolePoll(
         requireString(params.sessionId, "sessionId"),
         optionalNumber(params.sinceSeq, "sinceSeq"),
         optionalNumber(params.max, "max") ?? 50
       );
     case "devtools.networkPoll":
-      await requireBindingForSession(core, params, bindingId);
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.networkPoll(
         requireString(params.sessionId, "sessionId"),
         optionalNumber(params.sinceSeq, "sinceSeq"),
@@ -295,7 +335,8 @@ async function launchWithRelay(
   bindingId?: string
 ) {
   let relayStatus = core.relay.status();
-  let relayUrl = core.relay.getCdpUrl();
+  const extensionLegacy = optionalBoolean(params.extensionLegacy) ?? false;
+  let relayUrl = extensionLegacy ? core.relay.getCdpUrl() : core.relay.getOpsUrl?.() ?? null;
   const relayPort = core.config.relayPort;
   const noExtension = optionalBoolean(params.noExtension) ?? false;
   const extensionOnly = optionalBoolean(params.extensionOnly) ?? false;
@@ -305,7 +346,7 @@ async function launchWithRelay(
   const managedHeadless = headlessExplicit ? true : false;
   const waitTimeoutMs = clampWaitTimeout(optionalNumber(params.waitTimeoutMs, "waitTimeoutMs") ?? 30000);
 
-  if (!managedExplicit) {
+  if (!managedExplicit && extensionLegacy) {
     requireBinding(clientId, bindingId);
   }
 
@@ -314,7 +355,7 @@ async function launchWithRelay(
     const connected = await waitForRelayHandshake(core.relay, observedPort, waitTimeoutMs);
     if (connected) {
       relayStatus = core.relay.status();
-      relayUrl = core.relay.getCdpUrl() ?? relayUrl;
+      relayUrl = extensionLegacy ? core.relay.getCdpUrl() ?? relayUrl : core.relay.getOpsUrl?.() ?? relayUrl;
     }
   }
 
@@ -323,7 +364,7 @@ async function launchWithRelay(
   const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
   if (!relayUrl) {
     const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
-    relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/cdp` : null;
+    relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/${extensionLegacy ? "cdp" : "ops"}` : null;
   }
   const extensionReady = Boolean(
     relayUrl && (
@@ -334,7 +375,7 @@ async function launchWithRelay(
     )
   );
   const diagnostics = observedStatus
-    ? `Diagnostics: relayPort=${observedPort ?? "?"} instance=${observedStatus.instanceId.slice(0, 8)} ext=${observedStatus.extensionConnected} handshake=${observedStatus.extensionHandshakeComplete} cdp=${observedStatus.cdpConnected}`
+    ? `Diagnostics: relayPort=${observedPort ?? "?"} instance=${observedStatus.instanceId.slice(0, 8)} ext=${observedStatus.extensionConnected} handshake=${observedStatus.extensionHandshakeComplete} ops=${observedStatus.opsConnected} cdp=${observedStatus.cdpConnected}`
     : null;
   const missingReason = diagnostics ? `Extension not connected. ${diagnostics}` : "Extension not connected.";
 
@@ -348,12 +389,17 @@ async function launchWithRelay(
     }
     try {
       const result = await core.manager.connectRelay(relayUrl);
-      return { ...result, warnings: result.warnings ?? [] };
+      const leaseId = extractLeaseId(result);
+      if (result.mode === "extension" && leaseId) {
+        registerSessionLease(result.sessionId, leaseId, clientId);
+      }
+      return { ...result, warnings: result.warnings ?? [], ...(leaseId ? { leaseId } : {}) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const unauthorized = message.toLowerCase().includes("unauthorized") || message.includes("401");
+      const relayLabel = extensionLegacy ? "/cdp" : "/ops";
       const reason = unauthorized
-        ? "Extension relay connection failed: relay /cdp unauthorized (token mismatch)."
+        ? `Extension relay connection failed: relay ${relayLabel} unauthorized (token mismatch).`
         : `Extension relay connection failed: ${message}`;
       throw new Error(buildExtensionMissingMessage(reason));
     }
@@ -374,7 +420,11 @@ async function launchWithRelay(
   }
 }
 
-function normalizeRelayEndpoint(wsEndpoint: string | undefined): string | null {
+function normalizeRelayEndpoint(
+  wsEndpoint: string | undefined,
+  path: "cdp" | "ops",
+  allowBase: boolean
+): string | null {
   if (!wsEndpoint) return null;
   try {
     const url = new URL(wsEndpoint);
@@ -382,8 +432,9 @@ function normalizeRelayEndpoint(wsEndpoint: string | undefined): string | null {
     if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return null;
     if (!url.port || !/^\d+$/.test(url.port)) return null;
     const normalizedPath = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
-    if (normalizedPath && normalizedPath !== "/cdp") return null;
-    return `${url.protocol}//${url.hostname}:${url.port}/cdp`;
+    if (!allowBase && normalizedPath === "") return null;
+    if (normalizedPath && normalizedPath !== `/${path}`) return null;
+    return `${url.protocol}//${url.hostname}:${url.port}/${path}`;
   } catch {
     return null;
   }
@@ -396,13 +447,31 @@ async function connectWithRelayRouting(
   bindingId?: string
 ) {
   const wsEndpoint = optionalString(params.wsEndpoint);
-  const relayUrl = core.relay.getCdpUrl();
-  const normalizedRelayEndpoint = normalizeRelayEndpoint(wsEndpoint);
-  const relayEndpoint = relayUrl && wsEndpoint === relayUrl ? relayUrl : normalizedRelayEndpoint;
+  const extensionLegacy = optionalBoolean(params.extensionLegacy) ?? false;
+  const relayUrl = extensionLegacy ? core.relay.getCdpUrl() : core.relay.getOpsUrl?.() ?? null;
+  const normalizedOpsEndpoint = normalizeRelayEndpoint(wsEndpoint, "ops", true);
+  const normalizedLegacyEndpoint = normalizeRelayEndpoint(wsEndpoint, "cdp", false);
+  const relayEndpoint = relayUrl && wsEndpoint === relayUrl ? relayUrl : normalizedOpsEndpoint ?? (extensionLegacy ? normalizedLegacyEndpoint : null);
 
-  if (relayEndpoint) {
-    requireBinding(clientId, bindingId);
-    return core.manager.connectRelay(relayEndpoint);
+  const hasExplicitCdp = Boolean(wsEndpoint || params.host || params.port);
+  if (normalizedLegacyEndpoint && !extensionLegacy) {
+    throw new Error("Legacy extension relay (/cdp) requires --extension-legacy.");
+  }
+
+  if (relayEndpoint || (!hasExplicitCdp && relayUrl)) {
+    if (extensionLegacy) {
+      requireBinding(clientId, bindingId);
+    }
+    const result = await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
+    const leaseId = extractLeaseId(result);
+    if (result.mode === "extension" && leaseId) {
+      registerSessionLease(result.sessionId, leaseId, clientId);
+    }
+    return { ...result, ...(leaseId ? { leaseId } : {}) };
+  }
+
+  if (!hasExplicitCdp) {
+    throw new Error("Extension relay not available. Connect the extension or pass --cdp-port/--ws-endpoint.");
   }
 
   return core.manager.connect({
@@ -421,9 +490,15 @@ async function disconnectSession(
   const sessionId = requireString(params.sessionId, "sessionId");
   const status = await core.manager.status(sessionId);
   if (status.mode === "extension") {
-    requireBinding(clientId, bindingId);
+    const lease = getSessionLease(sessionId);
+    if (lease) {
+      requireSessionLease(sessionId, clientId, optionalString(params.leaseId));
+    } else {
+      requireBinding(clientId, bindingId);
+    }
   }
   await core.manager.disconnect(sessionId, optionalBoolean(params.closeBrowser) ?? false);
+  releaseSessionLease(sessionId);
   if (status.mode === "extension" && bindingId) {
     releaseRelay(clientId, bindingId);
     return { ok: true, bindingReleased: true };
@@ -431,19 +506,56 @@ async function disconnectSession(
   return { ok: true };
 }
 
-async function requireBindingForSession(
+async function authorizeSessionCommand(
   core: OpenDevBrowserCore,
   params: Record<string, unknown>,
+  commandName: string,
   bindingId?: string
 ): Promise<void> {
   const sessionId = optionalString(params.sessionId);
   if (!sessionId) return;
+  const clientId = requireClientId(params);
+  const lease = getSessionLease(sessionId);
+  if (lease) {
+    const leaseId = optionalString(params.leaseId);
+    if (lease.clientId === clientId && leaseId === lease.leaseId) {
+      touchSessionLease(sessionId);
+      return;
+    }
+    if (isReadOnlyCommand(commandName)) {
+      return;
+    }
+    if (!leaseId) {
+      throw new Error("RELAY_LEASE_REQUIRED: leaseId is required for session operations.");
+    }
+    throw new Error("RELAY_LEASE_INVALID: Lease does not match session owner.");
+  }
   const status = await core.manager.status(sessionId);
   if (status.mode !== "extension") {
     return;
   }
-  const clientId = requireClientId(params);
   requireBinding(clientId, bindingId);
+}
+
+const READ_ONLY_COMMANDS = new Set([
+  "nav.snapshot",
+  "dom.getHtml",
+  "dom.getText",
+  "dom.getAttr",
+  "dom.getValue",
+  "dom.isVisible",
+  "dom.isEnabled",
+  "dom.isChecked"
+]);
+
+function isReadOnlyCommand(commandName: string): boolean {
+  return READ_ONLY_COMMANDS.has(commandName);
+}
+
+function extractLeaseId(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const leaseId = (result as Record<string, unknown>).leaseId;
+  return typeof leaseId === "string" ? leaseId : undefined;
 }
 
 function buildExtensionMissingMessage(reason: string): string {
@@ -451,11 +563,12 @@ function buildExtensionMissingMessage(reason: string): string {
     reason,
     "Connect the extension: open the Chrome extension popup and click Connect, then retry.",
     "Tip: If the popup says Connected, it may be connected to a different relay instance/port than the daemon expects.",
-    "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, pairing=token required.",
+    "Legend: ext=extension websocket, handshake=extension handshake, ops=active /ops client, cdp=active /cdp client, pairing=token required.",
     "",
     "Other options (explicit):",
     "- Managed (headed): npx opendevbrowser launch --no-extension",
     "- Managed (headless): npx opendevbrowser launch --no-extension --headless",
+    "- Legacy extension relay: npx opendevbrowser launch --extension-legacy",
     "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
     "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>",
     "Note: CDPConnect requires Chrome started with --remote-debugging-port=9222."
@@ -525,6 +638,23 @@ function requireWaitUntil(value: unknown): "domcontentloaded" | "load" | "networ
 function requireSnapshotMode(value: unknown): "outline" | "actionables" {
   if (value === "actionables") return "actionables";
   return "outline";
+}
+
+function requireScreenshotMode(value: unknown): "visible" | "full" | "none" {
+  if (value === "visible" || value === "full" || value === "none") {
+    return value;
+  }
+  return "visible";
+}
+
+function requireAnnotationTransport(value: unknown): "auto" | "direct" | "relay" {
+  if (value === "auto" || value === "direct" || value === "relay") {
+    return value;
+  }
+  if (typeof value === "undefined") {
+    return "auto";
+  }
+  throw new Error("Invalid transport");
 }
 
 function requireState(value: unknown): "attached" | "visible" | "hidden" {

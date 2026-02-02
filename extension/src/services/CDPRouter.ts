@@ -1,6 +1,7 @@
 import type { RelayCommand, RelayEvent, RelayResponse } from "../types.js";
 import { TabManager } from "./TabManager.js";
 import { TargetSessionMap, type TargetInfo, type DebuggerSession } from "./TargetSessionMap.js";
+import { logError } from "../logging.js";
 import {
   handleSetDiscoverTargets,
   handleSetAutoAttach,
@@ -16,7 +17,7 @@ import {
 type RelayCallbacks = {
   onEvent: (event: RelayEvent) => void;
   onResponse: (response: RelayResponse) => void;
-  onDetach: () => void;
+  onDetach: (detail?: { tabId?: number; reason?: string }) => void;
   onPrimaryTabChange?: (tabId: number | null) => void;
 };
 
@@ -37,11 +38,15 @@ export class CDPRouter {
   private primaryTabId: number | null = null;
   private lastActiveTabId: number | null = null;
   private sessionCounter = 1;
+  private readonly quarantinedSessions = new Map<string, { tabId: number; count: number; lastSeen: number }>();
+  private readonly churnTracker = new Map<number, { count: number; resetAt: number }>();
+  private readonly churnWindowMs = 5000;
+  private readonly churnThreshold = 3;
   private handleEventBound = (source: chrome.debugger.Debuggee, method: string, params?: object) => {
     this.handleEvent(source, method, params);
   };
-  private handleDetachBound = (source: chrome.debugger.Debuggee) => {
-    this.handleDetach(source);
+  private handleDetachBound = (source: chrome.debugger.Debuggee, reason?: string) => {
+    this.handleDetach(source, reason);
   };
 
   setCallbacks(callbacks: RelayCallbacks): void {
@@ -49,6 +54,10 @@ export class CDPRouter {
   }
 
   async attach(tabId: number): Promise<void> {
+    await this.attachInternal(tabId, true);
+  }
+
+  private async attachInternal(tabId: number, allowRetry: boolean): Promise<void> {
     if (this.debuggees.has(tabId)) {
       this.updatePrimaryTab(tabId);
       return;
@@ -81,6 +90,12 @@ export class CDPRouter {
         this.removeListeners();
       }
       await this.safeDetach(debuggee);
+      if (allowRetry && this.isStaleTabError(error)) {
+        const activeTabId = await this.tabManager.getActiveTabId();
+        if (activeTabId && activeTabId !== tabId) {
+          return await this.attachInternal(activeTabId, false);
+        }
+      }
       throw error;
     }
   }
@@ -97,7 +112,25 @@ export class CDPRouter {
 
     this.primaryTabId = null;
     this.lastActiveTabId = null;
-    this.callbacks?.onDetach();
+    this.callbacks?.onDetach({ reason: "manual_disconnect" });
+  }
+
+  async detachTab(tabId: number): Promise<void> {
+    const debuggee = this.debuggees.get(tabId);
+    if (!debuggee) {
+      return;
+    }
+    this.debuggees.delete(tabId);
+    this.detachTabState(tabId);
+    await this.safeDetach(debuggee);
+    if (this.debuggees.size === 0) {
+      this.removeListeners();
+      this.primaryTabId = null;
+      this.lastActiveTabId = null;
+    } else if (this.primaryTabId === tabId) {
+      this.updatePrimaryTab(this.selectFallbackPrimary());
+    }
+    this.callbacks?.onDetach({ tabId, reason: "manual_disconnect" });
   }
 
   getPrimaryTabId(): number | null {
@@ -134,6 +167,18 @@ export class CDPRouter {
       case "Browser.setDownloadBehavior":
         this.respond(command.id, {});
         return;
+      case "Target.getBrowserContexts":
+        this.respond(command.id, { browserContextIds: [DEFAULT_BROWSER_CONTEXT_ID] });
+        return;
+      case "Target.attachToBrowserTarget": {
+        const rootSession = await this.ensureRootSessionForPrimary();
+        if (!rootSession) {
+          this.respondError(command.id, "No tab attached");
+          return;
+        }
+        this.respond(command.id, { sessionId: rootSession.sessionId });
+        return;
+      }
       case "Target.sendMessageToTarget":
         this.respondError(command.id, DEPRECATED_SEND_MESSAGE);
         return;
@@ -235,6 +280,23 @@ export class CDPRouter {
     return typeof first === "number" ? { tabId: first } : null;
   }
 
+  private async ensureRootSessionForPrimary(): Promise<{ sessionId: string; targetInfo: TargetInfo } | null> {
+    const debuggee = this.getPrimaryDebuggee();
+    if (!debuggee || typeof debuggee.tabId !== "number") {
+      return null;
+    }
+    const existing = this.sessions.getByTabId(debuggee.tabId);
+    if (existing) {
+      return { sessionId: existing.rootSessionId, targetInfo: existing.targetInfo };
+    }
+    const targetInfo = await this.registerRootTab(debuggee.tabId);
+    const refreshed = this.sessions.getByTabId(debuggee.tabId);
+    if (!refreshed) {
+      return null;
+    }
+    return { sessionId: refreshed.rootSessionId, targetInfo: targetInfo ?? refreshed.targetInfo };
+  }
+
   private ensureListeners(): void {
     if (this.listenersActive) return;
     chrome.debugger.onEvent.addListener(this.handleEventBound);
@@ -258,8 +320,10 @@ export class CDPRouter {
         flatten: true
       });
       this.flatSessionValidated = true;
-    } catch {
-      throw new Error(FLAT_SESSION_ERROR);
+    } catch (error) {
+      const detail = getErrorMessage(error);
+      console.warn(`[opendevbrowser] Target.setAutoAttach(flatten) failed: ${detail}`);
+      throw new Error(`${FLAT_SESSION_ERROR} (${detail})`);
     }
   }
 
@@ -274,8 +338,10 @@ export class CDPRouter {
     }
     try {
       await this.sendCommand(debuggee, "Target.setAutoAttach", params);
-    } catch {
-      throw new Error(FLAT_SESSION_ERROR);
+    } catch (error) {
+      const detail = getErrorMessage(error);
+      console.warn(`[opendevbrowser] Target.setAutoAttach failed: ${detail}`);
+      throw new Error(`${FLAT_SESSION_ERROR} (${detail})`);
     }
   }
 
@@ -292,6 +358,52 @@ export class CDPRouter {
     await this.sendCommand({ tabId, sessionId }, "Target.setAutoAttach", params);
   }
 
+  private recordSessionChurn(tabId: number, sessionId: string, reason: string): void {
+    const now = Date.now();
+    const existing = this.churnTracker.get(tabId);
+    const record = !existing || now > existing.resetAt
+      ? { count: 0, resetAt: now + this.churnWindowMs }
+      : existing;
+    record.count += 1;
+    this.churnTracker.set(tabId, record);
+
+    const quarantined = this.quarantinedSessions.get(sessionId);
+    if (!quarantined) {
+      this.quarantinedSessions.set(sessionId, { tabId, count: 1, lastSeen: now });
+    }
+
+    if (record.count >= this.churnThreshold) {
+      this.churnTracker.delete(tabId);
+      this.reapplyAutoAttach(tabId, reason).catch((error) => {
+        logError("cdp.reapply_auto_attach", error, { code: "auto_attach_failed" });
+      });
+    }
+  }
+
+  private quarantineUnknownSession(tabId: number, sessionId: string, method: string): void {
+    const now = Date.now();
+    const existing = this.quarantinedSessions.get(sessionId);
+    if (existing) {
+      existing.count += 1;
+      existing.lastSeen = now;
+      return;
+    }
+    this.quarantinedSessions.set(sessionId, { tabId, count: 1, lastSeen: now });
+    this.recordSessionChurn(tabId, sessionId, `unknown_${method}`);
+  }
+
+  private async reapplyAutoAttach(tabId: number, reason: string): Promise<void> {
+    if (!this.autoAttachOptions.autoAttach) return;
+    const debuggee = this.debuggees.get(tabId);
+    if (!debuggee) return;
+    try {
+      await this.applyAutoAttach(debuggee);
+    } catch (error) {
+      const detail = getErrorMessage(error);
+      console.warn(`[opendevbrowser] Auto-attach retry failed (${reason}): ${detail}`);
+    }
+  }
+
   private handleEvent(source: chrome.debugger.Debuggee, method: string, params?: object): void {
     if (!this.callbacks) return;
     const tabId = typeof source.tabId === "number" ? source.tabId : null;
@@ -303,22 +415,38 @@ export class CDPRouter {
       const targetInfo = isTargetInfo(params.targetInfo) ? params.targetInfo : null;
       if (sessionId && targetInfo) {
         this.sessions.registerChildSession(tabId, targetInfo, sessionId);
-        this.applyAutoAttachToChild(tabId, sessionId).catch(() => {});
+        this.quarantinedSessions.delete(sessionId);
+        this.applyAutoAttachToChild(tabId, sessionId).catch((error) => {
+          logError("cdp.apply_auto_attach_child", error, { code: "auto_attach_failed" });
+        });
+      } else if (sessionId) {
+        this.recordSessionChurn(tabId, sessionId, "attach_missing_target");
       }
     }
 
     if (method === "Target.detachedFromTarget" && params && isRecord(params)) {
       const detachedSessionId = typeof params.sessionId === "string" ? params.sessionId : null;
       if (detachedSessionId) {
-        this.sessions.removeBySessionId(detachedSessionId);
+        const removed = this.sessions.removeBySessionId(detachedSessionId);
+        if (!removed) {
+          this.recordSessionChurn(tabId, detachedSessionId, "detach_unknown");
+          this.quarantineUnknownSession(tabId, detachedSessionId, method);
+          return;
+        }
       }
+    }
+
+    const sourceSessionId = (source as { sessionId?: string }).sessionId;
+    if (typeof sourceSessionId === "string" && !this.sessions.hasSession(sourceSessionId)) {
+      this.quarantineUnknownSession(tabId, sourceSessionId, method);
+      return;
     }
 
     const forwardSessionId = this.resolveForwardSessionId(method, source);
     this.emitEvent(method, params, forwardSessionId);
   }
 
-  private handleDetach(source: chrome.debugger.Debuggee): void {
+  private handleDetach(source: chrome.debugger.Debuggee, reason?: string): void {
     const tabId = typeof source.tabId === "number" ? source.tabId : null;
     if (tabId === null || !this.debuggees.has(tabId)) return;
     this.debuggees.delete(tabId);
@@ -326,7 +454,7 @@ export class CDPRouter {
 
     if (this.debuggees.size === 0) {
       this.removeListeners();
-      this.callbacks?.onDetach();
+      this.callbacks?.onDetach({ tabId, reason });
     }
   }
 
@@ -354,12 +482,13 @@ export class CDPRouter {
     }
     const sessionId = (source as { sessionId?: string }).sessionId;
     if (typeof sessionId === "string") {
-      return sessionId;
+      return this.sessions.getBySessionId(sessionId) ? sessionId : undefined;
     }
     const tabId = typeof source.tabId === "number" ? source.tabId : null;
     if (tabId === null) return undefined;
     const record = this.sessions.getByTabId(tabId);
-    return record?.rootSessionId;
+    if (!record) return undefined;
+    return this.rootAttachedSessions.has(record.rootSessionId) ? record.rootSessionId : undefined;
   }
 
   private async buildTargetInfo(tabId: number): Promise<TargetInfo> {
@@ -417,7 +546,7 @@ export class CDPRouter {
     return sessionId;
   }
 
-  private async sendCommand(debuggee: DebuggerSession, method: string, params: object): Promise<unknown> {
+  async sendCommand(debuggee: DebuggerSession, method: string, params: object): Promise<unknown> {
     return new Promise((resolve, reject) => {
       chrome.debugger.sendCommand(debuggee as chrome.debugger.Debuggee, method, params, (result) => {
         const lastError = chrome.runtime.lastError;
@@ -428,6 +557,11 @@ export class CDPRouter {
         resolve(result);
       });
     });
+  }
+
+  private isStaleTabError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("No tab with given id");
   }
 
   private async runDebuggerAction(action: (done: () => void) => void): Promise<void> {
@@ -448,8 +582,8 @@ export class CDPRouter {
       await this.runDebuggerAction((done) => {
         chrome.debugger.detach(debuggee, done);
       });
-    } catch {
-      // Ignore detach errors during cleanup.
+    } catch (error) {
+      logError("cdp.safe_detach", error, { code: "detach_failed" });
     }
   }
 
@@ -475,6 +609,13 @@ export class CDPRouter {
 
 const isTargetInfo = (value: unknown): value is TargetInfo => {
   return isRecord(value) && typeof value.targetId === "string" && typeof value.type === "string";
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Unknown error";
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {

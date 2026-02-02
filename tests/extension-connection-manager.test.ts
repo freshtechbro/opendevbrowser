@@ -9,6 +9,7 @@ const relayInstances: Array<{
   sendHandshake: ReturnType<typeof vi.fn>;
   sendEvent: ReturnType<typeof vi.fn>;
   sendResponse: ReturnType<typeof vi.fn>;
+  sendPing: ReturnType<typeof vi.fn>;
   isConnected: ReturnType<typeof vi.fn>;
   triggerClose: (detail?: { code?: number; reason?: string }) => void;
 }> = [];
@@ -22,10 +23,22 @@ vi.mock("../extension/src/services/RelayClient", () => ({
       type: "handshakeAck",
       payload: { instanceId: "test-relay", relayPort: 8787, pairingRequired: true }
     });
-    disconnect = vi.fn();
+    disconnect = vi.fn(() => {
+      this.handlers.onClose({ code: 1000, reason: "disconnect" });
+    });
     sendHandshake = vi.fn();
     sendEvent = vi.fn();
     sendResponse = vi.fn();
+    sendPing = vi.fn().mockResolvedValue({
+      ok: true,
+      reason: "ok",
+      extensionConnected: true,
+      extensionHandshakeComplete: true,
+      cdpConnected: false,
+      annotationConnected: false,
+      opsConnected: false,
+      pairingRequired: true
+    });
     isConnected = vi.fn(() => true);
     private handlers: { onClose: (detail?: { code?: number; reason?: string }) => void };
 
@@ -45,7 +58,7 @@ vi.mock("../extension/src/services/CDPRouter", () => ({
   CDPRouter: class CDPRouter {
     attachedTabs = new Set<number>();
     primaryTabId: number | null = null;
-    callbacks: { onPrimaryTabChange?: (tabId: number | null) => void } | null = null;
+    callbacks: { onPrimaryTabChange?: (tabId: number | null) => void; onDetach?: (detail?: { tabId?: number; reason?: string }) => void } | null = null;
     attach = vi.fn(async (tabId: number) => {
       if (attachShouldFail) {
         throw new Error("Attach failed");
@@ -57,12 +70,17 @@ vi.mock("../extension/src/services/CDPRouter", () => ({
       this.attachedTabs.clear();
       this.primaryTabId = null;
     });
-    setCallbacks = vi.fn((callbacks: { onPrimaryTabChange?: (tabId: number | null) => void }) => {
+    setCallbacks = vi.fn((callbacks: { onPrimaryTabChange?: (tabId: number | null) => void; onDetach?: (detail?: { tabId?: number; reason?: string }) => void }) => {
       this.callbacks = callbacks;
     });
     handleCommand = vi.fn(async () => undefined);
     getPrimaryTabId = vi.fn(() => this.primaryTabId);
     getAttachedTabIds = vi.fn(() => Array.from(this.attachedTabs));
+    triggerDetach = (detail?: { tabId?: number; reason?: string }) => {
+      this.attachedTabs.clear();
+      this.primaryTabId = null;
+      this.callbacks?.onDetach?.(detail);
+    };
   }
 }));
 
@@ -153,6 +171,34 @@ describe("ConnectionManager", () => {
     expect(relayInstances.length).toBeGreaterThan(1);
   });
 
+  it("reconnects after heartbeat timeout", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const first = relayInstances[0];
+    first.sendPing.mockRejectedValueOnce(new Error("Ping timeout"));
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(relayInstances.length).toBeGreaterThan(1);
+  });
+
+  it("reconnects after CDP detach without disabling reconnect", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const cdp = (manager as { cdp?: { triggerDetach?: (detail?: { reason?: string }) => void } }).cdp;
+    cdp?.triggerDetach?.({ reason: "target_closed" });
+
+    await vi.advanceTimersByTimeAsync(600);
+    expect(relayInstances.length).toBeGreaterThan(1);
+  });
+
   it("clears pairing token on invalid pairing close", async () => {
     const mock = createChromeMock({ pairingToken: "stale-token" });
     globalThis.chrome = mock.chrome;
@@ -163,6 +209,18 @@ describe("ConnectionManager", () => {
     const relay = relayInstances[0];
     relay.triggerClose({ code: 1008, reason: "Invalid pairing token" });
 
+    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ pairingToken: null, tokenEpoch: null });
+  });
+
+  it("clears stored relay identity when instance mismatches on reconnect", async () => {
+    const mock = createChromeMock({ relayInstanceId: "old-relay", relayEpoch: 1, pairingToken: "token" });
+    globalThis.chrome = mock.chrome;
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    expect(manager.getRelayNotice()).toMatch(/relay instance/i);
+    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ relayInstanceId: null, relayEpoch: null });
     expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ pairingToken: null, tokenEpoch: null });
   });
 

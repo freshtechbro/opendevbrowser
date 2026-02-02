@@ -110,6 +110,7 @@ export class DaemonClient {
   private renewTimer: NodeJS.Timeout | null = null;
   private readonly clientId: string;
   private readonly autoRenew: boolean;
+  private sessionLeases = new Map<string, string>();
 
   constructor(options: { clientId?: string; autoRenew?: boolean } = {}) {
     this.clientId = options.clientId ?? loadClientId();
@@ -118,11 +119,15 @@ export class DaemonClient {
 
   async call<T>(name: string, params: Record<string, unknown> = {}, options: CallOptions = {}): Promise<T> {
     try {
-      return await this.callWithBinding<T>(name, params, options);
+      const result = await this.callWithBinding<T>(name, params, options);
+      this.maybeTrackLease(name, params, result);
+      return result;
     } catch (error) {
       if (!options.requireBinding && isBindingRequiredError(error)) {
         await this.ensureBinding();
-        return await this.callWithBinding<T>(name, params, { ...options, requireBinding: true });
+        const result = await this.callWithBinding<T>(name, params, { ...options, requireBinding: true });
+        this.maybeTrackLease(name, params, result);
+        return result;
       }
       throw error;
     }
@@ -141,12 +146,33 @@ export class DaemonClient {
   private async callWithBinding<T>(name: string, params: Record<string, unknown>, options: CallOptions): Promise<T> {
     const requireBinding = options.requireBinding ?? false;
     const bindingId = requireBinding ? await this.ensureBinding() : this.binding?.bindingId;
+    const sessionId = typeof params.sessionId === "string" ? params.sessionId : undefined;
+    const leaseId = sessionId ? this.sessionLeases.get(sessionId) : undefined;
     const payload = {
       ...params,
       clientId: this.clientId,
-      ...(bindingId ? { bindingId } : {})
+      ...(bindingId ? { bindingId } : {}),
+      ...(leaseId ? { leaseId } : {})
     };
     return await this.callRaw<T>(name, payload, options.timeoutMs);
+  }
+
+  private maybeTrackLease<T>(name: string, params: Record<string, unknown>, result: T): void {
+    if (name === "session.disconnect") {
+      const sessionId = typeof params.sessionId === "string" ? params.sessionId : undefined;
+      if (sessionId) {
+        this.sessionLeases.delete(sessionId);
+      }
+      return;
+    }
+    if (name !== "session.launch" && name !== "session.connect") return;
+    if (!result || typeof result !== "object") return;
+    const record = result as Record<string, unknown>;
+    const sessionId = record.sessionId;
+    const leaseId = record.leaseId;
+    if (typeof sessionId === "string" && typeof leaseId === "string") {
+      this.sessionLeases.set(sessionId, leaseId);
+    }
   }
 
   private async ensureBinding(): Promise<string> {

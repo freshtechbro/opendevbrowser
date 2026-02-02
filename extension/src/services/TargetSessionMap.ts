@@ -27,6 +27,7 @@ export class TargetSessionMap {
   private readonly tabTargets = new Map<number, TargetRecord>();
   private readonly sessionsById = new Map<string, SessionRecord>();
   private readonly sessionByTarget = new Map<string, string>();
+  private readonly rootWaiters = new Map<number, Array<{ resolve: (session: SessionRecord) => void; reject: (error: Error) => void; timeoutId: number }>>();
 
   registerRootTab(tabId: number, targetInfo: TargetInfo, sessionId: string): SessionRecord {
     const record: TargetRecord = { tabId, targetInfo, rootSessionId: sessionId };
@@ -41,6 +42,7 @@ export class TargetSessionMap {
     };
     this.sessionsById.set(sessionId, session);
     this.sessionByTarget.set(targetInfo.targetId, sessionId);
+    this.resolveRootWaiters(tabId, session);
     return session;
   }
 
@@ -62,6 +64,10 @@ export class TargetSessionMap {
     return this.sessionsById.get(sessionId) ?? null;
   }
 
+  hasSession(sessionId: string): boolean {
+    return this.sessionsById.has(sessionId);
+  }
+
   getByTargetId(targetId: string): SessionRecord | null {
     const sessionId = this.sessionByTarget.get(targetId);
     if (!sessionId) {
@@ -74,6 +80,26 @@ export class TargetSessionMap {
     return this.tabTargets.get(tabId) ?? null;
   }
 
+  async waitForRootSession(tabId: number, timeoutMs: number = 2000): Promise<SessionRecord> {
+    const existing = this.getByTabId(tabId);
+    if (existing) {
+      const session = this.sessionsById.get(existing.rootSessionId);
+      if (session) {
+        return session;
+      }
+    }
+    return await new Promise<SessionRecord>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.rejectRootWaiter(tabId, timeoutId);
+        reject(new Error("Target attach timeout"));
+      }, timeoutMs);
+      const entry = { resolve, reject, timeoutId };
+      const waiters = this.rootWaiters.get(tabId) ?? [];
+      waiters.push(entry);
+      this.rootWaiters.set(tabId, waiters);
+    });
+  }
+
   listTargetInfos(): TargetInfo[] {
     const rootTargets = Array.from(this.tabTargets.values()).map((record) => record.targetInfo);
     const childTargets = Array.from(this.sessionsById.values())
@@ -84,6 +110,10 @@ export class TargetSessionMap {
 
   listTabIds(): number[] {
     return Array.from(this.tabTargets.keys());
+  }
+
+  listSessionIds(): string[] {
+    return Array.from(this.sessionsById.keys());
   }
 
   removeByTabId(tabId: number): TargetRecord | null {
@@ -126,5 +156,30 @@ export class TargetSessionMap {
       return null;
     }
     return this.removeBySessionId(sessionId);
+  }
+
+  private resolveRootWaiters(tabId: number, session: SessionRecord): void {
+    const waiters = this.rootWaiters.get(tabId);
+    if (!waiters || waiters.length === 0) {
+      return;
+    }
+    this.rootWaiters.delete(tabId);
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timeoutId);
+      waiter.resolve(session);
+    }
+  }
+
+  private rejectRootWaiter(tabId: number, timeoutId: number): void {
+    const waiters = this.rootWaiters.get(tabId);
+    if (!waiters || waiters.length === 0) {
+      return;
+    }
+    const remaining = waiters.filter((waiter) => waiter.timeoutId !== timeoutId);
+    if (remaining.length === 0) {
+      this.rootWaiters.delete(tabId);
+    } else {
+      this.rootWaiters.set(tabId, remaining);
+    }
   }
 }

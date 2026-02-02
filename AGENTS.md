@@ -1,6 +1,6 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-01-18 | **Commit:** af7d28d | **Branch:** main
+**Generated:** 2026-02-01 | **Commit:** 2869775 | **Branch:** main
 
 ## Overview
 
@@ -23,18 +23,18 @@ OpenCode plugin providing AI agents with browser automation via Chrome DevTools 
 │  bootstrap.ts → wires managers, injects ToolDeps                 │
 └────────┬────────────────────────────────────────────────────────┘
          │
-    ┌────┴────┬─────────────┬──────────────┬──────────────┐
-    ▼         ▼             ▼              ▼              ▼
-┌────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐
-│Browser │ │Script  │ │Snapshot  │ │  Relay     │ │  Skills    │
-│Manager │ │Runner  │ │Pipeline  │ │  Server    │ │  Loader    │
-└───┬────┘ └────────┘ └──────────┘ └─────┬──────┘ └────────────┘
-    │                                    │
-    ▼                                    ▼
-┌────────┐                        ┌────────────┐
-│Target  │                        │ Extension  │
-│Manager │                        │ (WS relay) │
-└────────┘                        └────────────┘
+    ┌────┴────┬─────────────┬──────────────┬──────────────┬──────────────┐
+    ▼         ▼             ▼              ▼              ▼              ▼
+┌────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+│Browser │ │Script  │ │Snapshot  │ │ Annotation │ │  Relay     │ │  Skills    │
+│Manager │ │Runner  │ │Pipeline  │ │  Manager   │ │  Server    │ │  Loader    │
+└───┬────┘ └────────┘ └──────────┘ └────────────┘ └─────┬──────┘ └────────────┘
+    │                                                  │
+    ▼                                                  ▼
+┌────────┐                                        ┌────────────┐
+│Target  │                                        │ Extension  │
+│Manager │                                        │ (WS relay) │
+└────────┘                                        └────────────┘
 ```
 
 ### Data Flow
@@ -62,7 +62,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 | `managed` | `--no-extension` | Fresh Playwright-controlled Chrome |
 | `cdpConnect` | `opendevbrowser_connect` | Attach to existing `--remote-debugging-port` |
 
-Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
+Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. Annotation relay uses a dedicated `/annotation` websocket channel. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
 
 ### Connection Flags & Status Semantics
 
@@ -88,11 +88,12 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 40 opendevbrowser_* tool definitions
+│   ├── tools/        # 41 opendevbrowser_* tool definitions
+│   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── skills/           # Bundled skill packs (5 total)
-├── tests/            # Vitest tests (95% coverage required)
+├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, plans, CLI docs
 ```
 
@@ -119,7 +120,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 npm run build          # tsup → dist/
 npm run dev            # tsup --watch
 npm run lint           # eslint "{src,tests}/**/*.ts"
-npm run test           # vitest run --coverage (95% threshold)
+npm run test           # vitest run --coverage (97% threshold)
 npm run extension:build   # tsc extension
 npm run extension:sync    # Sync version from package.json
 npm run version:check     # Verify version alignment
@@ -197,7 +198,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   return {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 40 tools
+    // ... 41 tools
   };
 }
 ```
@@ -205,7 +206,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 ## Testing
 
 - Framework: Vitest
-- Coverage: ≥95% lines/functions/branches/statements (target >97% for releases)
+- Coverage: ≥97% lines/functions/branches/statements
 - Location: `tests/*.test.ts`
 - Mocking: Use existing Chrome/Playwright mocks
 - Never weaken tests; fix root cause

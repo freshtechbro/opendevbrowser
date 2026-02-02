@@ -55,9 +55,10 @@ When auto-pair is enabled:
 
 `/config` and `/pair` reject explicit non-extension origins. Chrome extension requests may omit the `Origin` header, so the relay also accepts missing-Origin requests. CLI/tools may call `/config` and `/pair` to auto-fetch relay settings and tokens.
 
-Relay CDP endpoint: `ws://127.0.0.1:<relayPort>/cdp`. The CLI/tool `connect` command accepts base relay WS URLs
-(for example `ws://127.0.0.1:<relayPort>`) and normalizes them to `/cdp`.
-When pairing is enabled, `/cdp` requires a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
+Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`. The CLI/tool `connect` command accepts base relay WS URLs
+(for example `ws://127.0.0.1:<relayPort>`) and normalizes them to `/ops`.
+Legacy relay `/cdp` is still available but must be explicitly opted in (CLI: `--extension-legacy`).
+When pairing is enabled, both `/ops` and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
 to obtain the token before connecting, so users should not manually pass or share tokenized URLs.
 
 ## Chrome version requirement

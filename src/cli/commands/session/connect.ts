@@ -7,6 +7,7 @@ type ConnectArgs = {
   wsEndpoint?: string;
   host?: string;
   port?: number;
+  extensionLegacy?: boolean;
 };
 
 function parseConnectArgs(rawArgs: string[]): ConnectArgs {
@@ -32,7 +33,9 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       continue;
     }
     if (arg?.startsWith("--host=")) {
-      parsed.host = arg.split("=", 2)[1];
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --host");
+      parsed.host = value;
       continue;
     }
     if (arg === "--cdp-port") {
@@ -43,7 +46,13 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       continue;
     }
     if (arg?.startsWith("--cdp-port=")) {
-      parsed.port = parseNumberFlag(arg.split("=", 2)[1], "--cdp-port", { min: 1, max: 65535 });
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --cdp-port");
+      parsed.port = parseNumberFlag(value, "--cdp-port", { min: 1, max: 65535 });
+      continue;
+    }
+    if (arg === "--extension-legacy") {
+      parsed.extensionLegacy = true;
       continue;
     }
   }

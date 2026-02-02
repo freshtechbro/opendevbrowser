@@ -68,6 +68,11 @@ const createPage = (nodes: LegacyNode[]) => {
   let lastBackendNodeId = 0;
   const selectorByBackendId = new Map(axNodes.map((node, index) => [node.backendDOMNodeId, nodes[index]?.selector]));
 
+  const frame = {
+    isDetached: vi.fn().mockReturnValue(false),
+    waitForLoadState: vi.fn().mockResolvedValue(undefined)
+  };
+
   const page = Object.assign(emitter, {
     url,
     title: vi.fn().mockResolvedValue("Title"),
@@ -76,6 +81,8 @@ const createPage = (nodes: LegacyNode[]) => {
       return { status: () => 200 };
     }),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
+    mainFrame: vi.fn(() => frame),
+    isClosed: vi.fn().mockReturnValue(false),
     locator: vi.fn().mockReturnValue(locator),
     $eval: vi.fn(async (_selector: string, fn: (el: { outerHTML: string; innerText: string; textContent: string }) => unknown) => {
       return fn({ outerHTML: "<div>ok</div>", innerText: "text", textContent: "text" });
@@ -115,7 +122,7 @@ const createPage = (nodes: LegacyNode[]) => {
     (page as unknown as { context: () => BrowserContextLike }).context = () => context;
   };
 
-  return { page, locator, cdpSession, setContext };
+  return { page, locator, cdpSession, setContext, frame };
 };
 
 type PageLike = ReturnType<typeof createPage>["page"];
@@ -277,6 +284,25 @@ describe("BrowserManager", () => {
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
     await expect(manager.launch({ profile: "default" })).rejects.toThrow("Browser instance unavailable");
+  });
+
+  it("aggregates cleanup errors when context close fails on launch", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    (context as unknown as { browser: () => null }).browser = () => null;
+    context.close = vi.fn().mockRejectedValue(new Error("close failed"));
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.launch({ profile: "default" }))
+      .rejects
+      .toThrow("Cleanup failed");
   });
 
   it("handles non-Error launch failures without context cleanup", async () => {
@@ -511,6 +537,39 @@ describe("BrowserManager", () => {
     expect(result.mode).toBe("extension");
     expect(context.waitForEvent).toHaveBeenCalled();
     expect(context.newPage).not.toHaveBeenCalled();
+  });
+
+  it("uses the first available page immediately during relay connect", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes, { initialPages: 0 });
+
+    const pagesMock = vi.fn()
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([page]);
+    context.pages = pagesMock;
+    context.waitForEvent = vi.fn();
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-1" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "secret-token", instanceId: "relay-1" })
+      }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    expect(result.mode).toBe("extension");
+    expect(context.waitForEvent).not.toHaveBeenCalled();
+    expect(pagesMock).toHaveBeenCalledTimes(2);
   });
 
   it("throws when relay connects with no context in extension mode", async () => {
@@ -977,6 +1036,730 @@ describe("BrowserManager", () => {
     expect(gotoSpy).not.toHaveBeenCalled();
   });
 
+  it("waits for extension target readiness before navigation", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    nextPage.setContext(context);
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.newTarget(result.sessionId, "https://example.com");
+
+    const waitCalls = nextPage.frame.waitForLoadState.mock.invocationCallOrder[0] ?? 0;
+    const gotoCalls = nextPage.page.goto.mock.invocationCallOrder[0] ?? 0;
+
+    expect(nextPage.frame.waitForLoadState).toHaveBeenCalledWith(
+      "domcontentloaded",
+      expect.objectContaining({ timeout: expect.any(Number) })
+    );
+    expect(nextPage.page.goto).toHaveBeenCalledWith("https://example.com", { waitUntil: "load" });
+    expect(waitCalls).toBeLessThan(gotoCalls);
+  });
+
+  it("throws when extension target closes before readiness", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    nextPage.setContext(context);
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+    nextPage.page.isClosed.mockReturnValue(true);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await expect(manager.newTarget(result.sessionId, "https://example.com")).rejects.toThrow(
+      "EXTENSION_TARGET_READY_CLOSED"
+    );
+  });
+
+  it("retries extension navigation after detached frame", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    nextPage.setContext(context);
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    nextPage.page.goto
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockResolvedValueOnce({ status: () => 200 });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+      const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+      const targetPromise = manager.newTarget(result.sessionId, "https://example.com");
+      await vi.advanceTimersByTimeAsync(200);
+      await targetPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(nextPage.frame.waitForLoadState).toHaveBeenCalledTimes(2);
+    expect(nextPage.page.goto).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws when extension navigation fails with non-detached errors", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    nextPage.setContext(context);
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    nextPage.page.goto.mockRejectedValueOnce(new Error("boom"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await expect(manager.newTarget(result.sessionId, "https://example.com")).rejects.toThrow("boom");
+  });
+
+  it("retries fallback navigation when the active tab detaches", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    nextPage.setContext(context);
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    nextPage.page.goto
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockRejectedValueOnce(new Error("Frame has been detached"));
+    page.goto
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockResolvedValueOnce({ status: () => 200 });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+      const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+      const targetPromise = manager.newTarget(result.sessionId, "https://example.com");
+      await vi.advanceTimersByTimeAsync(500);
+      const created = await targetPromise;
+
+      expect(created.targetId).toBe(result.activeTargetId);
+      expect(page.goto).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to the active tab without navigation when url is missing", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+
+    (context.newPage as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockRejectedValueOnce(new Error("Frame has been detached"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+      const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+      const createdPromise = manager.newTarget(result.sessionId);
+      await vi.advanceTimersByTimeAsync(250);
+      const created = await createdPromise;
+
+      expect(created.targetId).toBe(result.activeTargetId);
+      expect(page.goto).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("throws when fallback navigation fails with non-detached errors", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    nextPage.setContext(context);
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    nextPage.page.goto
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockRejectedValueOnce(new Error("Frame has been detached"));
+    page.goto.mockRejectedValueOnce(new Error("boom"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+      const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+      const targetPromise = manager.newTarget(result.sessionId, "https://example.com");
+      const handled = targetPromise.catch((error) => error as Error);
+      await vi.advanceTimersByTimeAsync(300);
+      const error = await handled;
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("boom");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out waiting for extension target readiness after detached frames", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const nextPage = createPage(nodes);
+    const timeoutError = new Error("Timed out");
+    timeoutError.name = "TimeoutError";
+    nextPage.frame.waitForLoadState
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockRejectedValue(timeoutError);
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+      const internal = manager as unknown as {
+        waitForExtensionTargetReady: (page: PageLike, context: string, timeoutMs?: number) => Promise<void>;
+      };
+      const readyPromise = internal.waitForExtensionTargetReady(nextPage.page as never, "target-new", 300);
+      const handled = readyPromise.catch((error) => error as Error);
+      await vi.advanceTimersByTimeAsync(400);
+      const error = await handled;
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("EXTENSION_TARGET_READY_TIMEOUT");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out when extension target stays detached without a last error", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const nextPage = createPage(nodes);
+    nextPage.frame.isDetached.mockReturnValue(true);
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+      const internal = manager as unknown as {
+        waitForExtensionTargetReady: (page: PageLike, context: string, timeoutMs?: number) => Promise<void>;
+      };
+      const readyPromise = internal.waitForExtensionTargetReady(nextPage.page as never, "target-new", 300);
+      const handled = readyPromise.catch((error) => error as Error);
+      await vi.advanceTimersByTimeAsync(400);
+      const error = await handled;
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("EXTENSION_TARGET_READY_TIMEOUT");
+      expect(error.message).not.toContain("Last error:");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("records non-Error detached failures during extension readiness", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const nextPage = createPage(nodes);
+    nextPage.frame.waitForLoadState.mockRejectedValue("Frame has been detached");
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+      const internal = manager as unknown as {
+        waitForExtensionTargetReady: (page: PageLike, context: string, timeoutMs?: number) => Promise<void>;
+      };
+      const readyPromise = internal.waitForExtensionTargetReady(nextPage.page as never, "target-new", 300);
+      const handled = readyPromise.catch((error) => error as Error);
+      await vi.advanceTimersByTimeAsync(400);
+      const error = await handled;
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("EXTENSION_TARGET_READY_TIMEOUT");
+      expect(error.message).toContain("Last error: Frame has been detached");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("throws when extension readiness fails with non-detached errors", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const nextPage = createPage(nodes);
+    nextPage.frame.waitForLoadState.mockRejectedValue(new Error("boom"));
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const internal = manager as unknown as {
+      waitForExtensionTargetReady: (page: PageLike, context: string, timeoutMs?: number) => Promise<void>;
+    };
+
+    await expect(internal.waitForExtensionTargetReady(nextPage.page as never, "target-new", 300))
+      .rejects.toThrow("boom");
+  });
+
+  it("throws when extension page creation detaches with no active target", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+      const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+      const managed = (manager as unknown as { sessions: Map<string, { targets: { closeTarget: (id: string) => Promise<void> } }> }).sessions.get(result.sessionId);
+      if (managed && result.activeTargetId) {
+        await managed.targets.closeTarget(result.activeTargetId);
+      }
+
+      (context.newPage as ReturnType<typeof vi.fn>)
+        .mockRejectedValueOnce(new Error("Frame has been detached"))
+        .mockRejectedValueOnce(new Error("Frame has been detached"));
+
+      const pagePromise = manager.page(result.sessionId, "named");
+      const handled = pagePromise.catch((error) => error as Error);
+      await vi.advanceTimersByTimeAsync(300);
+      const error = await handled;
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("Frame has been detached");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries extension target creation when the frame detaches", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+
+    const originalImplementation = (context.newPage as ReturnType<typeof vi.fn>).getMockImplementation();
+    (context.newPage as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockImplementation(originalImplementation);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const created = await manager.newTarget(result.sessionId);
+
+    expect(result.mode).toBe("extension");
+    expect(created.targetId).toBeTruthy();
+    expect(context.newPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the active tab when extension target creation repeatedly detaches", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+
+    await page.goto("https://example.com");
+
+    const newPageMock = context.newPage as ReturnType<typeof vi.fn>;
+    newPageMock
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockRejectedValueOnce(new Error("Frame has been detached"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    const created = await manager.newTarget(result.sessionId, "https://example.com");
+    expect(created.targetId).toBe(result.activeTargetId);
+    expect(context.newPage).toHaveBeenCalledTimes(2);
+    expect(page.goto).toHaveBeenCalledWith("https://example.com", { waitUntil: "load" });
+  });
+
+  it("reuses the active tab when extension page creation detaches", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+
+    await page.goto("https://example.com");
+
+    const newPageMock = context.newPage as ReturnType<typeof vi.fn>;
+    newPageMock
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockRejectedValueOnce(new Error("Frame has been detached"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const created = await manager.page(result.sessionId, "smoke", "https://example.com");
+
+    expect(created.targetId).toBe(result.activeTargetId);
+    expect(created.created).toBe(true);
+    expect(context.newPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("creates named pages in extension mode", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    nextPage.setContext(context);
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const created = await manager.page(result.sessionId, "named");
+
+    expect(created.created).toBe(true);
+    expect(created.targetId).toBeTruthy();
+    expect(context.newPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when extension page creation fails with a non-detached error", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+
+    (context.newPage as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("boom"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    await expect(manager.page(result.sessionId, "named"))
+      .rejects
+      .toThrow("boom");
+  });
+
+  it("describes extension failures with active tab info for string errors", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com");
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const internal = manager as unknown as {
+      describeExtensionFailure: (context: string, error: unknown, managed: { targets: { getActivePage: () => unknown } }) => Error;
+    };
+
+    const error = internal.describeExtensionFailure("page", "boom", {
+      targets: { getActivePage: () => page }
+    });
+    expect(error.message).toContain("Active tab: https://example.com.");
+    expect(error.message).toContain("boom");
+  });
+
+  it("throws when extension target creation fails with a non-detached error", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+
+    (context.newPage as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("boom"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    await expect(manager.newTarget(result.sessionId))
+      .rejects
+      .toThrow("boom");
+  });
+
+  it("throws when extension target creation detaches with no active target", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+
+    (context.newPage as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockRejectedValueOnce(new Error("Frame has been detached"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const managed = (manager as unknown as { sessions: Map<string, unknown> }).sessions
+      .get(result.sessionId) as { targets: { targets: Map<string, unknown>; activeTargetId: string | null } };
+    managed.targets.targets.clear();
+    managed.targets.activeTargetId = null;
+
+    await expect(manager.newTarget(result.sessionId))
+      .rejects
+      .toThrow("Extension mode target-new failed. Focus a stable http(s) tab and retry.");
+  });
+
+  it("keeps the active tab open when closing the only extension page", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+
+    (context.newPage as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("Frame has been detached"))
+      .mockRejectedValueOnce(new Error("Frame has been detached"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.page(result.sessionId, "smoke");
+    await manager.closePage(result.sessionId, "smoke");
+
+    expect(page.close).not.toHaveBeenCalled();
+  });
+
+  it("keeps the active tab open when closing the only extension target", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.closeTarget(result.sessionId, result.activeTargetId ?? "");
+
+    expect(page.close).not.toHaveBeenCalled();
+  });
+
+  it("closes named extension pages when multiple targets exist", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    nextPage.setContext(context);
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const created = await manager.page(result.sessionId, "secondary");
+    const sessions = (manager as unknown as { sessions: Map<string, unknown> }).sessions;
+    const managed = sessions.get(result.sessionId) as { targets: { closeTarget: (id: string) => Promise<void> } };
+    const closeSpy = vi.spyOn(managed.targets, "closeTarget");
+
+    await manager.closePage(result.sessionId, "secondary");
+
+    expect(closeSpy).toHaveBeenCalledWith(created.targetId);
+    expect(nextPage.page.close).toHaveBeenCalled();
+  });
+
+  it("closes extension targets when more than one page exists", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    nextPage.setContext(context);
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const created = await manager.newTarget(result.sessionId);
+
+    await manager.closeTarget(result.sessionId, created.targetId);
+
+    expect(nextPage.page.close).toHaveBeenCalled();
+  });
+
+  it("creates a new extension target when createTarget succeeds", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+    const nextPage = createPage(nodes);
+    const gotoSpy = nextPage.page.goto;
+    vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const created = await manager.newTarget(result.sessionId, "https://example.com");
+
+    expect(created.targetId).toBeTruthy();
+    expect(gotoSpy).toHaveBeenCalledWith("https://example.com", { waitUntil: "load" });
+  });
+
   it("clears refs on top-level frame navigation", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -999,6 +1782,48 @@ describe("BrowserManager", () => {
 
     page.emit("framenavigated", { parentFrame: () => null });
     expect(managed.refStore.getRefCount(targetId)).toBe(0);
+  });
+
+  it("keeps refs on child frame navigation", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+
+    await manager.snapshot(result.sessionId, "outline", 500);
+
+    const managed = (manager as unknown as { sessions: Map<string, unknown> }).sessions
+      .get(result.sessionId) as { refStore: { getRefCount: (id: string) => number }; targets: { getActiveTargetId: () => string } };
+    const targetId = managed.targets.getActiveTargetId();
+    const before = managed.refStore.getRefCount(targetId);
+
+    page.emit("framenavigated", { parentFrame: () => ({}) });
+    expect(managed.refStore.getRefCount(targetId)).toBe(before);
+  });
+
+  it("clears refs when ref invalidation listens to top-level navigation", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const nextPage = createPage(nodes);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const internal = manager as unknown as {
+      attachRefInvalidationForPage: (managed: { refStore: { clearTarget: (targetId: string) => void } }, targetId: string, page: PageLike) => void;
+    };
+    const refStore = { clearTarget: vi.fn() };
+
+    internal.attachRefInvalidationForPage({ refStore }, "target-1", nextPage.page as never);
+    nextPage.page.emit("framenavigated", { parentFrame: () => null });
+    expect(refStore.clearTarget).toHaveBeenCalledWith("target-1");
   });
 
   it("creates a page when none exist", async () => {
@@ -1119,6 +1944,40 @@ describe("BrowserManager", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("runs listener cleanup and closes promptly without timeout warnings", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+
+    connectOverCDP.mockResolvedValue(browser);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
+    }) as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.connect({ host: "127.0.0.1", port: 9222 });
+
+    const sessions = (manager as unknown as { sessions: Map<string, unknown> }).sessions;
+    const managed = sessions.get(result.sessionId) as {
+      targets: { listPageEntries: () => Array<{ page: unknown }> };
+    };
+    const entry = managed.targets.listPageEntries()[0];
+    const cleanupSpy = vi.fn();
+    if (entry) {
+      (manager as unknown as { pageListeners: Map<unknown, () => void> }).pageListeners.set(entry.page, cleanupSpy);
+    }
+
+    await manager.disconnect(result.sessionId, false);
+
+    expect(cleanupSpy).toHaveBeenCalled();
+    if (!warnSpy) throw new Error("Missing warnSpy");
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("timed out closing CDP connection"));
+    expect(context.close).not.toHaveBeenCalled();
   });
 
   it("swallows late CDP close rejections after timeout", async () => {

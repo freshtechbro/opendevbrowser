@@ -48,7 +48,9 @@ function parseGotoArgs(rawArgs: string[]): { sessionId?: string; url?: string; w
       continue;
     }
     if (arg?.startsWith("--timeout-ms=")) {
-      parsed.timeoutMs = parseNumberFlag(arg.split("=", 2)[1], "--timeout-ms", { min: 1 });
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --timeout-ms");
+      parsed.timeoutMs = parseNumberFlag(value, "--timeout-ms", { min: 1 });
       continue;
     }
   }

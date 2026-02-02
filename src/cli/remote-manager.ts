@@ -200,4 +200,8 @@ export class RemoteManager implements BrowserManagerLike {
   closePage(sessionId: string, name: string): Promise<void> {
     return this.client.call("page.close", { sessionId, name }) as Promise<void>;
   }
+
+  async withPage<T>(_sessionId: string, _targetId: string | null, _fn: (page: never) => Promise<T>): Promise<T> {
+    throw new Error("Direct annotate is unavailable via daemon-managed sessions.");
+  }
 }

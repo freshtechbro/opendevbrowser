@@ -1,67 +1,45 @@
-Goal (incl. success criteria):
-- Own all changes end-to-end: verify relay/extension/daemon changes, docs correctness, and quality gates (build/lint/tests/CLI/extension), with any fixes applied and documented.
+## Continuity Ledger
 
-Constraints/Assumptions:
-- Use RepoPrompt MCP for repo context before starting work.
-- Maintain `CONTINUITY.md` per AGENTS (update on goal/state changes).
-- Avoid destructive git commands; do not revert unrelated changes.
-- Tests must pass; coverage target >97% desired.
+### Goal (incl. success criteria)
+Implement `docs/OPS_WS_GAP_FIX_PLAN.md` end-to-end with all tests passing and coverage >=97%.
 
-Key decisions:
-- For `/pair`, `/config`, `/status`: allow loopback no-Origin requests and tolerate `Origin: null` with CORS header; still reject non-extension origins.
-- Extension now retries /config + /pair with exponential backoff; uses stored relay port fallback instead of clearing state.
-- Add daemon autostart CLI (`daemon install|uninstall|status`) with OS-specific installers.
+### Constraints/Assumptions
+- Follow AGENTS.md: no stubs/placeholders, DRY, remove dead code, prefer `rg`, no destructive git.
+- Only main agent edits `CONTINUITY.md`; sub-agents append to `sub_continuity.md`.
+- Approval policy is `never`; run tests locally without prompts.
+- Must use RepoPrompt for repo context; use Exa + Context7 for relevant external context.
 
-State:
-  - Done:
-    - Installed daemon autostart (darwin) and rebuilt/packed extension bundle.
-    - Updated README + tool/CLI parity spec to reflect loopback no-Origin + PNA behavior for `/config`/`/pair`.
-    - Removed temporary relay/daemon debug logs; tightened CLI/test thresholds to 97%.
-    - Rebuilt extension and re-packed zip after latest changes.
-    - Build/lint/tests passed; CLI smoke test passed on rerun.
-    - Implemented relay hardening (auth headers, origin policy, token validation, HTTP rate limiting).
-    - Implemented extension reliability fixes (popup error handling, target cleanup, connect dedupe, handshake validation).
-    - Updated relay tests for new auth/origin behavior; adjusted tools test timeout.
-    - Implemented Task 7 (CLI/daemon timeouts + numeric validation + conflict detection).
-    - Implemented Task 8 (coverage uplift to meet threshold).
-    - Implemented Task 9 (resolveConfig honors overrides with validation).
-    - Updated CLI docs to note numeric validation + conflicting flags.
-    - Added branch-coverage tests for relay, browser manager, dom capture; branch coverage now >97%.
-    - Tightened daemon command numeric validation (invalid numbers now error).
-    - Added per-call daemon timeout support; session.disconnect uses 20s timeout to avoid CLI smoke timeout.
-    - Implemented daemon autostart support (new CLI command + installers; tests added).
-    - Extension auto-retry/backoff for /config + /pair; uses stored relay port; avoids token re-fetch when stored.
-    - Added alarms permission + alarm mock/tests; updated extension messaging to “Start the daemon”.
-    - Updated CLI/TOOL parity docs + daemon autostart spec to mark implemented.
-    - Relaxed relay HTTP auth to allow loopback no-Origin requests; updated relay tests accordingly.
-    - Added CORS handling for `Origin: null` on relay HTTP endpoints; updated tests; rebuilt CLI.
-    - Added PNA preflight support (`Access-Control-Allow-Private-Network: true`) on relay HTTP preflights and actual responses; updated tests; rebuilt CLI.
-    - Fixed `serve` command to retain daemon handle so the daemon stays alive; rebuilt CLI.
-    - Daemon started on 127.0.0.1:8788 with relay on 127.0.0.1:8787; ports confirmed listening.
-  - Now:
-    - Documentation updates in progress (CLI PNA/origin note, manual extension test steps, daemon start/stop instructions).
-  - Next:
-    - Re-run any doc-only validations if needed and finalize summary.
+### Key Decisions
+- Use per-session `leaseId` for Ops requests and daemon authorization.
+- Align Ops snapshot logic between extension and core via shared builders.
+- Use visible-only screenshot fallback on CDP failure with warning propagation.
+- Add targeted ops-client tests to lift branch coverage above 97%.
 
-Open questions (UNCONFIRMED if needed):
-- Any remaining gaps vs autostart/spec/expansion plan docs? (UNCONFIRMED - needs review)
+### State
+- **Done**:
+  - Added `leaseId` to ops protocol; ops-client reconnect/heartbeat + handshake error handling; ops-runtime lease TTL/reclaim + snapshot size cap + visible-only screenshot fallback; shared ops snapshot builder; daemon lease state helpers.
+  - Updated ops tests (lease propagation + screenshot warning), ops-client heartbeat/reconnect coverage, and annotate tool relay success coverage.
+  - Documented local-only tools in `docs/CLI.md`.
+  - Fixed regex parse error in `extension/src/ops/ops-runtime.ts`.
+  - `npm test` passes with coverage: lines 99.76%, branches 97.05%, functions 99.17%, statements 99.43%.
+  - User approved committing all changes with message "add ops parity/E2E coverage (daemon + relay)".
+- **Now**: Stage all changes and commit using the approved message (Conventional Commits format).
+- **Next**:
+  - Summarize changes for user and note tests already passing.
+  - Optionally revisit remaining ops parity/E2E test ideas if user requests follow-up.
 
-Working set (files/ids/commands):
-- `src/cli/daemon-autostart.ts`
-- `src/cli/commands/daemon.ts`
-- `src/cli/args.ts`
-- `src/cli/index.ts`
-- `extension/src/background.ts`
-- `extension/src/popup.tsx`
-- `extension/src/services/ConnectionManager.ts`
-- `extension/manifest.json`
-- `tests/daemon-autostart.test.ts`
-- `tests/daemon-command.test.ts`
-- `tests/extension-background.test.ts`
-- `tests/extension-chrome-mock.ts`
+### Open Questions (UNCONFIRMED if needed)
+- None.
+
+### Working Set (files/ids/commands)
+- `docs/OPS_WS_GAP_FIX_PLAN.md`
 - `docs/CLI.md`
-- `docs/OPENCODE_DAEMON_AUTOSTART_PLAN.md`
-- `docs/OPENCODE_DAEMON_AUTOSTART_SPEC.md`
-- `docs/TOOL_CLI_PARITY_SPEC.md`
-- `docs/TOOLS_CLI_EXPANSION_PLAN.md`
-- Commands: `npm run build`, `npm run lint`, `npm run test`, `node scripts/cli-smoke-test.mjs`
+- `src/browser/ops-client.ts`
+- `src/browser/ops-browser-manager.ts`
+- `extension/src/ops/ops-runtime.ts`
+- `src/cli/daemon-commands.ts`
+- `src/cli/daemon-state.ts`
+- `tests/ops-client.test.ts`
+- `tests/ops-browser-manager.test.ts`
+- `tests/tools-annotate.test.ts`
+- `npm test`

@@ -1,17 +1,21 @@
 {
   "manifest_version": 3,
   "name": "OpenDevBrowser Relay",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "Optional bridge to reuse existing Chrome tabs with OpenDevBrowser.",
   "permissions": [
     "debugger",
     "alarms",
     "tabs",
-    "storage"
+    "storage",
+    "scripting",
+    "activeTab",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "<all_urls>"
   ],
   "icons": {
     "16": "icons/icon16.png",
@@ -31,5 +35,14 @@
   "background": {
     "service_worker": "dist/background.js",
     "type": "module"
+  },
+  "commands": {
+    "toggle-annotation": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Command+Shift+P"
+      },
+      "description": "Toggle annotation UI"
+    }
   }
 }

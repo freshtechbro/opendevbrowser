@@ -13,7 +13,10 @@ OpenDevBrowser provides three entry points that share a single runtime core:
 - **Extension**: Relay mode for attaching to existing logged-in tabs.
 - **Hub daemon**: `opendevbrowser serve` process that owns the relay and enforces FIFO leases when hub mode is enabled.
 
-The shared runtime core is in `src/core/` and wires `BrowserManager`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
+The shared runtime core is in `src/core/` and wires `BrowserManager`, `AnnotationManager`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
+
+The CLI installer attempts to set up daemon auto-start on first successful install (macOS LaunchAgent, Windows Task Scheduler),
+so the relay is ready on user login without manual steps.
 
 ---
 
@@ -32,6 +35,7 @@ flowchart LR
     CoreBootstrap[Core Bootstrap]
     BrowserManager[BrowserManager]
     TargetManager[TargetManager]
+    AnnotationManager[AnnotationManager]
     ScriptRunner[ScriptRunner]
     Snapshotter[Snapshot Pipeline]
     Devtools[DevTools Trackers]
@@ -46,6 +50,9 @@ flowchart LR
 
   CoreBootstrap --> BrowserManager
   BrowserManager --> TargetManager
+  CoreBootstrap --> AnnotationManager
+  AnnotationManager --> BrowserManager
+  AnnotationManager --> Relay
   CoreBootstrap --> ScriptRunner
   CoreBootstrap --> Snapshotter
   CoreBootstrap --> Devtools
@@ -76,7 +83,7 @@ sequenceDiagram
   participant Browser
 
   User->>CLI: opendevbrowser serve
-  CLI->>Daemon: start local server (127.0.0.1)
+  CLI->>Daemon: start local server (127.0.0.1) and relay
   Note over Daemon,Relay: Hub daemon owns relay + FIFO leases
   Daemon->>Core: create core runtime
   Core->>Relay: start relay server
@@ -106,7 +113,8 @@ sequenceDiagram
   Tools->>Relay: GET /config (loopback)
   Tools->>Relay: GET /pair (when pairing required, loopback)
   Tools->>Hub: acquire relay lease (FIFO)
-  Tools->>Relay: WS /cdp?token=...
+  Tools->>Relay: WS /ops?token=...
+  Tools->>Relay: WS /annotation?token=... (annotate relay)
   Relay->>Browser: forward CDP commands (flat sessions)
   Browser-->>Relay: CDP events
   Relay-->>Tools: forward events
@@ -117,9 +125,10 @@ sequenceDiagram
 - `extension`: attach to an existing tab via the Chrome extension relay.
 - `managed`: launch and manage a Chrome instance via Playwright (headed by default).
 - `cdpConnect`: attach to an existing Chrome via CDP (`/json/version`).
-- `connect` routing: local relay WS endpoints (for example `ws://127.0.0.1:<relayPort>` or `/cdp`) are normalized to `/cdp` and routed via the relay (`extension` mode).
+- `connect` routing: local relay WS endpoints (for example `ws://127.0.0.1:<relayPort>` or `/ops`) are normalized to `/ops` and routed via the relay (`extension` mode). Legacy `/cdp` requires `--extension-legacy`.
 - Launch defaults to `extension` when available; managed/CDPConnect require explicit user choice.
 - Extension relay requires **Chrome 125+** and uses flat-session routing with DebuggerSession `sessionId`.
+- Hub mode supports multi-client access via FIFO lease queueing; only one relay client holds the lease at a time.
 
 ---
 
@@ -145,7 +154,9 @@ Default extension values:
 
 - **Local-only CDP** by default; non-local requires opt-in config.
 - **Relay binding**: `127.0.0.1` only, with token-based pairing.
-- **CDP auth**: `/cdp` requires `?token=<relayToken>` when pairing is enabled.
+- **Ops auth**: `/ops` requires `?token=<relayToken>` when pairing is enabled.
+- **CDP auth**: `/cdp` requires `?token=<relayToken>` when pairing is enabled (legacy).
+- **Annotation auth**: `/annotation` requires `?token=<relayToken>` when pairing is enabled.
 - **Origin enforcement**: `/extension` requires `chrome-extension://` origin; `/config`, `/status`, `/pair` allow extension origins and loopback no-Origin (including `Origin: null`), and reject explicit non-extension origins.
 - **PNA/CORS**: preflights include `Access-Control-Allow-Private-Network: true` when requested.
 - **HTTP rate limiting**: `/config`, `/status`, `/pair` are rate-limited per IP.
@@ -164,6 +175,7 @@ Extension relay mode uses **flat CDP sessions (Chrome 125+)**. The extension CDP
 - Routes all commands and events by DebuggerSession `sessionId` (no `Target.sendMessageToTarget`).
 - Maintains root vs child mappings in `TargetSessionMap` to route each `sessionId` to the correct `tabId`.
 - Tracks a primary tab for relay handshake/diagnostics without disconnecting other tabs.
+- Annotation relay uses a dedicated `/annotation` websocket and `annotationCommand`/`annotationResponse` messages.
 
 When hub mode is enabled, the hub daemon is the **sole relay owner** and enforces a FIFO lease queue for multi-client safety. There is no local relay fallback in hub mode.
 

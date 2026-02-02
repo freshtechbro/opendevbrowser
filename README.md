@@ -22,7 +22,7 @@ OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents
 | **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
 | **5 bundled skill packs** | Best practices for login, forms, data extraction |
-| **40 tools** | Complete browser automation coverage |
+| **41 tools** | Complete browser automation coverage |
 | **97% test coverage** | Production-ready with strict TypeScript |
 
 ---
@@ -44,6 +44,9 @@ npx opendevbrowser --full
 ```
 
 Restart OpenCode after installation.
+
+On first successful install, the CLI attempts to install daemon auto-start on supported platforms so the relay is available on login.
+You can remove it later with `npx opendevbrowser daemon uninstall`.
 
 OpenCode discovers skills in `.opencode/skill` (project) and `~/.config/opencode/skill` (global) first; `.claude/skills` is compatibility-only. The CLI installs bundled skills into the OpenCode-native locations by default.
 
@@ -163,7 +166,7 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ## Tool Reference
 
-OpenDevBrowser provides **40 tools** organized by category:
+OpenDevBrowser provides **41 tools** organized by category:
 
 ### Session Management
 | Tool | Description |
@@ -224,6 +227,11 @@ OpenDevBrowser provides **40 tools** organized by category:
 | `opendevbrowser_screenshot` | Capture page screenshot |
 | `opendevbrowser_perf` | Get page performance metrics |
 | `opendevbrowser_prompting_guide` | Get best-practice prompting guidance |
+
+### Annotation
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_annotate` | Capture interactive annotations via extension relay |
 
 ### Export & Cloning
 | Tool | Description |
@@ -500,7 +508,7 @@ src/
 ├── relay/        # Extension relay server, protocol types
 ├── skills/       # SkillLoader for skill pack discovery
 ├── snapshot/     # AX-tree snapshots, ref management
-├── tools/        # 40 opendevbrowser_* tool definitions
+├── tools/        # 41 opendevbrowser_* tool definitions
 └── utils/        # Shared utilities
 ```
 

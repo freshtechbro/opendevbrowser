@@ -1,3 +1,4 @@
+/* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
 
 export type BrowserManagerLike = Pick<BrowserManager,
@@ -6,6 +7,7 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "connectRelay"
   | "disconnect"
   | "status"
+  | "withPage"
   | "goto"
   | "waitForLoad"
   | "waitForRef"

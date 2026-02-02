@@ -108,7 +108,10 @@ export async function handleCreateTarget(
       throw new Error("Target.createTarget did not yield a tab id");
     }
     createdTabId = tab.id;
+    await ctx.tabManager.waitForTabComplete(tab.id);
     await ctx.attach(tab.id);
+    await ctx.sessions.waitForRootSession(tab.id);
+    await ctx.sendCommand({ tabId: tab.id }, "Target.getTargets", {});
 
     const targetInfo = await ctx.registerRootTab(tab.id);
     if (ctx.discoverTargets) {
@@ -206,6 +209,12 @@ export async function handleAttachToTarget(
   }
   if (params.flatten === false) {
     ctx.respondError(commandId, ctx.flatSessionError, sessionId);
+    return;
+  }
+
+  const targetSession = ctx.sessions.getByTargetId(targetId);
+  if (targetSession && targetSession.kind === "root") {
+    ctx.respond(commandId, { sessionId: targetSession.sessionId }, sessionId);
     return;
   }
 

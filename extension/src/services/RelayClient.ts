@@ -1,7 +1,24 @@
-import type { RelayCommand, RelayEvent, RelayHandshake, RelayHandshakeAck, RelayResponse } from "../types.js";
+import type {
+  RelayAnnotationCommand,
+  RelayAnnotationEvent,
+  RelayAnnotationResponse,
+  RelayCommand,
+  RelayEvent,
+  RelayHandshake,
+  RelayHandshakeAck,
+  RelayHealthResponse,
+  RelayHealthStatus,
+  RelayPing,
+  RelayPong,
+  RelayResponse,
+  OpsEnvelope
+} from "../types.js";
+import { logError } from "../logging.js";
 
 type RelayHandlers = {
   onCommand: (command: RelayCommand) => void;
+  onAnnotationCommand?: (command: RelayAnnotationCommand) => void;
+  onOpsMessage?: (message: OpsEnvelope) => void;
   onClose: (detail?: { code?: number; reason?: string }) => void;
 };
 
@@ -14,6 +31,8 @@ export class RelayClient {
   private pendingHandshakeAckTimeoutId: number | null = null;
   private lastHandshakeAck: RelayHandshakeAck | null = null;
   private connectPromise: Promise<RelayHandshakeAck> | null = null;
+  private pendingHealthChecks = new Map<string, { resolve: (value: RelayHealthStatus) => void; reject: (error: Error) => void; timeoutId: number }>();
+  private pendingPings = new Map<string, { resolve: (value: RelayHealthStatus) => void; reject: (error: Error) => void; timeoutId: number }>();
 
   constructor(url: string, handlers: RelayHandlers) {
     this.url = url;
@@ -68,8 +87,41 @@ export class RelayClient {
             }
             return;
           }
+          if (record.type === "healthCheckResult") {
+            if (!isValidHealthResponse(record)) {
+              return;
+            }
+            const pending = this.pendingHealthChecks.get(record.id);
+            if (pending) {
+              clearTimeout(pending.timeoutId);
+              this.pendingHealthChecks.delete(record.id);
+              pending.resolve(record.payload);
+            }
+            return;
+          }
+          if (record.type === "pong") {
+            if (!isValidPong(record)) {
+              return;
+            }
+            const pending = this.pendingPings.get(record.id);
+            if (pending) {
+              clearTimeout(pending.timeoutId);
+              this.pendingPings.delete(record.id);
+              pending.resolve(record.payload);
+            }
+            return;
+          }
           if (record.method === "forwardCDPCommand") {
             this.handlers.onCommand(record as RelayCommand);
+            return;
+          }
+          if (record.type === "annotationCommand") {
+            this.handlers.onAnnotationCommand?.(record as RelayAnnotationCommand);
+            return;
+          }
+          if (isOpsEnvelope(record)) {
+            this.handlers.onOpsMessage?.(record as OpsEnvelope);
+            return;
           }
         });
 
@@ -80,6 +132,16 @@ export class RelayClient {
             reject(new Error("Relay socket closed before handshake acknowledgment"));
           }
           this.lastHandshakeAck = null;
+          for (const pending of this.pendingHealthChecks.values()) {
+            clearTimeout(pending.timeoutId);
+            pending.reject(new Error("Relay socket closed"));
+          }
+          this.pendingHealthChecks.clear();
+          for (const pending of this.pendingPings.values()) {
+            clearTimeout(pending.timeoutId);
+            pending.reject(new Error("Relay socket closed"));
+          }
+          this.pendingPings.clear();
           this.handlers.onClose({ code: event.code, reason: event.reason });
         });
       }
@@ -97,7 +159,15 @@ export class RelayClient {
         }, 2000);
       });
 
-      this.send(handshake);
+      try {
+        this.send(handshake);
+      } catch (error) {
+        this.clearHandshakeAckWait();
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+          this.socket.close(1000, "Handshake send failed");
+        }
+        throw error;
+      }
       return await ackPromise;
     })();
 
@@ -133,6 +203,44 @@ export class RelayClient {
     this.send(handshake);
   }
 
+  sendAnnotationResponse(response: RelayAnnotationResponse): void {
+    this.send(response);
+  }
+
+  sendAnnotationEvent(event: RelayAnnotationEvent): void {
+    this.send(event);
+  }
+
+  sendOpsMessage(message: OpsEnvelope): void {
+    this.send(message);
+  }
+
+  async sendHealthCheck(timeoutMs = 1500): Promise<RelayHealthStatus> {
+    return await this.sendPing(timeoutMs);
+  }
+
+  async sendPing(timeoutMs = 1500): Promise<RelayHealthStatus> {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error("Relay socket not connected");
+    }
+    const id = crypto.randomUUID();
+    const request: RelayPing = { type: "ping", id };
+    return await new Promise<RelayHealthStatus>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.pendingPings.delete(id);
+        reject(new Error("Relay ping timed out"));
+      }, timeoutMs);
+      this.pendingPings.set(id, { resolve, reject, timeoutId });
+      try {
+        this.send(request);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        this.pendingPings.delete(id);
+        reject(error instanceof Error ? error : new Error("Relay ping failed"));
+      }
+    });
+  }
+
   isConnected(): boolean {
     return Boolean(this.socket && this.socket.readyState === WebSocket.OPEN);
   }
@@ -142,7 +250,9 @@ export class RelayClient {
   }
 
   private send(payload: unknown): void {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error("Relay socket not connected");
+    }
     this.socket.send(JSON.stringify(payload));
   }
 
@@ -160,7 +270,8 @@ const parseJson = (data: unknown): unknown => {
   if (typeof data !== "string") return null;
   try {
     return JSON.parse(data);
-  } catch {
+  } catch (error) {
+    logError("relay.parse_json", error, { code: "relay_parse_failed" });
     return null;
   }
 };
@@ -171,4 +282,26 @@ const isValidHandshakeAck = (value: Record<string, unknown>): value is RelayHand
   if (!payload || typeof payload !== "object") return false;
   const record = payload as Record<string, unknown>;
   return typeof record.instanceId === "string" && typeof record.relayPort === "number";
+};
+
+const isValidHealthResponse = (value: Record<string, unknown>): value is RelayHealthResponse => {
+  if (value.type !== "healthCheckResult") return false;
+  if (typeof value.id !== "string") return false;
+  const payload = value.payload;
+  if (!payload || typeof payload !== "object") return false;
+  const record = payload as Record<string, unknown>;
+  return typeof record.reason === "string";
+};
+
+const isValidPong = (value: Record<string, unknown>): value is RelayPong => {
+  if (value.type !== "pong") return false;
+  if (typeof value.id !== "string") return false;
+  const payload = value.payload;
+  if (!payload || typeof payload !== "object") return false;
+  const record = payload as Record<string, unknown>;
+  return typeof record.reason === "string";
+};
+
+const isOpsEnvelope = (value: Record<string, unknown>): value is OpsEnvelope => {
+  return typeof value.type === "string" && value.type.startsWith("ops_");
 };

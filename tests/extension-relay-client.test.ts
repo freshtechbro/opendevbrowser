@@ -84,4 +84,44 @@ describe("RelayClient", () => {
     socket.close();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("sends ping and resolves pong", async () => {
+    const onCommand = vi.fn();
+    const onClose = vi.fn();
+    const client = new RelayClient("ws://relay", { onCommand, onClose });
+
+    const handshake = { type: "handshake", payload: { tabId: 1 } };
+    const connectPromise = client.connect(handshake);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const socket = FakeWebSocket.instances[0];
+    socket.emit("message", {
+      data: JSON.stringify({ type: "handshakeAck", payload: { instanceId: "relay-1", relayPort: 8787, pairingRequired: false } })
+    });
+    await connectPromise;
+
+    const pingPromise = client.sendPing(500);
+    const sentPing = socket.sent.find((message) => message.includes("\"type\":\"ping\""));
+    expect(sentPing).toBeTruthy();
+
+    const parsed = sentPing ? JSON.parse(sentPing) as { id: string } : { id: "" };
+    socket.emit("message", {
+      data: JSON.stringify({
+        type: "pong",
+        id: parsed.id,
+        payload: {
+          ok: true,
+          reason: "ok",
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          pairingRequired: false
+        }
+      })
+    });
+
+    await expect(pingPromise).resolves.toMatchObject({ reason: "ok" });
+  });
 });

@@ -1,6 +1,6 @@
 import { createUsageError } from "./errors";
 
-export type CliCommand = "install" | "update" | "uninstall" | "help" | "version" | "serve" | "daemon" | "run"
+export type CliCommand = "install" | "update" | "uninstall" | "help" | "version" | "serve" | "daemon" | "native" | "run"
   | "launch" | "connect" | "disconnect" | "status"
   | "goto" | "wait" | "snapshot"
   | "click" | "hover" | "press" | "check" | "uncheck" | "type" | "select" | "scroll" | "scroll-into-view"
@@ -8,10 +8,12 @@ export type CliCommand = "install" | "update" | "uninstall" | "help" | "version"
   | "page" | "pages" | "page-close"
   | "dom-html" | "dom-text" | "dom-attr" | "dom-value" | "dom-visible" | "dom-enabled" | "dom-checked"
   | "clone-page" | "clone-component"
-  | "perf" | "screenshot" | "console-poll" | "network-poll";
+  | "perf" | "screenshot" | "console-poll" | "network-poll"
+  | "annotate";
 export type InstallMode = "global" | "local";
 export type SkillsMode = "global" | "local" | "none";
 export type OutputFormat = "text" | "json" | "stream-json";
+export type TransportMode = "relay" | "native";
 
 export interface ParsedArgs {
   command: CliCommand;
@@ -21,6 +23,7 @@ export interface ParsedArgs {
   noInteractive: boolean;
   quiet: boolean;
   outputFormat: OutputFormat;
+  transport: TransportMode;
   skillsMode: SkillsMode;
   fullInstall: boolean;
   rawArgs: string[];
@@ -78,13 +81,34 @@ function parseOutputFormat(args: string[]): OutputFormat {
   throw createUsageError(`Invalid --output-format: ${value ?? "missing"}`);
 }
 
+function parseTransport(args: string[]): TransportMode {
+  const transportFlag = args.find((arg) => arg.startsWith("--transport"));
+  if (!transportFlag) {
+    return "relay";
+  }
+
+  let value: string | undefined;
+  if (transportFlag.includes("=")) {
+    value = transportFlag.split("=", 2)[1];
+  } else {
+    const index = args.indexOf(transportFlag);
+    value = index >= 0 ? args[index + 1] : undefined;
+  }
+
+  if (value === "relay" || value === "native") {
+    return value;
+  }
+
+  throw createUsageError(`Invalid --transport: ${value ?? "missing"}`);
+}
+
 export function parseArgs(argv: string[]): ParsedArgs {
   let args = expandShortFlags(argv.slice(2));
   let commandOverride: CliCommand | null = null;
 
   if (args[0] && !args[0].startsWith("-")) {
     const candidate = args[0];
-    if (candidate === "install" || candidate === "update" || candidate === "uninstall" || candidate === "help" || candidate === "version" || candidate === "serve" || candidate === "daemon" || candidate === "run"
+    if (candidate === "install" || candidate === "update" || candidate === "uninstall" || candidate === "help" || candidate === "version" || candidate === "serve" || candidate === "daemon" || candidate === "native" || candidate === "run"
       || candidate === "launch" || candidate === "connect" || candidate === "disconnect" || candidate === "status"
       || candidate === "goto" || candidate === "wait" || candidate === "snapshot"
       || candidate === "click" || candidate === "hover" || candidate === "press" || candidate === "check" || candidate === "uncheck"
@@ -94,7 +118,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       || candidate === "dom-html" || candidate === "dom-text" || candidate === "dom-attr" || candidate === "dom-value"
       || candidate === "dom-visible" || candidate === "dom-enabled" || candidate === "dom-checked"
       || candidate === "clone-page" || candidate === "clone-component"
-      || candidate === "perf" || candidate === "screenshot" || candidate === "console-poll" || candidate === "network-poll") {
+      || candidate === "perf" || candidate === "screenshot" || candidate === "console-poll" || candidate === "network-poll"
+      || candidate === "annotate") {
       commandOverride = candidate;
       args = args.slice(1);
     } else {
@@ -110,6 +135,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const skillsMode = parseSkillsMode(args);
   const fullInstall = args.includes("--full");
   const outputFormat = parseOutputFormat(args);
+  const transport = commandOverride === "annotate" ? "relay" : parseTransport(args);
 
   if (commandOverride === "help" || args.includes("--help") || args.includes("-h")) {
     return {
@@ -119,6 +145,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       noInteractive: false,
       quiet: false,
       outputFormat,
+      transport,
       skillsMode,
       fullInstall,
       rawArgs: args
@@ -133,6 +160,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       noInteractive: false,
       quiet: false,
       outputFormat,
+      transport,
       skillsMode,
       fullInstall,
       rawArgs: args
@@ -149,6 +177,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       noInteractive: false,
       quiet: false,
       outputFormat,
+      transport,
       skillsMode,
       fullInstall,
       rawArgs: args
@@ -166,6 +195,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       noInteractive: noPrompt,
       quiet: args.includes("--quiet"),
       outputFormat,
+      transport,
       skillsMode,
       fullInstall,
       rawArgs: args
@@ -196,14 +226,34 @@ export function parseArgs(argv: string[]): ParsedArgs {
     "--session-id", "--close-browser", "--ws-endpoint", "--host", "--cdp-port",
     "--url", "--wait-until", "--timeout-ms", "--ref", "--state", "--until", "--mode", "--max-chars", "--cursor",
     "--text", "--clear", "--submit", "--values", "--dy", "--key", "--attr",
-    "--name", "--target-id", "--include-urls", "--path", "--since-seq", "--max",
+    "--name", "--target-id", "--tab-id", "--include-urls", "--path", "--since-seq", "--max",
     "--daemon",
+    "--transport",
     "--no-extension", "--extension-only", "--wait-for-extension", "--wait-timeout-ms",
-    "--skills-global", "--skills-local", "--no-skills"
+    "--skills-global", "--skills-local", "--no-skills",
+    "--screenshot-mode", "--debug", "--context"
   ]);
-  
+
+  const validEqualsFlags = new Set([
+    "--output-format",
+    "--transport",
+    "--session-id",
+    "--url",
+    "--screenshot-mode",
+    "--context",
+    "--timeout-ms",
+    "--target-id",
+    "--tab-id"
+  ]);
+
   for (const arg of args) {
     if (arg.startsWith("--") && !validFlags.has(arg)) {
+      if (arg.includes("=")) {
+        const baseFlag = arg.split("=", 2)[0] ?? "";
+        if (validEqualsFlags.has(baseFlag)) {
+          continue;
+        }
+      }
       throw createUsageError(`Unknown flag: ${arg}`);
     }
     if (arg.startsWith("-") && !arg.startsWith("--") && !SHORT_FLAGS[arg]) {
@@ -219,6 +269,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     noInteractive,
     quiet,
     outputFormat,
+    transport,
     skillsMode,
     fullInstall,
     rawArgs: args
@@ -238,6 +289,7 @@ COMMANDS:
   uninstall        Remove plugin from config
   serve            Start or stop the local daemon
   daemon           Install/uninstall/status daemon auto-start
+  native           Install/uninstall/status native messaging host
   run              Execute a JSON script in a single process
   launch           Launch a managed browser session via daemon
   connect          Connect to an existing browser via daemon
@@ -275,6 +327,7 @@ COMMANDS:
   screenshot       Capture a screenshot
   console-poll     Poll console events
   network-poll     Poll network events
+  annotate         Request interactive annotations (direct or relay)
   help             Show this help message
   version          Show version
 
@@ -293,6 +346,7 @@ INSTALL OPTIONS:
   --no-interactive Alias of --no-prompt
   --quiet          Suppress non-error output
   --output-format  Output format: text (default), json, stream-json
+  --transport      Transport: relay (default) or native
   --skills-global  Install bundled skills to ~/.config/opencode/skill (default)
   --skills-local   Install bundled skills to ./.opencode/skill
   --no-skills      Skip installing bundled skills
@@ -307,6 +361,7 @@ EXAMPLES:
   npx opendevbrowser --no-skills      # Skip skill installation
   npx opendevbrowser --update     # Update plugin
   npx opendevbrowser --uninstall --global  # Remove from global config
+  npx opendevbrowser native install <extension-id>  # Install native host
 `.trim();
 }
 

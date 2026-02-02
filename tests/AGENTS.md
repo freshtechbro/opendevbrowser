@@ -5,7 +5,7 @@ Testing conventions. Extends root `AGENTS.md`.
 ## Framework
 
 - **Vitest** for unit/integration tests
-- Coverage thresholds: ≥95% lines/functions/branches/statements (target >97% for releases)
+- Coverage thresholds: ≥97% lines/functions/branches/statements
 - Config: `vitest.config.ts`
 
 Align integration coverage with runtime flows in `docs/ARCHITECTURE.md`.
