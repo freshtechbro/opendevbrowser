@@ -39,7 +39,10 @@ export class Snapshotter {
     };
     try {
       snapshotData = await buildSnapshotFromCdp(
-        (method, params) => session.send(method, params),
+        (method, params) => session.send(
+          method as Parameters<typeof session.send>[0],
+          params as Parameters<typeof session.send>[1]
+        ),
         options.mode,
         options.mainFrameOnly ?? true,
         options.maxNodes

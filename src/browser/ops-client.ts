@@ -220,7 +220,8 @@ export class OpsClient {
         this.pendingRequests.delete(requestId);
         reject(new Error("Ops request timed out"));
       }, timeoutMs);
-      this.pendingRequests.set(requestId, { resolve, reject, timeoutId });
+      const resolvePending = (value: unknown) => resolve(value as T);
+      this.pendingRequests.set(requestId, { resolve: resolvePending, reject, timeoutId });
       try {
         this.sendRaw(serialized);
       } catch (error) {

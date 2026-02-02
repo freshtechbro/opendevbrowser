@@ -669,6 +669,7 @@ type RelayObservedStatus = {
   extensionConnected: boolean;
   extensionHandshakeComplete: boolean;
   cdpConnected: boolean;
+  opsConnected: boolean;
   pairingRequired: boolean;
 };
 
@@ -743,6 +744,7 @@ async function fetchRelayObservedStatus(port: number | null): Promise<RelayObser
       extensionConnected: Boolean(record.extensionConnected),
       extensionHandshakeComplete: Boolean(record.extensionHandshakeComplete),
       cdpConnected: Boolean(record.cdpConnected),
+      opsConnected: Boolean(record.opsConnected),
       pairingRequired: Boolean(record.pairingRequired)
     };
   } catch {

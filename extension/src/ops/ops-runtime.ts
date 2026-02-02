@@ -19,7 +19,7 @@ import { CDPRouter } from "../services/CDPRouter.js";
 import { TabManager } from "../services/TabManager.js";
 import { getRestrictionMessage, isRestrictedUrl } from "../services/url-restrictions.js";
 import { logError } from "../logging.js";
-import { DomBridge, type DomCapture } from "./dom-bridge.js";
+import { DomBridge } from "./dom-bridge.js";
 import { buildSnapshot, type SnapshotMode } from "./snapshot-builder.js";
 import { OpsSessionStore, type OpsSession, type OpsConsoleEvent, type OpsNetworkEvent } from "./ops-session-store.js";
 import { redactConsoleText, redactUrl } from "./redaction.js";

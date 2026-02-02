@@ -543,10 +543,11 @@ const resolveAnnotationTab = async (command: AnnotationCommand): Promise<chrome.
 };
 
 const isRestrictedTab = (tab: chrome.tabs.Tab): string | null => {
-  if (!tab.url) return "Active tab URL unavailable.";
+  const rawUrl = tab.url ?? tab.pendingUrl ?? "";
+  if (!rawUrl) return "Active tab URL unavailable.";
   let parsed: URL | null = null;
   try {
-    parsed = new URL(tab.url);
+    parsed = new URL(rawUrl);
   } catch (error) {
     logError("annotation.parse_tab_url", error, { code: "tab_url_parse_failed" });
     return "Active tab URL is invalid.";
@@ -758,11 +759,13 @@ const generateAnnotationRequestId = (): string => {
 };
 
 const stripScreenshots = (payload: AnnotationPayload): AnnotationPayload => {
-  const { screenshots: _screenshots, annotations, ...rest } = payload;
+  const { screenshots, annotations, ...rest } = payload;
+  void screenshots;
   return {
     ...rest,
     annotations: annotations.map((item) => {
-      const { screenshotId: _screenshotId, ...restItem } = item;
+      const { screenshotId, ...restItem } = item;
+      void screenshotId;
       return restItem;
     })
   };

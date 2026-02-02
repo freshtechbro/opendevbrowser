@@ -18,31 +18,41 @@ type SelectorState = {
   visible: boolean;
 };
 
+type ElementAction =
+  | { type: "outerHTML" }
+  | { type: "innerText" }
+  | { type: "getAttr"; name: string }
+  | { type: "getValue" }
+  | { type: "isEnabled" }
+  | { type: "isChecked" }
+  | { type: "click" }
+  | { type: "hover" }
+  | { type: "focus" }
+  | { type: "type"; value: string; clear: boolean; submit: boolean }
+  | { type: "setChecked"; checked: boolean }
+  | { type: "select"; values: string[] }
+  | { type: "scrollIntoView" };
+
 const DEFAULT_MAX_NODES = 1000;
 
 export class DomBridge {
   async getOuterHtml(tabId: number, selector: string): Promise<string> {
-    const result = await runWithElement(tabId, selector, (el) => (el as Element).outerHTML);
+    const result = await runWithElement<string>(tabId, selector, { type: "outerHTML" });
     return result;
   }
 
   async getInnerText(tabId: number, selector: string): Promise<string> {
-    const result = await runWithElement(tabId, selector, (el) => (el as HTMLElement).innerText || el.textContent || "");
+    const result = await runWithElement<string>(tabId, selector, { type: "innerText" });
     return result;
   }
 
   async getAttr(tabId: number, selector: string, name: string): Promise<string | null> {
-    const result = await runWithElement(tabId, selector, (el, attrName) => (el as Element).getAttribute(attrName as string), [name]);
+    const result = await runWithElement(tabId, selector, { type: "getAttr", name });
     return result as string | null;
   }
 
   async getValue(tabId: number, selector: string): Promise<string | null> {
-    const result = await runWithElement(tabId, selector, (el) => {
-      if ("value" in el) {
-        return String((el as HTMLInputElement).value ?? "");
-      }
-      return null;
-    });
+    const result = await runWithElement(tabId, selector, { type: "getValue" });
     return result as string | null;
   }
 
@@ -52,45 +62,25 @@ export class DomBridge {
   }
 
   async isEnabled(tabId: number, selector: string): Promise<boolean> {
-    const result = await runWithElement(tabId, selector, (el) => {
-      if ("disabled" in el) {
-        return !(el as HTMLInputElement).disabled;
-      }
-      return true;
-    });
+    const result = await runWithElement(tabId, selector, { type: "isEnabled" });
     return Boolean(result);
   }
 
   async isChecked(tabId: number, selector: string): Promise<boolean> {
-    const result = await runWithElement(tabId, selector, (el) => {
-      if ("checked" in el) {
-        return Boolean((el as HTMLInputElement).checked);
-      }
-      return false;
-    });
+    const result = await runWithElement(tabId, selector, { type: "isChecked" });
     return Boolean(result);
   }
 
   async click(tabId: number, selector: string): Promise<void> {
-    await runWithElement(tabId, selector, (el) => {
-      (el as HTMLElement).click();
-      return true;
-    });
+    await runWithElement(tabId, selector, { type: "click" });
   }
 
   async hover(tabId: number, selector: string): Promise<void> {
-    await runWithElement(tabId, selector, (el) => {
-      const event = new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window });
-      el.dispatchEvent(event);
-      return true;
-    });
+    await runWithElement(tabId, selector, { type: "hover" });
   }
 
   async focus(tabId: number, selector: string): Promise<void> {
-    await runWithElement(tabId, selector, (el) => {
-      (el as HTMLElement).focus();
-      return true;
-    });
+    await runWithElement(tabId, selector, { type: "focus" });
   }
 
   async press(tabId: number, selector: string | null, key: string): Promise<void> {
@@ -112,44 +102,15 @@ export class DomBridge {
   }
 
   async type(tabId: number, selector: string, text: string, clear: boolean, submit: boolean): Promise<void> {
-    await runWithElement(tabId, selector, (el, value, shouldClear, shouldSubmit) => {
-      const input = el as HTMLInputElement | HTMLTextAreaElement;
-      if (shouldClear) {
-        input.value = "";
-      }
-      input.value = String(value ?? "");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      if (shouldSubmit) {
-        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-      }
-      return true;
-    }, [text, clear, submit]);
+    await runWithElement(tabId, selector, { type: "type", value: text, clear, submit });
   }
 
   async setChecked(tabId: number, selector: string, checked: boolean): Promise<void> {
-    await runWithElement(tabId, selector, (el, next) => {
-      if (!("checked" in el)) {
-        return false;
-      }
-      (el as HTMLInputElement).checked = Boolean(next);
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      return true;
-    }, [checked]);
+    await runWithElement(tabId, selector, { type: "setChecked", checked });
   }
 
   async select(tabId: number, selector: string, values: string[]): Promise<void> {
-    await runWithElement(tabId, selector, (el, desired) => {
-      if (!(el instanceof HTMLSelectElement)) {
-        return false;
-      }
-      const set = new Set(desired as string[]);
-      for (const option of Array.from(el.options)) {
-        option.selected = set.has(option.value);
-      }
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      return true;
-    }, [values]);
+    await runWithElement(tabId, selector, { type: "select", values });
   }
 
   async scroll(tabId: number, dy: number, selector?: string): Promise<void> {
@@ -169,10 +130,7 @@ export class DomBridge {
   }
 
   async scrollIntoView(tabId: number, selector: string): Promise<void> {
-    await runWithElement(tabId, selector, (el) => {
-      el.scrollIntoView({ block: "center", inline: "nearest" });
-      return true;
-    });
+    await runWithElement(tabId, selector, { type: "scrollIntoView" });
   }
 
   async getSelectorState(tabId: number, selector: string): Promise<SelectorState> {
@@ -340,8 +298,9 @@ export class DomBridge {
       skipStyleValues: options.skipStyleValues ?? []
     }]);
 
-    if (!payload.ok) {
-      throw new Error(payload.error || "Dom capture failed");
+    if (!payload || typeof payload !== "object" || (payload as { ok?: boolean }).ok !== true) {
+      const record = payload as { error?: string } | null;
+      throw new Error(record?.error || "Dom capture failed");
     }
 
     return payload.value as DomCapture;
@@ -350,21 +309,91 @@ export class DomBridge {
 
 type RunResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
-const runWithElement = async <T>(tabId: number, selector: string, fn: (el: Element, ...args: unknown[]) => T, args: unknown[] = []): Promise<T> => {
-  const result = await runInTab(tabId, (sel, innerArgs) => {
+const runWithElement = async <T>(tabId: number, selector: string, action: ElementAction): Promise<T> => {
+  const result = await runInTab(tabId, (sel, act) => {
     const el = document.querySelector(sel as string);
     if (!el) {
       return { ok: false, error: "Element not found" };
     }
-    const fnArgs = Array.isArray(innerArgs) ? innerArgs : [];
-    const value = fn(el as Element, ...fnArgs);
-    return { ok: true, value };
-  }, [selector, args]);
+    const action = act as ElementAction;
+    switch (action.type) {
+      case "outerHTML":
+        return { ok: true, value: (el as Element).outerHTML };
+      case "innerText":
+        return { ok: true, value: (el as HTMLElement).innerText || el.textContent || "" };
+      case "getAttr":
+        return { ok: true, value: (el as Element).getAttribute(action.name) };
+      case "getValue":
+        if ("value" in el) {
+          return { ok: true, value: String((el as HTMLInputElement).value ?? "") };
+        }
+        return { ok: true, value: null };
+      case "isEnabled":
+        if ("disabled" in el) {
+          return { ok: true, value: !(el as HTMLInputElement).disabled };
+        }
+        return { ok: true, value: true };
+      case "isChecked":
+        if ("checked" in el) {
+          return { ok: true, value: Boolean((el as HTMLInputElement).checked) };
+        }
+        return { ok: true, value: false };
+      case "click":
+        (el as HTMLElement).click();
+        return { ok: true, value: true };
+      case "hover": {
+        const event = new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window });
+        el.dispatchEvent(event);
+        return { ok: true, value: true };
+      }
+      case "focus":
+        (el as HTMLElement).focus();
+        return { ok: true, value: true };
+      case "type": {
+        const input = el as HTMLInputElement | HTMLTextAreaElement;
+        if (action.clear) {
+          input.value = "";
+        }
+        input.value = String(action.value ?? "");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        if (action.submit) {
+          input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        }
+        return { ok: true, value: true };
+      }
+      case "setChecked":
+        if (!("checked" in el)) {
+          return { ok: false, error: "Element does not support checked" };
+        }
+        (el as HTMLInputElement).checked = Boolean(action.checked);
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return { ok: true, value: true };
+      case "select":
+        if (!(el instanceof HTMLSelectElement)) {
+          return { ok: false, error: "Element is not a select" };
+        }
+        for (const option of Array.from(el.options)) {
+          option.selected = action.values.includes(option.value);
+        }
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return { ok: true, value: true };
+      case "scrollIntoView":
+        el.scrollIntoView({ block: "center", inline: "nearest" });
+        return { ok: true, value: true };
+      default:
+        return { ok: false, error: "Unknown action" };
+    }
+  }, [selector, action]);
 
-  if (!result.ok) {
-    throw new Error(result.error || "Element not found");
+  if (!result || typeof result !== "object") {
+    throw new Error("Script execution failed");
   }
-  return result.value as T;
+  const record = result as RunResult<T>;
+  if (record.ok !== true) {
+    throw new Error(record.error || "Script execution failed");
+  }
+  return record.value as T;
 };
 
 const runInTab = async <T>(tabId: number, func: (...args: unknown[]) => T, args: unknown[] = []): Promise<T> => {
@@ -386,7 +415,9 @@ const runInTab = async <T>(tabId: number, func: (...args: unknown[]) => T, args:
 };
 
 const assertRunResult = (value: unknown): void => {
-  if (!value || typeof value !== "object") return;
+  if (!value || typeof value !== "object") {
+    throw new Error("Script execution failed");
+  }
   const record = value as { ok?: boolean; error?: string };
   if (record.ok === false) {
     throw new Error(record.error || "Script execution failed");

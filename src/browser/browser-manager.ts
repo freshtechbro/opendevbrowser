@@ -200,7 +200,7 @@ export class BrowserManager {
     return this.connectWithEndpoint(wsEndpoint, "cdpConnect");
   }
 
-  async connectRelay(wsEndpoint: string): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
+  async connectRelay(wsEndpoint: string): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string; leaseId?: string }> {
     ensureLocalEndpoint(wsEndpoint, this.config.security.allowNonLocalCdp);
     const { connectEndpoint, reportedEndpoint } = await this.resolveRelayEndpoints(wsEndpoint);
     return this.connectWithEndpoint(connectEndpoint, "extension", reportedEndpoint);
@@ -749,7 +749,7 @@ export class BrowserManager {
     return { metrics };
   }
 
-  async screenshot(sessionId: string, path?: string): Promise<{ path?: string; base64?: string }> {
+  async screenshot(sessionId: string, path?: string): Promise<{ path?: string; base64?: string; warnings?: string[] }> {
     const managed = this.getManaged(sessionId);
     const page = managed.targets.getActivePage();
     if (path) {
