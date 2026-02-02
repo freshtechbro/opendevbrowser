@@ -22,6 +22,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
   private opsEndpoint: string | null = null;
   private opsSessions = new Set<string>();
   private opsLeases = new Map<string, string>();
+  private closedOpsSessions = new Map<string, number>();
 
   constructor(base: BrowserManager, config: OpenDevBrowserConfig) {
     this.base = base;
@@ -59,6 +60,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
     const sessionId = result.opsSessionId;
     this.opsSessions.add(sessionId);
     this.opsLeases.set(sessionId, result.leaseId ?? leaseId);
+    this.trackClosedSessionCleanup();
     return {
       sessionId,
       mode: "extension",
@@ -71,15 +73,22 @@ export class OpsBrowserManager implements BrowserManagerLike {
 
   async disconnect(sessionId: string, closeBrowser = false): ReturnType<BrowserManagerLike["disconnect"]> {
     if (!this.opsSessions.has(sessionId)) {
+      if (this.closedOpsSessions.has(sessionId)) {
+        return;
+      }
       return this.base.disconnect(sessionId, closeBrowser);
     }
     await this.requestOps(sessionId, "session.disconnect", { closeBrowser });
     this.opsSessions.delete(sessionId);
     this.opsLeases.delete(sessionId);
+    this.closedOpsSessions.delete(sessionId);
   }
 
   async status(sessionId: string): ReturnType<BrowserManagerLike["status"]> {
     if (!this.opsSessions.has(sessionId)) {
+      if (this.closedOpsSessions.has(sessionId)) {
+        throw new Error("[invalid_session] Session already closed");
+      }
       return this.base.status(sessionId);
     }
     const result = await this.requestOps<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string }>(
@@ -365,7 +374,14 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.opsClient;
     }
     this.opsClient?.disconnect();
-    const client = new OpsClient(wsEndpoint);
+    const client = new OpsClient(wsEndpoint, {
+      onEvent: (event) => {
+        this.handleOpsEvent(event);
+      },
+      onClose: () => {
+        this.handleOpsClientClosed();
+      }
+    });
     await client.connect();
     this.opsClient = client;
     this.opsEndpoint = wsEndpoint;
@@ -382,5 +398,38 @@ export class OpsBrowserManager implements BrowserManagerLike {
       throw new Error("Ops lease not found for session");
     }
     return await client.request<T>(command, payload, sessionId, 30000, leaseId);
+  }
+
+  private handleOpsEvent(event: { event?: string; opsSessionId?: string }): void {
+    if (!event.opsSessionId) return;
+    if (event.event === "ops_session_closed" || event.event === "ops_session_expired" || event.event === "ops_tab_closed") {
+      this.opsSessions.delete(event.opsSessionId);
+      this.opsLeases.delete(event.opsSessionId);
+      this.closedOpsSessions.set(event.opsSessionId, Date.now());
+      this.trackClosedSessionCleanup();
+    }
+  }
+
+  private handleOpsClientClosed(): void {
+    if (this.opsSessions.size === 0) return;
+    const now = Date.now();
+    for (const sessionId of this.opsSessions) {
+      this.closedOpsSessions.set(sessionId, now);
+    }
+    this.opsSessions.clear();
+    this.opsLeases.clear();
+    this.trackClosedSessionCleanup();
+  }
+
+  private trackClosedSessionCleanup(): void {
+    if (this.closedOpsSessions.size <= 100) return;
+    const entries = Array.from(this.closedOpsSessions.entries()).sort((a, b) => a[1] - b[1]);
+    const excess = entries.length - 100;
+    for (let i = 0; i < excess; i += 1) {
+      const sessionId = entries[i]?.[0];
+      if (sessionId) {
+        this.closedOpsSessions.delete(sessionId);
+      }
+    }
   }
 }

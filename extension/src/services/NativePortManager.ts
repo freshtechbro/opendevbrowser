@@ -133,6 +133,12 @@ export class NativePortManager {
     const lastError = chrome.runtime.lastError;
     const message = lastError?.message ?? "Native host disconnected";
     this.setError(classifyNativeError(message), message);
+    if (this.pendingPing) {
+      clearTimeout(this.pendingPing.timeoutId);
+      const reject = this.pendingPing.reject;
+      this.pendingPing = null;
+      reject(new Error(message));
+    }
     this.port = null;
     this.handlers.onDisconnect?.(this.lastError ?? undefined);
   }
@@ -165,6 +171,9 @@ const classifyNativeError = (message: string): NativeTransportError => {
   }
   if (lowered.includes("forbidden")) {
     return "host_forbidden";
+  }
+  if (lowered.includes("exited") || lowered.includes("exit code")) {
+    return "host_disconnect";
   }
   if (lowered.includes("disconnect") || lowered.includes("disconnected") || lowered.includes("terminated")) {
     return "host_disconnect";

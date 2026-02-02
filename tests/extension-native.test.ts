@@ -4,13 +4,14 @@ import { NativePortManager } from "../extension/src/services/NativePortManager";
 type MessageListener = (payload: unknown) => void;
 type DisconnectListener = () => void;
 
-const makeMockPort = () => {
+const makeMockPort = (options: { respondToPing?: boolean } = {}) => {
+  const respondToPing = options.respondToPing !== false;
   const messageListeners = new Set<MessageListener>();
   const disconnectListeners = new Set<DisconnectListener>();
   const port = {
     postMessage: vi.fn((payload: unknown) => {
       const record = payload as Record<string, unknown>;
-      if (record?.type === "ping" && typeof record.id === "string") {
+      if (respondToPing && record?.type === "ping" && typeof record.id === "string") {
         for (const listener of messageListeners) {
           listener({ type: "pong", id: record.id });
         }
@@ -92,5 +93,24 @@ describe("NativePortManager", () => {
     globalThis.chrome.runtime.lastError = { message: "Access to the specified native messaging host is forbidden." };
     port.disconnect();
     expect(manager.getHealth().error).toBe("host_forbidden");
+  });
+
+  it("rejects pending ping when native host disconnects", async () => {
+    const { port } = makeMockPort({ respondToPing: false });
+    globalThis.chrome = {
+      runtime: {
+        connectNative: vi.fn(() => port),
+        lastError: null
+      }
+    } as unknown as typeof chrome;
+
+    const manager = new NativePortManager();
+    await manager.connect();
+
+    const pingPromise = manager.ping(5000);
+    port.disconnect();
+
+    await expect(pingPromise).rejects.toThrow("Native host disconnected");
+    expect(manager.getHealth().error).toBe("host_disconnect");
   });
 });

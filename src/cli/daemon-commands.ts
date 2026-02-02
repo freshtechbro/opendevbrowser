@@ -488,7 +488,17 @@ async function disconnectSession(
   bindingId?: string
 ): Promise<{ ok: true; bindingReleased?: boolean }> {
   const sessionId = requireString(params.sessionId, "sessionId");
-  const status = await core.manager.status(sessionId);
+  let status: Awaited<ReturnType<OpenDevBrowserCore["manager"]["status"]>> | null = null;
+  try {
+    status = await core.manager.status(sessionId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    if (message.includes("[invalid_session]") || message.includes("Unknown ops session")) {
+      releaseSessionLease(sessionId);
+      return { ok: true };
+    }
+    throw error;
+  }
   if (status.mode === "extension") {
     const lease = getSessionLease(sessionId);
     if (lease) {
