@@ -756,7 +756,7 @@ export class OpsRuntime {
     const payload = isRecord(message.payload) ? message.payload : {};
     const dy = typeof payload.dy === "number" ? payload.dy : 0;
     const ref = typeof payload.ref === "string" ? payload.ref : undefined;
-    const selector = ref ? this.resolveSelector(session, ref, message) : undefined;
+    const selector = ref ? this.resolveSelector(session, ref, message) ?? undefined : undefined;
     if (ref && !selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
@@ -934,7 +934,8 @@ export class OpsRuntime {
     const sinceSeq = typeof payload.sinceSeq === "number" ? payload.sinceSeq : 0;
     const max = typeof payload.max === "number" ? payload.max : 50;
     const events = session.consoleEvents.filter((event) => event.seq > sinceSeq).slice(0, max);
-    const nextSeq = events.length > 0 ? events[events.length - 1].seq : sinceSeq;
+    const lastEvent = events.at(-1);
+    const nextSeq = lastEvent ? lastEvent.seq : sinceSeq;
     this.sendResponse(message, { events, nextSeq });
   }
 
@@ -943,7 +944,8 @@ export class OpsRuntime {
     const sinceSeq = typeof payload.sinceSeq === "number" ? payload.sinceSeq : 0;
     const max = typeof payload.max === "number" ? payload.max : 50;
     const events = session.networkEvents.filter((event) => event.seq > sinceSeq).slice(0, max);
-    const nextSeq = events.length > 0 ? events[events.length - 1].seq : sinceSeq;
+    const lastEvent = events.at(-1);
+    const nextSeq = lastEvent ? lastEvent.seq : sinceSeq;
     this.sendResponse(message, { events, nextSeq });
   }
 
@@ -1167,7 +1169,8 @@ export class OpsRuntime {
           return;
         }
         const match = dataUrl.match(/^data:image\/png;base64,(.+)$/);
-        resolve(match ? match[1] : null);
+        const base64 = match?.[1] ?? null;
+        resolve(base64);
       });
     });
   }
