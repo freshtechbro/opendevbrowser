@@ -28,6 +28,7 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 - **Relay port**: Port of the local relay server (default `8787`).
 - **Auto-connect**: Reconnect on browser start (default on).
 - **Auto-pair**: Fetch pairing token automatically from the plugin (default on).
+- **Native fallback (experimental)**: Allow native messaging fallback when relay is unavailable (default off).
 - **Require pairing token**: Require token for relay pairing (recommended).
 - **Pairing token**: Manual token entry when auto-pair is off.
 
@@ -38,12 +39,14 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 | Relay port | `8787` |
 | Auto-connect | `true` |
 | Auto-pair | `true` |
+| Native fallback (experimental) | `false` |
 | Require pairing token | `true` |
 | Pairing token | `null` (fetched on connect) |
 
 ## Auto-connect behavior
 
 Auto-connect is enabled by default. The extension attempts to connect on browser startup, install, and when the toggle is enabled in the UI. Auto-connect respects the current relay port, pairing settings, and auto-pair toggle.
+Native fallback is only attempted when the experimental native toggle is enabled.
 
 ## Auto-pair flow
 

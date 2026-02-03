@@ -162,6 +162,9 @@ The daemon listens on `127.0.0.1` and starts the relay the extension connects to
 `~/.cache/opendevbrowser/daemon.json` (cache only);
 `/status` is the source of truth. The daemon port/token are persisted in `opendevbrowser.jsonc` as `daemonPort`/`daemonToken`.
 
+If `nativeExtensionId` is set in `opendevbrowser.jsonc`, `serve` will auto-install the native messaging host when it is missing.
+If it is not set, `serve` attempts to auto-detect the extension ID from Chrome, Brave, or Chromium profiles; if detection fails it continues startup.
+
 Relay HTTP endpoints (`/config`, `/status`, `/pair`) accept extension origins and loopback requests with no `Origin` (including
 `Origin: null`) to support MV3 + PNA. Non-extension origins are rejected; preflights include
 `Access-Control-Allow-Private-Network: true` when requested.
@@ -230,6 +233,8 @@ Notes:
 - Supported on macOS, Linux, and Windows.
 - Windows install writes a registry entry under `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.opendevbrowser.native`.
 - `native install` requires the extension ID (chrome://extensions → copy ID).
+- Set `nativeExtensionId` in `opendevbrowser.jsonc` to allow `serve` to auto-install the native host when missing (preferred).
+- `serve` also attempts auto-detection from Chrome, Brave, or Chromium profiles, but explicit config is more reliable.
 - `native status` reports installed state + extension ID from the manifest.
 - Use `--transport native` with `status` to check native host status without requiring the daemon.
 
