@@ -22,21 +22,22 @@ Fix `/ops` screenshot timeout and legacy `/cdp` instability, keep tests at >=97%
   - Added extension fallbacks for stale tab ids and HTTP tab selection in `extension/src/services/*`.
   - Added tests to close branch coverage gaps; `npm run test` passes with 97% branch coverage.
   - `npm run lint`, `npm run build`, and `npx tsc -p tsconfig.json --noEmit` all pass.
+  - Committed all changes (4 commits: fix/test/docs/chore).
 - **Now**:
-  - Commit all changes using Conventional Commits.
+  - Ready to re-validate `/ops` + legacy `/cdp` via user daemon if needed.
 - **Next**:
-  - Re-validate `/ops` + legacy `/cdp` via user daemon if needed after commit.
+  - Run live `/ops` + legacy `/cdp` checks against the user-started daemon and report remaining runtime issues.
 
 ### Open Questions (UNCONFIRMED if needed)
 - None.
 
 ### Working Set (files/ids/commands)
-- `tests/browser-manager.test.ts`
-- `tests/target-manager.test.ts`
-- `src/browser/browser-manager.ts`
-- `src/browser/target-manager.ts`
 - `extension/src/ops/ops-runtime.ts`
 - `extension/src/services/{ConnectionManager,CDPRouter,TabManager}.ts`
+- `src/browser/browser-manager.ts`
+- `src/browser/target-manager.ts`
+- `tests/browser-manager.test.ts`
+- `tests/target-manager.test.ts`
 - `npm run test`, `npm run lint`, `npm run build`, `npx tsc -p tsconfig.json --noEmit`
 
 ### Key learnings
