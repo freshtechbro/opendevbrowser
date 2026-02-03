@@ -19,8 +19,10 @@ const disconnectMock = vi.fn();
 vi.mock("../src/browser/ops-client", () => ({
   OpsClient: class {
     url: string;
-    constructor(url: string) {
+    private handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void };
+    constructor(url: string, handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void }) {
       this.url = url;
+      this.handlers = handlers;
     }
     async connect() {
       return await connectMock();
@@ -30,6 +32,12 @@ vi.mock("../src/browser/ops-client", () => ({
     }
     disconnect() {
       disconnectMock();
+    }
+    emitEvent(event: { event?: string; opsSessionId?: string }) {
+      this.handlers.onEvent?.(event);
+    }
+    emitClose() {
+      this.handlers.onClose?.();
     }
   }
 }));
@@ -244,6 +252,186 @@ describe("OpsBrowserManager", () => {
 
     await manager.disconnect("ops-1");
     expect(requestMock).toHaveBeenCalledWith("session.disconnect", { closeBrowser: false }, "ops-1", 30000, "lease-1");
+  });
+
+  it("tracks ops session close events", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    const opsLeases = (manager as { opsLeases: Map<string, string> }).opsLeases;
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    opsSessions.add("ops-1");
+    opsLeases.set("ops-1", "lease-1");
+
+    (manager as unknown as { handleOpsEvent: (event: { event?: string; opsSessionId?: string }) => void })
+      .handleOpsEvent({ opsSessionId: "ops-1", event: "ops_session_closed" });
+
+    expect(opsSessions.has("ops-1")).toBe(false);
+    expect(opsLeases.has("ops-1")).toBe(false);
+    expect(closedOpsSessions.has("ops-1")).toBe(true);
+  });
+
+  it("tracks ops session expired events", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    const opsLeases = (manager as { opsLeases: Map<string, string> }).opsLeases;
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    opsSessions.add("ops-expired");
+    opsLeases.set("ops-expired", "lease-expired");
+
+    (manager as unknown as { handleOpsEvent: (event: { event?: string; opsSessionId?: string }) => void })
+      .handleOpsEvent({ opsSessionId: "ops-expired", event: "ops_session_expired" });
+
+    expect(opsSessions.has("ops-expired")).toBe(false);
+    expect(opsLeases.has("ops-expired")).toBe(false);
+    expect(closedOpsSessions.has("ops-expired")).toBe(true);
+  });
+
+  it("ignores ops events without session ids", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    opsSessions.add("ops-1");
+
+    (manager as unknown as { handleOpsEvent: (event: { event?: string; opsSessionId?: string }) => void })
+      .handleOpsEvent({ event: "ops_session_closed" });
+
+    expect(opsSessions.has("ops-1")).toBe(true);
+    expect(closedOpsSessions.size).toBe(0);
+  });
+
+  it("ignores non-close ops events", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    opsSessions.add("ops-2");
+
+    (manager as unknown as { handleOpsEvent: (event: { event?: string; opsSessionId?: string }) => void })
+      .handleOpsEvent({ opsSessionId: "ops-2", event: "ops_session_opened" });
+
+    expect(opsSessions.has("ops-2")).toBe(true);
+    expect(closedOpsSessions.size).toBe(0);
+  });
+
+  it("handles closed sessions on disconnect and status checks", async () => {
+    const base = {
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      status: vi.fn().mockResolvedValue({ mode: "managed", activeTargetId: null })
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    closedOpsSessions.set("ops-closed", Date.now());
+    await manager.disconnect("ops-closed", false);
+    await expect(manager.status("ops-closed")).rejects.toThrow("Session already closed");
+    expect(base.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("clears ops sessions when ops client closes", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    const opsLeases = (manager as { opsLeases: Map<string, string> }).opsLeases;
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    opsSessions.add("ops-1");
+    opsSessions.add("ops-2");
+    opsLeases.set("ops-1", "lease-1");
+    opsLeases.set("ops-2", "lease-2");
+
+    (manager as unknown as { handleOpsClientClosed: () => void }).handleOpsClientClosed();
+
+    expect(opsSessions.size).toBe(0);
+    expect(opsLeases.size).toBe(0);
+    expect(closedOpsSessions.has("ops-1")).toBe(true);
+    expect(closedOpsSessions.has("ops-2")).toBe(true);
+  });
+
+  it("no-ops when ops client closes without sessions", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    (manager as unknown as { handleOpsClientClosed: () => void }).handleOpsClientClosed();
+
+    expect(closedOpsSessions.size).toBe(0);
+  });
+
+  it("throws when ops lease is missing", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    (manager as { opsClient: { request: () => Promise<unknown> } | null }).opsClient = {
+      request: vi.fn().mockResolvedValue({})
+    };
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    opsSessions.add("ops-lease-missing");
+
+    await expect(manager.goto("ops-lease-missing", "https://example.com")).rejects.toThrow("Ops lease not found");
+  });
+
+  it("invokes ops client event handlers", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-evt", activeTargetId: "tab-1", url: "https://example.com", title: "Example", leaseId: "lease-evt" };
+      }
+      return {};
+    });
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    const opsClient = (manager as { opsClient: { emitEvent: (event: { event?: string; opsSessionId?: string }) => void; emitClose: () => void } | null }).opsClient;
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+
+    opsClient?.emitEvent({ opsSessionId: "ops-evt", event: "ops_tab_closed" });
+    expect(opsSessions.has("ops-evt")).toBe(false);
+
+    opsSessions.add("ops-evt");
+    opsClient?.emitClose();
+    expect(opsSessions.size).toBe(0);
+  });
+
+  it("prunes closed ops sessions beyond 100", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    for (let i = 0; i < 105; i += 1) {
+      closedOpsSessions.set(`ops-${i}`, i);
+    }
+
+    (manager as unknown as { trackClosedSessionCleanup: () => void }).trackClosedSessionCleanup();
+
+    expect(closedOpsSessions.size).toBe(100);
+    expect(closedOpsSessions.has("ops-0")).toBe(false);
+  });
+
+  it("skips cleanup when closed ops sessions are under the limit", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    for (let i = 0; i < 100; i += 1) {
+      closedOpsSessions.set(`ops-${i}`, i);
+    }
+
+    (manager as unknown as { trackClosedSessionCleanup: () => void }).trackClosedSessionCleanup();
+
+    expect(closedOpsSessions.size).toBe(100);
+    expect(closedOpsSessions.has("ops-0")).toBe(true);
+  });
+
+  it("preserves falsy session ids during cleanup", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const closedOpsSessions = (manager as { closedOpsSessions: Map<string, number> }).closedOpsSessions;
+
+    closedOpsSessions.set("", -1);
+    for (let i = 0; i < 101; i += 1) {
+      closedOpsSessions.set(`ops-${i}`, i);
+    }
+
+    (manager as unknown as { trackClosedSessionCleanup: () => void }).trackClosedSessionCleanup();
+
+    expect(closedOpsSessions.has("")).toBe(true);
+    expect(closedOpsSessions.size).toBe(101);
   });
 
   it("recreates ops client when endpoint changes", async () => {

@@ -82,6 +82,21 @@ describe("TargetManager", () => {
     expect(targets[0].url).toBeUndefined();
   });
 
+  it("handles rejected title and url lookups", async () => {
+    const manager = new TargetManager();
+    const page = {
+      title: () => Promise.reject(new Error("fail")),
+      url: () => Promise.reject(new Error("fail")),
+      close: async () => undefined,
+      isClosed: () => false
+    };
+
+    manager.registerPage(page as never);
+    const targets = await manager.listTargets(true);
+    expect(targets[0].title).toBeUndefined();
+    expect(targets[0].url).toBeUndefined();
+  });
+
   it("tracks named pages", async () => {
     const manager = new TargetManager();
     const page = createPage("Named", "https://named");
@@ -92,6 +107,7 @@ describe("TargetManager", () => {
 
     const list = manager.listNamedTargets();
     expect(list).toEqual([{ name: "main", targetId: id }]);
+    expect(manager.getName("missing")).toBeNull();
   });
 
   it("removes name mappings when closing targets", async () => {
@@ -144,5 +160,96 @@ describe("TargetManager", () => {
 
     const targets = await manager.listTargets(false);
     expect(targets[0].url).toBeUndefined();
+  });
+
+  it("syncs pages and removes closed or missing entries", () => {
+    const manager = new TargetManager();
+    const page1 = {
+      title: async () => "One",
+      url: () => "https://one",
+      close: async () => undefined,
+      isClosed: () => false
+    };
+    const page2 = {
+      title: async () => "Two",
+      url: () => "https://two",
+      close: async () => undefined,
+      isClosed: () => true
+    };
+    const page3 = {
+      title: async () => "Three",
+      url: () => "https://three",
+      close: async () => undefined,
+      isClosed: () => false
+    };
+
+    manager.registerPage(page1 as never, "main");
+    const id2 = manager.registerPage(page2 as never, "old");
+    manager.setActiveTarget(id2);
+
+    manager.syncPages([page1 as never, page3 as never]);
+
+    expect(manager.getTargetIdByName("old")).toBeNull();
+    expect(manager.getTargetIdByName("main")).not.toBeNull();
+    const pages = manager.listPageEntries().map((entry) => entry.page);
+    expect(pages).toContain(page1 as never);
+    expect(pages).toContain(page3 as never);
+    expect(pages).not.toContain(page2 as never);
+  });
+
+  it("removes name mappings for missing named pages during sync", () => {
+    const manager = new TargetManager();
+    const page1 = {
+      title: async () => "One",
+      url: () => "https://one",
+      close: async () => undefined,
+      isClosed: () => false
+    };
+    const page2 = {
+      title: async () => "Two",
+      url: () => "https://two",
+      close: async () => undefined,
+      isClosed: () => false
+    };
+
+    manager.registerPage(page1 as never);
+    const id2 = manager.registerPage(page2 as never, "main");
+
+    manager.syncPages([page1 as never]);
+
+    expect(manager.getTargetIdByName("main")).toBeNull();
+    expect(manager.getName(id2)).toBeNull();
+  });
+
+  it("clears names and active target when all pages are removed", () => {
+    const manager = new TargetManager();
+    const page = {
+      title: async () => "One",
+      url: () => "https://one",
+      close: async () => undefined,
+      isClosed: () => true
+    };
+    const id = manager.registerPage(page as never, "old");
+    manager.setActiveTarget(id);
+
+    manager.syncPages([]);
+
+    expect(manager.getTargetIdByName("old")).toBeNull();
+    expect(manager.getActiveTargetId()).toBeNull();
+  });
+
+  it("removes named targets that are no longer present", () => {
+    const manager = new TargetManager();
+    const page = {
+      title: async () => "One",
+      url: () => "https://one",
+      close: async () => undefined,
+      isClosed: () => false
+    };
+    manager.registerPage(page as never, "old");
+
+    manager.syncPages([]);
+
+    expect(manager.getTargetIdByName("old")).toBeNull();
   });
 });
