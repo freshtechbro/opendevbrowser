@@ -91,4 +91,14 @@ export class TabManager {
     const tab = await this.getActiveTab();
     return tab?.id ?? null;
   }
+
+  async getFirstHttpTabId(): Promise<number | null> {
+    const tabs = await chrome.tabs.query({});
+    const match = tabs.find((tab) => {
+      if (typeof tab.id !== "number") return false;
+      if (!tab.url) return false;
+      return tab.url.startsWith("http://") || tab.url.startsWith("https://");
+    });
+    return match?.id ?? null;
+  }
 }

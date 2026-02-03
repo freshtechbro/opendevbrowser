@@ -27,6 +27,7 @@ import { redactConsoleText, redactUrl } from "./redaction.js";
 const MAX_CONSOLE_EVENTS = 200;
 const MAX_NETWORK_EVENTS = 300;
 const SESSION_TTL_MS = 20_000;
+const SCREENSHOT_TIMEOUT_MS = 8000;
 
 export type OpsRuntimeOptions = {
   send: (message: OpsEnvelope) => void;
@@ -913,7 +914,11 @@ export class OpsRuntime {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
     try {
-      const result = await this.cdp.sendCommand({ tabId: target.tabId }, "Page.captureScreenshot", { format: "png" }) as { data?: string };
+      const result = await withTimeout(
+        this.cdp.sendCommand({ tabId: target.tabId }, "Page.captureScreenshot", { format: "png" }),
+        SCREENSHOT_TIMEOUT_MS,
+        "Ops screenshot timed out"
+      ) as { data?: string };
       if (result?.data) {
         this.sendResponse(message, { base64: result.data });
         return;
@@ -1222,6 +1227,22 @@ const paginate = (lines: string[], startIndex: number, maxChars: number): { cont
 };
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
+  return await new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then((value) => {
+      clearTimeout(timeoutId);
+      resolve(value);
+    }).catch((error) => {
+      clearTimeout(timeoutId);
+      reject(error);
+    });
+  });
+};
 
 const createId = (): string => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {

@@ -20,6 +20,7 @@ export type BackgroundMessage = {
   note?: string;
   relayHealth?: RelayHealthStatus | null;
   nativeHealth?: NativeTransportHealth | null;
+  nativeEnabled?: boolean;
 };
 
 export type RelayCommand = {

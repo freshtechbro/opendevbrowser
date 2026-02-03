@@ -1,9 +1,11 @@
 import * as fs from "fs";
 import * as path from "path";
+import { homedir } from "os";
 import { execFileSync } from "child_process";
 import { fileURLToPath } from "url";
 import type { ParsedArgs } from "../args";
 import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
+import { getExtensionPath } from "../../extension-extractor";
 
 type NativeSubcommand = "install" | "uninstall" | "status";
 
@@ -17,6 +19,25 @@ type NativeStatus = {
 };
 
 const EXTENSION_ID_RE = /^[a-p]{32}$/;
+const EXTENSION_NAME = "OpenDevBrowser Relay";
+
+const normalizeExtensionId = (value: string | undefined): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return EXTENSION_ID_RE.test(trimmed) ? trimmed : null;
+};
+
+const requireExtensionId = (value: string | undefined): string => {
+  if (!value) {
+    throw createUsageError("Missing extension ID. Usage: opendevbrowser native install <extension-id>");
+  }
+  const normalized = normalizeExtensionId(value);
+  if (!normalized) {
+    throw createUsageError("Invalid extension ID format. Expected 32 characters (a-p).");
+  }
+  return normalized;
+};
 
 const parseNativeArgs = (rawArgs: string[]): { subcommand: NativeSubcommand; extensionId?: string } => {
   const subcommand = rawArgs[0];
@@ -24,13 +45,7 @@ const parseNativeArgs = (rawArgs: string[]): { subcommand: NativeSubcommand; ext
     throw createUsageError("Usage: opendevbrowser native <install|uninstall|status> [extension-id]");
   }
   if (subcommand === "install") {
-    const extensionId = rawArgs[1];
-    if (!extensionId) {
-      throw createUsageError("Missing extension ID. Usage: opendevbrowser native install <extension-id>");
-    }
-    if (!EXTENSION_ID_RE.test(extensionId)) {
-      throw createUsageError("Invalid extension ID format. Expected 32 characters (a-p).");
-    }
+    const extensionId = requireExtensionId(rawArgs[1]);
     return { subcommand, extensionId };
   }
   return { subcommand };
@@ -115,6 +130,98 @@ const readRegistryPath = (): string | null => {
   }
 };
 
+const normalizePath = (value: string): string => {
+  try {
+    return fs.realpathSync(value);
+  } catch {
+    return path.resolve(value);
+  }
+};
+
+const getChromeUserDataRoots = (): string[] => {
+  if (process.platform === "darwin") {
+    return [
+      path.join(homedir(), "Library", "Application Support", "Google", "Chrome"),
+      path.join(homedir(), "Library", "Application Support", "Chromium"),
+      path.join(homedir(), "Library", "Application Support", "BraveSoftware", "Brave-Browser")
+    ];
+  }
+  if (process.platform === "linux") {
+    return [
+      path.join(homedir(), ".config", "google-chrome"),
+      path.join(homedir(), ".config", "chromium"),
+      path.join(homedir(), ".config", "BraveSoftware", "Brave-Browser")
+    ];
+  }
+  if (process.platform === "win32") {
+    const base = process.env.LOCALAPPDATA
+      || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, "AppData", "Local") : "");
+    if (!base) return [];
+    return [
+      path.join(base, "Google", "Chrome", "User Data"),
+      path.join(base, "Chromium", "User Data"),
+      path.join(base, "BraveSoftware", "Brave-Browser", "User Data")
+    ];
+  }
+  return [];
+};
+
+const getProfileDirs = (root: string): string[] => {
+  try {
+    const entries = fs.readdirSync(root, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory() && (entry.name === "Default" || entry.name.startsWith("Profile ")))
+      .map((entry) => path.join(root, entry.name))
+      .filter((dir) => fs.existsSync(path.join(dir, "Preferences")));
+  } catch {
+    return [];
+  }
+};
+
+const readPreferences = (profileDir: string): Record<string, unknown> | null => {
+  try {
+    const raw = fs.readFileSync(path.join(profileDir, "Preferences"), "utf8");
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+const findExtensionIdInPreferences = (
+  preferences: Record<string, unknown>,
+  extensionPath: string | null
+): { id: string; matchedBy: "path" | "name" } | null => {
+  const extensions = preferences.extensions as Record<string, unknown> | undefined;
+  const settings = extensions?.settings as Record<string, unknown> | undefined;
+  if (!settings) return null;
+
+  const normalizedTargetPath = extensionPath ? normalizePath(extensionPath) : null;
+  let nameMatch: string | null = null;
+
+  for (const [id, entry] of Object.entries(settings)) {
+    if (!EXTENSION_ID_RE.test(id) || typeof entry !== "object" || entry === null) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const recordPath = typeof record.path === "string" ? record.path : null;
+    if (recordPath && normalizedTargetPath) {
+      if (normalizePath(recordPath) === normalizedTargetPath) {
+        return { id, matchedBy: "path" };
+      }
+    }
+    const manifest = record.manifest as Record<string, unknown> | undefined;
+    const name = typeof manifest?.name === "string" ? manifest.name : null;
+    if (!nameMatch && name === EXTENSION_NAME) {
+      nameMatch = id;
+    }
+  }
+
+  if (nameMatch) {
+    return { id: nameMatch, matchedBy: "name" };
+  }
+  return null;
+};
+
 export const getNativeStatusSnapshot = (): NativeStatus => {
   const hostScript = getHostScriptPath();
   const manifestPath = getManifestPath();
@@ -151,37 +258,73 @@ export const getNativeStatusSnapshot = (): NativeStatus => {
   };
 };
 
-export async function runNativeCommand(args: ParsedArgs) {
-  const { subcommand, extensionId } = parseNativeArgs(args.rawArgs);
-  const scriptsDir = getScriptsDir();
+export function discoverExtensionId(): { extensionId: string | null; matchedBy?: "path" | "name" } {
+  const extensionPath = getExtensionPath();
+  const roots = getChromeUserDataRoots();
+  for (const root of roots) {
+    for (const profileDir of getProfileDirs(root)) {
+      const prefs = readPreferences(profileDir);
+      if (!prefs) continue;
+      const match = findExtensionIdInPreferences(prefs, extensionPath);
+      if (match) {
+        return { extensionId: match.id, matchedBy: match.matchedBy };
+      }
+    }
+  }
+  return { extensionId: null };
+}
+
+export function installNativeHost(extensionId: string) {
+  const normalized = normalizeExtensionId(extensionId);
+  if (!normalized) {
+    return {
+      success: false,
+      message: "Invalid extension ID format. Expected 32 characters (a-p).",
+      exitCode: EXIT_EXECUTION
+    };
+  }
+
   const hostScript = getHostScriptPath();
+  if (!fs.existsSync(hostScript)) {
+    return {
+      success: false,
+      message: `Native host not found at ${hostScript}.`,
+      exitCode: EXIT_EXECUTION
+    };
+  }
+
+  const scriptsDir = getScriptsDir();
   const manifestPath = getManifestPath();
   const installScript = process.platform === "win32"
     ? path.join(scriptsDir, "install.ps1")
     : path.join(scriptsDir, "install.sh");
+
+  try {
+    runScript(installScript, [normalized]);
+    return {
+      success: true,
+      message: `Native host installed for extension ${normalized}.`,
+      data: { manifestPath }
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      message: `Native install failed: ${message}`,
+      exitCode: EXIT_EXECUTION
+    };
+  }
+}
+
+export async function runNativeCommand(args: ParsedArgs) {
+  const { subcommand, extensionId } = parseNativeArgs(args.rawArgs);
+  const scriptsDir = getScriptsDir();
   const uninstallScript = process.platform === "win32"
     ? path.join(scriptsDir, "uninstall.ps1")
     : path.join(scriptsDir, "uninstall.sh");
 
   if (subcommand === "install") {
-    if (!fs.existsSync(hostScript)) {
-      return {
-        success: false,
-        message: `Native host not found at ${hostScript}.`,
-        exitCode: EXIT_EXECUTION
-      };
-    }
-    try {
-      runScript(installScript, [extensionId as string]);
-      return {
-        success: true,
-        message: `Native host installed for extension ${extensionId}.`,
-        data: { manifestPath }
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { success: false, message: `Native install failed: ${message}`, exitCode: EXIT_EXECUTION };
-    }
+    return installNativeHost(extensionId as string);
   }
 
   if (subcommand === "uninstall") {
@@ -218,5 +361,7 @@ export const __test__ = {
   getWrapperPath,
   getHostScriptPath,
   parseNativeArgs,
-  getNativeStatusSnapshot
+  getNativeStatusSnapshot,
+  normalizeExtensionId,
+  findExtensionIdInPreferences
 };

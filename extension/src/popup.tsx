@@ -14,6 +14,7 @@ import {
   DEFAULT_AUTO_CONNECT,
   DEFAULT_AUTO_PAIR,
   DEFAULT_DISCOVERY_PORT,
+  DEFAULT_NATIVE_ENABLED,
   DEFAULT_PAIRING_ENABLED,
   DEFAULT_PAIRING_TOKEN,
   DEFAULT_RELAY_PORT
@@ -38,6 +39,7 @@ const pairingTokenInput = document.getElementById("pairingToken") as HTMLInputEl
 const pairingEnabledInput = document.getElementById("pairingEnabled") as HTMLInputElement | null;
 const autoPairInput = document.getElementById("autoPair") as HTMLInputElement | null;
 const autoConnectInput = document.getElementById("autoConnect") as HTMLInputElement | null;
+const nativeEnabledInput = document.getElementById("nativeEnabled") as HTMLInputElement | null;
 const annotationContextInput = document.getElementById("annotationContext") as HTMLInputElement | null;
 const annotationStartButton = document.getElementById("annotationStart");
 const annotationCopyButton = document.getElementById("annotationCopy") as HTMLButtonElement | null;
@@ -62,6 +64,7 @@ if (
   || !pairingEnabledInput
   || !autoPairInput
   || !autoConnectInput
+  || !nativeEnabledInput
   || !annotationContextInput
   || !annotationStartButton
   || !annotationCopyButton
@@ -178,8 +181,12 @@ const formatNativeHealth = (health: NativeTransportHealth | null): { label: stri
   }
 };
 
-const setNativeHealth = (health?: NativeTransportHealth | null) => {
-  const formatted = formatNativeHealth(health ?? null);
+const setNativeHealth = (health: NativeTransportHealth | null, enabled: boolean) => {
+  if (!enabled) {
+    setHealthValue(healthNative, "Disabled", "off");
+    return;
+  }
+  const formatted = formatNativeHealth(health);
   setHealthValue(healthNative, formatted.label, formatted.tone);
   if (formatted.note && healthNote.textContent === "Relay health OK.") {
     healthNote.textContent = `${healthNote.textContent} ${formatted.note}`;
@@ -190,7 +197,7 @@ const applyStatus = (response: BackgroundMessage) => {
   setStatus(response.status);
   setNote(response.note);
   setHealth(response.relayHealth ?? null);
-  setNativeHealth(response.nativeHealth ?? null);
+  setNativeHealth(response.nativeHealth ?? null, response.nativeEnabled === true);
 };
 
 const sendMessage = <TResponse,>(message: PopupMessage): Promise<TResponse> => {
@@ -237,6 +244,7 @@ const refreshStatus = async () => {
     const message = error instanceof Error ? error.message : "Background unavailable";
     setNote(message);
     setHealth(null);
+    setNativeHealth(null, nativeEnabledInput.checked);
     setInjectionStatus(null);
   }
 };
@@ -330,13 +338,14 @@ const applyRelayPort = (port: number): void => {
 
 const loadSettings = async () => {
   const data = await new Promise<Record<string, unknown>>((resolve) => {
-    chrome.storage.local.get(["pairingToken", "pairingEnabled", "relayPort", "autoPair", "autoConnect"], (items) => {
+    chrome.storage.local.get(["pairingToken", "pairingEnabled", "relayPort", "autoPair", "autoConnect", "nativeEnabled"], (items) => {
       resolve(items);
     });
   });
   
   const autoPair = typeof data.autoPair === "boolean" ? data.autoPair : DEFAULT_AUTO_PAIR;
   const autoConnect = typeof data.autoConnect === "boolean" ? data.autoConnect : DEFAULT_AUTO_CONNECT;
+  const nativeEnabled = typeof data.nativeEnabled === "boolean" ? data.nativeEnabled : DEFAULT_NATIVE_ENABLED;
   const pairingEnabled = typeof data.pairingEnabled === "boolean"
     ? data.pairingEnabled
     : DEFAULT_PAIRING_ENABLED;
@@ -346,6 +355,7 @@ const loadSettings = async () => {
 
   autoConnectInput.checked = autoConnect;
   autoPairInput.checked = autoPair;
+  nativeEnabledInput.checked = nativeEnabled;
   pairingEnabledInput.checked = pairingEnabled;
   pairingTokenInput.disabled = !pairingEnabled || autoPair;
   pairingTokenInput.value = tokenValue;
@@ -358,6 +368,9 @@ const loadSettings = async () => {
   }
   if (typeof data.autoPair !== "boolean") {
     updates.autoPair = autoPair;
+  }
+  if (typeof data.nativeEnabled !== "boolean") {
+    updates.nativeEnabled = nativeEnabled;
   }
   if (typeof data.pairingEnabled !== "boolean") {
     updates.pairingEnabled = pairingEnabled;
@@ -561,6 +574,13 @@ autoConnectInput.addEventListener("change", () => {
   }
 });
 
+nativeEnabledInput.addEventListener("change", () => {
+  const enabled = nativeEnabledInput.checked;
+  chrome.storage.local.set({ nativeEnabled: enabled });
+  setNativeHealth(null, enabled);
+  void refreshStatus();
+});
+
 pairingTokenInput.addEventListener("input", () => {
   const value = pairingTokenInput.value.trim();
   chrome.storage.local.set({ pairingToken: value });
@@ -600,6 +620,7 @@ loadSettings().catch((error) => {
   logError("popup.load_settings", error, { code: "settings_load_failed" });
   autoConnectInput.checked = DEFAULT_AUTO_CONNECT;
   autoPairInput.checked = DEFAULT_AUTO_PAIR;
+  nativeEnabledInput.checked = DEFAULT_NATIVE_ENABLED;
   pairingEnabledInput.checked = DEFAULT_PAIRING_ENABLED;
   pairingTokenInput.disabled = !DEFAULT_PAIRING_ENABLED;
   pairingTokenInput.value = DEFAULT_PAIRING_TOKEN || "";

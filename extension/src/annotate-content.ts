@@ -20,8 +20,6 @@ const logError = (context: string, error: unknown, options?: { code?: string; ex
   console.error("[opendevbrowser]", payload);
 };
 
-export {};
-
 type AnnotationScreenshotMode = "visible" | "full" | "none";
 
 type AnnotationOptions = {
@@ -56,15 +54,13 @@ type ContentMessage =
   | { type: "annotation:toggle" }
   | { type: "annotation:ping" };
 
-declare global {
-  interface Window {
-    __odbAnnotate?: {
-      active: boolean;
-      toggle: () => void;
-      start: (requestId: string | null, options?: Partial<AnnotationOptions>) => void;
-      cancel: (requestId?: string) => void;
-    };
-  }
+interface Window {
+  __odbAnnotate?: {
+    active: boolean;
+    toggle: () => void;
+    start: (requestId: string | null, options?: Partial<AnnotationOptions>) => void;
+    cancel: (requestId?: string) => void;
+  };
 }
 
 const ROOT_ID = "odb-annotate-root";

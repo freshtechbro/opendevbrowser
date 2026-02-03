@@ -44,7 +44,10 @@ class ConnectionError extends Error {
   }
 }
 
-const summarizeProtocol = (rawUrl: string): string => {
+const summarizeProtocol = (rawUrl?: string | null): string => {
+  if (!rawUrl) {
+    return "unknown";
+  }
   try {
     return new URL(rawUrl).protocol.replace(":", "");
   } catch (error) {
@@ -294,7 +297,7 @@ export class ConnectionManager {
   }
 
   private async attachToActiveTab(): Promise<void> {
-    const tab = await this.tabs.getActiveTab();
+    let tab = await this.tabs.getActiveTab();
     if (!tab || typeof tab.id !== "number") {
       this.trackedTab = null;
       this.setStatus("disconnected");
@@ -307,7 +310,17 @@ export class ConnectionManager {
 
     if (!tab.url) {
       logWarn("Active tab URL missing.");
-      throw new ConnectionError("tab_url_missing", "Active tab URL is unavailable. Reload the tab and retry.");
+      const fallbackId = await this.tabs.getFirstHttpTabId();
+      if (fallbackId && fallbackId !== tab.id) {
+        const fallbackTab = await this.tabs.getTab(fallbackId);
+        if (fallbackTab && typeof fallbackTab.id === "number" && fallbackTab.url) {
+          logInfo("Falling back to first http(s) tab.");
+          tab = fallbackTab;
+        }
+      }
+      if (!tab.url) {
+        throw new ConnectionError("tab_url_missing", "Active tab URL is unavailable. Reload the tab and retry.");
+      }
     }
 
     let parsedUrl: URL | null = null;
@@ -320,21 +333,65 @@ export class ConnectionManager {
 
     if (!parsedUrl) {
       logWarn("Active tab URL is invalid.");
-      throw new ConnectionError(
-        "tab_url_restricted",
-        "Active tab URL is unsupported. Focus a normal http(s) tab and retry."
-      );
+      const fallbackId = await this.tabs.getFirstHttpTabId();
+      if (fallbackId && fallbackId !== tab.id) {
+        const fallbackTab = await this.tabs.getTab(fallbackId);
+        if (fallbackTab && typeof fallbackTab.id === "number" && fallbackTab.url) {
+          logInfo("Falling back to first http(s) tab.");
+          try {
+            parsedUrl = new URL(fallbackTab.url);
+            tab = fallbackTab;
+          } catch {
+            parsedUrl = null;
+          }
+        }
+      }
+      if (!parsedUrl) {
+        throw new ConnectionError(
+          "tab_url_restricted",
+          "Active tab URL is unsupported. Focus a normal http(s) tab and retry."
+        );
+      }
     }
 
     const restrictionMessage = getRestrictionMessage(parsedUrl);
     if (restrictionMessage) {
       logWarn(`Active tab blocked: ${summarizeProtocol(tab.url)} scheme.`);
-      throw new ConnectionError("tab_url_restricted", restrictionMessage);
+      const fallbackId = await this.tabs.getFirstHttpTabId();
+      if (fallbackId && fallbackId !== tab.id) {
+        const fallbackTab = await this.tabs.getTab(fallbackId);
+        if (fallbackTab && typeof fallbackTab.id === "number" && fallbackTab.url) {
+          try {
+            const fallbackUrl = new URL(fallbackTab.url);
+            const fallbackRestriction = getRestrictionMessage(fallbackUrl);
+            if (!fallbackRestriction) {
+              logInfo("Falling back to first http(s) tab.");
+              tab = fallbackTab;
+              parsedUrl = fallbackUrl;
+            }
+          } catch {
+            // Ignore invalid fallback URL.
+          }
+        }
+      }
+      if (restrictionMessage && getRestrictionMessage(parsedUrl)) {
+        throw new ConnectionError("tab_url_restricted", restrictionMessage);
+      }
+    }
+
+    const tabId = tab.id;
+    if (typeof tabId !== "number") {
+      this.trackedTab = null;
+      this.setStatus("disconnected");
+      throw new ConnectionError(
+        "no_active_tab",
+        "No active browser tab found. Focus a normal tab (not the popup) and retry."
+      );
     }
 
     logInfo("Active tab resolved.");
     try {
-      await this.cdp.attach(tab.id);
+      await this.cdp.attach(tabId);
       logInfo("Debugger attached.");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown error";
@@ -348,7 +405,7 @@ export class ConnectionManager {
       );
     }
     this.trackedTab = {
-      id: tab.id,
+      id: tabId,
       url: tab.url ?? undefined,
       title: tab.title ?? undefined,
       groupId: typeof tab.groupId === "number" ? tab.groupId : undefined

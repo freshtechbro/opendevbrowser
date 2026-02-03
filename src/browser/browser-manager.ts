@@ -507,8 +507,138 @@ export class BrowserManager {
   async goto(sessionId: string, url: string, waitUntil: "domcontentloaded" | "load" | "networkidle" = "load", timeoutMs = 30000, sessionOverride?: { browser: Browser; context: BrowserContext; targets: TargetManager }): Promise<{ finalUrl?: string; status?: number; timingMs: number }> {
     const startTime = Date.now();
     const managed = sessionOverride ? this.buildOverrideSession(sessionOverride) : this.getManaged(sessionId);
-    const page = managed.targets.getActivePage();
-    const response = await page.goto(url, { waitUntil, timeout: timeoutMs });
+    let page = managed.targets.getActivePage();
+    const syncExtensionTargets = (): void => {
+      try {
+        managed.targets.syncPages(managed.context.pages());
+      } catch {
+        // Best-effort sync only.
+      }
+    };
+    const pickStableExtensionEntry = (): { targetId: string; page: Page } | null => {
+      syncExtensionTargets();
+      for (const entry of managed.targets.listPageEntries()) {
+        try {
+          const candidateUrl = entry.page.url();
+          if (candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://")) {
+            return entry;
+          }
+        } catch {
+          // Ignore pages that cannot report a URL.
+        }
+      }
+      return null;
+    };
+    const selectFallbackExtensionPage = (): Page | null => {
+      syncExtensionTargets();
+      const entries = managed.targets.listPageEntries().filter((entry) => !entry.page.isClosed());
+      if (entries.length === 0) {
+        return null;
+      }
+      const stable = entries.find((entry) => {
+        try {
+          const candidateUrl = entry.page.url();
+          return candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://");
+        } catch {
+          return false;
+        }
+      }) ?? entries[0]!;
+      managed.targets.setActiveTarget(stable.targetId);
+      return stable.page;
+    };
+    const ensureActiveExtensionPage = async (): Promise<Page> => {
+      const newPage = await this.createExtensionPage(managed, "goto");
+      const targetId = managed.targets.registerPage(newPage);
+      managed.targets.setActiveTarget(targetId);
+      this.attachRefInvalidationForPage(managed, targetId, newPage);
+      this.attachTrackers(managed);
+      try {
+        await this.waitForExtensionTargetReady(newPage, "goto", Math.min(timeoutMs, 5000));
+      } catch (error) {
+        if (!this.isExtensionTargetReadyTimeout(error)) {
+          throw error;
+        }
+        console.warn("BrowserManager.goto: extension target readiness timed out; continuing.");
+      }
+      return newPage;
+    };
+
+    if (managed.mode === "extension") {
+      try {
+        const currentUrl = page.url();
+        if (!currentUrl || currentUrl === "about:blank" || currentUrl.startsWith("chrome://") || currentUrl.startsWith("chrome-extension://")) {
+          const stable = pickStableExtensionEntry();
+          if (stable) {
+            managed.targets.setActiveTarget(stable.targetId);
+            page = stable.page;
+          } else {
+            try {
+              page = await ensureActiveExtensionPage();
+            } catch (error) {
+              if (!this.isTargetNotAllowedError(error)) {
+                throw error;
+              }
+            }
+          }
+        }
+      } catch {
+        try {
+          page = await ensureActiveExtensionPage();
+        } catch (error) {
+          if (!this.isTargetNotAllowedError(error)) {
+            throw error;
+          }
+        }
+      }
+      try {
+        await this.waitForExtensionTargetReady(page, "goto", Math.min(timeoutMs, 5000));
+      } catch (error) {
+        if (this.isDetachedFrameError(error)) {
+          try {
+            page = await ensureActiveExtensionPage();
+          } catch (retryError) {
+            if (!this.isTargetNotAllowedError(retryError)) {
+              throw retryError;
+            }
+            page = selectFallbackExtensionPage() ?? page;
+          }
+        } else if (this.isExtensionTargetReadyTimeout(error)) {
+          page = selectFallbackExtensionPage() ?? page;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    let response;
+    if (managed.mode === "extension") {
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          response = await page.goto(url, { waitUntil, timeout: timeoutMs });
+          lastError = null;
+          break;
+        } catch (error) {
+          if (!this.isDetachedFrameError(error)) {
+            throw error;
+          }
+          lastError = error;
+          try {
+            page = await ensureActiveExtensionPage();
+          } catch (retryError) {
+            if (!this.isTargetNotAllowedError(retryError)) {
+              throw retryError;
+            }
+            page = selectFallbackExtensionPage() ?? page;
+          }
+        }
+      }
+      if (lastError) {
+        throw lastError;
+      }
+    } else {
+      response = await page.goto(url, { waitUntil, timeout: timeoutMs });
+    }
 
     return {
       finalUrl: page.url(),
@@ -889,6 +1019,16 @@ export class BrowserManager {
     return message.includes("Frame has been detached");
   }
 
+  private isTargetNotAllowedError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("Target.createTarget") && message.includes("Not allowed");
+  }
+
+  private isExtensionTargetReadyTimeout(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.startsWith("EXTENSION_TARGET_READY_TIMEOUT");
+  }
+
   private describeExtensionFailure(context: string, error: unknown, managed: ManagedSession): Error {
     const message = error instanceof Error ? error.message : String(error);
     let url: string | undefined;
@@ -1011,6 +1151,20 @@ export class BrowserManager {
         }
       } else {
         targets.registerExistingPages(pages);
+        if (mode === "extension") {
+          const entries = targets.listPageEntries();
+          for (const entry of entries) {
+            try {
+              const url = entry.page.url();
+              if (url.startsWith("http://") || url.startsWith("https://")) {
+                targets.setActiveTarget(entry.targetId);
+                break;
+              }
+            } catch {
+              // Skip pages that cannot report a URL.
+            }
+          }
+        }
       }
 
       const refStore = new RefStore();

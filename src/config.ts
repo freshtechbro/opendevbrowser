@@ -69,6 +69,7 @@ export type OpenDevBrowserConfig = {
   continuity: ContinuityConfig;
   relayPort: number;
   relayToken: string | false;
+  nativeExtensionId?: string;
   daemonPort: number;
   daemonToken: string;
   chromePath?: string;
@@ -86,6 +87,8 @@ function buildDefaultConfigJsonc(relayToken: string, daemonToken: string): strin
   // Set relayToken to false to disable extension pairing.
   "relayPort": ${DEFAULT_RELAY_PORT},
   "relayToken": "${relayToken}",
+  // Optional: extension ID for native host auto-install.
+  // "nativeExtensionId": "abcdefghijklmnopabcdefghijklmnop",
   "daemonPort": ${DEFAULT_DAEMON_PORT},
   "daemonToken": "${daemonToken}"
 }
@@ -176,6 +179,7 @@ const configSchema = z.object({
   continuity: continuitySchema.default({}),
   relayPort: z.number().int().min(0).max(65535).default(DEFAULT_RELAY_PORT),
   relayToken: z.union([z.string(), z.literal(false)]).optional(),
+  nativeExtensionId: z.string().optional(),
   daemonPort: z.number().int().min(0).max(65535).default(DEFAULT_DAEMON_PORT),
   daemonToken: z.string().min(1).optional(),
   chromePath: z.string().min(1).optional().refine(

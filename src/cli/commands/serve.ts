@@ -1,8 +1,10 @@
 import type { ParsedArgs } from "../args";
 import { startDaemon, readDaemonMetadata } from "../daemon";
+import { loadGlobalConfig } from "../../config";
 import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { fetchWithTimeout } from "../utils/http";
+import { discoverExtensionId, getNativeStatusSnapshot, installNativeHost } from "./native";
 
 type ServeArgs = {
   port?: number;
@@ -91,17 +93,42 @@ export async function runServe(args: ParsedArgs) {
     }
   }
 
+  const config = loadGlobalConfig();
+  let nativeStatus = getNativeStatusSnapshot();
+  let nativeMessage: string | null = null;
+  if (!nativeStatus.installed) {
+    const discovered = discoverExtensionId();
+    const extensionId = config.nativeExtensionId ?? discovered.extensionId ?? null;
+    const usedDiscovery = !config.nativeExtensionId && Boolean(discovered.extensionId);
+    if (extensionId) {
+      const installResult = installNativeHost(extensionId);
+      if (installResult.success) {
+        const suffix = usedDiscovery && discovered.matchedBy ? ` (auto-detected by ${discovered.matchedBy})` : "";
+        nativeMessage = `${installResult.message ?? "Native host installed."}${suffix}`;
+        nativeStatus = getNativeStatusSnapshot();
+      } else {
+        nativeMessage = `Native host install skipped: ${installResult.message ?? "unknown error"}`;
+      }
+    } else {
+      nativeMessage = "Native host not installed. Set nativeExtensionId in opendevbrowser.jsonc to auto-install.";
+    }
+  }
+
   const handle = await startDaemon({
     port: serveArgs.port,
-    token: serveArgs.token
+    token: serveArgs.token,
+    config
   });
   daemonHandle = handle;
   const { state } = handle;
 
+  const baseMessage = `Daemon running on 127.0.0.1:${state.port} (relay ${state.relayPort})`;
+  const message = nativeMessage ? `${baseMessage}\n${nativeMessage}` : baseMessage;
+
   return {
     success: true,
-    message: `Daemon running on 127.0.0.1:${state.port} (relay ${state.relayPort})`,
-    data: { port: state.port, pid: state.pid, relayPort: state.relayPort },
+    message,
+    data: { port: state.port, pid: state.pid, relayPort: state.relayPort, native: nativeStatus },
     exitCode: null
   };
 }

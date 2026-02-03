@@ -95,6 +95,10 @@ export class CDPRouter {
         if (activeTabId && activeTabId !== tabId) {
           return await this.attachInternal(activeTabId, false);
         }
+        const fallbackTabId = await this.tabManager.getFirstHttpTabId();
+        if (fallbackTabId && fallbackTabId !== tabId) {
+          return await this.attachInternal(fallbackTabId, false);
+        }
       }
       throw error;
     }

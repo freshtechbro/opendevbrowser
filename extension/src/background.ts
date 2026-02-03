@@ -4,6 +4,7 @@ import {
   DEFAULT_AUTO_CONNECT,
   DEFAULT_AUTO_PAIR,
   DEFAULT_DISCOVERY_PORT,
+  DEFAULT_NATIVE_ENABLED,
   DEFAULT_PAIRING_ENABLED,
   DEFAULT_RELAY_PORT
 } from "./relay-settings.js";
@@ -48,6 +49,7 @@ let autoConnectInFlight = false;
 let statusNoteOverride: string | null = null;
 let retryScheduled = false;
 let retryDelayMs = 5000;
+let nativeEnabled = DEFAULT_NATIVE_ENABLED;
 
 const RETRY_ALARM_NAME = "opendevbrowser-auto-connect";
 const RETRY_MAX_MS = 60_000;
@@ -133,7 +135,7 @@ const getEffectiveStatus = (): ConnectionStatus => {
   if (connection.getStatus() === "connected") {
     return "connected";
   }
-  if (nativePort.isConnected()) {
+  if (nativeEnabled && nativePort.isConnected()) {
     return "connected";
   }
   return "disconnected";
@@ -145,9 +147,10 @@ const buildStatusMessage = async (): Promise<BackgroundMessage> => {
   const status = getEffectiveStatus();
   let note = error?.message;
   let relayHealth: RelayHealthStatus | null = null;
-  let nativeHealth: NativeTransportHealth | null = nativePort.getHealth();
+  const isNativeEnabled = nativeEnabled;
+  let nativeHealth: NativeTransportHealth | null = isNativeEnabled ? nativePort.getHealth() : null;
 
-  if (nativePort.isConnected()) {
+  if (isNativeEnabled && nativePort.isConnected()) {
     try {
       await nativePort.ping(1000);
     } catch (error) {
@@ -174,7 +177,7 @@ const buildStatusMessage = async (): Promise<BackgroundMessage> => {
       const port = parsePort(stored.relayPort) ?? DEFAULT_RELAY_PORT;
       relayHealth = await fetchRelayHealth(port);
       note = statusNoteOverride ?? buildRelayHealthNote(relayHealth);
-      if (!statusNoteOverride && nativeHealth?.status === "error") {
+      if (!statusNoteOverride && isNativeEnabled && nativeHealth?.status === "error") {
         note = buildNativeHealthNote(nativeHealth);
       }
     }
@@ -192,7 +195,8 @@ const buildStatusMessage = async (): Promise<BackgroundMessage> => {
     status,
     note,
     relayHealth,
-    nativeHealth
+    nativeHealth,
+    nativeEnabled: isNativeEnabled
   };
 };
 
@@ -282,6 +286,9 @@ const scheduleRetry = (): void => {
 };
 
 const attemptNativeConnect = async (): Promise<boolean> => {
+  if (!nativeEnabled) {
+    return false;
+  }
   const connected = await nativePort.connect();
   if (!connected) {
     return false;
@@ -592,6 +599,13 @@ const sendMessageToTab = async (tabId: number, message: Record<string, unknown>)
   });
 };
 
+const isMissingAnnotationReceiverError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return error.message.includes("Receiving end does not exist");
+};
+
 const sleep = async (ms: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, ms));
 };
@@ -609,7 +623,10 @@ const ensureAnnotationInjected = async (tabId: number): Promise<void> => {
     await pingAnnotation(tabId);
     return;
   } catch (error) {
-    logError("annotation.ping", error, { code: "annotation_ping_failed", extra: { tabId } });
+    // Initial ping can fail before content script injection; avoid noisy logs for missing receivers.
+    if (!isMissingAnnotationReceiverError(error)) {
+      logError("annotation.ping", error, { code: "annotation_ping_failed", extra: { tabId } });
+    }
   }
 
   const backoff = [150, 400];
@@ -1003,7 +1020,17 @@ const clearStoredRelayState = async (): Promise<void> => {
 const attemptAutoConnect = async (): Promise<void> => {
   const data = await new Promise<Record<string, unknown>>((resolve) => {
     chrome.storage.local.get(
-      ["autoConnect", "autoPair", "pairingEnabled", "pairingToken", "relayPort", "relayInstanceId", "relayEpoch", "tokenEpoch"],
+      [
+        "autoConnect",
+        "autoPair",
+        "pairingEnabled",
+        "pairingToken",
+        "relayPort",
+        "relayInstanceId",
+        "relayEpoch",
+        "tokenEpoch",
+        "nativeEnabled"
+      ],
       (items) => {
         resolve(items);
       }
@@ -1020,6 +1047,10 @@ const attemptAutoConnect = async (): Promise<void> => {
   const pairingEnabled = typeof data.pairingEnabled === "boolean" ? data.pairingEnabled : DEFAULT_PAIRING_ENABLED;
   const storedRelayPort = parsePort(data.relayPort) ?? DEFAULT_RELAY_PORT;
   let storedPairingToken = typeof data.pairingToken === "string" ? data.pairingToken : null;
+  nativeEnabled = typeof data.nativeEnabled === "boolean" ? data.nativeEnabled : DEFAULT_NATIVE_ENABLED;
+  if (typeof data.nativeEnabled !== "boolean") {
+    await setStorage({ nativeEnabled });
+  }
 
   if (autoPair && pairingEnabled) {
     let config = await fetchRelayConfig(DEFAULT_DISCOVERY_PORT);
@@ -1094,7 +1125,9 @@ const attemptAutoConnect = async (): Promise<void> => {
       clearRetry();
       return;
     }
-    setStatusNoteOverride(buildNativeHealthNote(nativePort.getHealth()));
+    if (nativeEnabled) {
+      setStatusNoteOverride(buildNativeHealthNote(nativePort.getHealth()));
+    }
     scheduleRetry();
     return;
   }
@@ -1121,7 +1154,7 @@ const autoConnect = async () => {
 
 connection.onStatus((status) => {
   const effectiveStatus =
-    status === "connected" ? "connected" : nativePort.isConnected() ? "connected" : "disconnected";
+    status === "connected" ? "connected" : (nativeEnabled && nativePort.isConnected()) ? "connected" : "disconnected";
   updateBadge(effectiveStatus);
   if (status === "connected") {
     nativePort.disconnect();
@@ -1177,6 +1210,13 @@ autoConnect().catch((error) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") {
     return;
+  }
+  if (changes.nativeEnabled) {
+    nativeEnabled = changes.nativeEnabled.newValue === true;
+    if (!nativeEnabled) {
+      nativePort.disconnect();
+    }
+    updateBadge(getEffectiveStatus());
   }
   if (changes.autoConnect?.newValue === true) {
     autoConnect().catch((error) => {
