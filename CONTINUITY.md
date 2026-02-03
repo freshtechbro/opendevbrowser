@@ -1,7 +1,7 @@
 ## Continuity Ledger
 
 ### Goal (incl. success criteria)
-Fix `/ops` screenshot timeout and legacy `/cdp` instability, keep tests at >=97% branch coverage, run lint/build/typecheck, then commit all changes.
+Answer extension-only CDP bypass questions and, if needed, fix `/ops` disconnect and legacy `/cdp` instability; keep tests >=97% coverage; run lint/build/typecheck; commit changes per protocol.
 
 ### Constraints/Assumptions
 - Follow AGENTS.md: no stubs/placeholders, DRY, remove dead code, prefer `rg`, no destructive git.
@@ -11,35 +11,32 @@ Fix `/ops` screenshot timeout and legacy `/cdp` instability, keep tests at >=97%
 - Must use RepoPrompt for repo context before starting work.
 
 ### Key Decisions
-- Add timeout + fallback around ops screenshot capture to avoid hanging CDP requests.
-- Add extension readiness gating + detached-frame retry in navigation, plus timeout guard in target listing.
+- Verified current branch already contains ops screenshot timeout fallback and extension readiness/target sync fixes.
+- Extension-only default uses `/ops`; legacy `/cdp` requires `--extension-legacy`.
 
 ### State
 - **Done**:
-  - Implemented ops screenshot CDP timeout + fallback in `extension/src/ops/ops-runtime.ts`.
-  - Added extension ready gating + detached-frame retry + unstable URL handling in `src/browser/browser-manager.ts`.
-  - Added timeout guard for title/url + target sync helper in `src/browser/target-manager.ts`.
-  - Added extension fallbacks for stale tab ids and HTTP tab selection in `extension/src/services/*`.
-  - Added tests to close branch coverage gaps; `npm run test` passes with 97% branch coverage.
-  - `npm run lint`, `npm run build`, and `npx tsc -p tsconfig.json --noEmit` all pass.
-  - Committed all changes (4 commits: fix/test/docs/chore).
+  - Read `CONTINUITY.md` and `sub_continuity.md`.
+  - Ran RepoPrompt context builder for ops/cdp routing.
+  - Verified git state (existing fix/test/docs/chore commits; only ledger dirty).
+  - Live test: `/ops` launch/goto/snapshot/screenshot/disconnect succeeded; `/cdp` legacy launch blocked by existing `/cdp` client (cdp=on).
 - **Now**:
-  - Ready to re-validate `/ops` + legacy `/cdp` via user daemon if needed.
+  - Answer CDP bypass and ops/cdp coverage questions with current findings.
+  - Determine whether to clear `/cdp` client for re-test or proceed with design guidance only.
 - **Next**:
-  - Run live `/ops` + legacy `/cdp` checks against the user-started daemon and report remaining runtime issues.
+  - If user wants, clear existing `/cdp` client and re-run legacy `/cdp` script to confirm remaining failures.
+  - Implement any additional stabilization if `/cdp` still fails (then run tests/lint/build/tsc).
+  - Commit ledger update (and any code changes) per protocol.
 
 ### Open Questions (UNCONFIRMED if needed)
-- None.
+- Which process currently holds the `/cdp` client slot (cdp=on), and should we close it to retest legacy `/cdp`?
+- Do we need a true no-CDP extension path (content-script-only), or is `/ops` (CDP-backed) sufficient?
 
 ### Working Set (files/ids/commands)
-- `extension/src/ops/ops-runtime.ts`
-- `extension/src/services/{ConnectionManager,CDPRouter,TabManager}.ts`
-- `src/browser/browser-manager.ts`
-- `src/browser/target-manager.ts`
-- `tests/browser-manager.test.ts`
-- `tests/target-manager.test.ts`
-- `npm run test`, `npm run lint`, `npm run build`, `npx tsc -p tsconfig.json --noEmit`
+- `CONTINUITY.md`
+- `/private/tmp/opendevbrowser-extension-ops-cdp.mjs`
+- `npx opendevbrowser status --daemon`
 
 ### Key learnings
-- Ops screenshot path now succeeds; ops session disconnect still times out in live test.
-- Legacy `/cdp` still hits frame-detached errors in live test despite retry logic.
+- `/ops` path is functional in live test, including disconnect.
+- Legacy `/cdp` cannot be validated while another `/cdp` client is connected.
