@@ -163,13 +163,26 @@ State:
   - Set local config for explicit native auto-install:
     - updated `~/.config/opencode/opendevbrowser.jsonc` with `"nativeExtensionId": "hakmaakmlplipjedehpdjmndndjolhne"`.
     - subsequent `npx opendevbrowser serve` startup no longer prints the native-host-missing warning.
+  - Post-merge full regression rerun completed (real + unit/integration):
+    - fixed environment-coupled assertion in `tests/cli-native.test.ts` so native status test is deterministic when native host is installed.
+    - `npm run test` => **55/55 files passed, 817/817 tests passed**, coverage thresholds met.
+    - `node /tmp/connection_modes_real_test.mjs` => **22/22 passed** (managed, extension-only, `/ops`, `/cdp`, direct CDP).
+    - `node /tmp/odb_ext_test_matrix.mjs` => `cli_common 10/10`, `cli_extension_surface 32/32`, `daemon_extension_lease_aware 31/31`.
+    - `node /tmp/odb_rerun_low_churn.mjs` => **23/23 passed**.
+    - `bun /tmp/opendevbrowser_tools_real_matrix.mjs` => **59/59 passed** (all registered tools exercised).
+    - `node /tmp/opendevbrowser_admin_commands_real.mjs` => **10/10 passed** (real CLI admin/native command surface).
+  - Ownership commit preparation (2026-02-08):
+    - `npm run lint` passed.
+    - `npm run build` passed.
+    - `npm run test` => **55/55 files passed, 817/817 tests passed**, coverage thresholds met.
+    - ready to commit remaining local updates in `tests/cli-native.test.ts` and `CONTINUITY.md`.
 - Now:
-  - All requested product fixes plus native auto-install discovery hardening are implemented and validated with full tests and real runtime checks.
+  - Validation gates are green; final ownership commit is in progress for remaining local changes.
 - Next:
-  - Prepare atomic commits for final product-code fixes and regressions (`src/cli/daemon-commands.ts`, `src/tools/connect.ts`, `src/cli/remote-manager.ts`, `src/cli/commands/native.ts`, `tests/tools.test.ts`, `tests/daemon-commands.integration.test.ts`, `tests/remote-manager.test.ts`, `tests/cli-native.test.ts`, `tests/ops-browser-manager.test.ts`).
-  - Decide whether to upstream validated `/tmp` harnesses into repo-owned scripts for stable CI parity (`connection_modes_real_test`, `tools_real_matrix`, admin command matrix).
-  - Keep a post-restart validation checklist in release workflow (`status --daemon`, connection modes, extension matrix, low-churn rerun, tool matrix).
-  - Decide whether to persist discovered `nativeExtensionId` into `~/.config/opencode/opendevbrowser.jsonc` or keep discovery-only behavior.
+  - Complete local commit for `tests/cli-native.test.ts` and `CONTINUITY.md`.
+  - Keep this run’s reports as baseline for next change set.
+  - If new code lands, rerun full suite + real matrices in the same order and diff JSON reports.
+  - Prepare release notes/changelog entry reflecting final green matrix across all modes.
 
 Open questions (UNCONFIRMED if needed):
 - None at this stage.
@@ -201,6 +214,11 @@ Working set (files/ids/commands):
   - `npm run test -- tests/daemon-commands.integration.test.ts tests/daemon-client.test.ts tests/cli-args.test.ts tests/cli-native.test.ts tests/ops-browser-manager.test.ts`
   - `node dist/cli/index.js status --daemon --output-format json`
   - `node dist/cli/index.js native status --output-format json`
+  - `node /tmp/connection_modes_real_test.mjs`
+  - `node /tmp/odb_ext_test_matrix.mjs`
+  - `node /tmp/odb_rerun_low_churn.mjs`
+  - `bun /tmp/opendevbrowser_tools_real_matrix.mjs`
+  - `node /tmp/opendevbrowser_admin_commands_real.mjs`
 
 Key learnings: what worked; what didn't work, best approach identified for next time
 - Worked:
