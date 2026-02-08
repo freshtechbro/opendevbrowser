@@ -229,7 +229,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     "--name", "--target-id", "--tab-id", "--include-urls", "--path", "--since-seq", "--max",
     "--daemon",
     "--transport",
-    "--no-extension", "--extension-only", "--wait-for-extension", "--wait-timeout-ms",
+    "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms",
     "--skills-global", "--skills-local", "--no-skills",
     "--screenshot-mode", "--debug", "--context"
   ]);

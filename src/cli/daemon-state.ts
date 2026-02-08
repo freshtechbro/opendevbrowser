@@ -197,10 +197,17 @@ export const requireSessionLease = (sessionId: string, clientId: string, leaseId
   if (!lease) {
     throw new Error("RELAY_LEASE_REQUIRED: No active lease for session.");
   }
-  if (!leaseId || !leaseId.trim()) {
-    throw new Error("RELAY_LEASE_REQUIRED: leaseId is required for session operations.");
+  const normalizedClientId = clientId.trim();
+  const normalizedLeaseId = leaseId?.trim() ?? "";
+
+  if (!normalizedLeaseId) {
+    if (lease.clientId !== normalizedClientId) {
+      throw new Error("RELAY_LEASE_INVALID: Lease does not match session owner.");
+    }
+    lease.lastUsedAt = nowMs();
+    return lease;
   }
-  if (lease.leaseId !== leaseId || lease.clientId !== clientId) {
+  if (lease.leaseId !== normalizedLeaseId || lease.clientId !== normalizedClientId) {
     throw new Error("RELAY_LEASE_INVALID: Lease does not match session owner.");
   }
   lease.lastUsedAt = nowMs();

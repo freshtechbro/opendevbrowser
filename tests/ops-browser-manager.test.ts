@@ -254,6 +254,25 @@ describe("OpsBrowserManager", () => {
     expect(requestMock).toHaveBeenCalledWith("session.disconnect", { closeBrowser: false }, "ops-1", 30000, "lease-1");
   });
 
+  it("defaults connectRelay activeTargetId to null when ops payload omits it", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-null-target", leaseId: "lease-null-target" };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    expect(result.activeTargetId).toBeNull();
+  });
+
   it("tracks ops session close events", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
@@ -330,6 +349,54 @@ describe("OpsBrowserManager", () => {
     expect(base.disconnect).not.toHaveBeenCalled();
   });
 
+  it("treats ops disconnect timeout as idempotent success and clears local session state", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    const opsLeases = (manager as { opsLeases: Map<string, string> }).opsLeases;
+
+    opsSessions.add("ops-timeout");
+    opsLeases.set("ops-timeout", "lease-timeout");
+    (manager as { opsClient: { request: () => Promise<unknown> } | null }).opsClient = {
+      request: vi.fn().mockRejectedValue(new Error("Ops request timed out"))
+    };
+
+    await expect(manager.disconnect("ops-timeout", false)).resolves.toBeUndefined();
+    expect(opsSessions.has("ops-timeout")).toBe(false);
+    expect(opsLeases.has("ops-timeout")).toBe(false);
+  });
+
+  it("treats string timeout disconnect errors as idempotent success", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    const opsLeases = (manager as { opsLeases: Map<string, string> }).opsLeases;
+
+    opsSessions.add("ops-timeout-string");
+    opsLeases.set("ops-timeout-string", "lease-timeout-string");
+    (manager as { opsClient: { request: () => Promise<unknown> } | null }).opsClient = {
+      request: vi.fn().mockRejectedValue("Ops request timed out")
+    };
+
+    await expect(manager.disconnect("ops-timeout-string", false)).resolves.toBeUndefined();
+    expect(opsSessions.has("ops-timeout-string")).toBe(false);
+    expect(opsLeases.has("ops-timeout-string")).toBe(false);
+  });
+
+  it("throws non-ignorable disconnect errors without clearing local session state", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    const opsLeases = (manager as { opsLeases: Map<string, string> }).opsLeases;
+
+    opsSessions.add("ops-fail");
+    opsLeases.set("ops-fail", "lease-fail");
+    (manager as { opsClient: { request: () => Promise<unknown> } | null }).opsClient = {
+      request: vi.fn().mockRejectedValue(new Error("disconnect failed"))
+    };
+
+    await expect(manager.disconnect("ops-fail", false)).rejects.toThrow("disconnect failed");
+    expect(opsSessions.has("ops-fail")).toBe(true);
+    expect(opsLeases.has("ops-fail")).toBe(true);
+  });
+
   it("clears ops sessions when ops client closes", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
@@ -377,6 +444,10 @@ describe("OpsBrowserManager", () => {
       }
       return {};
     });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }) as never);
     const manager = new OpsBrowserManager({} as never, makeConfig());
     await manager.connectRelay("ws://127.0.0.1:8787/ops");
 
@@ -611,6 +682,33 @@ describe("OpsBrowserManager", () => {
     const result = await manager.screenshot("ops-9");
     expect(result).toEqual({
       base64: Buffer.from("image").toString("base64"),
+      warnings: ["visible_only_fallback"]
+    });
+  });
+
+  it("propagates ops screenshot warnings when writing to a path", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-10", activeTargetId: "tab-1", leaseId: "lease-10" };
+      }
+      if (command === "page.screenshot") {
+        return { base64: Buffer.from("image").toString("base64"), warning: "visible_only_fallback" };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    const result = await manager.screenshot("ops-10", "/tmp/ops-warning.png");
+    expect(result).toEqual({
+      path: "/tmp/ops-warning.png",
       warnings: ["visible_only_fallback"]
     });
   });

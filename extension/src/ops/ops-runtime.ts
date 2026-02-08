@@ -28,6 +28,7 @@ const MAX_CONSOLE_EVENTS = 200;
 const MAX_NETWORK_EVENTS = 300;
 const SESSION_TTL_MS = 20_000;
 const SCREENSHOT_TIMEOUT_MS = 8000;
+const TAB_CLOSE_TIMEOUT_MS = 5000;
 
 export type OpsRuntimeOptions = {
   send: (message: OpsEnvelope) => void;
@@ -121,16 +122,12 @@ export class OpsRuntime {
   }
 
   private handleTabRemoved = (tabId: number): void => {
-    const session = this.sessions.getByTabId(tabId);
-    if (!session) return;
-    this.cleanupSession(session, "ops_tab_closed");
+    this.handleClosedTarget(tabId, "ops_tab_closed");
   };
 
   private handleDebuggerDetach = (source: chrome.debugger.Debuggee): void => {
     if (typeof source.tabId !== "number") return;
-    const session = this.sessions.getByTabId(source.tabId);
-    if (!session) return;
-    this.cleanupSession(session, "ops_session_closed");
+    void this.handleDebuggerDetachForTab(source.tabId);
   };
 
   private handleDebuggerEvent = (source: chrome.debugger.Debuggee, method: string, params?: object): void => {
@@ -402,8 +399,8 @@ export class OpsRuntime {
   private async handleSessionDisconnect(message: OpsRequest, clientId: string): Promise<void> {
     const session = this.getSessionForMessage(message, clientId);
     if (!session) return;
-    this.cleanupSession(session, "ops_session_closed");
     this.sendResponse(message, { ok: true });
+    this.scheduleSessionCleanup(session.id, "ops_session_closed");
   }
 
   private async handleSessionStatus(message: OpsRequest, clientId: string): Promise<void> {
@@ -488,8 +485,13 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Unknown targetId", false));
       return;
     }
-    await this.tabs.closeTab(target.tabId).catch(() => undefined);
     this.sessions.removeTarget(session.id, targetId);
+    await this.closeTabBestEffort(target.tabId);
+    if (target.targetId === session.targetId || session.targets.size === 0) {
+      this.sendResponse(message, { ok: true });
+      this.scheduleSessionCleanup(session.id, "ops_session_closed");
+      return;
+    }
     this.sendResponse(message, { ok: true });
   }
 
@@ -554,8 +556,13 @@ export class OpsRuntime {
     }
     const target = session.targets.get(targetId);
     if (target) {
-      await this.tabs.closeTab(target.tabId).catch(() => undefined);
       this.sessions.removeTarget(session.id, targetId);
+      await this.closeTabBestEffort(target.tabId);
+      if (target.targetId === session.targetId || session.targets.size === 0) {
+        this.sendResponse(message, { ok: true });
+        this.scheduleSessionCleanup(session.id, "ops_session_closed");
+        return;
+      }
     }
     this.sendResponse(message, { ok: true });
   }
@@ -1065,6 +1072,49 @@ export class OpsRuntime {
       event,
       payload: { tabId: session.tabId, targetId: session.targetId }
     });
+  }
+
+  private handleClosedTarget(tabId: number, event: OpsEvent["event"]): void {
+    const session = this.sessions.getByTabId(tabId);
+    if (!session) return;
+    const targetId = this.sessions.getTargetIdByTabId(session.id, tabId);
+    if (!targetId) return;
+    const removedTarget = this.sessions.removeTarget(session.id, targetId);
+    if (!removedTarget) return;
+    if (targetId === session.targetId || session.targets.size === 0) {
+      this.cleanupSession(session, event);
+    }
+  }
+
+  private handleDebuggerDetachForTab(tabId: number): void {
+    const session = this.sessions.getByTabId(tabId);
+    if (!session) return;
+    if (tabId === session.tabId) {
+      // Root tab detach can be transient during child-target shutdown; tab removal handler owns root teardown.
+      return;
+    }
+    this.handleClosedTarget(tabId, "ops_session_closed");
+  }
+
+  private async closeTabBestEffort(tabId: number): Promise<void> {
+    try {
+      await withTimeout(this.tabs.closeTab(tabId), TAB_CLOSE_TIMEOUT_MS, "Ops tab close timed out");
+    } catch (error) {
+      logError("ops.close_tab", error, {
+        code: "close_tab_failed",
+        extra: { tabId }
+      });
+    }
+  }
+
+  private scheduleSessionCleanup(sessionId: string, event: OpsEvent["event"]): void {
+    setTimeout(() => {
+      const session = this.sessions.get(sessionId);
+      if (!session) {
+        return;
+      }
+      this.cleanupSession(session, event);
+    }, 0);
   }
 
   private sendResponse(message: OpsRequest, payload: unknown): void {

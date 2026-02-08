@@ -105,6 +105,11 @@ const isBindingRequiredError = (error: unknown): boolean => {
   return message.startsWith("RELAY_BINDING_REQUIRED") || message.startsWith("RELAY_BINDING_INVALID");
 };
 
+const isLeaseInvalidError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.startsWith("RELAY_LEASE_INVALID");
+};
+
 export class DaemonClient {
   private binding: BindingState | null = null;
   private renewTimer: NodeJS.Timeout | null = null;
@@ -123,6 +128,13 @@ export class DaemonClient {
       this.maybeTrackLease(name, params, result);
       return result;
     } catch (error) {
+      const sessionId = typeof params.sessionId === "string" ? params.sessionId : undefined;
+      if (sessionId && !("leaseId" in params) && isLeaseInvalidError(error) && this.sessionLeases.has(sessionId)) {
+        this.sessionLeases.delete(sessionId);
+        const result = await this.callWithBinding<T>(name, params, options);
+        this.maybeTrackLease(name, params, result);
+        return result;
+      }
       if (!options.requireBinding && isBindingRequiredError(error)) {
         await this.ensureBinding();
         const result = await this.callWithBinding<T>(name, params, { ...options, requireBinding: true });

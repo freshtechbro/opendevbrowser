@@ -46,6 +46,16 @@ describe("parseArgs", () => {
     expect(parsed.rawArgs).toEqual([]);
   });
 
+  it("accepts --extension-legacy for launch/connect command parsing", () => {
+    const launchParsed = parseArgs(["node", "cli", "launch", "--extension-only", "--extension-legacy"]);
+    expect(launchParsed.command).toBe("launch");
+    expect(launchParsed.rawArgs).toEqual(["--extension-only", "--extension-legacy"]);
+
+    const connectParsed = parseArgs(["node", "cli", "connect", "--ws-endpoint", "ws://127.0.0.1:8787", "--extension-legacy"]);
+    expect(connectParsed.command).toBe("connect");
+    expect(connectParsed.rawArgs).toEqual(["--ws-endpoint", "ws://127.0.0.1:8787", "--extension-legacy"]);
+  });
+
   it("accepts annotate flags (space-separated)", () => {
     const parsed = parseArgs([
       "node",

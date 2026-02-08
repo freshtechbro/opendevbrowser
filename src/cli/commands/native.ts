@@ -20,6 +20,8 @@ type NativeStatus = {
 
 const EXTENSION_ID_RE = /^[a-p]{32}$/;
 const EXTENSION_NAME = "OpenDevBrowser Relay";
+const ANNOTATION_COMMAND_NAME = "toggle-annotation";
+type ExtensionIdMatchReason = "path" | "name" | "command";
 
 const normalizeExtensionId = (value: string | undefined): string | null => {
   if (!value) return null;
@@ -71,8 +73,26 @@ const getManifestDir = (): string => {
 
 const getScriptsDir = (): string => {
   const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  return path.resolve(__dirname, "../../../scripts/native");
+  const startDir = path.dirname(__filename);
+  const rootsToScan = [startDir, process.cwd()];
+
+  for (const root of rootsToScan) {
+    let current = path.resolve(root);
+    while (true) {
+      const scriptsDir = path.join(current, "scripts", "native");
+      const packageJsonPath = path.join(current, "package.json");
+      if (fs.existsSync(scriptsDir) && fs.existsSync(packageJsonPath)) {
+        return scriptsDir;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+
+  throw createUsageError("Unable to locate scripts/native directory.");
 };
 
 const getHostScriptPath = (): string => {
@@ -166,25 +186,59 @@ const getChromeUserDataRoots = (): string[] => {
   return [];
 };
 
+const PROFILE_PREFERENCES_FILES = ["Preferences", "Secure Preferences"] as const;
+
 const getProfileDirs = (root: string): string[] => {
   try {
     const entries = fs.readdirSync(root, { withFileTypes: true });
     return entries
       .filter((entry) => entry.isDirectory() && (entry.name === "Default" || entry.name.startsWith("Profile ")))
       .map((entry) => path.join(root, entry.name))
-      .filter((dir) => fs.existsSync(path.join(dir, "Preferences")));
+      .filter((dir) => PROFILE_PREFERENCES_FILES.some((filename) => fs.existsSync(path.join(dir, filename))));
   } catch {
     return [];
   }
 };
 
-const readPreferences = (profileDir: string): Record<string, unknown> | null => {
-  try {
-    const raw = fs.readFileSync(path.join(profileDir, "Preferences"), "utf8");
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return null;
+const readProfilePreferences = (profileDir: string): Record<string, unknown>[] => {
+  const records: Record<string, unknown>[] = [];
+  for (const filename of PROFILE_PREFERENCES_FILES) {
+    try {
+      const raw = fs.readFileSync(path.join(profileDir, filename), "utf8");
+      records.push(JSON.parse(raw) as Record<string, unknown>);
+    } catch {
+      // Missing or invalid preference files are ignored; other sources may still be valid.
+    }
   }
+  return records;
+};
+
+const findExtensionIdInCommands = (preferences: Record<string, unknown>): string | null => {
+  const extensionCommands = preferences.extensions as Record<string, unknown> | undefined;
+  const commandMaps: Array<Record<string, unknown> | undefined> = [
+    extensionCommands?.commands as Record<string, unknown> | undefined,
+    ((preferences.account_values as Record<string, unknown> | undefined)?.extensions as Record<string, unknown> | undefined)
+      ?.commands as Record<string, unknown> | undefined
+  ];
+
+  for (const commandMap of commandMaps) {
+    if (!commandMap) {
+      continue;
+    }
+    for (const value of Object.values(commandMap)) {
+      if (typeof value !== "object" || value === null) {
+        continue;
+      }
+      const entry = value as Record<string, unknown>;
+      const commandName = typeof entry.command_name === "string" ? entry.command_name : null;
+      const extensionId = typeof entry.extension === "string" ? entry.extension : null;
+      if (commandName === ANNOTATION_COMMAND_NAME && extensionId && EXTENSION_ID_RE.test(extensionId)) {
+        return extensionId;
+      }
+    }
+  }
+
+  return null;
 };
 
 const findExtensionIdInPreferences = (
@@ -220,6 +274,24 @@ const findExtensionIdInPreferences = (
     return { id: nameMatch, matchedBy: "name" };
   }
   return null;
+};
+
+const getExtensionPathCandidates = (): Array<string | null> => {
+  const candidates = new Set<string>();
+  const primary = getExtensionPath();
+  if (primary) {
+    candidates.add(normalizePath(primary));
+  }
+
+  const cwdExtension = path.join(process.cwd(), "extension");
+  if (fs.existsSync(path.join(cwdExtension, "manifest.json"))) {
+    candidates.add(normalizePath(cwdExtension));
+  }
+
+  if (candidates.size === 0) {
+    return [null];
+  }
+  return [...candidates];
 };
 
 export const getNativeStatusSnapshot = (): NativeStatus => {
@@ -258,16 +330,36 @@ export const getNativeStatusSnapshot = (): NativeStatus => {
   };
 };
 
-export function discoverExtensionId(): { extensionId: string | null; matchedBy?: "path" | "name" } {
-  const extensionPath = getExtensionPath();
+export function discoverExtensionId(): { extensionId: string | null; matchedBy?: ExtensionIdMatchReason } {
+  const extensionPaths = getExtensionPathCandidates();
   const roots = getChromeUserDataRoots();
   for (const root of roots) {
     for (const profileDir of getProfileDirs(root)) {
-      const prefs = readPreferences(profileDir);
-      if (!prefs) continue;
-      const match = findExtensionIdInPreferences(prefs, extensionPath);
-      if (match) {
-        return { extensionId: match.id, matchedBy: match.matchedBy };
+      let nameFallback: { id: string; matchedBy: "name" } | null = null;
+      let commandFallback: string | null = null;
+      for (const preferences of readProfilePreferences(profileDir)) {
+        for (const extensionPath of extensionPaths) {
+          const match = findExtensionIdInPreferences(preferences, extensionPath);
+          if (!match) {
+            continue;
+          }
+          if (match.matchedBy === "path") {
+            return { extensionId: match.id, matchedBy: match.matchedBy };
+          }
+          if (!nameFallback) {
+            nameFallback = match;
+          }
+        }
+
+        if (!commandFallback) {
+          commandFallback = findExtensionIdInCommands(preferences);
+        }
+      }
+      if (nameFallback) {
+        return { extensionId: nameFallback.id, matchedBy: nameFallback.matchedBy };
+      }
+      if (commandFallback) {
+        return { extensionId: commandFallback, matchedBy: "command" };
       }
     }
   }
@@ -363,5 +455,9 @@ export const __test__ = {
   parseNativeArgs,
   getNativeStatusSnapshot,
   normalizeExtensionId,
-  findExtensionIdInPreferences
+  findExtensionIdInPreferences,
+  getProfileDirs,
+  readProfilePreferences,
+  findExtensionIdInCommands,
+  getExtensionPathCandidates
 };

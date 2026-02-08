@@ -90,4 +90,56 @@ describe("daemon-client error parsing", () => {
     expect(result).toEqual({ ok: true });
     expect(calls.map((entry) => entry.name)).toEqual(["some.command", "relay.bind", "some.command"]);
   });
+
+  it("retries without cached lease when daemon reports RELAY_LEASE_INVALID", async () => {
+    const calls: Array<{ name: string; params: Record<string, unknown> }> = [];
+
+    fetchSpy = vi.fn(async (_url, options) => {
+      const body = JSON.parse(String(options?.body ?? "{}")) as { name?: string; params?: Record<string, unknown> };
+      const name = body.name ?? "unknown";
+      const params = body.params ?? {};
+      calls.push({ name, params });
+
+      if (name === "session.connect") {
+        const responseBody = JSON.stringify({
+          ok: true,
+          data: {
+            sessionId: "session-1",
+            leaseId: "lease-stale"
+          }
+        });
+        return new Response(responseBody, { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "targets.list" && params.leaseId === "lease-stale") {
+        const responseBody = JSON.stringify({
+          ok: false,
+          error: "RELAY_LEASE_INVALID: Lease does not match session owner."
+        });
+        return new Response(responseBody, { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "targets.list" && !("leaseId" in params)) {
+        const responseBody = JSON.stringify({
+          ok: true,
+          data: { activeTargetId: null, targets: [] }
+        });
+        return new Response(responseBody, { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      return new Response("Unexpected request", { status: 500 });
+    });
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    const client = new DaemonClient({ autoRenew: false });
+    await client.call("session.connect", {});
+    const result = await client.call("targets.list", { sessionId: "session-1" });
+
+    expect(result).toEqual({ activeTargetId: null, targets: [] });
+    expect(calls.map((entry) => entry.name)).toEqual(["session.connect", "targets.list", "targets.list"]);
+    expect(calls[1]?.params).toEqual(expect.objectContaining({ sessionId: "session-1", leaseId: "lease-stale" }));
+    expect(calls[2]?.params).toEqual(expect.objectContaining({ sessionId: "session-1" }));
+    expect(calls[2]?.params.leaseId).toBeUndefined();
+  });
 });

@@ -871,6 +871,20 @@ describe("tools", () => {
     expect(deps.manager.connect).not.toHaveBeenCalled();
   });
 
+  it("routes connect to /cdp when extensionLegacy is set for local base wsEndpoint", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({
+      wsEndpoint: "ws://127.0.0.1:8787",
+      extensionLegacy: true
+    } as never));
+    expect(connectResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+    expect(deps.manager.connect).not.toHaveBeenCalled();
+  });
+
   it("rejects local /cdp wsEndpoint without legacy opt-in", async () => {
     const deps = createDeps();
     const { createTools } = await import("../src/tools");

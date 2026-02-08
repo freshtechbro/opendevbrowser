@@ -9,7 +9,6 @@ import {
   getSessionLease,
   requireSessionLease,
   releaseSessionLease,
-  touchSessionLease,
   getBindingRenewConfig,
   getHubInstanceId
 } from "./daemon-state";
@@ -84,13 +83,10 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.status(requireString(params.sessionId, "sessionId"));
     case "annotate": {
+      await authorizeSessionCommand(core, params, request.name, bindingId);
       const sessionId = requireString(params.sessionId, "sessionId");
-      const clientId = requireClientId(params);
       const status = await core.manager.status(sessionId);
       const transport = requireAnnotationTransport(params.transport);
-      if (status.mode === "extension") {
-        requireBinding(clientId, bindingId);
-      }
       if (transport === "relay" && status.mode !== "extension") {
         throw new Error("Relay annotations require extension mode.");
       }
@@ -450,8 +446,12 @@ async function connectWithRelayRouting(
   const extensionLegacy = optionalBoolean(params.extensionLegacy) ?? false;
   const relayUrl = extensionLegacy ? core.relay.getCdpUrl() : core.relay.getOpsUrl?.() ?? null;
   const normalizedOpsEndpoint = normalizeRelayEndpoint(wsEndpoint, "ops", true);
-  const normalizedLegacyEndpoint = normalizeRelayEndpoint(wsEndpoint, "cdp", false);
-  const relayEndpoint = relayUrl && wsEndpoint === relayUrl ? relayUrl : normalizedOpsEndpoint ?? (extensionLegacy ? normalizedLegacyEndpoint : null);
+  const normalizedLegacyEndpoint = normalizeRelayEndpoint(wsEndpoint, "cdp", extensionLegacy);
+  const relayEndpoint = relayUrl && wsEndpoint === relayUrl
+    ? relayUrl
+    : extensionLegacy
+      ? normalizedLegacyEndpoint ?? normalizedOpsEndpoint
+      : normalizedOpsEndpoint;
 
   const hasExplicitCdp = Boolean(wsEndpoint || params.host || params.port);
   if (normalizedLegacyEndpoint && !extensionLegacy) {
@@ -519,7 +519,7 @@ async function disconnectSession(
 async function authorizeSessionCommand(
   core: OpenDevBrowserCore,
   params: Record<string, unknown>,
-  commandName: string,
+  _commandName: string,
   bindingId?: string
 ): Promise<void> {
   const sessionId = optionalString(params.sessionId);
@@ -527,39 +527,14 @@ async function authorizeSessionCommand(
   const clientId = requireClientId(params);
   const lease = getSessionLease(sessionId);
   if (lease) {
-    const leaseId = optionalString(params.leaseId);
-    if (lease.clientId === clientId && leaseId === lease.leaseId) {
-      touchSessionLease(sessionId);
-      return;
-    }
-    if (isReadOnlyCommand(commandName)) {
-      return;
-    }
-    if (!leaseId) {
-      throw new Error("RELAY_LEASE_REQUIRED: leaseId is required for session operations.");
-    }
-    throw new Error("RELAY_LEASE_INVALID: Lease does not match session owner.");
+    requireSessionLease(sessionId, clientId, optionalString(params.leaseId));
+    return;
   }
   const status = await core.manager.status(sessionId);
   if (status.mode !== "extension") {
     return;
   }
   requireBinding(clientId, bindingId);
-}
-
-const READ_ONLY_COMMANDS = new Set([
-  "nav.snapshot",
-  "dom.getHtml",
-  "dom.getText",
-  "dom.getAttr",
-  "dom.getValue",
-  "dom.isVisible",
-  "dom.isEnabled",
-  "dom.isChecked"
-]);
-
-function isReadOnlyCommand(commandName: string): boolean {
-  return READ_ONLY_COMMANDS.has(commandName);
 }
 
 function extractLeaseId(result: unknown): string | undefined {

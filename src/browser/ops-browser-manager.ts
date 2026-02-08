@@ -78,7 +78,13 @@ export class OpsBrowserManager implements BrowserManagerLike {
       }
       return this.base.disconnect(sessionId, closeBrowser);
     }
-    await this.requestOps(sessionId, "session.disconnect", { closeBrowser });
+    try {
+      await this.requestOps(sessionId, "session.disconnect", { closeBrowser });
+    } catch (error) {
+      if (!isIgnorableOpsDisconnectError(error)) {
+        throw error;
+      }
+    }
     this.opsSessions.delete(sessionId);
     this.opsLeases.delete(sessionId);
     this.closedOpsSessions.delete(sessionId);
@@ -433,3 +439,10 @@ export class OpsBrowserManager implements BrowserManagerLike {
     }
   }
 }
+
+const isIgnorableOpsDisconnectError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("Ops request timed out")
+    || message.includes("[invalid_session] Unknown ops session")
+    || message.includes("Ops socket closed");
+};

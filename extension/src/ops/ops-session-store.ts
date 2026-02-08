@@ -180,6 +180,22 @@ export class OpsSessionStore {
     return target;
   }
 
+  getTargetIdByTabId(sessionId: string, tabId: number): string | null {
+    const session = this.requireSession(sessionId);
+    for (const target of session.targets.values()) {
+      if (target.tabId === tabId) {
+        return target.targetId;
+      }
+    }
+    return null;
+  }
+
+  removeTargetByTabId(sessionId: string, tabId: number): OpsTargetInfo | null {
+    const targetId = this.getTargetIdByTabId(sessionId, tabId);
+    if (!targetId) return null;
+    return this.removeTarget(sessionId, targetId);
+  }
+
   setActiveTarget(sessionId: string, targetId: string): void {
     const session = this.requireSession(sessionId);
     if (!session.targets.has(targetId)) {

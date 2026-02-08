@@ -72,3 +72,28 @@
 - 2026-02-02: Extracted validation steps from docs/ANNOTATE.md + docs/EXTENSION.md for /annotation + extension mode. Prereqs: Chrome 125+, extension installed/unpacked, relay daemon running, extension popup shows Connected, pairing token configured/auto-pair, annotation assets built if using direct path. Manual steps: run `npx opendevbrowser --full`, load unpacked extension, open popup configure relay port/auto-connect/auto-pair, start daemon `npx opendevbrowser serve`, confirm popup Connected, then run annotate in extension session: `npx opendevbrowser annotate --session-id <id> --transport relay --tab-id <tab>` or use popup Annotate UI; verify output includes markdown summary and screenshots in tmp. /annotation relay validation: ensure session is extension mode, relay ws `/annotation` available via running daemon + extension connected; use annotate tool/CLI and confirm JSON output contains `data.details` and `data.screenshots` paths; troubleshoot restricted URLs and injection failures.
 - 2026-02-02: Inspected docs/CLI.md + docs/TROUBLESHOOTING.md and tests for /ops vs /cdp validation guidance. Docs: extension relay default uses /ops; `--extension-legacy` routes via /cdp; connect to local relay normalizes to /ops unless legacy; status fields to confirm include extensionConnected, extensionHandshakeComplete, opsConnected, cdpConnected, pairingRequired. Troubleshooting notes `status --daemon` legend and that `cdpConnected` is expected false until a legacy /cdp session connects.
 - 2026-02-02: Inspected coverage for BrowserManager/TargetManager. Missing spy in tests/browser-manager.test.ts "selects a stable http page when the active tab is blank" (add TargetManager.setActiveTarget spy before BrowserManager import). Lcov gaps in src/browser/browser-manager.ts lines 221, 308-309, 523, 535, 538, 571, 588, 603, 606, 632, 1023, 1028; src/browser/target-manager.ts line 188. Suggested tests: withPage managed+extension, disconnect without page listener, fallback selection on timeout/detached when entries empty or non-http, helper string inputs, and syncPages removal for unnamed target.
+
+- 2026-02-07: Independent Audit A of CDP broker plan vs relay code/tests (concurrency/routing). No code changes.
+
+- 2026-02-07: Independent Audit B (Security/Isolation Lens) for docs/CDP_MULTI_CLIENT_BROKER_PLAN.md completed; findings reported with security/isolation focus.
+
+- 2026-02-07: Independent Audit C (Testability/Plan Completeness) of docs/CDP_MULTI_CLIENT_BROKER_PLAN.md vs relay code/tests completed; findings reported.
+- 2026-02-07: Completed Cycle audit batch #1 (Concurrency/Routing lens) for CDP broker plan vs relay code/tests; findings and remediation provided.
+- 2026-02-07: Cycle audit batch #1 (Testability/Completeness lens) of docs/CDP_MULTI_CLIENT_BROKER_PLAN.md vs relay code/tests completed; findings reported; no code changes.
+- 2026-02-07: Cycle audit batch #1 (Security/Isolation lens) of docs/CDP_MULTI_CLIENT_BROKER_PLAN.md vs relay code/tests completed; findings reported; no code changes.
+- 2026-02-07: Completed Cycle audit batch #2 (Testability/Completeness lens) for CDP broker plan vs relay code/tests; reported findings and readiness verdict; no code changes.
+- 2026-02-07: Cycle audit batch #2 (Security/Isolation lens) completed; findings delivered.
+
+- 2026-02-07: Cycle audit batch #2 (post-patch, concurrency/routing lens) completed for CDP broker plan vs relay code/tests; findings and remediation delivered.
+
+- 2026-02-07: Cycle audit batch #3 (Security/Isolation lens) of CDP broker plan implementation readiness completed; findings and remediation delivered; no code changes.
+
+- 2026-02-07: Cycle audit batch #3 (Testability/Completeness lens) completed for CDP broker plan vs relay code/tests; findings and readiness verdict delivered.
+
+- 2026-02-07: Completed Cycle audit batch #3 (readiness adjudication) for CDP broker plan; findings + verdict delivered.
+
+- 2026-02-07: Plan readiness audit (cycle batch #4) started for `docs/CDP_MULTI_CLIENT_BROKER_PLAN.md` with testability/completeness focus.
+
+- 2026-02-07: Cycle audit batch #4 (readiness adjudication, security/isolation lens) completed for CDP broker plan; findings + verdict delivered; no code changes.
+
+- 2026-02-07: Cycle audit batch #4 (readiness adjudication, concurrency/routing lens) completed for CDP broker plan; findings and verdict delivered; no code changes.2026-02-07: Completed plan-readiness audit (Concurrency/Routing lens) for docs/CDP_MULTI_CLIENT_BROKER_PLAN.md; no plan-ambiguity findings.

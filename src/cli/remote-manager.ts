@@ -8,6 +8,16 @@ import { DaemonClient } from "./daemon-client";
 
 type CallResult<K extends keyof BrowserManagerLike> = Awaited<ReturnType<BrowserManagerLike[K]>>;
 
+function isLegacyRelayEndpoint(wsEndpoint: string): boolean {
+  try {
+    const url = new URL(wsEndpoint);
+    const path = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
+    return path === "/cdp";
+  } catch {
+    return false;
+  }
+}
+
 export class RemoteManager implements BrowserManagerLike {
   private client: DaemonClient;
 
@@ -24,7 +34,10 @@ export class RemoteManager implements BrowserManagerLike {
   }
 
   connectRelay(wsEndpoint: string): ReturnType<BrowserManagerLike["connectRelay"]> {
-    return this.client.call<CallResult<"connectRelay">>("session.connect", { wsEndpoint });
+    return this.client.call<CallResult<"connectRelay">>(
+      "session.connect",
+      isLegacyRelayEndpoint(wsEndpoint) ? { wsEndpoint, extensionLegacy: true } : { wsEndpoint }
+    );
   }
 
   disconnect(sessionId: string, closeBrowser = false): ReturnType<BrowserManagerLike["disconnect"]> {

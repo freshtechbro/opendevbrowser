@@ -55,7 +55,9 @@ const makeCore = (overrides: {
   const manager = {
     status: vi.fn(),
     listTargets: vi.fn(),
-    disconnect: vi.fn()
+    disconnect: vi.fn(),
+    connectRelay: vi.fn(),
+    connect: vi.fn()
   };
 
   const relay = {
@@ -88,23 +90,34 @@ describe("daemon-commands integration", () => {
     vi.restoreAllMocks();
   });
 
-  it("requires lease for extension session commands", async () => {
+  it("allows implicit lease for owner and rejects mismatched lease/client", async () => {
     const core = makeCore();
     core.manager.status.mockResolvedValue({ mode: "extension", activeTargetId: null });
     core.manager.listTargets.mockResolvedValue({ activeTargetId: null, targets: [] });
     registerSessionLease("session-1", "lease-1", "client-1");
 
-    await expect(handleDaemonCommand(core, {
+    const implicitLeaseResponse = await handleDaemonCommand(core, {
       name: "targets.list",
       params: { sessionId: "session-1", clientId: "client-1" }
-    })).rejects.toThrow("RELAY_LEASE_REQUIRED");
+    });
+    expect(implicitLeaseResponse).toEqual({ activeTargetId: null, targets: [] });
 
-    const response = await handleDaemonCommand(core, {
+    await expect(handleDaemonCommand(core, {
+      name: "targets.list",
+      params: { sessionId: "session-1", clientId: "client-2" }
+    })).rejects.toThrow("RELAY_LEASE_INVALID");
+
+    await expect(handleDaemonCommand(core, {
+      name: "targets.list",
+      params: { sessionId: "session-1", clientId: "client-1", leaseId: "lease-wrong" }
+    })).rejects.toThrow("RELAY_LEASE_INVALID");
+
+    const explicitLeaseResponse = await handleDaemonCommand(core, {
       name: "targets.list",
       params: { sessionId: "session-1", clientId: "client-1", leaseId: "lease-1" }
     });
 
-    expect(response).toEqual({ activeTargetId: null, targets: [] });
+    expect(explicitLeaseResponse).toEqual({ activeTargetId: null, targets: [] });
   });
 
   it("requires binding for annotate when extension mode", async () => {
@@ -117,7 +130,7 @@ describe("daemon-commands integration", () => {
     })).rejects.toThrow("RELAY_BINDING_REQUIRED");
   });
 
-  it("returns annotate response when bound", async () => {
+  it("returns annotate response when lease owner invokes extension annotate", async () => {
     const core = makeCore();
     core.manager.status.mockResolvedValue({ mode: "extension", activeTargetId: null });
     core.annotationManager.requestAnnotation.mockResolvedValue({
@@ -126,14 +139,13 @@ describe("daemon-commands integration", () => {
       status: "ok",
       payload: { url: "https://example.com", timestamp: "2026-01-31T00:00:00Z", screenshotMode: "visible", screenshots: [], annotations: [] }
     });
+    registerSessionLease("session-1", "lease-1", "client-1");
 
-    const binding = bindRelay("client-1");
     const response = await handleDaemonCommand(core, {
       name: "annotate",
       params: {
         sessionId: "session-1",
         clientId: "client-1",
-        bindingId: binding.bindingId,
         url: "https://example.com",
         screenshotMode: "full",
         debug: true,
@@ -159,6 +171,21 @@ describe("daemon-commands integration", () => {
       context: "Review",
       timeoutMs: 5000
     });
+  });
+
+  it("rejects annotate when lease owner does not match client", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "extension", activeTargetId: null });
+    registerSessionLease("session-1", "lease-1", "client-1");
+
+    await expect(handleDaemonCommand(core, {
+      name: "annotate",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-2",
+        transport: "relay"
+      }
+    })).rejects.toThrow("RELAY_LEASE_INVALID");
   });
 
   it("allows direct annotate without binding on managed sessions", async () => {
@@ -213,7 +240,7 @@ describe("daemon-commands integration", () => {
     })).rejects.toThrow("Relay annotations require extension mode.");
   });
 
-  it("requires lease when disconnecting an extension session", async () => {
+  it("allows extension disconnect for implicit lease owner and rejects mismatches", async () => {
     const core = makeCore();
     core.manager.status.mockResolvedValue({ mode: "extension", activeTargetId: null });
     core.manager.disconnect.mockResolvedValue(undefined);
@@ -221,11 +248,17 @@ describe("daemon-commands integration", () => {
     registerSessionLease("session-1", "lease-1", "client-1");
     const response = await handleDaemonCommand(core, {
       name: "session.disconnect",
-      params: { sessionId: "session-1", clientId: "client-1", leaseId: "lease-1" }
+      params: { sessionId: "session-1", clientId: "client-1" }
     });
 
     expect(response).toEqual({ ok: true });
     expect(getBindingState()).toBeNull();
+
+    registerSessionLease("session-2", "lease-2", "client-1");
+    await expect(handleDaemonCommand(core, {
+      name: "session.disconnect",
+      params: { sessionId: "session-2", clientId: "client-2" }
+    })).rejects.toThrow("RELAY_LEASE_INVALID");
   });
 
   it("includes hub + relay identifiers in relay.bind response", async () => {
@@ -285,5 +318,36 @@ describe("daemon-commands integration", () => {
 
     const cdpUrl = await handleDaemonCommand(core, { name: "relay.cdpUrl" });
     expect(cdpUrl).toBe("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("routes extension legacy connect on local base endpoint to /cdp", async () => {
+    const core = makeCore();
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-legacy",
+      mode: "extension",
+      activeTargetId: "target-1",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/cdp"
+    });
+    const binding = bindRelay("client-legacy");
+    if ("queued" in binding && binding.queued) {
+      throw new Error("Expected immediate binding for test setup.");
+    }
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-legacy",
+        bindingId: binding.bindingId,
+        wsEndpoint: "ws://127.0.0.1:8787",
+        extensionLegacy: true
+      }
+    });
+
+    expect(core.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+    expect(response).toEqual(expect.objectContaining({
+      sessionId: "session-legacy",
+      mode: "extension"
+    }));
   });
 });

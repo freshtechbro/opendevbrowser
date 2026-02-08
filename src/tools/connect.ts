@@ -42,11 +42,15 @@ export function createConnectTool(deps: ToolDeps): ToolDefinition {
         const hasExplicitCdp = Boolean(wsEndpoint || args.host || args.port);
         const relayUrl = extensionLegacy ? deps.relay?.getCdpUrl() ?? null : deps.relay?.getOpsUrl?.() ?? null;
         const normalizedOpsEndpoint = normalizeRelayEndpoint(wsEndpoint, "ops", true);
-        const normalizedLegacyEndpoint = normalizeRelayEndpoint(wsEndpoint, "cdp", false);
+        const normalizedLegacyEndpoint = normalizeRelayEndpoint(wsEndpoint, "cdp", extensionLegacy);
         if (normalizedLegacyEndpoint && !extensionLegacy) {
           return failure("Legacy extension relay (/cdp) requires extensionLegacy=true.", "extension_legacy_required");
         }
-        const relayEndpoint = relayUrl && wsEndpoint === relayUrl ? relayUrl : normalizedOpsEndpoint ?? (extensionLegacy ? normalizedLegacyEndpoint : null);
+        const relayEndpoint = relayUrl && wsEndpoint === relayUrl
+          ? relayUrl
+          : extensionLegacy
+            ? normalizedLegacyEndpoint ?? normalizedOpsEndpoint
+            : normalizedOpsEndpoint;
         let result;
         if (relayEndpoint || (!hasExplicitCdp && relayUrl)) {
           result = await deps.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
