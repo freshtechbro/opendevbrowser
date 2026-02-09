@@ -14,6 +14,8 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 
 ## Installation
 
+Requires Node.js `>=18` and the npm package (`npx opendevbrowser` recommended; `npm install -g opendevbrowser` optional).
+
 1. Run the CLI once with `--full` so the extension assets are extracted:
    ```bash
    npx opendevbrowser --full

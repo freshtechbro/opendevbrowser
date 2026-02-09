@@ -6,6 +6,8 @@ Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`
 
 ## Installation
 
+Requires Node.js `>=18`.
+
 ```bash
 # Interactive installation (prompts for location)
 npx opendevbrowser
@@ -13,6 +15,10 @@ npx opendevbrowser
 # Non-interactive with flags
 npx opendevbrowser --global   # Install to ~/.config/opencode/opencode.json
 npx opendevbrowser --local    # Install to ./opencode.json
+
+# Optional: persistent global CLI
+npm install -g opendevbrowser
+opendevbrowser --version
 ```
 
 By default, the CLI installs bundled skills to `~/.config/opencode/skill`. Use `--skills-local` for project-local skills or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
