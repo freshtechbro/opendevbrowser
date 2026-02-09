@@ -6,6 +6,12 @@
 
 OpenCode plugin providing AI agents with browser automation via Chrome DevTools Protocol. Script-first UX: snapshot → refs → actions.
 
+### Install Quick Reference
+
+- Runtime: Node.js `>=18`.
+- Recommended installer: `npx opendevbrowser`
+- Optional persistent CLI: `npm install -g opendevbrowser`
+
 ## Architecture
 
 ```

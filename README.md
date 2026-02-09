@@ -48,6 +48,8 @@ All core automation flows are available through the CLI command surface and the 
 
 ## Installation
 
+Requires Node.js `>=18`.
+
 ### For Humans
 
 ```bash
@@ -60,6 +62,10 @@ npx opendevbrowser --local    # ./opencode.json
 
 # Full install (config + extension assets)
 npx opendevbrowser --full
+
+# Optional: persistent global CLI
+npm install -g opendevbrowser
+opendevbrowser --version
 ```
 
 Use OpenCode only if you want plugin tools. CLI and extension workflows work without OpenCode.
@@ -508,6 +514,7 @@ See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
 | `npx opendevbrowser --local` | Install to project config |
 | `npx opendevbrowser --with-config` | Also create opendevbrowser.jsonc |
 | `npx opendevbrowser --full` | Full install (config + extension assets) |
+| `npm install -g opendevbrowser` | Install persistent global CLI |
 | `npx opendevbrowser --update` | Clear cache, trigger reinstall |
 | `npx opendevbrowser --uninstall` | Remove from config |
 | `npx opendevbrowser --version` | Show version |

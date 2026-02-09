@@ -8,6 +8,13 @@ version: 1.1.0
 
 Use this guide to produce reliable, script-first automation with minimal retries and predictable output.
 
+## Setup Prerequisites
+
+- Runtime: Node.js `>=18`.
+- Recommended installer: `npx opendevbrowser`
+- Optional persistent CLI: `npm install -g opendevbrowser`
+- For extension assets/local extension loading: `npx opendevbrowser --full`
+
 ## Core Operating Model
 
 Follow the loop strictly:

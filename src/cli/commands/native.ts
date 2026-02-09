@@ -347,7 +347,7 @@ export function discoverExtensionId(): { extensionId: string | null; matchedBy?:
             return { extensionId: match.id, matchedBy: match.matchedBy };
           }
           if (!nameFallback) {
-            nameFallback = match;
+            nameFallback = { id: match.id, matchedBy: "name" };
           }
         }
 
