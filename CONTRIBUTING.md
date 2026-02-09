@@ -26,8 +26,9 @@ Thank you for your interest in contributing to OpenDevBrowser! This document pro
 
 1. Fork and clone the repository:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/opendevbrowser.git
+   git clone https://github.com/<your-username>/opendevbrowser.git
    cd opendevbrowser
+   git remote add upstream https://github.com/freshtechbro/opendevbrowser.git
    ```
 
 2. Install dependencies:
@@ -42,7 +43,7 @@ Thank you for your interest in contributing to OpenDevBrowser! This document pro
 
 4. Run tests:
    ```bash
-   npm test
+   npm run test
    ```
 
 ### Development Workflow
@@ -227,7 +228,7 @@ See [extension/AGENTS.md](extension/AGENTS.md) for detailed extension convention
 
 1. Build extension: `npm run extension:build`
 2. Load in Chrome (developer mode)
-3. Test with CLI: `opendevbrowser launch --extension-only`
+3. Test with CLI: `npx opendevbrowser launch --extension-only`
 4. Verify in popup: Check connection status
 
 ## Documentation
@@ -253,8 +254,8 @@ When making changes, update relevant documentation:
 ## Getting Help
 
 - **Discord**: [OpenCode Community](https://discord.gg/opencode)
-- **Issues**: [GitHub Issues](https://github.com/opencode-ai/opendevbrowser/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/opencode-ai/opendevbrowser/discussions)
+- **Issues**: [GitHub Issues](https://github.com/freshtechbro/opendevbrowser/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/freshtechbro/opendevbrowser/discussions)
 
 ### Before Asking
 

@@ -1,97 +1,108 @@
 ---
 name: login-automation
-description: Best practices for automating login flows and authentication testing with OpenDevBrowser.
-version: 1.0.0
+description: This skill should be used when the user asks to "automate login", "test authentication", "sign in programmatically", "validate login errors", or "verify session persistence" with OpenDevBrowser.
+version: 1.1.0
 ---
 
 # Login Automation Skill
 
-## Credential Handling
+Use this guide for deterministic login flows and authentication checks.
 
-Store credentials securely using environment variables or config files outside the repository.
+## Secure Credential Handling
 
-Never hardcode credentials in test scripts or skill files.
-Use environment variables/secure config, and avoid echoing password values in logs or transcripts.
+Handle credentials outside skill files and source code:
 
-## Form Detection Workflow
+- Resolve credentials from environment variables or a secret manager in the orchestration layer.
+- Pass resolved values at runtime only.
+- Avoid logging secrets in transcripts, fixtures, or screenshots.
 
-1. Take a snapshot to identify login form elements:
-   ```
-   opendevbrowser_snapshot
-   ```
+## Preflight Checklist
 
-2. Look for common patterns:
-   - Input fields with `type="email"`, `type="text"`, `name="username"`
-   - Input fields with `type="password"`
-   - Submit buttons with text containing "Sign in", "Log in", "Submit"
+Before typing credentials:
 
-3. Use refs to target form elements reliably.
+1. Launch or connect to the intended session mode.
+2. Navigate to the login URL.
+3. Wait for page readiness.
+4. Capture a fresh snapshot and identify refs.
 
-## Authentication Flow
-
-1. Navigate to login page:
-   ```
-   opendevbrowser_goto sessionId="<session-id>" url="https://example.com/login"
-   ```
-
-2. Wait for form to load:
-   ```
-   opendevbrowser_wait sessionId="<session-id>" until="networkidle"
-   ```
-
-3. Take snapshot to get refs:
-   ```
-   opendevbrowser_snapshot sessionId="<session-id>"
-   ```
-
-4. Enter username/email:
-   ```
-   opendevbrowser_type sessionId="<session-id>" ref="[email-input-ref]" text="user@example.com"
-   ```
-
-5. Enter password:
-   ```
-   opendevbrowser_type sessionId="<session-id>" ref="[password-input-ref]" text="password123"
-   ```
-
-6. Click submit:
-   ```
-   opendevbrowser_click sessionId="<session-id>" ref="[submit-button-ref]"
-   ```
-
-7. Wait for navigation:
-   ```
-   opendevbrowser_wait sessionId="<session-id>" until="networkidle"
-   ```
-
-## Error Handling
-
-After login attempt, verify success:
-
-1. Check URL changed to expected destination
-2. Look for error messages in snapshot
-3. Use `opendevbrowser_network_poll` to confirm auth/network requests succeeded (status/method/url), and verify authenticated state via URL/UI/session behavior
-
-Common failure patterns:
-- "Invalid credentials" messages
-- CAPTCHA challenges
-- Multi-factor authentication prompts
-- Rate limiting or lockout
-
-## MFA Handling
-
-For TOTP-based MFA:
-1. Generate code using appropriate library
-2. Wait for MFA input field to appear
-3. Enter the code
-4. Submit
-
-For SMS/Email MFA:
-- Requires manual intervention or test account bypass
-
-## Session Persistence
-
-Use persistent browser profiles to maintain sessions across runs:
+```text
+opendevbrowser_goto sessionId="<session-id>" url="https://example.com/login"
+opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
 ```
-opendevbrowser_launch profile="test-user" persistProfile=true
+
+## Canonical Login Flow
+
+Execute login in a strict order:
+
+1. Type identifier into email/username ref.
+2. Type password into password ref.
+3. Click submit.
+4. Wait for navigation or authenticated UI state.
+5. Re-snapshot for post-login verification.
+
+```text
+opendevbrowser_type sessionId="<session-id>" ref="<identifier-ref>" text="<resolved-identifier>"
+opendevbrowser_type sessionId="<session-id>" ref="<password-ref>" text="<resolved-password>"
+opendevbrowser_click sessionId="<session-id>" ref="<submit-ref>"
+opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+opendevbrowser_snapshot sessionId="<session-id>" format="outline"
+```
+
+## Success Validation
+
+Validate more than one signal:
+
+- URL or route changed to expected authenticated location.
+- Authenticated-only UI ref becomes visible.
+- Login request in `opendevbrowser_network_poll` returns expected status.
+
+```text
+opendevbrowser_network_poll sessionId="<session-id>" max=50
+```
+
+Use `opendevbrowser_is_visible` or `opendevbrowser_get_attr` for deterministic assertions.
+
+## Error and Recovery Handling
+
+Handle common blockers explicitly:
+
+- Invalid credentials: assert error banner text near form.
+- CAPTCHA/challenge: classify as manual checkpoint.
+- MFA prompt: continue with second-factor workflow if test account supports it.
+- Lockout/rate limit: stop retries and rotate test account or cooldown window.
+
+After any failure, re-snapshot before retrying to avoid stale refs.
+
+## MFA Flow Pattern
+
+For MFA-capable test flows:
+
+1. Submit primary credentials.
+2. Wait for MFA input ref.
+3. Enter OTP/ref-based code.
+4. Submit and validate authenticated state.
+
+```text
+opendevbrowser_wait sessionId="<session-id>" ref="<mfa-input-ref>" state="visible"
+opendevbrowser_type sessionId="<session-id>" ref="<mfa-input-ref>" text="<resolved-otp>"
+opendevbrowser_click sessionId="<session-id>" ref="<mfa-submit-ref>"
+```
+
+## Session Persistence Checks
+
+Use persistent profiles when verifying remembered sessions:
+
+```text
+opendevbrowser_launch profile="auth-test" persistProfile=true noExtension=true
+```
+
+Then reopen and verify whether re-authentication is required.
+
+## Batch Script Pattern
+
+Use `opendevbrowser_run` for compact, repeatable flows:
+
+```text
+opendevbrowser_run sessionId="<session-id>" steps=[{"action":"goto","args":{"url":"https://example.com/login"}},{"action":"wait","args":{"until":"networkidle"}},{"action":"snapshot","args":{"format":"actionables"}},{"action":"type","args":{"ref":"<identifier-ref>","text":"<resolved-identifier>"}},{"action":"type","args":{"ref":"<password-ref>","text":"<resolved-password>"}},{"action":"click","args":{"ref":"<submit-ref>"}},{"action":"wait","args":{"until":"networkidle"}},{"action":"snapshot","args":{"format":"outline"}}]
 ```

@@ -4,17 +4,29 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
 [![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-green.svg?style=flat-square)](https://opencode.ai)
+[![CLI](https://img.shields.io/badge/Interface-CLI-orange.svg?style=flat-square)](docs/CLI.md)
+[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-blue.svg?style=flat-square)](docs/EXTENSION.md)
 [![Test Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
 
 > **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
-OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents direct browser control via Chrome DevTools Protocol. Launch browsers, capture page snapshots, and interact with elements using stable refs.
+OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions.
 
 <p align="center">
   <img src="assets/readme-image-candidates/2026-02-08/04-annotation-automation-scene.jpg" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
   <br />
   <em>AI-assisted annotation and browser automation workflow</em>
 </p>
+
+## Use It Your Way
+
+| Interface | OpenCode Required | Best For |
+|-----------|-------------------|----------|
+| **CLI (`npx opendevbrowser ...`)** | No | Any agent/workflow that can run shell commands |
+| **Chrome Extension + Relay** | No | Reusing existing logged-in tabs without launching a new browser |
+| **OpenCode Plugin Tools** | Yes | Native tool-calling inside OpenCode (`opendevbrowser_*`) |
+
+All core automation flows are available through the CLI command surface and the plugin tool surface.
 
 ## Why OpenDevBrowser?
 
@@ -25,6 +37,7 @@ OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents
 | **Stable refs** | Elements identified by `backendNodeId`, not fragile selectors |
 | **Security by default** | CDP localhost-only, timing-safe auth, HTML sanitization |
 | **3 browser modes** | Managed, CDP connect, or extension relay for logged-in sessions |
+| **Ops + CDP channels** | High-level multi-client `/ops` plus legacy `/cdp` compatibility |
 | **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
 | **5 bundled skill packs** | Best practices for login, forms, data extraction |
@@ -49,12 +62,25 @@ npx opendevbrowser --local    # ./opencode.json
 npx opendevbrowser --full
 ```
 
-Restart OpenCode after installation.
+Use OpenCode only if you want plugin tools. CLI and extension workflows work without OpenCode.
 
 On first successful install, the CLI attempts to install daemon auto-start on supported platforms so the relay is available on login.
 You can remove it later with `npx opendevbrowser daemon uninstall`.
 
 OpenCode discovers skills in `.opencode/skill` (project) and `~/.config/opencode/skill` (global) first; `.claude/skills` is compatibility-only. The CLI installs bundled skills into the OpenCode-native locations by default.
+
+### CLI + Extension (No OpenCode)
+
+```bash
+# Start relay/daemon runtime
+npx opendevbrowser serve
+
+# Launch using extension mode (requires extension popup connected)
+npx opendevbrowser launch --extension-only --wait-for-extension
+
+# Or force managed mode without extension
+npx opendevbrowser launch --no-extension
+```
 
 ### Agent Installation (OpenCode)
 
@@ -87,6 +113,8 @@ Restart OpenCode, then run `opendevbrowser_status` to verify the plugin is loade
 
 ## Quick Start
 
+OpenDevBrowser uses the same automation model across plugin tools and CLI commands:
+
 ```
 1. Launch a browser session
 2. Navigate to a URL
@@ -95,7 +123,7 @@ Restart OpenCode, then run `opendevbrowser_status` to verify the plugin is loade
 5. Re-snapshot after navigation
 ```
 
-### Core Workflow
+### Core Workflow (Plugin Tools)
 
 | Step | Tool | Purpose |
 |------|------|---------|
@@ -143,13 +171,19 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ## Recent Features
 
-### v0.0.14 (Latest)
+### v0.0.15 (Latest)
 
-- **Extension Mode Remediation** - Improved extension-only workflow with better error handling and recovery. See [Extension Guide](docs/EXTENSION.md) for details.
-- **Daemon Auto-Install** - The hub daemon now automatically installs on first use, simplifying setup for new users.
-- **Ops Coverage** - Comprehensive E2E testing for daemon and relay operations, ensuring reliability across all modes.
-- **CLI Native Status** - Enhanced native host integration with better status reporting and debugging.
-- **Security Hardening** - Improved relay authentication, rate limiting, and extension security.
+- **Documentation and release readiness refresh** across README/CLI/extension guidance.
+- **Extension mode stabilization** with stronger native host flow and recovery paths.
+- **Ops/CDP hardening** for disconnect cleanup and extension routing reliability.
+- **Coverage expansion** for browser/target/native workflows while preserving the 97% threshold.
+
+### v0.0.14
+
+- **Ops parity delivery** across daemon, relay, and extension runtime paths.
+- **New automation surface**: expanded DOM query + interaction commands/tools.
+- **Multi-client/session improvements** in core tracking and extension router behavior.
+- **Security and reliability hardening** for relay + daemon connection handling.
 
 See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
@@ -185,6 +219,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 ## Tool Reference
 
 OpenDevBrowser provides **41 tools** organized by category:
+Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 
 ### Session Management
 | Tool | Description |
@@ -304,6 +339,15 @@ Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`.
 The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/ops`.
 Legacy relay `/cdp` remains available with explicit opt-in (`--extension-legacy`).
 When pairing is enabled, both `/ops` and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
+
+## Ops vs CDP
+
+| Channel | What It Does | When to Use It |
+|---------|---------------|----------------|
+| **`/ops` (default)** | High-level automation protocol with session ownership, event streaming, and multi-client handling | Preferred extension relay path for modern workflows |
+| **`/cdp` (legacy)** | Low-level CDP relay path with compatibility-focused behavior | Opt-in compatibility mode (`--extension-legacy`) |
+| **Direct CDP connect** | Attach to Chrome started with `--remote-debugging-port` | Existing debug/browser setups without extension relay |
+
 ---
 
 ## Breaking Changes (latest)
@@ -319,9 +363,9 @@ The extension enables **Extension Relay** mode - attach to existing logged-in br
 
 ### Auto-Connect + Auto-Pair
 
-The plugin and extension can automatically pair:
+The runtime (plugin or CLI daemon) and extension can automatically pair:
 
-1. **Plugin side**: Starts a local relay server and config discovery endpoint
+1. **Runtime side**: Starts a local relay server and config discovery endpoint
 2. **Extension side**: Enable "Auto-Pair" toggle and click Connect
 3. Extension fetches relay port from discovery, then fetches token from the relay server
 4. Connection established with color indicator (green = connected)
@@ -361,11 +405,13 @@ If the relay is unavailable, the background worker retries `/config` + `/pair` w
 
 ### Manual Setup
 
-1. Start OpenCode once so the plugin can extract the extension assets.
+1. Ensure extension assets exist by running either:
+   - `npx opendevbrowser --full` (installer path), or
+   - `npm run extension:build` (repo/dev path)
 2. Load unpacked from `~/.config/opencode/opendevbrowser/extension`
    (fallback: `~/.cache/opencode/node_modules/opendevbrowser/extension`).
 3. Open extension popup
-4. Enter the same relay port and token as the plugin config
+4. Enter the same relay port and token as the runtime config
    (if `relayToken` is missing, either add one to `opendevbrowser.jsonc` or use Auto-Pair).
 5. Click Connect
 
@@ -443,11 +489,15 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
 }
 ```
 
-All fields optional. Plugin works with sensible defaults.
+All fields are optional. OpenDevBrowser works with sensible defaults.
 
 ---
 
 ## CLI Commands
+
+The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, and annotate).
+All commands listed in the CLI reference are implemented and available in the current codebase.
+See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
 
 ### Install/Management
 
@@ -462,14 +512,14 @@ All fields optional. Plugin works with sensible defaults.
 | `npx opendevbrowser --uninstall` | Remove from config |
 | `npx opendevbrowser --version` | Show version |
 
-### Automation (Daemon-backed)
+### Common Automation Commands (Daemon-backed)
 
 Start the daemon with `npx opendevbrowser serve`, then use:
 
 | Command | Description |
 |---------|-------------|
-| `npx opendevbrowser launch` | Launch managed session |
-| `npx opendevbrowser connect` | Connect to existing CDP endpoint |
+| `npx opendevbrowser launch` | Launch session (defaults to extension mode when available) |
+| `npx opendevbrowser connect` | Connect via relay or direct CDP endpoint |
 | `npx opendevbrowser disconnect` | Disconnect session |
 | `npx opendevbrowser status` | Show session status |
 | `npx opendevbrowser goto` | Navigate to URL |
