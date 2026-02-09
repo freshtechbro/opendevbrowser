@@ -69,6 +69,7 @@ export type OpenDevBrowserConfig = {
   continuity: ContinuityConfig;
   relayPort: number;
   relayToken: string | false;
+  nativeExtensionId?: string;
   daemonPort: number;
   daemonToken: string;
   chromePath?: string;
@@ -86,6 +87,8 @@ function buildDefaultConfigJsonc(relayToken: string, daemonToken: string): strin
   // Set relayToken to false to disable extension pairing.
   "relayPort": ${DEFAULT_RELAY_PORT},
   "relayToken": "${relayToken}",
+  // Optional: extension ID for native host auto-install.
+  // "nativeExtensionId": "abcdefghijklmnopabcdefghijklmnop",
   "daemonPort": ${DEFAULT_DAEMON_PORT},
   "daemonToken": "${daemonToken}"
 }
@@ -176,6 +179,7 @@ const configSchema = z.object({
   continuity: continuitySchema.default({}),
   relayPort: z.number().int().min(0).max(65535).default(DEFAULT_RELAY_PORT),
   relayToken: z.union([z.string(), z.literal(false)]).optional(),
+  nativeExtensionId: z.string().optional(),
   daemonPort: z.number().int().min(0).max(65535).default(DEFAULT_DAEMON_PORT),
   daemonToken: z.string().min(1).optional(),
   chromePath: z.string().min(1).optional().refine(
@@ -275,8 +279,19 @@ export function loadGlobalConfig(): OpenDevBrowserConfig {
   return { ...data, relayToken, daemonToken };
 }
 
-export function resolveConfig(_config: unknown): OpenDevBrowserConfig {
-  return loadGlobalConfig();
+export function resolveConfig(config: unknown): OpenDevBrowserConfig {
+  if (typeof config === "undefined") {
+    return loadGlobalConfig();
+  }
+  const parsed = configSchema.safeParse(config);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => issue.message).join("; ");
+    throw new Error(`Invalid opendevbrowser config override: ${issues}`);
+  }
+  const data = parsed.data;
+  const relayToken = data.relayToken ?? generateSecureToken();
+  const daemonToken = data.daemonToken ?? generateSecureToken();
+  return { ...data, relayToken, daemonToken };
 }
 
 function persistDaemonConfigDefaults(params: {

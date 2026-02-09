@@ -23,6 +23,28 @@ describe("CDPRouter", () => {
     expect(chrome.debugger.detach).toHaveBeenCalled();
   });
 
+  it("retries attach when the tab id is stale", async () => {
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+
+    mock.setActiveTab({ id: 100, url: "https://example.com", title: "Example", groupId: 1 });
+    vi.mocked(chrome.debugger.attach)
+      .mockImplementationOnce((_debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+        mock.setRuntimeError("No tab with given id 99");
+        callback();
+      })
+      .mockImplementationOnce((_debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+        mock.setRuntimeError(null);
+        callback();
+      });
+
+    await router.attach(99);
+
+    expect(chrome.debugger.attach).toHaveBeenCalledTimes(2);
+  });
+
   it("routes commands and events with root session ids", async () => {
     const mock = createChromeMock();
     globalThis.chrome = mock.chrome;
@@ -92,6 +114,84 @@ describe("CDPRouter", () => {
     expect(chrome.debugger.sendCommand).not.toHaveBeenCalledWith(
       expect.anything(),
       "Browser.getVersion",
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it("responds to Target.getBrowserContexts with default context", async () => {
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(13);
+
+    await router.handleCommand({
+      id: 10,
+      method: "forwardCDPCommand",
+      params: { method: "Target.getBrowserContexts", params: {} }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 10,
+      result: { browserContextIds: ["default"] }
+    });
+  });
+
+  it("responds to Target.attachToBrowserTarget with root session id", async () => {
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(15);
+
+    await router.handleCommand({
+      id: 11,
+      method: "forwardCDPCommand",
+      params: { method: "Target.attachToBrowserTarget", params: {} }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 11,
+      result: { sessionId: expect.stringMatching(/^pw-tab-/) }
+    });
+  });
+
+  it("attaches to root targets without debugger roundtrip", async () => {
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(21);
+
+    await router.handleCommand({
+      id: 12,
+      method: "forwardCDPCommand",
+      params: { method: "Target.attachToTarget", params: { targetId: "tab-21", flatten: true } }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 12,
+      result: { sessionId: expect.stringMatching(/^pw-tab-/) }
+    });
+    expect(chrome.debugger.sendCommand).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "Target.attachToTarget",
       expect.anything(),
       expect.anything()
     );

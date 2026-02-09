@@ -1,136 +1,128 @@
 ---
 name: data-extraction
-description: Patterns for extracting structured data from web pages including tables, lists, and paginated content with OpenDevBrowser.
-version: 1.0.0
+description: This skill should be used when the user asks to "extract data from a page", "scrape tables", "collect paginated results", "parse list/card content", or "export structured web data" with OpenDevBrowser.
+version: 1.1.0
 ---
 
 # Data Extraction Skill
 
+Use this guide to collect structured data from dynamic pages with predictable output quality.
+
+## Extraction Planning
+
+Define the schema before interacting:
+
+1. Define output fields and required keys.
+2. Identify page regions that contain those fields.
+3. Capture a fresh snapshot and map refs to schema fields.
+
+```text
+opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
+```
+
 ## Table Extraction
 
-1. Navigate to page with data table:
-   ```
-   opendevbrowser_goto url="https://example.com/data"
-   ```
+For semantic HTML tables:
 
-2. Wait for table to load:
-   ```
-   opendevbrowser_wait state="networkidle"
-   ```
+1. Wait for table visibility.
+2. Snapshot and identify table/container refs.
+3. Extract targeted table HTML.
+4. Parse rows/cells in the host script.
 
-3. Get table HTML structure:
-   ```
-   opendevbrowser_dom_get_html ref="[table-ref]"
-   ```
-
-4. Parse the HTML to extract rows and cells.
-
-### Common Table Patterns
-
-Standard HTML tables:
-```html
-<table>
-  <thead><tr><th>Header</th></tr></thead>
-  <tbody><tr><td>Data</td></tr></tbody>
-</table>
+```text
+opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+opendevbrowser_dom_get_html sessionId="<session-id>" ref="<table-ref>"
 ```
 
-CSS-based grids:
-```html
-<div class="grid">
-  <div class="row">
-    <div class="cell">Data</div>
-  </div>
-</div>
+For virtualized or grid UIs, extract per-row/card refs and normalize in post-processing.
+
+## List and Card Extraction
+
+For repeated list/card content:
+
+1. Snapshot and identify repeating item refs.
+2. Extract only needed nodes per item (`title`, `price`, `meta`, `url`).
+3. Normalize records to a stable schema.
+
+```text
+opendevbrowser_dom_get_text sessionId="<session-id>" ref="<item-title-ref>"
+opendevbrowser_get_attr sessionId="<session-id>" ref="<item-link-ref>" name="href"
 ```
 
-## List Extraction
+## Pagination Patterns
 
-For unordered/ordered lists:
-1. Identify list container ref
-2. Extract text content:
-   ```
-   opendevbrowser_dom_get_text ref="[list-ref]"
-   ```
+### Numbered or Next/Previous Pagination
 
-For card-based layouts:
-1. Identify repeating pattern
-2. Extract each card's content individually
+1. Extract current page records.
+2. Click next/page ref.
+3. Wait for load.
+4. Re-snapshot and continue until terminal state.
 
-## Pagination Handling
-
-### Numbered Pagination
-
-1. Extract current page data
-2. Find "Next" or page number button:
-   ```
-   opendevbrowser_snapshot
-   ```
-3. Click next page:
-   ```
-   opendevbrowser_click ref="[next-button-ref]"
-   ```
-4. Wait for new content:
-   ```
-   opendevbrowser_wait state="networkidle"
-   ```
-5. Repeat until no more pages
+```text
+opendevbrowser_click sessionId="<session-id>" ref="<next-ref>"
+opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
+```
 
 ### Infinite Scroll
 
-1. Extract visible data
-2. Scroll to load more:
-   ```
-   opendevbrowser_scroll direction="down" amount=1000
-   ```
-3. Wait for new content
-4. Repeat until no new items appear
+1. Extract visible records.
+2. Scroll incrementally.
+3. Wait for newly loaded items.
+4. Stop when no new unique records appear.
+
+```text
+opendevbrowser_scroll sessionId="<session-id>" dy=1000
+opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+```
 
 ### Load More Button
 
-1. Extract visible data
-2. Click "Load More":
-   ```
-   opendevbrowser_click ref="[load-more-ref]"
-   ```
-3. Wait for new content
-4. Repeat until button disappears
+1. Extract visible records.
+2. Click load-more ref.
+3. Wait and re-snapshot.
+4. Repeat until button disappears or no new data arrives.
 
-## Data Export Workflow
+## Structured Data Shortcuts
 
-1. Collect all extracted data in structured format
-2. Use `opendevbrowser_run` to serialize data:
-   ```javascript
-   return JSON.stringify(collectedData, null, 2);
-   ```
+When available, prefer embedded structured data:
 
-## Handling Dynamic Content
+- JSON-LD scripts
+- Microdata attributes (`itemscope`, `itemprop`)
 
-For JavaScript-rendered content:
-
-1. Wait for specific element to appear
-2. Use network polling to detect data loading:
-   ```
-   opendevbrowser_network_poll
-   ```
-3. Take snapshot after XHR/Fetch completes
-
-## Structured Data Detection
-
-Look for embedded structured data:
-- JSON-LD scripts: `<script type="application/ld+json">`
-- Microdata attributes: `itemscope`, `itemprop`
-- RDFa attributes: `typeof`, `property`
-
-Extract via:
-```
-opendevbrowser_run script="return document.querySelector('script[type=\"application/ld+json\"]')?.textContent"
+```text
+opendevbrowser_dom_get_text sessionId="<session-id>" ref="<json-ld-script-ref>"
 ```
 
-## Rate Limiting Considerations
+Parse JSON-LD in the host script and merge with extracted UI records if needed.
 
-When extracting large datasets:
-- Add delays between page requests
-- Monitor for rate limit responses (429 status)
-- Respect robots.txt and terms of service
-- Consider using persistent profile to maintain session
+## Quality Controls
+
+Apply quality checks during extraction:
+
+- Deduplicate by stable key (URL, ID, composite key).
+- Track page number and source URL per record.
+- Record null/missing fields explicitly.
+- Validate record counts per page before continuing.
+
+Use `opendevbrowser_network_poll` when extraction depends on API completion.
+
+```text
+opendevbrowser_network_poll sessionId="<session-id>" max=50
+```
+
+## Export Pattern
+
+Perform export in the host environment (outside tool calls):
+
+- Normalize to JSON for structured pipelines.
+- Convert to CSV only after schema normalization.
+- Keep raw extraction artifacts when auditability is required.
+
+## Compliance and Rate Limits
+
+Follow site constraints:
+
+- Respect robots, terms, and legal boundaries.
+- Add pacing between page transitions when needed.
+- Stop on repeated 429/403 responses and apply cooldown/retry policy.

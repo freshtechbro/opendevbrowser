@@ -1,12 +1,22 @@
 import type { ParsedArgs } from "../args";
 import { startDaemon, readDaemonMetadata } from "../daemon";
+import { loadGlobalConfig } from "../../config";
 import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
+import { parseNumberFlag } from "../utils/parse";
+import { fetchWithTimeout } from "../utils/http";
+import { discoverExtensionId, getNativeStatusSnapshot, installNativeHost } from "./native";
 
 type ServeArgs = {
   port?: number;
   token?: string;
   stop: boolean;
 };
+
+type DaemonHandle = {
+  stop: () => Promise<void>;
+};
+
+let daemonHandle: DaemonHandle | null = null;
 
 function parseServeArgs(rawArgs: string[]): ServeArgs {
   const parsed: ServeArgs = { stop: false };
@@ -21,12 +31,16 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
       if (!value) {
         throw createUsageError("Missing value for --port");
       }
-      parsed.port = Number(value);
+      parsed.port = parseNumberFlag(value, "--port", { min: 1, max: 65535 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--port=")) {
-      parsed.port = Number(arg.split("=", 2)[1]);
+      const value = arg.split("=", 2)[1];
+      if (!value) {
+        throw createUsageError("Missing value for --port");
+      }
+      parsed.port = parseNumberFlag(value, "--port", { min: 1, max: 65535 });
       continue;
     }
     if (arg === "--token") {
@@ -39,7 +53,11 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
       continue;
     }
     if (arg?.startsWith("--token=")) {
-      parsed.token = arg.split("=", 2)[1];
+      const value = arg.split("=", 2)[1];
+      if (!value) {
+        throw createUsageError("Missing value for --token");
+      }
+      parsed.token = value;
       continue;
     }
   }
@@ -52,11 +70,16 @@ export async function runServe(args: ParsedArgs) {
   if (serveArgs.stop) {
     const metadata = readDaemonMetadata();
     if (!metadata) {
+      if (daemonHandle) {
+        await daemonHandle.stop();
+        daemonHandle = null;
+        return { success: true, message: "Daemon stopped." };
+      }
       return { success: false, message: "Daemon not running.", exitCode: EXIT_DISCONNECTED };
     }
 
     try {
-      const response = await fetch(`http://127.0.0.1:${metadata.port}/stop`, {
+      const response = await fetchWithTimeout(`http://127.0.0.1:${metadata.port}/stop`, {
         method: "POST",
         headers: { Authorization: `Bearer ${metadata.token}` }
       });
@@ -70,15 +93,42 @@ export async function runServe(args: ParsedArgs) {
     }
   }
 
-  const { state } = await startDaemon({
+  const config = loadGlobalConfig();
+  let nativeStatus = getNativeStatusSnapshot();
+  let nativeMessage: string | null = null;
+  if (!nativeStatus.installed) {
+    const discovered = discoverExtensionId();
+    const extensionId = config.nativeExtensionId ?? discovered.extensionId ?? null;
+    const usedDiscovery = !config.nativeExtensionId && Boolean(discovered.extensionId);
+    if (extensionId) {
+      const installResult = installNativeHost(extensionId);
+      if (installResult.success) {
+        const suffix = usedDiscovery && discovered.matchedBy ? ` (auto-detected by ${discovered.matchedBy})` : "";
+        nativeMessage = `${installResult.message ?? "Native host installed."}${suffix}`;
+        nativeStatus = getNativeStatusSnapshot();
+      } else {
+        nativeMessage = `Native host install skipped: ${installResult.message ?? "unknown error"}`;
+      }
+    } else {
+      nativeMessage = "Native host not installed. Set nativeExtensionId in opendevbrowser.jsonc to auto-install.";
+    }
+  }
+
+  const handle = await startDaemon({
     port: serveArgs.port,
-    token: serveArgs.token
+    token: serveArgs.token,
+    config
   });
+  daemonHandle = handle;
+  const { state } = handle;
+
+  const baseMessage = `Daemon running on 127.0.0.1:${state.port} (relay ${state.relayPort})`;
+  const message = nativeMessage ? `${baseMessage}\n${nativeMessage}` : baseMessage;
 
   return {
     success: true,
-    message: `Daemon running on 127.0.0.1:${state.port}`,
-    data: { port: state.port, pid: state.pid, relayPort: state.relayPort },
+    message,
+    data: { port: state.port, pid: state.pid, relayPort: state.relayPort, native: nativeStatus },
     exitCode: null
   };
 }

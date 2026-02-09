@@ -23,6 +23,7 @@ export type RouterCommandContext = {
   emitTargetCreated: (targetInfo: TargetInfo) => void;
   emitRootAttached: (targetInfo: TargetInfo) => void;
   emitRootDetached: () => void;
+  resetRootAttached: () => void;
   updatePrimaryTab: (tabId: number | null) => void;
   detachTabState: (tabId: number) => void;
   safeDetach: (debuggee: chrome.debugger.Debuggee) => Promise<void>;
@@ -31,7 +32,6 @@ export type RouterCommandContext = {
   applyAutoAttach: (debuggee: chrome.debugger.Debuggee) => Promise<void>;
   sendCommand: (debuggee: DebuggerSession, method: string, params: object) => Promise<unknown>;
   getPrimaryDebuggee: () => DebuggerSession | null;
-  getBrowserContextId: (tabId: number) => string;
 };
 
 export async function handleSetDiscoverTargets(
@@ -69,6 +69,9 @@ export async function handleSetAutoAttach(
   const autoAttach = params.autoAttach === true;
   const waitForDebuggerOnStart = params.waitForDebuggerOnStart === true;
   ctx.setAutoAttachOptions({ autoAttach, waitForDebuggerOnStart, flatten: true, filter: params.filter });
+  if (autoAttach && !sessionId) {
+    ctx.resetRootAttached();
+  }
 
   try {
     for (const debuggee of ctx.debuggees.values()) {
@@ -97,13 +100,18 @@ export async function handleCreateTarget(
 ): Promise<void> {
   const url = typeof params.url === "string" ? params.url : undefined;
   const background = params.background === true;
+  let createdTabId: number | null = null;
 
   try {
     const tab = await ctx.tabManager.createTab(url, !background);
     if (typeof tab.id !== "number") {
       throw new Error("Target.createTarget did not yield a tab id");
     }
+    createdTabId = tab.id;
+    await ctx.tabManager.waitForTabComplete(tab.id);
     await ctx.attach(tab.id);
+    await ctx.sessions.waitForRootSession(tab.id);
+    await ctx.sendCommand({ tabId: tab.id }, "Target.getTargets", {});
 
     const targetInfo = await ctx.registerRootTab(tab.id);
     if (ctx.discoverTargets) {
@@ -118,6 +126,18 @@ export async function handleCreateTarget(
 
     ctx.respond(commandId, { targetId: targetInfo.targetId });
   } catch (error) {
+    if (createdTabId !== null) {
+      const debuggee = ctx.debuggees.get(createdTabId) ?? null;
+      ctx.detachTabState(createdTabId);
+      if (debuggee) {
+        await ctx.safeDetach(debuggee);
+      }
+      try {
+        await ctx.tabManager.closeTab(createdTabId);
+      } catch {
+        // Best-effort cleanup for partially created targets.
+      }
+    }
     ctx.respondError(commandId, getErrorMessage(error));
   }
 }
@@ -138,13 +158,17 @@ export async function handleCloseTarget(
     return;
   }
 
-  const debuggee = ctx.debuggees.get(session.tabId) ?? null;
-  ctx.detachTabState(session.tabId);
-  if (debuggee) {
-    await ctx.safeDetach(debuggee);
+  try {
+    const debuggee = ctx.debuggees.get(session.tabId) ?? null;
+    ctx.detachTabState(session.tabId);
+    if (debuggee) {
+      await ctx.safeDetach(debuggee);
+    }
+    await ctx.tabManager.closeTab(session.tabId);
+    ctx.respond(commandId, { success: true });
+  } catch (error) {
+    ctx.respondError(commandId, getErrorMessage(error));
   }
-  await ctx.tabManager.closeTab(session.tabId);
-  ctx.respond(commandId, { success: true });
 }
 
 export async function handleActivateTarget(
@@ -163,9 +187,13 @@ export async function handleActivateTarget(
     return;
   }
 
-  await ctx.tabManager.activateTab(session.tabId);
-  ctx.updatePrimaryTab(session.tabId);
-  ctx.respond(commandId, {});
+  try {
+    await ctx.tabManager.activateTab(session.tabId);
+    ctx.updatePrimaryTab(session.tabId);
+    ctx.respond(commandId, {});
+  } catch (error) {
+    ctx.respondError(commandId, getErrorMessage(error));
+  }
 }
 
 export async function handleAttachToTarget(
@@ -181,6 +209,12 @@ export async function handleAttachToTarget(
   }
   if (params.flatten === false) {
     ctx.respondError(commandId, ctx.flatSessionError, sessionId);
+    return;
+  }
+
+  const targetSession = ctx.sessions.getByTargetId(targetId);
+  if (targetSession && targetSession.kind === "root") {
+    ctx.respond(commandId, { sessionId: targetSession.sessionId }, sessionId);
     return;
   }
 
@@ -204,7 +238,7 @@ export async function handleAttachToTarget(
       const targetInfo: TargetInfo = {
         targetId,
         type: "page",
-        browserContextId: ctx.getBrowserContextId(debuggee.tabId as number)
+        browserContextId: "default"
       };
       ctx.sessions.registerChildSession(debuggee.tabId as number, targetInfo, childSessionId);
     }

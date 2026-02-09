@@ -2,7 +2,7 @@
 
 **OpenDevBrowser Chrome Extension**
 
-Last updated: December 28, 2025
+Last updated: February 8, 2026
 
 ## Overview
 
@@ -45,7 +45,13 @@ All communication occurs locally on your machine. No data is sent to external se
 |------------|---------|
 | `debugger` | Required for CDP access to automate browser tabs |
 | `tabs` | Required to list and manage tabs during automation |
+| `activeTab` | Required for user-initiated active-tab actions |
 | `storage` | Required to persist relay configuration locally |
+| `scripting` | Required to inject annotation/runtime scripts into pages during automation |
+| `alarms` | Required for background reconnect and retry scheduling |
+| `nativeMessaging` | Required for optional local native-host fallback |
+| `http://127.0.0.1/*`, `http://localhost/*` | Required to reach the local relay/discovery endpoints on your machine |
+| `<all_urls>` | Required to run automation/annotation flows across user-opened sites during local sessions |
 
 ## Third-Party Services
 

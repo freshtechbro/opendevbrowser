@@ -16,15 +16,59 @@ export class TabManager {
     });
   }
 
+  async waitForTabComplete(tabId: number, timeoutMs = 10000): Promise<void> {
+    const existing = await this.getTab(tabId);
+    if (existing?.status === "complete") {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        reject(new Error("Tab load timeout"));
+      }, timeoutMs);
+
+      const listener = (updatedId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+        if (updatedId !== tabId) {
+          return;
+        }
+        if (changeInfo.status === "complete") {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+
+      chrome.tabs.onUpdated.addListener(listener);
+    });
+  }
+
   async closeTab(tabId: number): Promise<void> {
-    await new Promise<void>((resolve) => {
-      chrome.tabs.remove(tabId, () => resolve());
+    await new Promise<void>((resolve, reject) => {
+      chrome.tabs.remove(tabId, () => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
+        }
+        resolve();
+      });
     });
   }
 
   async activateTab(tabId: number): Promise<chrome.tabs.Tab | null> {
-    return await new Promise((resolve) => {
+    return await new Promise((resolve, reject) => {
       chrome.tabs.update(tabId, { active: true }, (tab) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
+        }
         resolve(tab ?? null);
       });
     });
@@ -46,5 +90,15 @@ export class TabManager {
   async getActiveTabId(): Promise<number | null> {
     const tab = await this.getActiveTab();
     return tab?.id ?? null;
+  }
+
+  async getFirstHttpTabId(): Promise<number | null> {
+    const tabs = await chrome.tabs.query({});
+    const match = tabs.find((tab) => {
+      if (typeof tab.id !== "number") return false;
+      if (!tab.url) return false;
+      return tab.url.startsWith("http://") || tab.url.startsWith("https://");
+    });
+    return match?.id ?? null;
   }
 }

@@ -8,6 +8,16 @@ import { DaemonClient } from "./daemon-client";
 
 type CallResult<K extends keyof BrowserManagerLike> = Awaited<ReturnType<BrowserManagerLike[K]>>;
 
+function isLegacyRelayEndpoint(wsEndpoint: string): boolean {
+  try {
+    const url = new URL(wsEndpoint);
+    const path = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
+    return path === "/cdp";
+  } catch {
+    return false;
+  }
+}
+
 export class RemoteManager implements BrowserManagerLike {
   private client: DaemonClient;
 
@@ -24,7 +34,10 @@ export class RemoteManager implements BrowserManagerLike {
   }
 
   connectRelay(wsEndpoint: string): ReturnType<BrowserManagerLike["connectRelay"]> {
-    return this.client.call<CallResult<"connectRelay">>("session.connect", { wsEndpoint });
+    return this.client.call<CallResult<"connectRelay">>(
+      "session.connect",
+      isLegacyRelayEndpoint(wsEndpoint) ? { wsEndpoint, extensionLegacy: true } : { wsEndpoint }
+    );
   }
 
   disconnect(sessionId: string, closeBrowser = false): ReturnType<BrowserManagerLike["disconnect"]> {
@@ -69,6 +82,22 @@ export class RemoteManager implements BrowserManagerLike {
     return this.client.call<CallResult<"click">>("interact.click", { sessionId, ref });
   }
 
+  hover(sessionId: string, ref: string): ReturnType<BrowserManagerLike["hover"]> {
+    return this.client.call<CallResult<"hover">>("interact.hover", { sessionId, ref });
+  }
+
+  press(sessionId: string, key: string, ref?: string): ReturnType<BrowserManagerLike["press"]> {
+    return this.client.call<CallResult<"press">>("interact.press", { sessionId, key, ref });
+  }
+
+  check(sessionId: string, ref: string): ReturnType<BrowserManagerLike["check"]> {
+    return this.client.call<CallResult<"check">>("interact.check", { sessionId, ref });
+  }
+
+  uncheck(sessionId: string, ref: string): ReturnType<BrowserManagerLike["uncheck"]> {
+    return this.client.call<CallResult<"uncheck">>("interact.uncheck", { sessionId, ref });
+  }
+
   type(sessionId: string, ref: string, text: string, clear = false, submit = false): ReturnType<BrowserManagerLike["type"]> {
     return this.client.call<CallResult<"type">>("interact.type", { sessionId, ref, text, clear, submit });
   }
@@ -81,12 +110,36 @@ export class RemoteManager implements BrowserManagerLike {
     return this.client.call<CallResult<"scroll">>("interact.scroll", { sessionId, dy, ref });
   }
 
+  scrollIntoView(sessionId: string, ref: string): ReturnType<BrowserManagerLike["scrollIntoView"]> {
+    return this.client.call<CallResult<"scrollIntoView">>("interact.scrollIntoView", { sessionId, ref });
+  }
+
   domGetHtml(sessionId: string, ref: string, maxChars = 8000): ReturnType<BrowserManagerLike["domGetHtml"]> {
     return this.client.call<CallResult<"domGetHtml">>("dom.getHtml", { sessionId, ref, maxChars });
   }
 
   domGetText(sessionId: string, ref: string, maxChars = 8000): ReturnType<BrowserManagerLike["domGetText"]> {
     return this.client.call<CallResult<"domGetText">>("dom.getText", { sessionId, ref, maxChars });
+  }
+
+  domGetAttr(sessionId: string, ref: string, name: string): ReturnType<BrowserManagerLike["domGetAttr"]> {
+    return this.client.call<CallResult<"domGetAttr">>("dom.getAttr", { sessionId, ref, name });
+  }
+
+  domGetValue(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domGetValue"]> {
+    return this.client.call<CallResult<"domGetValue">>("dom.getValue", { sessionId, ref });
+  }
+
+  domIsVisible(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domIsVisible"]> {
+    return this.client.call<CallResult<"domIsVisible">>("dom.isVisible", { sessionId, ref });
+  }
+
+  domIsEnabled(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domIsEnabled"]> {
+    return this.client.call<CallResult<"domIsEnabled">>("dom.isEnabled", { sessionId, ref });
+  }
+
+  domIsChecked(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domIsChecked"]> {
+    return this.client.call<CallResult<"domIsChecked">>("dom.isChecked", { sessionId, ref });
   }
 
   clonePage(sessionId: string): Promise<ReactExport> {
@@ -159,5 +212,9 @@ export class RemoteManager implements BrowserManagerLike {
 
   closePage(sessionId: string, name: string): Promise<void> {
     return this.client.call("page.close", { sessionId, name }) as Promise<void>;
+  }
+
+  async withPage<T>(_sessionId: string, _targetId: string | null, _fn: (page: never) => Promise<T>): Promise<T> {
+    throw new Error("Direct annotate is unavailable via daemon-managed sessions.");
   }
 }

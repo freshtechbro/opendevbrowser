@@ -1,7 +1,8 @@
 # OpenDevBrowser CLI
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
-OpenDevBrowser exposes 30 `opendevbrowser_*` tools; see `README.md` for the full list.
+OpenDevBrowser exposes 41 `opendevbrowser_*` tools; see `README.md` for the full list.
+Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 
 ## Installation
 
@@ -47,11 +48,22 @@ Use `--quiet` to suppress output. Use `--no-interactive` (alias of `--no-prompt`
 - `2`: execution error (runtime/daemon failures)
 - `10`: disconnected (daemon not running or unreachable)
 
-Errors are emitted even when `--quiet` is set. For JSON output, errors are emitted as:
+Fatal errors are emitted even when `--quiet` is set. For JSON output, fatal errors are emitted as:
 
 ```json
 { "success": false, "error": "message", "exitCode": 2 }
 ```
+
+---
+
+## Argument validation
+
+The CLI validates common flags early and returns a usage error (`exitCode: 1`) when inputs are invalid.
+
+- Conflicting flags are rejected (examples: `--global` + `--local`, `--skills-global` + `--skills-local`).
+- Numeric flags must be positive integers:
+  - `--port`, `--cdp-port`
+  - `--wait-timeout-ms`, `--timeout-ms`
 
 ---
 
@@ -90,6 +102,9 @@ npx opendevbrowser --skills-local
 # Skip installing skills
 npx opendevbrowser --no-skills
 ```
+
+On first successful install, the CLI attempts to install daemon auto-start on supported platforms (macOS/Windows) so the relay is
+available on login. You can remove it later with `npx opendevbrowser daemon uninstall`.
 
 ### Update
 
@@ -143,8 +158,85 @@ npx opendevbrowser serve --port 8788 --token my-token
 npx opendevbrowser serve --stop
 ```
 
-The daemon listens on `127.0.0.1` and requires a token. Metadata lives in `~/.cache/opendevbrowser/daemon.json` (cache only);
+The daemon listens on `127.0.0.1` and starts the relay the extension connects to. Metadata lives in
+`~/.cache/opendevbrowser/daemon.json` (cache only);
 `/status` is the source of truth. The daemon port/token are persisted in `opendevbrowser.jsonc` as `daemonPort`/`daemonToken`.
+
+If `nativeExtensionId` is set in `opendevbrowser.jsonc`, `serve` will auto-install the native messaging host when it is missing.
+If it is not set, `serve` attempts to auto-detect the extension ID from Chrome, Brave, or Chromium profiles; if detection fails it continues startup.
+
+Relay HTTP endpoints (`/config`, `/status`, `/pair`) accept extension origins and loopback requests with no `Origin` (including
+`Origin: null`) to support MV3 + PNA. Non-extension origins are rejected; preflights include
+`Access-Control-Allow-Private-Network: true` when requested.
+
+#### Manual recovery (if the daemon is down or stuck)
+
+```bash
+# Start the daemon manually
+npx opendevbrowser serve
+
+# Stop/kill an existing daemon before restarting
+npx opendevbrowser serve --stop
+```
+
+### Daemon auto-start
+
+Install or remove OS-level auto-start for the daemon. This uses a stable, absolute CLI entrypoint (no PATH reliance), and returns
+machine-readable output with `--output-format json`.
+
+```bash
+npx opendevbrowser daemon install
+npx opendevbrowser daemon uninstall
+npx opendevbrowser daemon status
+```
+
+Behavior:
+- macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute CLI entrypoint.
+- Windows: per-user Task Scheduler logon task targeting an absolute CLI entrypoint.
+- `daemon status` reports `{ installed, running, status? }` and does not throw a usage error when missing.
+
+Exit codes align with the CLI:
+- `0`: success
+- `1`: usage error
+- `2`: execution error (permissions, missing binary, OS service failure)
+- `10`: disconnected/not running (status only)
+
+#### Auto-start install + manual fallback
+
+```bash
+# Install auto-start (recommended)
+npx opendevbrowser daemon install
+
+# If auto-start fails, start manually
+npx opendevbrowser serve
+
+# Stop/kill before restarting
+npx opendevbrowser serve --stop
+```
+
+### Native messaging host (Phase 2)
+
+Install the native messaging host for the extension to use as a fallback transport when the relay WebSocket is unavailable.
+
+```bash
+# Install native host (requires extension ID)
+npx opendevbrowser native install <extension-id>
+
+# Check native host status
+npx opendevbrowser native status
+
+# Remove native host
+npx opendevbrowser native uninstall
+```
+
+Notes:
+- Supported on macOS, Linux, and Windows.
+- Windows install writes a registry entry under `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.opendevbrowser.native`.
+- `native install` requires the extension ID (chrome://extensions → copy ID).
+- Set `nativeExtensionId` in `opendevbrowser.jsonc` to allow `serve` to auto-install the native host when missing (preferred).
+- `serve` also attempts auto-detection from Chrome, Brave, or Chromium profiles, but explicit config is more reliable.
+- `native status` reports installed state + extension ID from the manifest.
+- Use `--transport native` with `status` to check native host status without requiring the daemon.
 
 ### Run (single-shot script)
 
@@ -155,7 +247,19 @@ npx opendevbrowser run --script ./script.json --output-format json
 
 # Or pipe JSON
 cat ./script.json | npx opendevbrowser run --output-format stream-json
+
+# Optional launch flags for run
+npx opendevbrowser run --script ./script.json --headless --profile default --start-url https://example.com
+npx opendevbrowser run --script ./script.json --chrome-path "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --flag "--disable-gpu"
 ```
+
+Supported `run` launch flags:
+- `--headless`
+- `--profile`
+- `--persist-profile`
+- `--chrome-path`
+- `--start-url`
+- `--flag` (repeatable)
 
 Script format:
 
@@ -179,6 +283,7 @@ npx opendevbrowser launch --profile default --start-url https://example.com
 # Extension relay controls
 npx opendevbrowser launch --extension-only
 npx opendevbrowser launch --no-extension
+npx opendevbrowser launch --extension-legacy
 npx opendevbrowser launch --wait-for-extension --wait-timeout-ms 30000
 ```
 
@@ -191,11 +296,12 @@ Flags:
 - `--flag` (repeatable)
 - `--no-extension`
 - `--extension-only`
+- `--extension-legacy`
 - `--wait-for-extension`
 - `--wait-timeout-ms`
 
 Default behavior:
-- Extension relay (`extension` mode) is the default when available.
+- Extension relay (`extension` mode) is the default when available, using the `/ops` WebSocket.
 - If the extension is not connected, launch fails with guidance and exact commands for the explicit alternatives.
 - Headless is never the default; it is only used when explicitly requested.
 - When hub mode is enabled, there is no local relay fallback. If the hub is unavailable, commands fail with guidance.
@@ -205,6 +311,21 @@ Interactive vs non-interactive:
 - Interactive CLI (TTY): you will be prompted to connect the extension, then explicitly choose Managed or CDPConnect if you want to proceed.
 - Non-interactive (agents/CI): the command fails fast and prints the exact commands to run for Managed or CDPConnect.
 
+### Connection flags & status semantics
+
+| Flag / Status | Meaning | Notes |
+|---|---|---|
+| `--no-extension` | Force managed mode | Bypasses relay and extension entirely. |
+| `--extension-only` | Require extension mode | Fails if extension is not connected/handshaken. |
+| `--extension-legacy` | Use legacy extension relay | Routes through relay `/cdp` instead of `/ops`. |
+| `--wait-for-extension` | Wait for extension handshake | Only applies to extension mode; waits up to `--wait-timeout-ms`. |
+| `--wait-timeout-ms` | Max wait for extension | Defaults to 30s. |
+| `extensionConnected` | Extension websocket connected | `false` means popup isn’t connected to relay. |
+| `extensionHandshakeComplete` | Extension handshake done | `false` means reconnect/repair from popup. |
+| `opsConnected` | Active `/ops` client attached | `false` means no ops client is connected. |
+| `cdpConnected` | Active `/cdp` client attached | Expected `false` until a legacy `/cdp` session connects. |
+| `pairingRequired` | Relay token required | When `true`, both `/ops` and `/cdp` require a token (auto-fetched). |
+
 ### Connect
 
 ```bash
@@ -213,20 +334,24 @@ npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222
 ```
 
 This command starts a `cdpConnect` session (attach to an existing Chrome with remote debugging enabled).
-If the `--ws-endpoint` points at the local relay (for example `ws://127.0.0.1:8787` or `ws://127.0.0.1:8787/cdp`),
-the CLI will normalize to `/cdp` and route through the extension relay (`extension` mode).
+If the `--ws-endpoint` points at the local relay (for example `ws://127.0.0.1:8787` or `ws://127.0.0.1:8787/ops`),
+the CLI will normalize to `/ops` and route through the extension relay (`extension` mode).
+Use `--extension-legacy` if you need the legacy `/cdp` relay path.
 When routing through the relay, the CLI automatically fetches relay config and the pairing token (if required) and authenticates
-the `/cdp` connection. Direct `/cdp` connections without a token are rejected when pairing is enabled.
+the `/ops` or `/cdp` connection. Direct relay websocket connections without a token are rejected when pairing is enabled.
 
 ### Relay binding queue
 
-Only one client can hold the hub relay binding at a time. Additional clients are queued FIFO and wait up to 30s by default.
-If you see `RELAY_WAIT_TIMEOUT`, retry after the current binding expires or stop the other client.
+Hub binding is exclusive only for binding/legacy paths (for example `/cdp` and commands that require a binding). Additional clients are queued FIFO and wait up to 30s by default.
+If you see `RELAY_WAIT_TIMEOUT`, retry after the current binding expires or stop the other bound client.
+
+Relay behavior note: extension uses a single extension websocket, while the relay can serve multiple `/ops` clients. Disconnecting the extension or restarting the relay drops active sessions, including annotation flows. Reconnect via the popup (or restart the daemon) before retrying.
 
 ### Disconnect
 
 ```bash
 npx opendevbrowser disconnect --session-id <session-id>
+npx opendevbrowser disconnect --session-id <session-id> --close-browser
 ```
 
 ### Status
@@ -272,6 +397,26 @@ npx opendevbrowser snapshot --session-id <session-id> --max-chars 16000 --cursor
 npx opendevbrowser click --session-id <session-id> --ref r12
 ```
 
+### Hover
+
+```bash
+npx opendevbrowser hover --session-id <session-id> --ref r12
+```
+
+### Press
+
+```bash
+npx opendevbrowser press --session-id <session-id> --key Enter
+npx opendevbrowser press --session-id <session-id> --key Enter --ref r12
+```
+
+### Check / Uncheck
+
+```bash
+npx opendevbrowser check --session-id <session-id> --ref r12
+npx opendevbrowser uncheck --session-id <session-id> --ref r12
+```
+
 ### Type
 
 ```bash
@@ -292,6 +437,33 @@ npx opendevbrowser scroll --session-id <session-id> --dy 500
 npx opendevbrowser scroll --session-id <session-id> --ref r12 --dy 300
 ```
 
+### Scroll into view
+
+```bash
+npx opendevbrowser scroll-into-view --session-id <session-id> --ref r12
+```
+
+---
+
+## Annotation (direct + relay)
+
+Annotations are available through both the CLI command and the `opendevbrowser_annotate` tool. The default transport (`auto`)
+uses direct CDP when possible and falls back to relay in extension sessions. See `docs/ANNOTATE.md` for setup and details.
+
+```bash
+npx opendevbrowser annotate --session-id <session-id>
+
+# Force direct annotate on a target
+npx opendevbrowser annotate --session-id <session-id> --transport direct --target-id <target-id>
+
+# Force relay annotate on a specific tab
+npx opendevbrowser annotate --session-id <session-id> --transport relay --tab-id 123
+
+# With URL + context + debug metadata
+npx opendevbrowser annotate --session-id <session-id> --url https://example.com \
+  --screenshot-mode visible --context "Review the hero layout" --timeout-ms 90000 --debug
+```
+
 ---
 
 ## Target commands (daemon required)
@@ -300,6 +472,7 @@ npx opendevbrowser scroll --session-id <session-id> --ref r12 --dy 300
 
 ```bash
 npx opendevbrowser targets-list --session-id <session-id>
+npx opendevbrowser targets-list --session-id <session-id> --include-urls
 ```
 
 ### Target use
@@ -357,6 +530,26 @@ npx opendevbrowser dom-html --session-id <session-id> --ref r12 --max-chars 8000
 
 ```bash
 npx opendevbrowser dom-text --session-id <session-id> --ref r12 --max-chars 8000
+```
+
+### DOM Attribute
+
+```bash
+npx opendevbrowser dom-attr --session-id <session-id> --ref r12 --attr aria-label
+```
+
+### DOM Value
+
+```bash
+npx opendevbrowser dom-value --session-id <session-id> --ref r12
+```
+
+### DOM State Checks
+
+```bash
+npx opendevbrowser dom-visible --session-id <session-id> --ref r12
+npx opendevbrowser dom-enabled --session-id <session-id> --ref r12
+npx opendevbrowser dom-checked --session-id <session-id> --ref r12
 ```
 
 ---
@@ -436,7 +629,131 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 | `--token` | Override daemon token |
 | `--stop` | Stop the daemon |
 
+### Command-specific flags
+
+**Session + connection**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--session-id` | most daemon commands | Active session id from `launch`/`connect` |
+| `--close-browser` | `disconnect` | Close managed browser on disconnect |
+| `--ws-endpoint` | `connect` | Remote debugging websocket URL |
+| `--host` | `connect` | Host for CDP connection (`--cdp-port` required) |
+| `--cdp-port` | `connect` | CDP port for host-based connect |
+| `--no-extension` | `launch` | Force managed mode (ignore extension) |
+| `--extension-only` | `launch` | Fail if extension not connected |
+| `--extension-legacy` | `launch`, `connect` | Use legacy extension relay (`/cdp`) |
+| `--wait-for-extension` | `launch` | Wait for extension handshake |
+| `--wait-timeout-ms` | `launch` | Max wait for extension handshake |
+
+**Browser launch (launch/run)**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--headless` | `launch`, `run` | Run managed Chrome headless |
+| `--profile` | `launch`, `run` | Profile directory name |
+| `--persist-profile` | `launch`, `run` | Keep profile directory after run |
+| `--chrome-path` | `launch`, `run` | Explicit Chrome executable path |
+| `--start-url` | `launch`, `run` | Initial URL for the session |
+| `--flag` | `launch`, `run` | Additional Chrome flag (repeatable) |
+| `--script` | `run` | JSON script path |
+
+**Navigation + waiting**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--url` | `goto`, `page`, `target-new` | URL to navigate/open |
+| `--wait-until` | `goto` | Load state (`load`, `domcontentloaded`, etc.) |
+| `--timeout-ms` | `goto`, `wait` | Timeout in ms |
+| `--ref` | `wait` | Element ref to wait for |
+| `--state` | `wait` | Element state (e.g. `visible`) |
+| `--until` | `wait` | Page load state |
+| `--mode` | `snapshot` | Snapshot mode (`outline` or `actionables`) |
+| `--max-chars` | `snapshot`, `dom-*` | Max characters returned |
+| `--cursor` | `snapshot` | Snapshot pagination cursor |
+
+**Annotation**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--transport` | `annotate` | `auto` (default), `direct`, or `relay` |
+| `--target-id` | `annotate` | Target id for direct annotate |
+| `--tab-id` | `annotate` | Chrome tab id for relay annotate |
+| `--screenshot-mode` | `annotate` | `visible` (default), `full`, or `none` |
+| `--context` | `annotate` | Optional context text pre-filled in the UI |
+| `--debug` | `annotate` | Include debug metadata in the payload |
+| `--timeout-ms` | `annotate` | Annotation timeout in ms |
+
+**Interaction**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--ref` | element commands | Element ref from `snapshot` |
+| `--text` | `type` | Text to type |
+| `--clear` | `type` | Clear input before typing |
+| `--submit` | `type` | Submit after typing |
+| `--values` | `select` | Comma-separated values |
+| `--dy` | `scroll` | Scroll delta on Y axis |
+| `--key` | `press` | Keyboard key name (e.g. `Enter`) |
+
+**Targets + pages**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--target-id` | `target-use`, `target-close` | Target id from `targets-list` |
+| `--include-urls` | `targets-list` | Include URLs in target list output |
+| `--name` | `page`, `page-close` | Named page identifier |
+
+**Devtools**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--attr` | `dom-attr` | Attribute name to read |
+| `--path` | `screenshot` | Output file path |
+| `--since-seq` | `console-poll`, `network-poll` | Start sequence number |
+| `--max` | `console-poll`, `network-poll` | Max events to return |
+
 ---
+
+## CLI smoke test
+
+Run the automated CLI coverage script (managed mode):
+
+```bash
+npm run build
+node scripts/cli-smoke-test.mjs
+```
+
+The script uses temporary config/cache directories and exercises all CLI commands, including the new interaction and DOM state checks.
+Validate extension mode separately with `launch` + `disconnect` while the extension is connected.
+
+### Latest validation (2026-02-08)
+
+- Managed mode: PASS (`node scripts/cli-smoke-test.mjs`)
+- Connection modes: PASS (`node /tmp/connection_modes_real_test.mjs` => `22/22`)
+- Extension-only command matrix: PASS (`node /tmp/odb_ext_test_matrix.mjs` => `cli_common 10/10`, `cli_extension_surface 32/32`, `daemon_extension_lease_aware 31/31`)
+- Extension-only low-churn rerun: PASS (`node /tmp/odb_rerun_low_churn.mjs` => `23/23`)
+- Real tool-surface run: PASS (`bun /tmp/opendevbrowser_tools_real_matrix.mjs` => `59/59`)
+- Real admin/native command run: PASS (`node /tmp/opendevbrowser_admin_commands_real.mjs` => `10/10`)
+
+OpenCode prompt-driven background run note:
+- If `opencode run --command` reports `command3.agent`, use explicit shell command routing (`--command shell "..."`), then re-run JSON probe checks.
+
+---
+
+## Extension-only manual test (no OpenCode plugin)
+
+Use this to validate the Chrome extension + relay without starting OpenCode.
+
+1. Ensure the daemon is running: `npx opendevbrowser serve` (manual). `npx opendevbrowser daemon install` configures auto-start for future logins but does not start it immediately.
+2. Build and load the extension: `npm run extension:build`, then Chrome → `chrome://extensions` → Developer mode → Load unpacked → `extension/`.
+3. Open a normal `http(s)` tab (not `chrome://` or extension pages).
+4. Open the extension popup, confirm Auto-connect + Auto-pair are ON, click Connect.
+5. Verify the popup shows **Connected** and `npx opendevbrowser status --daemon` reports `extensionConnected: true` and `extensionHandshakeComplete: true`.
+6. Optional session check: `npx opendevbrowser launch --extension-only --wait-for-extension`, then `npx opendevbrowser disconnect --session-id <id>`.
+7. Optional annotation check (OpenCode): call `opendevbrowser_annotate` and confirm screenshots are written to a temp folder.
+
+If it fails, run `npx opendevbrowser serve --stop` then `npx opendevbrowser serve`, and confirm site access includes `http://127.0.0.1/*` and `http://localhost/*` in the extension settings.
 
 ## Configuration files
 
@@ -490,7 +807,9 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
     }
   },
   "daemonPort": 8788,
-  "daemonToken": "auto-generated-on-first-run"
+  "daemonToken": "auto-generated-on-first-run",
+  "flags": [],
+  "checkForUpdates": false
 }
 ```
 

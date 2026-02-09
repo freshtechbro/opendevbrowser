@@ -44,6 +44,7 @@ Content organized by topic for filtering.
 - Never include secrets or page data in content
 - Match the snapshot → refs → actions flow in `docs/ARCHITECTURE.md` and tool list in `docs/CLI.md`.
 - Note that extension relay requires Chrome 125+ and uses hub-only relay ownership when enabled.
+- Refer to root `AGENTS.md` for connection flag/status semantics (extensionConnected, handshake, cdpConnected, pairingRequired).
 
 ## Adding Skills
 

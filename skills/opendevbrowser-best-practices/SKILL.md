@@ -1,81 +1,122 @@
 ---
 name: opendevbrowser-best-practices
-description: Use when the user asks to write browser scripts, automate navigation, use snapshot refs, or extract DOM elements. Provides script-first, snapshot/ref guidance.
-version: 0.1.0
+description: This skill should be used when the user asks to "automate a browser flow", "write an OpenDevBrowser script", "use snapshot refs", "extract page content", or "debug browser automation".
+version: 1.1.0
 ---
 
 # OpenDevBrowser Best Practices
 
-Use this guide to generate fast, reliable, script-first workflows without bloating tools or output.
+Use this guide to produce reliable, script-first automation with minimal retries and predictable output.
 
-## Core Workflow (Snapshot -> Refs -> Actions)
+## Core Operating Model
 
-Prefer the snapshot/ref loop as the primary interaction model:
+Follow the loop strictly:
 
-1. Navigate or focus the target page.
-2. Capture a snapshot to obtain stable refs.
-3. Act on refs (click, type, select, scroll).
-4. Re-snapshot after navigation or large DOM changes.
+1. Establish or attach a session.
+2. Capture `opendevbrowser_snapshot`.
+3. Select refs from that snapshot.
+4. Execute one or more actions using refs.
+5. Re-snapshot after navigation or major DOM change.
 
-Use refs instead of raw selectors whenever possible.
+Prefer refs over raw selectors. Refs are more stable across dynamic UI changes.
 
-## Script-First Execution
+## Session Strategy
 
-Batch related actions in a single run to reduce round-trips:
+Choose mode deliberately:
 
-- Use `opendevbrowser_run` for multi-step actions.
-- Keep steps small and deterministic.
-- End each run with a state check (snapshot or targeted extraction).
+- Use managed mode for deterministic, isolated runs.
+- Use extension mode when existing logged-in tabs or profile state are required.
+- Use CDP connect mode only when attaching to a pre-launched browser is required.
 
-Match the arguments used in the single-action tools.
+Example launch patterns:
 
-## Waiting and Stability
+```text
+opendevbrowser_launch noExtension=true
+opendevbrowser_launch waitForExtension=true
+opendevbrowser_connect wsEndpoint="ws://127.0.0.1:9222/devtools/browser/<id>"
+```
 
-Stabilize the page before acting:
+## Snapshot Discipline
 
-- Use `opendevbrowser_wait` after navigation and before interacting with newly rendered UI.
-- Prefer `networkidle` or `load` when the UI is fully dynamic.
-- Wait for a ref state when targeting specific elements.
+Capture snapshots in the format needed by the current task:
 
-## Token-Efficient Extraction
+- Use `format="outline"` for broad page state.
+- Use `format="actionables"` for interaction planning.
+- Use `maxChars` and `cursor` to page large pages instead of requesting oversized snapshots.
 
-Keep outputs small and scoped:
+```text
+opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
+```
 
-- Use `opendevbrowser_dom_get_text` or `opendevbrowser_dom_get_html` only on specific refs.
-- Avoid dumping full page HTML.
-- Use snapshot cursor paging when content is large.
+## Action Sequencing
 
-## Debug Signals (Lightweight)
+Stabilize before interacting:
 
-Use polling tools only when needed:
+- After `goto` or click-driven navigation, run `opendevbrowser_wait`.
+- Wait on `until="networkidle"` for API-heavy pages.
+- Wait on `ref` + `state` for specific element readiness.
 
-- Use `opendevbrowser_console_poll` to check for runtime errors.
-- Use `opendevbrowser_network_poll` to confirm API calls and statuses.
+```text
+opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+opendevbrowser_wait sessionId="<session-id>" ref="<target-ref>" state="visible"
+```
 
-## Example Patterns
+For multi-step interactions, batch deterministic steps with `opendevbrowser_run`.
 
-### Login Flow (Batch)
+```text
+opendevbrowser_run sessionId="<session-id>" steps=[{"action":"goto","args":{"url":"https://example.com"}},{"action":"wait","args":{"until":"networkidle"}},{"action":"snapshot","args":{"format":"actionables"}}]
+```
 
-1. `goto` login URL.
-2. `wait` for page load.
-3. `snapshot` to get refs.
-4. `type` email/password refs.
-5. `click` submit ref.
-6. `wait` for navigation.
-7. `snapshot` to confirm state.
+## Extraction and Output Control
 
-### Targeted Extraction
+Keep output scoped and cheap:
 
-1. `snapshot` to get ref for the desired element.
-2. `dom_get_text` on that ref.
+- Extract only the needed node text with `opendevbrowser_dom_get_text`.
+- Use `opendevbrowser_dom_get_html` only for small targeted fragments.
+- Use `opendevbrowser_get_attr` and `opendevbrowser_get_value` for structured field data.
 
-## Mode Guidance
+```text
+opendevbrowser_dom_get_text sessionId="<session-id>" ref="<content-ref>"
+opendevbrowser_get_attr sessionId="<session-id>" ref="<input-ref>" name="aria-invalid"
+```
 
-- Use Mode A (managed) by default for zero-config operation.
-- Use Mode C (extension) only when existing logged-in tabs are required.
+## Lightweight Diagnostics
 
-## Safe Defaults
+Inspect runtime behavior only when required:
 
-- Keep CDP local-only by default.
-- Redact secrets in snapshot output.
-- Avoid raw CDP unless explicitly enabled.
+- Use `opendevbrowser_console_poll` to detect script/runtime errors.
+- Use `opendevbrowser_network_poll` to verify request outcomes.
+- Use `opendevbrowser_screenshot` for visual debugging artifacts.
+
+```text
+opendevbrowser_console_poll sessionId="<session-id>"
+opendevbrowser_network_poll sessionId="<session-id>" max=50
+```
+
+## Failure Recovery Order
+
+When a step fails, recover in this order:
+
+1. Re-snapshot to refresh refs.
+2. Re-wait for load or element state.
+3. Retry action once with fresh refs.
+4. Change mode (managed vs extension) only if failure is mode-specific.
+
+Avoid blind repeated retries against stale refs.
+
+## Security and Safety Defaults
+
+- Keep CDP and relay endpoints local-only by default.
+- Do not place secrets in scripts, skill files, or logs.
+- Prefer minimal extraction over full-page dumps when handling sensitive pages.
+
+## Ready-to-Use Flow Template
+
+```text
+opendevbrowser_launch noExtension=true
+opendevbrowser_goto sessionId="<session-id>" url="https://example.com"
+opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
+# interact with refs
+opendevbrowser_snapshot sessionId="<session-id>" format="outline"
+```

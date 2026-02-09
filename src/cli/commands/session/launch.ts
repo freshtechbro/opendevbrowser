@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseNumberFlag } from "../../utils/parse";
 
 type LaunchArgs = {
   profile?: string;
@@ -13,6 +14,7 @@ type LaunchArgs = {
   extensionOnly?: boolean;
   waitForExtension?: boolean;
   waitTimeoutMs?: number;
+  extensionLegacy?: boolean;
 };
 
 function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
@@ -68,6 +70,10 @@ function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
       parsed.extensionOnly = true;
       continue;
     }
+    if (arg === "--extension-legacy") {
+      parsed.extensionLegacy = true;
+      continue;
+    }
     if (arg === "--wait-for-extension") {
       parsed.waitForExtension = true;
       continue;
@@ -75,14 +81,14 @@ function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
     if (arg === "--wait-timeout-ms") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --wait-timeout-ms");
-      parsed.waitTimeoutMs = Number(value);
+      parsed.waitTimeoutMs = parseNumberFlag(value, "--wait-timeout-ms", { min: 1 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--wait-timeout-ms=")) {
       const value = arg.split("=", 2)[1];
       if (!value) throw createUsageError("Missing value for --wait-timeout-ms");
-      parsed.waitTimeoutMs = Number(value);
+      parsed.waitTimeoutMs = parseNumberFlag(value, "--wait-timeout-ms", { min: 1 });
       continue;
     }
     if (arg === "--flag") {

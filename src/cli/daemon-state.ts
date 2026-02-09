@@ -14,6 +14,14 @@ export type RelayBindingState = {
   lastRenewedAt: number;
 };
 
+export type SessionLeaseState = {
+  sessionId: string;
+  leaseId: string;
+  clientId: string;
+  createdAt: number;
+  lastUsedAt: number;
+};
+
 export type RelayBindingResponse = {
   bindingId: string;
   expiresAt: string;
@@ -38,6 +46,7 @@ type RelayQueueEntry = {
 
 let binding: RelayBindingState | null = null;
 let queue: RelayQueueEntry[] = [];
+const sessionLeases = new Map<string, SessionLeaseState>();
 
 export const getHubInstanceId = (): string => HUB_INSTANCE_ID;
 
@@ -135,6 +144,74 @@ export const getBindingState = (): RelayBindingState | null => {
 export const clearBinding = (): void => {
   binding = null;
   queue = [];
+};
+
+export const registerSessionLease = (sessionId: string, leaseId: string, clientId: string): SessionLeaseState => {
+  if (!sessionId || !sessionId.trim()) {
+    throw new Error("RELAY_SESSION_REQUIRED: sessionId is required");
+  }
+  if (!leaseId || !leaseId.trim()) {
+    throw new Error("RELAY_LEASE_REQUIRED: leaseId is required");
+  }
+  if (!clientId || !clientId.trim()) {
+    throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
+  }
+  const lease: SessionLeaseState = {
+    sessionId,
+    leaseId,
+    clientId: clientId.trim(),
+    createdAt: nowMs(),
+    lastUsedAt: nowMs()
+  };
+  sessionLeases.set(sessionId, lease);
+  return lease;
+};
+
+export const getSessionLease = (sessionId: string): SessionLeaseState | null => {
+  if (!sessionId || !sessionId.trim()) return null;
+  return sessionLeases.get(sessionId) ?? null;
+};
+
+export const touchSessionLease = (sessionId: string): void => {
+  const lease = sessionLeases.get(sessionId);
+  if (!lease) return;
+  lease.lastUsedAt = nowMs();
+};
+
+export const releaseSessionLease = (sessionId: string): void => {
+  sessionLeases.delete(sessionId);
+};
+
+export const clearSessionLeases = (): void => {
+  sessionLeases.clear();
+};
+
+export const requireSessionLease = (sessionId: string, clientId: string, leaseId: string | undefined): SessionLeaseState => {
+  if (!sessionId || !sessionId.trim()) {
+    throw new Error("RELAY_SESSION_REQUIRED: sessionId is required");
+  }
+  if (!clientId || !clientId.trim()) {
+    throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
+  }
+  const lease = sessionLeases.get(sessionId);
+  if (!lease) {
+    throw new Error("RELAY_LEASE_REQUIRED: No active lease for session.");
+  }
+  const normalizedClientId = clientId.trim();
+  const normalizedLeaseId = leaseId?.trim() ?? "";
+
+  if (!normalizedLeaseId) {
+    if (lease.clientId !== normalizedClientId) {
+      throw new Error("RELAY_LEASE_INVALID: Lease does not match session owner.");
+    }
+    lease.lastUsedAt = nowMs();
+    return lease;
+  }
+  if (lease.leaseId !== normalizedLeaseId || lease.clientId !== normalizedClientId) {
+    throw new Error("RELAY_LEASE_INVALID: Lease does not match session owner.");
+  }
+  lease.lastUsedAt = nowMs();
+  return lease;
 };
 
 export const bindRelay = (clientId: string): RelayBindResult => {

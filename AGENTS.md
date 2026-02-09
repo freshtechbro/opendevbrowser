@@ -1,6 +1,6 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-01-18 | **Commit:** af7d28d | **Branch:** main
+**Generated:** 2026-02-01 | **Commit:** 2869775 | **Branch:** main
 
 ## Overview
 
@@ -23,18 +23,18 @@ OpenCode plugin providing AI agents with browser automation via Chrome DevTools 
 │  bootstrap.ts → wires managers, injects ToolDeps                 │
 └────────┬────────────────────────────────────────────────────────┘
          │
-    ┌────┴────┬─────────────┬──────────────┬──────────────┐
-    ▼         ▼             ▼              ▼              ▼
-┌────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐
-│Browser │ │Script  │ │Snapshot  │ │  Relay     │ │  Skills    │
-│Manager │ │Runner  │ │Pipeline  │ │  Server    │ │  Loader    │
-└───┬────┘ └────────┘ └──────────┘ └─────┬──────┘ └────────────┘
-    │                                    │
-    ▼                                    ▼
-┌────────┐                        ┌────────────┐
-│Target  │                        │ Extension  │
-│Manager │                        │ (WS relay) │
-└────────┘                        └────────────┘
+    ┌────┴────┬─────────────┬──────────────┬──────────────┬──────────────┐
+    ▼         ▼             ▼              ▼              ▼              ▼
+┌────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+│Browser │ │Script  │ │Snapshot  │ │ Annotation │ │  Relay     │ │  Skills    │
+│Manager │ │Runner  │ │Pipeline  │ │  Manager   │ │  Server    │ │  Loader    │
+└───┬────┘ └────────┘ └──────────┘ └────────────┘ └─────┬──────┘ └────────────┘
+    │                                                  │
+    ▼                                                  ▼
+┌────────┐                                        ┌────────────┐
+│Target  │                                        │ Extension  │
+│Manager │                                        │ (WS relay) │
+└────────┘                                        └────────────┘
 ```
 
 ### Data Flow
@@ -47,6 +47,13 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
                             Action (ref → backendNodeId → DOM)
 ```
 
+### System Workflow (Happy Path)
+
+1. `launch` (extension or managed) → sessionId
+2. `snapshot` → refs
+3. Action tools (`click`, `type`, `press`, `hover`, `check`, etc.) → repeat snapshot
+4. `disconnect` on completion
+
 ### Session Modes
 
 | Mode | Entry | Use Case |
@@ -55,7 +62,17 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 | `managed` | `--no-extension` | Fresh Playwright-controlled Chrome |
 | `cdpConnect` | `opendevbrowser_connect` | Attach to existing `--remote-debugging-port` |
 
-Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
+Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. Annotation relay uses a dedicated `/annotation` websocket channel. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
+
+### Connection Flags & Status Semantics
+
+- `--no-extension`: Force managed mode (ignores relay). `--headless` also implies managed mode.
+- `--extension-only`: Fail unless extension is connected/handshaken.
+- `--wait-for-extension`: Polls for extension handshake up to `--wait-timeout-ms` (min 3s).
+- `extensionConnected`: Extension WebSocket is connected to relay.
+- `extensionHandshakeComplete`: Extension handshake finished (preferred readiness signal).
+- `cdpConnected`: At least one active `/cdp` client; false is normal until a tool/CLI connects.
+- `pairingRequired`: Relay requires pairing token; extension auto-pair should handle this.
 
 ## Structure
 
@@ -71,11 +88,12 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 30 opendevbrowser_* tool definitions
+│   ├── tools/        # 41 opendevbrowser_* tool definitions
+│   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── skills/           # Bundled skill packs (5 total)
-├── tests/            # Vitest tests (95% coverage required)
+├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, plans, CLI docs
 ```
 
@@ -102,7 +120,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 npm run build          # tsup → dist/
 npm run dev            # tsup --watch
 npm run lint           # eslint "{src,tests}/**/*.ts"
-npm run test           # vitest run --coverage (95% threshold)
+npm run test           # vitest run --coverage (97% threshold)
 npm run extension:build   # tsc extension
 npm run extension:sync    # Sync version from package.json
 npm run version:check     # Verify version alignment
@@ -152,7 +170,7 @@ npm run version:check     # Verify version alignment
 - Hostname normalization: lowercase before validation
 - Relay auth: timing-safe token comparison
 - Rate limiting: 5 handshakes/min/IP
-- Origin validation: chrome-extension:// only for WebSocket
+- Origin validation: `/extension` requires `chrome-extension://`; `/cdp`, `/ops`, and `/annotation` accept extension origin or loopback requests without `Origin`
 - Export sanitization: strip scripts, handlers, dangerous CSS
 
 ### File Permissions
@@ -180,7 +198,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   return {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 30 tools
+    // ... 41 tools
   };
 }
 ```
@@ -188,24 +206,37 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 ## Testing
 
 - Framework: Vitest
-- Coverage: ≥95% lines/functions/branches/statements
+- Coverage: ≥97% lines/functions/branches/statements
 - Location: `tests/*.test.ts`
 - Mocking: Use existing Chrome/Playwright mocks
 - Never weaken tests; fix root cause
+
+### CLI Smoke Tests
+
+- Managed mode: `node scripts/cli-smoke-test.mjs`
+- Extension/CDP-connect: run `opendevbrowser launch` / `connect` with `--output json`, then `status` + `disconnect`.
 
 ## Documentation
 
 - Source of truth: `docs/`
 - Architecture: `docs/ARCHITECTURE.md`
 - CLI reference: `docs/CLI.md`
-- Refactor plans: `docs/REFACTORING_PLAN.md`
+- Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
 - If tool list or outputs change, update `docs/CLI.md` and this file together.
+
+## AGENTS.md Governance
+
+- Root `AGENTS.md` changes require maintainer approval (MCAF governance).
 
 ## Layered AGENTS.md
 
 Subdirectory guides override this root file:
 - `src/AGENTS.md` — module boundaries, manager patterns
+- `src/browser/AGENTS.md` — browser/session module specifics
+- `src/cli/AGENTS.md` — CLI command and daemon conventions
+- `src/relay/AGENTS.md` — relay protocol and security specifics
+- `src/snapshot/AGENTS.md` — snapshot/ref pipeline specifics
 - `src/tools/AGENTS.md` — tool development patterns
 - `extension/AGENTS.md` — Chrome extension specifics
 - `tests/AGENTS.md` — testing conventions

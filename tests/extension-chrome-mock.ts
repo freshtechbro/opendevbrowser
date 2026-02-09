@@ -4,9 +4,10 @@ type StorageListener = (changes: { [key: string]: chrome.storage.StorageChange }
 type TabRemovedListener = (tabId: number) => void;
 type TabUpdatedListener = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void;
 type DebuggerEventListener = (source: chrome.debugger.Debuggee, method: string, params?: object) => void;
-type DebuggerDetachListener = (source: chrome.debugger.Debuggee) => void;
+type DebuggerDetachListener = (source: chrome.debugger.Debuggee, reason?: string) => void;
 type RuntimeListener = () => void;
 type MessageListener = (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void) => void;
+type AlarmListener = (alarm: chrome.alarms.Alarm) => void;
 
 export type ChromeMockState = {
   chrome: typeof chrome;
@@ -15,10 +16,14 @@ export type ChromeMockState = {
   emitTabRemoved: (tabId: number) => void;
   emitTabUpdated: (tabId: number, tab: chrome.tabs.Tab) => void;
   emitDebuggerEvent: (source: chrome.debugger.Debuggee, method: string, params?: object) => void;
-  emitDebuggerDetach: (source: chrome.debugger.Debuggee) => void;
+  emitDebuggerDetach: (source: chrome.debugger.Debuggee, reason?: string) => void;
   setRuntimeError: (message: string | null) => void;
+  setCaptureVisibleTabResult: (dataUrl: string) => void;
+  setCaptureVisibleTabError: (message: string | null) => void;
+  getLastCaptureArgs: () => { windowId: number | undefined; options?: chrome.tabs.CaptureVisibleTabOptions } | null;
   emitStartup: () => void;
   emitInstalled: () => void;
+  emitAlarm: (name: string) => void;
 };
 
 export const createChromeMock = (initial?: {
@@ -36,7 +41,8 @@ export const createChromeMock = (initial?: {
     id: 1,
     url: "https://example.com",
     title: "Example",
-    groupId: 1
+    groupId: 1,
+    status: "complete"
   };
   const tabsById = new Map<number, chrome.tabs.Tab>();
   if (activeTab && typeof activeTab.id === "number") {
@@ -51,7 +57,9 @@ export const createChromeMock = (initial?: {
     relayEpoch: initial?.relayEpoch ?? null,
     tokenEpoch: initial?.tokenEpoch ?? null,
     autoConnect: initial?.autoConnect ?? null,
-    autoPair: initial?.autoPair ?? null
+    autoPair: initial?.autoPair ?? null,
+    annotationLastMeta: null,
+    annotationLastPayloadSansScreenshots: null
   };
 
   const storageListeners = new Set<StorageListener>();
@@ -62,7 +70,12 @@ export const createChromeMock = (initial?: {
   const startupListeners = new Set<RuntimeListener>();
   const installedListeners = new Set<RuntimeListener>();
   const messageListeners = new Set<MessageListener>();
+  const alarmListeners = new Set<AlarmListener>();
+  const scheduledAlarms = new Map<string, chrome.alarms.Alarm>();
   let sessionCounter = 1;
+  let captureVisibleTabResult = "data:image/png;base64,AAAA";
+  let captureVisibleTabError: string | null = null;
+  let lastCaptureArgs: { windowId: number | undefined; options?: chrome.tabs.CaptureVisibleTabOptions } | null = null;
 
   const chromeMock = {
     runtime: {
@@ -84,7 +97,8 @@ export const createChromeMock = (initial?: {
       },
       sendMessage: vi.fn((message: unknown, callback?: (response: unknown) => void) => {
         for (const listener of messageListeners) {
-          listener(message, {} as chrome.runtime.MessageSender, (response) => {
+          const sender: chrome.runtime.MessageSender = activeTab ? { tab: activeTab } : {};
+          listener(message, sender, (response) => {
             callback?.(response);
           });
         }
@@ -93,6 +107,27 @@ export const createChromeMock = (initial?: {
     action: {
       setBadgeText: vi.fn(),
       setBadgeBackgroundColor: vi.fn()
+    },
+    alarms: {
+      create: vi.fn((name: string, alarmInfo: chrome.alarms.AlarmCreateInfo) => {
+        const scheduled: chrome.alarms.Alarm = {
+          name,
+          scheduledTime: alarmInfo.when ?? Date.now()
+        };
+        scheduledAlarms.set(name, scheduled);
+      }),
+      clear: vi.fn((name: string, callback?: (wasCleared: boolean) => void) => {
+        const removed = scheduledAlarms.delete(name);
+        callback?.(removed);
+      }),
+      get: vi.fn((name: string, callback: (alarm?: chrome.alarms.Alarm) => void) => {
+        callback(scheduledAlarms.get(name));
+      }),
+      onAlarm: {
+        addListener: (listener: AlarmListener) => {
+          alarmListeners.add(listener);
+        }
+      }
     },
     storage: {
       local: {
@@ -116,12 +151,27 @@ export const createChromeMock = (initial?: {
       get: vi.fn(async (tabId: number) => {
         return tabsById.get(tabId) ?? null;
       }),
+      sendMessage: vi.fn((tabId: number, _message: unknown, callback?: (response: unknown) => void) => {
+        void tabId;
+        callback?.({ ok: true });
+      }),
+      captureVisibleTab: vi.fn((windowId: number | undefined, options: chrome.tabs.CaptureVisibleTabOptions, callback: (dataUrl?: string) => void) => {
+        lastCaptureArgs = { windowId, options };
+        if (captureVisibleTabError) {
+          chromeMock.runtime.lastError = { message: captureVisibleTabError };
+          callback(undefined);
+          chromeMock.runtime.lastError = null;
+          return;
+        }
+        callback(captureVisibleTabResult);
+      }),
       create: vi.fn((createProperties: chrome.tabs.CreateProperties, callback?: (tab: chrome.tabs.Tab) => void) => {
         const tabId = nextTabId++;
         const tab: chrome.tabs.Tab = {
           id: tabId,
           url: createProperties.url ?? "about:blank",
-          title: createProperties.url ?? "New Tab"
+          title: createProperties.url ?? "New Tab",
+          status: "complete"
         };
         tabsById.set(tabId, tab);
         if (createProperties.active ?? true) {
@@ -139,7 +189,8 @@ export const createChromeMock = (initial?: {
         const updated: chrome.tabs.Tab = {
           ...existing,
           url: updateProperties.url ?? existing.url,
-          title: updateProperties.url ? updateProperties.url : existing.title
+          title: updateProperties.url ? updateProperties.url : existing.title,
+          status: "complete"
         };
         tabsById.set(tabId, updated);
         if (updateProperties.active) {
@@ -172,6 +223,14 @@ export const createChromeMock = (initial?: {
           tabUpdatedListeners.add(listener);
         }
       }
+    },
+    scripting: {
+      insertCSS: vi.fn((_inject: chrome.scripting.CSSInjection, callback?: () => void) => {
+        callback?.();
+      }),
+      executeScript: vi.fn((_inject: chrome.scripting.ScriptInjection, callback?: () => void) => {
+        callback?.();
+      })
     },
     debugger: {
       attach: vi.fn((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
@@ -249,14 +308,21 @@ export const createChromeMock = (initial?: {
         listener(source, method, params);
       }
     },
-    emitDebuggerDetach: (source) => {
+    emitDebuggerDetach: (source, reason) => {
       for (const listener of debuggerDetachListeners) {
-        listener(source);
+        listener(source, reason);
       }
     },
     setRuntimeError: (message) => {
       chromeMock.runtime.lastError = message ? { message } : null;
     },
+    setCaptureVisibleTabResult: (dataUrl: string) => {
+      captureVisibleTabResult = dataUrl;
+    },
+    setCaptureVisibleTabError: (message: string | null) => {
+      captureVisibleTabError = message;
+    },
+    getLastCaptureArgs: () => lastCaptureArgs,
     emitStartup: () => {
       for (const listener of startupListeners) {
         listener();
@@ -265,6 +331,12 @@ export const createChromeMock = (initial?: {
     emitInstalled: () => {
       for (const listener of installedListeners) {
         listener();
+      }
+    },
+    emitAlarm: (name: string) => {
+      const alarm = scheduledAlarms.get(name) ?? { name, scheduledTime: Date.now() };
+      for (const listener of alarmListeners) {
+        listener(alarm);
       }
     }
   };

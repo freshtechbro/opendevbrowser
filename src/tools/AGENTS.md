@@ -4,7 +4,7 @@ Tool development patterns. Extends `src/AGENTS.md`.
 
 ## Overview
 
-30 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
+41 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
 Hub mode is enforced via `ensureHub` in `src/tools/index.ts` to rebind remote managers and avoid local relay fallback.
 
 ## Tool Structure
@@ -15,11 +15,11 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
   return {
     name: 'opendevbrowser_foo',
     description: 'One-line description',
-    parameters: z.object({ ... }),  // Zod schema
-    handler: async (params, context) => {
+    args: { ... },  // Zod schema fields
+    execute: async (params, context) => {
       // 1. Validate (already done by Zod)
       // 2. Delegate to manager
-      const result = await deps.browserManager.foo(params);
+      const result = await deps.manager.foo(params);
       // 3. Shape response
       return { success: true, data: result };
     }
@@ -29,19 +29,20 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 
 ## File Organization
 
-| File | Tools |
+| Category | Tools |
 |------|-------|
-| `session.ts` | launch, connect, disconnect, status |
-| `navigation.ts` | goto, wait, snapshot |
-| `interaction.ts` | click, type, select, scroll |
-| `targets.ts` | targets_list, target_use, target_new, target_close |
-| `pages.ts` | page, list, close |
-| `dom.ts` | dom_get_html, dom_get_text |
-| `devtools.ts` | console_poll, network_poll, perf |
-| `export.ts` | clone_page, clone_component, screenshot |
-| `skills.ts` | skill_list, skill_load |
-| `run.ts` | run (multi-action) |
-| `prompting.ts` | prompting_guide |
+| Session | launch, connect, disconnect, status |
+| Navigation | goto, wait, snapshot |
+| Interaction | click, hover, press, check, uncheck, type, select, scroll, scroll_into_view |
+| Targets | targets_list, target_use, target_new, target_close |
+| Pages | page, list, close |
+| DOM | dom_get_html, dom_get_text, get_attr, get_value, is_visible, is_enabled, is_checked |
+| Devtools | console_poll, network_poll, perf, screenshot |
+| Annotation | annotate |
+| Export | clone_page, clone_component |
+| Skills | skill_list, skill_load |
+| Run | run (multi-action) |
+| Prompting | prompting_guide |
 
 ## Where Logic Lives
 

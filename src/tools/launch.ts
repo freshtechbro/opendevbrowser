@@ -13,6 +13,7 @@ type RelayObservedStatus = {
   extensionConnected: boolean;
   extensionHandshakeComplete: boolean;
   cdpConnected: boolean;
+  opsConnected: boolean;
   pairingRequired: boolean;
 };
 
@@ -28,6 +29,7 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
       persistProfile: z.boolean().optional().describe("Persist profile data between sessions"),
       noExtension: z.boolean().optional().describe("Skip extension relay and launch a new browser"),
       extensionOnly: z.boolean().optional().describe("Require extension relay or fail"),
+      extensionLegacy: z.boolean().optional().describe("Use legacy extension relay (/cdp) instead of ops"),
       waitForExtension: z.boolean().optional().describe("Wait for extension to connect before launching"),
       waitTimeoutMs: z.number().int().optional().describe("Timeout for waiting on extension (ms)")
     },
@@ -38,11 +40,12 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
         try {
           await deps.relay?.refresh?.();
           const config = deps.config.get();
+          const extensionLegacy = args.extensionLegacy === true;
           let relayStatus = deps.relay?.status();
-          let relayUrl = deps.relay?.getCdpUrl() ?? null;
+          let relayUrl = extensionLegacy ? deps.relay?.getCdpUrl() ?? null : deps.relay?.getOpsUrl?.() ?? null;
           const relayPort = relayStatus?.port;
           if (!relayUrl && isValidPort(relayPort)) {
-            relayUrl = `ws://127.0.0.1:${relayPort}/cdp`;
+            relayUrl = `ws://127.0.0.1:${relayPort}/${extensionLegacy ? "cdp" : "ops"}`;
           }
           const waitTimeoutMs = clampWaitTimeout(args.waitTimeoutMs ?? 30000);
           const headlessExplicit = args.headless === true;
@@ -54,7 +57,7 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
             const connected = await waitForExtensionHandshake(deps.relay, observedPort, waitTimeoutMs);
             if (connected) {
               relayStatus = deps.relay?.status() ?? relayStatus;
-              relayUrl = deps.relay?.getCdpUrl() ?? relayUrl;
+              relayUrl = extensionLegacy ? deps.relay?.getCdpUrl() ?? relayUrl : deps.relay?.getOpsUrl?.() ?? relayUrl;
             }
           }
 
@@ -63,7 +66,7 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
           const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
           if (!relayUrl) {
             const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
-            relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/cdp` : null;
+            relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/${extensionLegacy ? "cdp" : "ops"}` : null;
           }
           const extensionReady = Boolean(
             relayUrl && (
@@ -113,10 +116,11 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
             } catch (error) {
               const errorMessage = serializeError(error).message;
               const unauthorized = errorMessage.toLowerCase().includes("unauthorized") || errorMessage.includes("401");
+              const relayLabel = extensionLegacy ? "/cdp" : "/ops";
               const errorObservedStatus = observedStatus ?? await fetchRelayObservedStatus(observedPort);
               const diagnostics = buildRelayNotReadyDiagnostics(
                 unauthorized
-                  ? "Extension relay connection failed: relay /cdp unauthorized (token mismatch)."
+                  ? `Extension relay connection failed: relay ${relayLabel} unauthorized (token mismatch).`
                   : `Extension relay connection failed: ${errorMessage}`,
                 {
                   relayUrl,
@@ -141,7 +145,8 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
                 startUrl: args.startUrl,
                 chromePath: args.chromePath,
                 flags: args.flags,
-                persistProfile: args.persistProfile
+                persistProfile: args.persistProfile,
+                noExtension: args.noExtension
               });
             } catch (error) {
               return failure(buildManagedFailureMessage(error), "launch_failed");
@@ -173,10 +178,12 @@ const buildExtensionMissingMessage = (reason: string): string => {
     reason,
     "Connect the extension: open the Chrome extension popup and click Connect, then retry.",
     "Tip: If the popup says Connected, it may be connected to a different relay instance/port than this tool expects.",
+    "Legend: ext=extension websocket, handshake=extension handshake, ops=active /ops client, cdp=active /cdp client, pairing=token required.",
     "",
     "Other options (explicit):",
     "- Managed (headed): npx opendevbrowser launch --no-extension",
     "- Managed (headless): npx opendevbrowser launch --no-extension --headless",
+    "- Legacy extension relay: npx opendevbrowser launch --extension-legacy",
     "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
     "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>",
     "Note: CDPConnect requires Chrome started with --remote-debugging-port=9222."
@@ -256,6 +263,8 @@ function formatLocalStatus(status: RelayStatus | undefined): string {
     String(Boolean(status?.extensionConnected)),
     " handshake=",
     String(Boolean(status?.extensionHandshakeComplete)),
+    " ops=",
+    String(Boolean(status?.opsConnected)),
     " cdp=",
     String(Boolean(status?.cdpConnected)),
     " pairing=",
@@ -278,6 +287,8 @@ function formatObservedStatus(status: RelayObservedStatus | null, port: number |
     String(Boolean(status.extensionConnected)),
     " handshake=",
     String(Boolean(status.extensionHandshakeComplete)),
+    " ops=",
+    String(Boolean(status.opsConnected)),
     " cdp=",
     String(Boolean(status.cdpConnected)),
     " pairing=",
@@ -354,6 +365,7 @@ async function fetchRelayObservedStatus(port: number | null): Promise<RelayObser
       extensionConnected: Boolean(payload.extensionConnected),
       extensionHandshakeComplete: Boolean(payload.extensionHandshakeComplete),
       cdpConnected: Boolean(payload.cdpConnected),
+      opsConnected: Boolean(payload.opsConnected),
       pairingRequired: Boolean(payload.pairingRequired)
     };
   } catch {

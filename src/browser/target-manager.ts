@@ -13,6 +13,8 @@ export type NamedTargetInfo = {
   targetId: string;
 };
 
+const TARGET_INFO_TIMEOUT_MS = 2000;
+
 export class TargetManager {
   private targets = new Map<string, Page>();
   private activeTargetId: string | null = null;
@@ -122,14 +124,18 @@ export class TargetManager {
       };
 
       try {
-        info.title = await page.title();
+        if (!page.isClosed()) {
+          info.title = await readWithTimeout(() => page.title());
+        }
       } catch {
         info.title = undefined;
       }
 
       if (includeUrls) {
         try {
-          info.url = page.url();
+          if (!page.isClosed()) {
+            info.url = await readWithTimeout(async () => page.url());
+          }
         } catch {
           info.url = undefined;
         }
@@ -171,4 +177,49 @@ export class TargetManager {
       page
     }));
   }
+
+  syncPages(pages: Page[]): void {
+    const current = new Set(pages);
+
+    for (const [targetId, page] of this.targets.entries()) {
+      if (page.isClosed() || !current.has(page)) {
+        this.targets.delete(targetId);
+        const name = this.targetToName.get(targetId);
+        if (name) {
+          this.nameToTarget.delete(name);
+          this.targetToName.delete(targetId);
+        }
+      }
+    }
+
+    for (const page of pages) {
+      let exists = false;
+      for (const existing of this.targets.values()) {
+        if (existing === page) {
+          exists = true;
+          break;
+        }
+      }
+      if (!exists) {
+        this.registerPage(page);
+      }
+    }
+
+    if (this.activeTargetId && !this.targets.has(this.activeTargetId)) {
+      this.activeTargetId = this.targets.keys().next().value ?? null;
+    }
+  }
 }
+
+const readWithTimeout = async <T>(reader: () => Promise<T>, timeoutMs: number = TARGET_INFO_TIMEOUT_MS): Promise<T | undefined> => {
+  return await new Promise<T | undefined>((resolve) => {
+    const timeoutId = setTimeout(() => resolve(undefined), timeoutMs);
+    reader().then((value) => {
+      clearTimeout(timeoutId);
+      resolve(value);
+    }).catch(() => {
+      clearTimeout(timeoutId);
+      resolve(undefined);
+    });
+  });
+};

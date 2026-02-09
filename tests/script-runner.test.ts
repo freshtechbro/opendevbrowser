@@ -7,11 +7,21 @@ const createManager = () => ({
   waitForLoad: vi.fn().mockResolvedValue({ ok: true }),
   snapshot: vi.fn().mockResolvedValue({ content: "snap" }),
   click: vi.fn().mockResolvedValue({ ok: true }),
+  hover: vi.fn().mockResolvedValue({ ok: true }),
+  press: vi.fn().mockResolvedValue({ ok: true }),
+  check: vi.fn().mockResolvedValue({ ok: true }),
+  uncheck: vi.fn().mockResolvedValue({ ok: true }),
   type: vi.fn().mockResolvedValue({ ok: true }),
   select: vi.fn().mockResolvedValue({ ok: true }),
   scroll: vi.fn().mockResolvedValue({ ok: true }),
+  scrollIntoView: vi.fn().mockResolvedValue({ ok: true }),
   domGetHtml: vi.fn().mockResolvedValue({ outerHTML: "<div/>", truncated: false }),
-  domGetText: vi.fn().mockResolvedValue({ text: "hello", truncated: false })
+  domGetText: vi.fn().mockResolvedValue({ text: "hello", truncated: false }),
+  domGetAttr: vi.fn().mockResolvedValue({ value: "attr" }),
+  domGetValue: vi.fn().mockResolvedValue({ value: "value" }),
+  domIsVisible: vi.fn().mockResolvedValue({ value: true }),
+  domIsEnabled: vi.fn().mockResolvedValue({ value: true }),
+  domIsChecked: vi.fn().mockResolvedValue({ value: false })
 });
 
 describe("ScriptRunner", () => {
@@ -25,11 +35,21 @@ describe("ScriptRunner", () => {
       { action: "wait", args: { ref: "r1", state: "visible" } },
       { action: "snapshot", args: { mode: "outline", maxChars: 100 } },
       { action: "click", args: { ref: "r2" } },
+      { action: "hover", args: { ref: "r2" } },
+      { action: "press", args: { key: "Enter", ref: "r3" } },
+      { action: "check", args: { ref: "r7" } },
+      { action: "uncheck", args: { ref: "r7" } },
       { action: "type", args: { ref: "r3", text: "hello" } },
       { action: "select", args: { ref: "r4", values: ["one"] } },
       { action: "scroll", args: { dy: 200 } },
+      { action: "scroll_into_view", args: { ref: "r8" } },
       { action: "dom_get_html", args: { ref: "r5" } },
-      { action: "dom_get_text", args: { ref: "r6" } }
+      { action: "dom_get_text", args: { ref: "r6" } },
+      { action: "dom_get_attr", args: { ref: "r6", name: "id" } },
+      { action: "dom_get_value", args: { ref: "r3" } },
+      { action: "dom_is_visible", args: { ref: "r6" } },
+      { action: "dom_is_enabled", args: { ref: "r6" } },
+      { action: "dom_is_checked", args: { ref: "r7" } }
     ]);
 
     expect(result.results.every((item) => item.ok)).toBe(true);
@@ -121,11 +141,15 @@ describe("ScriptRunner", () => {
 
     const result = await runner.run("s1", [
       { action: "goto", args: { url: "" } },
-      { action: "select", args: { ref: "r1", values: [1] } as never }
+      { action: "select", args: { ref: "r1", values: [1] } as never },
+      { action: "press", args: { ref: "r1" } },
+      { action: "dom_get_attr", args: { ref: "r1" } }
     ], false);
 
     expect(result.results[0].ok).toBe(false);
     expect(result.results[1].ok).toBe(false);
+    expect(result.results[2].ok).toBe(false);
+    expect(result.results[3].ok).toBe(false);
   });
 
   it("retries transient failures for actions", async () => {

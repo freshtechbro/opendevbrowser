@@ -1,4 +1,6 @@
 import { BrowserManager } from "../browser/browser-manager";
+import { OpsBrowserManager } from "../browser/ops-browser-manager";
+import { AnnotationManager } from "../browser/annotation-manager";
 import { ScriptRunner } from "../browser/script-runner";
 import { ConfigStore, loadGlobalConfig } from "../config";
 import { getExtensionPath } from "../extension-extractor";
@@ -10,11 +12,13 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   const config = options.config ?? loadGlobalConfig();
   const configStore = new ConfigStore(config);
   const cacheRoot = options.worktree ?? options.directory;
-  const manager = new BrowserManager(cacheRoot, config);
+  const baseManager = new BrowserManager(cacheRoot, config);
+  const manager = new OpsBrowserManager(baseManager, config);
   const runner = new ScriptRunner(manager);
   const skills = new SkillLoader(cacheRoot, config.skillPaths);
   const relay = new RelayServer();
   relay.setToken(config.relayToken);
+  const annotationManager = new AnnotationManager(relay, config, manager);
 
   const ensureRelay = async (port = config.relayPort): Promise<void> => {
     if (port <= 0 || config.relayToken === false) {
@@ -41,7 +45,7 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
 
   const cleanup = () => {
     relay.stop();
-    manager.closeAll().catch(() => {});
+    baseManager.closeAll().catch(() => {});
   };
 
   return {
@@ -49,6 +53,7 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     config,
     configStore,
     manager,
+    annotationManager,
     runner,
     skills,
     relay,

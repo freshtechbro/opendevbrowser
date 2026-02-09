@@ -212,9 +212,26 @@ describe("resolveConfig", () => {
     vi.clearAllMocks();
   });
 
-  it("delegates to loadGlobalConfig", () => {
-    const config = resolveConfig({});
+  it("parses overrides and applies defaults", () => {
+    const config = resolveConfig({ profile: "custom" });
+    expect(config.profile).toBe("custom");
+    expect(config.relayPort).toBe(8787);
+    expect(config.daemonPort).toBe(8788);
+  });
+
+  it("delegates to loadGlobalConfig when undefined", () => {
+    const config = resolveConfig(undefined);
     expect(config.profile).toBe("default");
+  });
+
+  it("generates tokens when missing", () => {
+    const config = resolveConfig({});
+    expect(typeof config.relayToken).toBe("string");
+    expect(typeof config.daemonToken).toBe("string");
+  });
+
+  it("rejects invalid overrides", () => {
+    expect(() => resolveConfig({ relayPort: -1 })).toThrow("Invalid opendevbrowser config override");
   });
 });
 

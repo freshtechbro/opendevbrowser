@@ -1,8 +1,19 @@
-import type { ConnectionStatus, RelayHandshake } from "../types.js";
+import type {
+  ConnectionStatus,
+  RelayAnnotationCommand,
+  RelayAnnotationEvent,
+  RelayAnnotationResponse,
+  RelayHandshake,
+  RelayHandshakeAck,
+  RelayHealthStatus,
+  OpsEnvelope
+} from "../types.js";
 import { DEFAULT_PAIRING_ENABLED, DEFAULT_PAIRING_TOKEN, DEFAULT_RELAY_PORT } from "../relay-settings.js";
 import { RelayClient } from "./RelayClient.js";
 import { CDPRouter } from "./CDPRouter.js";
 import { TabManager } from "./TabManager.js";
+import { logError } from "../logging.js";
+import { getRestrictionMessage } from "./url-restrictions.js";
 
 type TrackedTab = {
   id: number;
@@ -33,41 +44,14 @@ class ConnectionError extends Error {
   }
 }
 
-const RESTRICTED_PROTOCOLS = new Set([
-  "chrome:",
-  "chrome-extension:",
-  "chrome-search:",
-  "chrome-untrusted:",
-  "devtools:",
-  "chrome-devtools:",
-  "edge:",
-  "brave:"
-]);
-
-const isWebStoreUrl = (url: URL): boolean => {
-  if (url.hostname === "chromewebstore.google.com") {
-    return true;
+const summarizeProtocol = (rawUrl?: string | null): string => {
+  if (!rawUrl) {
+    return "unknown";
   }
-  if (url.hostname === "chrome.google.com" && url.pathname.startsWith("/webstore")) {
-    return true;
-  }
-  return false;
-};
-
-const getRestrictionMessage = (url: URL): string | null => {
-  if (RESTRICTED_PROTOCOLS.has(url.protocol)) {
-    return "Active tab uses a restricted URL scheme. Focus a normal http(s) tab and retry.";
-  }
-  if (isWebStoreUrl(url)) {
-    return "Chrome Web Store tabs cannot be debugged. Open a normal tab and retry.";
-  }
-  return null;
-};
-
-const summarizeProtocol = (rawUrl: string): string => {
   try {
     return new URL(rawUrl).protocol.replace(":", "");
-  } catch {
+  } catch (error) {
+    logError("connection.summarize_protocol", error, { code: "url_parse_failed" });
     return "unknown";
   }
 };
@@ -99,10 +83,20 @@ export class ConnectionManager {
   private relayInstanceId: string | null = null;
   private relayEpoch: number | null = null;
   private relayConfirmedPort: number | null = null;
+  private relayNotice: string | null = null;
   private readonly maxReconnectDelayMs = 5000;
+  private connectPromise: Promise<void> | null = null;
+  private annotationHandler: ((command: RelayAnnotationCommand) => void) | null = null;
+  private opsHandler: ((message: OpsEnvelope) => void) | null = null;
+  private heartbeatTimer: number | null = null;
+  private heartbeatInFlight = false;
+  private readonly heartbeatIntervalMs = 25_000;
+  private readonly heartbeatTimeoutMs = 2_000;
 
   constructor() {
-    this.loadSettings().catch(() => {});
+    this.loadSettings().catch((error) => {
+      logError("connection.load_settings", error, { code: "storage_load_failed" });
+    });
     chrome.storage.onChanged.addListener(this.handleStorageChange);
     chrome.tabs.onRemoved.addListener(this.handleTabRemoved);
     chrome.tabs.onUpdated.addListener(this.handleTabUpdated);
@@ -119,6 +113,10 @@ export class ConnectionManager {
     };
   }
 
+  getRelayNotice(): string | null {
+    return this.relayNotice;
+  }
+
   getLastError(): ConnectionErrorInfo | null {
     return this.lastError;
   }
@@ -127,25 +125,92 @@ export class ConnectionManager {
     this.lastError = null;
   }
 
+  onAnnotationCommand(handler: (command: RelayAnnotationCommand) => void): void {
+    this.annotationHandler = handler;
+  }
+
+  onOpsMessage(handler: (message: OpsEnvelope) => void): void {
+    this.opsHandler = handler;
+  }
+
+  sendAnnotationResponse(response: RelayAnnotationResponse): void {
+    if (!this.relay) return;
+    try {
+      this.relay.sendAnnotationResponse(response);
+    } catch (error) {
+      logError("relay.send_annotation_response", error, { code: "relay_send_failed" });
+    }
+  }
+
+  sendAnnotationEvent(event: RelayAnnotationEvent): void {
+    if (!this.relay) return;
+    try {
+      this.relay.sendAnnotationEvent(event);
+    } catch (error) {
+      logError("relay.send_annotation_event", error, { code: "relay_send_failed" });
+    }
+  }
+
+  sendOpsMessage(message: OpsEnvelope): void {
+    if (!this.relay) return;
+    try {
+      this.relay.sendOpsMessage(message);
+    } catch (error) {
+      logError("relay.send_ops_message", error, { code: "relay_send_failed" });
+    }
+  }
+
+  getCdpRouter(): CDPRouter {
+    return this.cdp;
+  }
+
+  async relayHealthCheck(): Promise<RelayHealthStatus | null> {
+    if (!this.relay || !this.relay.isConnected()) {
+      return null;
+    }
+    try {
+      return await this.relay.sendHealthCheck();
+    } catch (error) {
+      logError("relay.health_check", error, { code: "relay_health_failed" });
+      return null;
+    }
+  }
+
   async connect(): Promise<void> {
-    if (this.status === "connected") {
-      return;
+    if (this.connectPromise) {
+      return await this.connectPromise;
     }
 
+    const run = (async () => {
+      if (this.status === "connected") {
+        return;
+      }
+
+      try {
+        this.clearLastError();
+        this.relayNotice = null;
+        this.shouldReconnect = true;
+        this.reconnectAttempts = 0;
+        await this.loadSettings();
+        await this.attachToActiveTab();
+        await this.connectRelay();
+        this.clearLastError();
+      } catch (error) {
+        const info = this.normalizeError(error);
+        this.setLastError(info);
+        const detail = error instanceof Error ? error.message : "Unknown error";
+        logWarn(`Connect failed (${info.code}). ${detail}`);
+        await this.disconnect();
+      }
+    })();
+
+    this.connectPromise = run;
     try {
-      this.clearLastError();
-      this.shouldReconnect = true;
-      this.reconnectAttempts = 0;
-      await this.loadSettings();
-      await this.attachToActiveTab();
-      await this.connectRelay();
-      this.clearLastError();
-    } catch (error) {
-      const info = this.normalizeError(error);
-      this.setLastError(info);
-      const detail = error instanceof Error ? error.message : "Unknown error";
-      logWarn(`Connect failed (${info.code}). ${detail}`);
-      await this.disconnect();
+      return await run;
+    } finally {
+      if (this.connectPromise === run) {
+        this.connectPromise = null;
+      }
     }
   }
 
@@ -154,6 +219,7 @@ export class ConnectionManager {
     this.disconnecting = true;
     this.shouldReconnect = false;
     this.clearReconnectTimer();
+    this.stopHeartbeat();
     try {
       if (this.relay) {
         this.relay.disconnect();
@@ -167,6 +233,7 @@ export class ConnectionManager {
       this.relayInstanceId = null;
       this.relayConfirmedPort = null;
       this.relayEpoch = null;
+      this.relayNotice = null;
     }
   }
 
@@ -182,8 +249,55 @@ export class ConnectionManager {
     }
   }
 
+  private safeRelaySend(action: () => void, context: string): void {
+    try {
+      action();
+    } catch (error) {
+      logError(context, error, { code: "relay_send_failed" });
+    }
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      return;
+    }
+    this.heartbeatTimer = setInterval(() => {
+      this.runHeartbeat().catch((error) => {
+        logError("relay.heartbeat", error, { code: "relay_heartbeat_failed" });
+      });
+    }, this.heartbeatIntervalMs);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.heartbeatInFlight = false;
+  }
+
+  private async runHeartbeat(): Promise<void> {
+    if (!this.relay || !this.relay.isConnected()) {
+      return;
+    }
+    if (this.heartbeatInFlight) {
+      return;
+    }
+    this.heartbeatInFlight = true;
+    try {
+      await this.relay.sendPing(this.heartbeatTimeoutMs);
+    } catch (error) {
+      logError("relay.heartbeat", error, { code: "relay_heartbeat_failed" });
+      if (this.shouldReconnect && !this.disconnecting) {
+        this.relay.disconnect();
+      }
+    } finally {
+      this.heartbeatInFlight = false;
+    }
+  }
+
   private async attachToActiveTab(): Promise<void> {
-    const tab = await this.tabs.getActiveTab();
+    let tab = await this.tabs.getActiveTab();
     if (!tab || typeof tab.id !== "number") {
       this.trackedTab = null;
       this.setStatus("disconnected");
@@ -196,33 +310,88 @@ export class ConnectionManager {
 
     if (!tab.url) {
       logWarn("Active tab URL missing.");
-      throw new ConnectionError("tab_url_missing", "Active tab URL is unavailable. Reload the tab and retry.");
+      const fallbackId = await this.tabs.getFirstHttpTabId();
+      if (fallbackId && fallbackId !== tab.id) {
+        const fallbackTab = await this.tabs.getTab(fallbackId);
+        if (fallbackTab && typeof fallbackTab.id === "number" && fallbackTab.url) {
+          logInfo("Falling back to first http(s) tab.");
+          tab = fallbackTab;
+        }
+      }
+      if (!tab.url) {
+        throw new ConnectionError("tab_url_missing", "Active tab URL is unavailable. Reload the tab and retry.");
+      }
     }
 
     let parsedUrl: URL | null = null;
     try {
       parsedUrl = new URL(tab.url);
-    } catch {
+    } catch (error) {
+      logError("connection.parse_tab_url", error, { code: "tab_url_parse_failed" });
       parsedUrl = null;
     }
 
     if (!parsedUrl) {
       logWarn("Active tab URL is invalid.");
-      throw new ConnectionError(
-        "tab_url_restricted",
-        "Active tab URL is unsupported. Focus a normal http(s) tab and retry."
-      );
+      const fallbackId = await this.tabs.getFirstHttpTabId();
+      if (fallbackId && fallbackId !== tab.id) {
+        const fallbackTab = await this.tabs.getTab(fallbackId);
+        if (fallbackTab && typeof fallbackTab.id === "number" && fallbackTab.url) {
+          logInfo("Falling back to first http(s) tab.");
+          try {
+            parsedUrl = new URL(fallbackTab.url);
+            tab = fallbackTab;
+          } catch {
+            parsedUrl = null;
+          }
+        }
+      }
+      if (!parsedUrl) {
+        throw new ConnectionError(
+          "tab_url_restricted",
+          "Active tab URL is unsupported. Focus a normal http(s) tab and retry."
+        );
+      }
     }
 
     const restrictionMessage = getRestrictionMessage(parsedUrl);
     if (restrictionMessage) {
       logWarn(`Active tab blocked: ${summarizeProtocol(tab.url)} scheme.`);
-      throw new ConnectionError("tab_url_restricted", restrictionMessage);
+      const fallbackId = await this.tabs.getFirstHttpTabId();
+      if (fallbackId && fallbackId !== tab.id) {
+        const fallbackTab = await this.tabs.getTab(fallbackId);
+        if (fallbackTab && typeof fallbackTab.id === "number" && fallbackTab.url) {
+          try {
+            const fallbackUrl = new URL(fallbackTab.url);
+            const fallbackRestriction = getRestrictionMessage(fallbackUrl);
+            if (!fallbackRestriction) {
+              logInfo("Falling back to first http(s) tab.");
+              tab = fallbackTab;
+              parsedUrl = fallbackUrl;
+            }
+          } catch {
+            // Ignore invalid fallback URL.
+          }
+        }
+      }
+      if (restrictionMessage && getRestrictionMessage(parsedUrl)) {
+        throw new ConnectionError("tab_url_restricted", restrictionMessage);
+      }
+    }
+
+    const tabId = tab.id;
+    if (typeof tabId !== "number") {
+      this.trackedTab = null;
+      this.setStatus("disconnected");
+      throw new ConnectionError(
+        "no_active_tab",
+        "No active browser tab found. Focus a normal tab (not the popup) and retry."
+      );
     }
 
     logInfo("Active tab resolved.");
     try {
-      await this.cdp.attach(tab.id);
+      await this.cdp.attach(tabId);
       logInfo("Debugger attached.");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown error";
@@ -236,7 +405,7 @@ export class ConnectionManager {
       );
     }
     this.trackedTab = {
-      id: tab.id,
+      id: tabId,
       url: tab.url ?? undefined,
       title: tab.title ?? undefined,
       groupId: typeof tab.groupId === "number" ? tab.groupId : undefined
@@ -245,14 +414,21 @@ export class ConnectionManager {
 
   private async connectRelay(): Promise<void> {
     if (!this.trackedTab) {
-      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the plugin and retry.");
+      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the daemon and retry.");
     }
 
     const relay = new RelayClient(this.buildRelayUrl(), {
       onCommand: (command) => {
-        this.cdp.handleCommand(command).catch(() => {
-          this.disconnect().catch(() => {});
+        this.cdp.handleCommand(command).catch((error) => {
+          logError("cdp.handle_command", error, { code: "cdp_command_failed" });
+          this.handleCdpDetach({ reason: "cdp_command_failed" });
         });
+      },
+      onAnnotationCommand: (command) => {
+        this.annotationHandler?.(command);
+      },
+      onOpsMessage: (message) => {
+        this.opsHandler?.(message);
       },
       onClose: (detail) => {
         this.handleRelayClose(detail);
@@ -261,25 +437,37 @@ export class ConnectionManager {
 
     this.relay = relay;
     this.cdp.setCallbacks({
-      onEvent: (event) => this.relay?.sendEvent(event),
-      onResponse: (response) => this.relay?.sendResponse(response),
-      onDetach: () => {
-        this.disconnect().catch(() => {});
+      onEvent: (event) => {
+        this.safeRelaySend(() => this.relay?.sendEvent(event), "relay.send_event");
+      },
+      onResponse: (response) => {
+        this.safeRelaySend(() => this.relay?.sendResponse(response), "relay.send_response");
+      },
+      onDetach: (detail) => {
+        this.handleCdpDetach(detail);
       },
       onPrimaryTabChange: (tabId) => {
-        this.handlePrimaryTabChange(tabId).catch(() => {});
+        this.handlePrimaryTabChange(tabId).catch((error) => {
+          logError("connection.primary_tab_change", error, { code: "primary_tab_change_failed" });
+        });
       }
     });
 
     try {
       const ack = await relay.connect(this.buildHandshake());
-      this.relayInstanceId = ack.payload.instanceId;
-      this.relayEpoch = typeof ack.payload.epoch === "number" && Number.isFinite(ack.payload.epoch)
+      const relayEpoch = typeof ack.payload.epoch === "number" && Number.isFinite(ack.payload.epoch)
         ? ack.payload.epoch
         : null;
-      this.persistRelayIdentity(ack.payload.relayPort, this.relayInstanceId, this.relayEpoch);
+      const mismatch = await this.reconcileRelayIdentity(ack);
+      this.relayInstanceId = ack.payload.instanceId;
+      this.relayEpoch = relayEpoch;
+      this.persistRelayPort(ack.payload.relayPort);
+      if (!mismatch) {
+        this.persistRelayIdentity(ack.payload.relayPort, this.relayInstanceId, this.relayEpoch);
+      }
       logInfo("Relay WebSocket connected.");
       this.setStatus("connected");
+      this.startHeartbeat();
       this.reconnectAttempts = 0;
       this.reconnectDelayMs = 500;
     } catch (error) {
@@ -288,22 +476,46 @@ export class ConnectionManager {
       if (this.relay === relay) {
         this.relay = null;
       }
-      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the plugin and retry.");
+      throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the daemon and retry.");
     }
   }
 
   private handleRelayClose(detail?: { code?: number; reason?: string }): void {
+    this.stopHeartbeat();
     this.relay = null;
     if (detail && (detail.code === 1008 || detail.reason?.includes("Invalid pairing token"))) {
       this.clearStoredPairingToken();
     }
-    if (!this.shouldReconnect || !this.trackedTab) {
+    if (!this.shouldReconnect) {
       return;
     }
     this.setStatus("disconnected");
     this.relayInstanceId = null;
     this.relayConfirmedPort = null;
     this.relayEpoch = null;
+    this.scheduleReconnect();
+  }
+
+  private handleCdpDetach(detail?: { tabId?: number; reason?: string }): void {
+    const reason = detail?.reason ? ` (${detail.reason})` : "";
+    logWarn(`CDP detached${reason}.`);
+    if (this.disconnecting) {
+      return;
+    }
+    if (!this.shouldReconnect) {
+      this.disconnect().catch((error) => {
+        logError("connection.cdp_detach_disconnect", error, { code: "disconnect_failed" });
+      });
+      return;
+    }
+    if (this.cdp.getAttachedTabIds().length > 0) {
+      return;
+    }
+    this.setStatus("disconnected");
+    if (this.relay?.isConnected()) {
+      this.relay.disconnect();
+      return;
+    }
     this.scheduleReconnect();
   }
 
@@ -315,7 +527,8 @@ export class ConnectionManager {
       this.reconnectTimer = null;
       this.reconnectAttempts += 1;
       this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, this.maxReconnectDelayMs);
-      this.reconnectRelay().catch(() => {
+      this.reconnectRelay().catch((error) => {
+        logError("connection.reconnect", error, { code: "relay_reconnect_failed" });
         this.scheduleReconnect();
       });
     }, this.reconnectDelayMs);
@@ -327,13 +540,12 @@ export class ConnectionManager {
     }
     const primaryId = this.cdp.getPrimaryTabId();
     if (!primaryId) {
-      this.disconnect().catch(() => {});
-      return;
+      await this.attachToActiveTab();
+    } else {
+      await this.refreshTrackedTab(primaryId);
     }
-    await this.refreshTrackedTab(primaryId);
     if (!this.trackedTab) {
-      this.disconnect().catch(() => {});
-      return;
+      throw new Error("Reconnect failed: no tracked tab available");
     }
     await this.connectRelay();
   }
@@ -375,7 +587,9 @@ export class ConnectionManager {
 
     if (changes.relayPort) {
       this.updateRelayPort(changes.relayPort.newValue);
-      this.refreshRelay().catch(() => {});
+      this.refreshRelay().catch((error) => {
+        logError("connection.refresh_relay", error, { code: "relay_refresh_failed" });
+      });
     }
   };
 
@@ -384,7 +598,9 @@ export class ConnectionManager {
       return;
     }
     if (this.cdp.getAttachedTabIds().length <= 1) {
-      this.disconnect().catch(() => {});
+      this.disconnect().catch((error) => {
+        logError("connection.tab_removed_disconnect", error, { code: "disconnect_failed" });
+      });
     }
   };
 
@@ -399,7 +615,7 @@ export class ConnectionManager {
       groupId: typeof tab.groupId === "number" ? tab.groupId : this.trackedTab.groupId
     };
     if (this.relay?.isConnected()) {
-      this.relay.sendHandshake(this.buildHandshake());
+      this.safeRelaySend(() => this.relay?.sendHandshake(this.buildHandshake()), "relay.send_handshake");
     }
   };
 
@@ -453,8 +669,10 @@ export class ConnectionManager {
     chrome.storage.local.set({ pairingToken: DEFAULT_PAIRING_TOKEN });
   }
 
-  private clearStoredPairingToken(): void {
-    this.pairingToken = null;
+  private clearStoredPairingToken(clearMemory = true): void {
+    if (clearMemory) {
+      this.pairingToken = null;
+    }
     chrome.storage.local.set({ pairingToken: null, tokenEpoch: null });
   }
 
@@ -488,6 +706,42 @@ export class ConnectionManager {
       relayInstanceId: instanceId,
       relayEpoch: epoch
     });
+  }
+
+  private clearStoredRelayIdentity(): void {
+    chrome.storage.local.set({
+      relayInstanceId: null,
+      relayEpoch: null
+    });
+  }
+
+  private async reconcileRelayIdentity(ack: RelayHandshakeAck): Promise<boolean> {
+    const stored = await new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.local.get(["relayInstanceId", "relayEpoch"], (items) => resolve(items));
+    });
+    const storedInstanceId = typeof stored.relayInstanceId === "string" ? stored.relayInstanceId : null;
+    const storedEpoch = typeof stored.relayEpoch === "number" && Number.isFinite(stored.relayEpoch)
+      ? stored.relayEpoch
+      : null;
+    const ackEpoch = typeof ack.payload.epoch === "number" && Number.isFinite(ack.payload.epoch)
+      ? ack.payload.epoch
+      : null;
+
+    const instanceMismatch = Boolean(storedInstanceId && storedInstanceId !== ack.payload.instanceId);
+    const epochMismatch = storedEpoch !== null && ackEpoch !== null && storedEpoch !== ackEpoch;
+
+    if (instanceMismatch || epochMismatch) {
+      this.clearStoredRelayIdentity();
+      this.clearStoredPairingToken(false);
+      this.relayNotice = instanceMismatch
+        ? "Relay instance changed. Re-pair and reconnect."
+        : "Relay restarted. Re-pair and reconnect.";
+      this.safeRelaySend(() => this.relay?.sendHandshake(this.buildHandshake()), "relay.rehandshake");
+      return true;
+    }
+
+    this.relayNotice = null;
+    return false;
   }
 
   /**
@@ -542,6 +796,6 @@ export class ConnectionManager {
     if (!this.trackedTab || !this.relay?.isConnected()) {
       return;
     }
-    this.relay.sendHandshake(this.buildHandshake());
+    this.safeRelaySend(() => this.relay?.sendHandshake(this.buildHandshake()), "relay.send_handshake");
   }
 }

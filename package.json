@@ -1,6 +1,6 @@
 {
   "name": "opendevbrowser",
-  "version": "0.0.13",
+  "version": "0.0.15",
   "description": "OpenCode plugin for browser automation via CDP with snapshot-refs-actions workflow",
   "type": "module",
   "main": "dist/index.js",
@@ -41,7 +41,7 @@
     "lint": "eslint \"{src,tests}/**/*.ts\"",
     "test": "vitest run --coverage",
     "extension:sync": "node scripts/sync-extension-version.mjs",
-    "extension:build": "npm run extension:sync && tsc -p extension/tsconfig.json",
+    "extension:build": "npm run extension:sync && tsc -p extension/tsconfig.json && node scripts/copy-extension-assets.mjs",
     "extension:pack": "cd extension && zip -r ../opendevbrowser-extension.zip manifest.json popup.html dist/ icons/",
     "version:check": "node scripts/verify-versions.mjs",
     "prepack": "npm run version:check && npm run build && npm run extension:build"

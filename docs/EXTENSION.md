@@ -5,10 +5,10 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 ## What it does
 
 - Connects to the local relay server (`ws://127.0.0.1:<port>/extension`).
-- Uses the Chrome Debugger API to forward CDP commands for the active tab.
+- Uses the Chrome Debugger API to forward CDP commands across attached tabs/targets (with a primary tab used for handshake/status).
 - Allows OpenDevBrowser to control tabs without launching a new browser.
 - Supports multi-tab CDP routing with flat sessions (Chrome 125+).
-- Lists only top-level tabs for discovery; child targets (workers/OOPIF) are auto-attached internally.
+- Exposes top-level tabs and auto-attached child targets (workers/OOPIF) through `Target.getTargets`.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
 - When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
 
@@ -28,6 +28,7 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 - **Relay port**: Port of the local relay server (default `8787`).
 - **Auto-connect**: Reconnect on browser start (default on).
 - **Auto-pair**: Fetch pairing token automatically from the plugin (default on).
+- **Native fallback (experimental)**: Allow native messaging fallback when relay is unavailable (default off).
 - **Require pairing token**: Require token for relay pairing (recommended).
 - **Pairing token**: Manual token entry when auto-pair is off.
 
@@ -38,12 +39,14 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 | Relay port | `8787` |
 | Auto-connect | `true` |
 | Auto-pair | `true` |
+| Native fallback (experimental) | `false` |
 | Require pairing token | `true` |
 | Pairing token | `null` (fetched on connect) |
 
 ## Auto-connect behavior
 
 Auto-connect is enabled by default. The extension attempts to connect on browser startup, install, and when the toggle is enabled in the UI. Auto-connect respects the current relay port, pairing settings, and auto-pair toggle.
+Native fallback is only attempted when the experimental native toggle is enabled.
 
 ## Auto-pair flow
 
@@ -55,9 +58,10 @@ When auto-pair is enabled:
 
 `/config` and `/pair` reject explicit non-extension origins. Chrome extension requests may omit the `Origin` header, so the relay also accepts missing-Origin requests. CLI/tools may call `/config` and `/pair` to auto-fetch relay settings and tokens.
 
-Relay CDP endpoint: `ws://127.0.0.1:<relayPort>/cdp`. The CLI/tool `connect` command accepts base relay WS URLs
-(for example `ws://127.0.0.1:<relayPort>`) and normalizes them to `/cdp`.
-When pairing is enabled, `/cdp` requires a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
+Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`. The CLI/tool `connect` command accepts base relay WS URLs
+(for example `ws://127.0.0.1:<relayPort>`) and normalizes them to `/ops`.
+Legacy relay `/cdp` is still available but must be explicitly opted in (CLI: `--extension-legacy`).
+When pairing is enabled, both `/ops` and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
 to obtain the token before connecting, so users should not manually pass or share tokenized URLs.
 
 ## Chrome version requirement
@@ -66,8 +70,8 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 
 ## Multi-tab + primary tab behavior
 
-- Target discovery lists only top-level tabs.
-- Child targets are auto-attached recursively (not listed in `Target.getTargets`).
+- Target discovery (`Target.getTargets`) includes top-level tabs and child targets.
+- Child targets are auto-attached recursively for session-aware routing.
 - A single **primary tab** is used for relay handshake/status; switching tabs updates the handshake without disconnecting others.
 
 ## Security notes

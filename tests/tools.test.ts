@@ -45,11 +45,21 @@ const createDeps = () => {
     waitForLoad: vi.fn().mockResolvedValue({ timingMs: 1 }),
     snapshot: vi.fn().mockResolvedValue({ snapshotId: "snap", content: "", truncated: false, refCount: 0, timingMs: 1 }),
     click: vi.fn().mockResolvedValue({ timingMs: 1, navigated: false }),
+    hover: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    press: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    check: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    uncheck: vi.fn().mockResolvedValue({ timingMs: 1 }),
     type: vi.fn().mockResolvedValue({ timingMs: 1 }),
     select: vi.fn().mockResolvedValue(undefined),
     scroll: vi.fn().mockResolvedValue(undefined),
+    scrollIntoView: vi.fn().mockResolvedValue({ timingMs: 1 }),
     domGetHtml: vi.fn().mockResolvedValue({ outerHTML: "<div></div>", truncated: false }),
     domGetText: vi.fn().mockResolvedValue({ text: "hi", truncated: false }),
+    domGetAttr: vi.fn().mockResolvedValue({ value: "attr" }),
+    domGetValue: vi.fn().mockResolvedValue({ value: "value" }),
+    domIsVisible: vi.fn().mockResolvedValue({ value: true }),
+    domIsEnabled: vi.fn().mockResolvedValue({ value: true }),
+    domIsChecked: vi.fn().mockResolvedValue({ value: false }),
     clonePage: vi.fn().mockResolvedValue({ component: "<Component />", css: ".css{}" }),
     cloneComponent: vi.fn().mockResolvedValue({ component: "<Component />", css: ".css{}" }),
     perfMetrics: vi.fn().mockResolvedValue({ metrics: [{ name: "Nodes", value: 1 }] }),
@@ -94,11 +104,21 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_snapshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_click.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_hover.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_press.execute({ sessionId: "s1", key: "Enter" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_check.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_uncheck.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_type.execute({ sessionId: "s1", ref: "r1", text: "hi" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_select.execute({ sessionId: "s1", ref: "r1", values: ["v"] } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_scroll.execute({ sessionId: "s1", dy: 10 } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_scroll_into_view.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_dom_get_html.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_dom_get_text.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_get_attr.execute({ sessionId: "s1", ref: "r1", name: "id" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_get_value.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_is_visible.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_is_enabled.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_is_checked.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_run.execute({ sessionId: "s1", steps: [] } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_prompting_guide.execute({} as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_console_poll.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
@@ -107,7 +127,7 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-  });
+  }, 15000);
 
   it("wraps tool execution with ensureHub when provided", async () => {
     const deps = createDeps();
@@ -156,7 +176,7 @@ describe("tools", () => {
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ noExtension: true } as never));
     expect(launchResult.warnings).toEqual(["warn"]);
 
-    const connectResult = parse(await tools.opendevbrowser_connect.execute({} as never));
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ host: "127.0.0.1" } as never));
     expect(connectResult.warnings).toEqual(["warn"]);
   });
 
@@ -179,7 +199,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -189,11 +209,25 @@ describe("tools", () => {
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
   });
 
+  it("uses legacy relay when extensionLegacy is set", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: true }),
+      getCdpUrl: () => "ws://relay-legacy"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionLegacy: true } as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay-legacy");
+  });
+
   it("uses observed status when local relay is disconnected", async () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -203,6 +237,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -219,7 +254,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -233,7 +268,7 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -248,14 +283,14 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("401 Unauthorized"));
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
 
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionOnly: true } as never));
     expect(launchResult.ok).toBe(false);
-    expect(String(launchResult.error?.message)).toContain("relay /cdp unauthorized");
+    expect(String(launchResult.error?.message)).toContain("relay /ops unauthorized");
   });
 
   it("falls back when relay connect fails", async () => {
@@ -263,7 +298,7 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -297,14 +332,14 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
 
     const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
     expect(launchResult.ok).toBe(false);
-    expect(String(launchResult.error?.message)).toContain("relayUrl=ws://127.0.0.1:8787/cdp");
+    expect(String(launchResult.error?.message)).toContain("relayUrl=ws://127.0.0.1:8787/ops");
   });
 
   it("adds relayUrl_null hint when relay URL cannot be resolved", async () => {
@@ -312,7 +347,7 @@ describe("tools", () => {
     deps.config.set({ ...deps.config.get(), relayPort: 0 });
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -329,7 +364,7 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
     const relay = {
       status: () => ({ extensionConnected: false, instanceId: "local-12345678" }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -339,6 +374,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: true
       })
@@ -357,7 +393,7 @@ describe("tools", () => {
     deps.manager.connectRelay.mockRejectedValue(new Error("relay failed"));
     const relay = {
       status: () => ({ extensionConnected: true, instanceId: "local-aaaaaaaa" }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -367,6 +403,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: true
       })
@@ -389,7 +426,7 @@ describe("tools", () => {
         instanceId: "local-12345678",
         port: 8787
       }),
-      getCdpUrl: () => "ws://relay",
+      getOpsUrl: () => "ws://relay",
       refresh: vi.fn().mockResolvedValue(undefined)
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -400,6 +437,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: false,
         extensionHandshakeComplete: false,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -422,7 +460,7 @@ describe("tools", () => {
         instanceId: "local-aaaaaaaa",
         port: 8787
       }),
-      getCdpUrl: () => "ws://relay",
+      getOpsUrl: () => "ws://relay",
       refresh: vi.fn().mockResolvedValue(undefined)
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -433,6 +471,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: false,
         extensionHandshakeComplete: false,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -451,7 +490,7 @@ describe("tools", () => {
     const ensureHub = vi.fn().mockResolvedValue(undefined);
     const relay = {
       status: vi.fn().mockReturnValue({ extensionConnected: false, instanceId: "local-12345678" }),
-      getCdpUrl: () => "ws://relay",
+      getOpsUrl: () => "ws://relay",
       refresh: vi.fn().mockResolvedValue(undefined)
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -462,6 +501,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -479,7 +519,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("fetch failed")));
     const { createTools } = await import("../src/tools");
@@ -494,7 +534,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", undefined as unknown as typeof fetch);
     const { createTools } = await import("../src/tools");
@@ -509,7 +549,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -527,7 +567,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -536,6 +576,7 @@ describe("tools", () => {
         running: true,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: true
       })
@@ -553,7 +594,7 @@ describe("tools", () => {
     deps.config.set({ ...deps.config.get(), relayPort: 0 });
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -567,7 +608,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false, port: 5555 }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -581,7 +622,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -594,7 +635,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -612,7 +653,7 @@ describe("tools", () => {
     let currentRelayUrl: string | null = null;
     const relay = {
       status: () => ({ extensionConnected: connected, extensionHandshakeComplete: connected, port: 8787 }),
-      getCdpUrl: () => currentRelayUrl
+      getOpsUrl: () => currentRelayUrl
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -631,7 +672,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: vi.fn().mockReturnValue({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
-      getCdpUrl: vi.fn().mockReturnValue("ws://relay")
+      getOpsUrl: vi.fn().mockReturnValue("ws://relay")
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -639,14 +680,14 @@ describe("tools", () => {
     const launchResult = parse(await tools.opendevbrowser_launch.execute({ waitForExtension: true } as never));
     expect(launchResult.mode).toBe("extension");
     expect(relay.status).toHaveBeenCalled();
-    expect(relay.getCdpUrl).toHaveBeenCalled();
+    expect(relay.getOpsUrl).toHaveBeenCalled();
   });
 
   it("waits for extension using observed status", async () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false, port: 8787 }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -656,6 +697,7 @@ describe("tools", () => {
         port: 8787,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -673,7 +715,7 @@ describe("tools", () => {
     deps.config.set({ ...deps.config.get(), relayPort: 8787 });
     const relay = {
       status: () => ({ extensionConnected: false, extensionHandshakeComplete: false }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -683,6 +725,7 @@ describe("tools", () => {
         port: 9999,
         extensionConnected: true,
         extensionHandshakeComplete: true,
+        opsConnected: false,
         cdpConnected: false,
         pairingRequired: false
       })
@@ -692,7 +735,7 @@ describe("tools", () => {
 
     const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
     expect(launchResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:9999/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:9999/ops");
   });
 
   it("falls back to relayUrl after wait when relay URL remains null", async () => {
@@ -702,7 +745,7 @@ describe("tools", () => {
       let connected = false;
       const relay = {
         status: () => ({ extensionConnected: connected, extensionHandshakeComplete: connected, port: 8787 }),
-        getCdpUrl: () => null
+        getOpsUrl: () => null
       };
       const { createTools } = await import("../src/tools");
       const tools = createTools({ ...deps, relay } as never);
@@ -713,7 +756,7 @@ describe("tools", () => {
 
       const launchResult = parse(await launchPromise);
       expect(launchResult.mode).toBe("extension");
-      expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+      expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
     } finally {
       vi.useRealTimers();
     }
@@ -723,7 +766,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -737,7 +780,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: false, extensionHandshakeComplete: false }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -753,7 +796,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -766,7 +809,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -776,18 +819,18 @@ describe("tools", () => {
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
   });
 
-  it("routes connect to relay for local /cdp wsEndpoint", async () => {
+  it("routes connect to relay for local /ops wsEndpoint", async () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
 
-    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787/cdp" } as never));
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787/ops" } as never));
     expect(connectResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
     expect(deps.manager.connect).not.toHaveBeenCalled();
   });
 
@@ -795,25 +838,25 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
-      getCdpUrl: () => null
+      getOpsUrl: () => null
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
 
     const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787" } as never));
     expect(connectResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
     expect(deps.manager.connect).not.toHaveBeenCalled();
   });
 
-  it("routes connect to relay for localhost /cdp", async () => {
+  it("routes connect to relay for localhost /ops", async () => {
     const deps = createDeps();
     const { createTools } = await import("../src/tools");
     const tools = createTools(deps as never);
 
-    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://localhost:8787/cdp" } as never));
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://localhost:8787/ops" } as never));
     expect(connectResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://localhost:8787/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://localhost:8787/ops");
     expect(deps.manager.connect).not.toHaveBeenCalled();
   });
 
@@ -824,8 +867,42 @@ describe("tools", () => {
 
     const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://localhost:8787" } as never));
     expect(connectResult.mode).toBe("extension");
-    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://localhost:8787/cdp");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://localhost:8787/ops");
     expect(deps.manager.connect).not.toHaveBeenCalled();
+  });
+
+  it("routes connect to /cdp when extensionLegacy is set for local base wsEndpoint", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({
+      wsEndpoint: "ws://127.0.0.1:8787",
+      extensionLegacy: true
+    } as never));
+    expect(connectResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+    expect(deps.manager.connect).not.toHaveBeenCalled();
+  });
+
+  it("rejects local /cdp wsEndpoint without legacy opt-in", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787/cdp" } as never));
+    expect(connectResult.ok).toBe(false);
+    expect(String(connectResult.error?.message)).toContain("extensionLegacy");
+  });
+
+  it("routes connect to relay for local /cdp with legacy opt-in", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const connectResult = parse(await tools.opendevbrowser_connect.execute({ wsEndpoint: "ws://127.0.0.1:8787/cdp", extensionLegacy: true } as never));
+    expect(connectResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
   });
 
   it("does not route connect to relay for non-local /cdp", async () => {
@@ -908,7 +985,7 @@ describe("tools", () => {
     const deps = createDeps();
     const relay = {
       status: () => { throw new Error("boom"); },
-      getCdpUrl: () => "ws://relay"
+      getOpsUrl: () => "ws://relay"
     };
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, relay } as never);
@@ -933,11 +1010,21 @@ describe("tools", () => {
     deps.manager.goto.mockRejectedValue(new Error("boom"));
     deps.manager.waitForLoad.mockRejectedValue(new Error("boom"));
     deps.manager.snapshot.mockRejectedValue(new Error("boom"));
+    deps.manager.hover.mockRejectedValue(new Error("boom"));
+    deps.manager.press.mockRejectedValue(new Error("boom"));
+    deps.manager.check.mockRejectedValue(new Error("boom"));
+    deps.manager.uncheck.mockRejectedValue(new Error("boom"));
     deps.manager.type.mockRejectedValue(new Error("boom"));
     deps.manager.select.mockRejectedValue(new Error("boom"));
     deps.manager.scroll.mockRejectedValue(new Error("boom"));
+    deps.manager.scrollIntoView.mockRejectedValue(new Error("boom"));
     deps.manager.domGetHtml.mockRejectedValue(new Error("boom"));
     deps.manager.domGetText.mockRejectedValue(new Error("boom"));
+    deps.manager.domGetAttr.mockRejectedValue(new Error("boom"));
+    deps.manager.domGetValue.mockRejectedValue(new Error("boom"));
+    deps.manager.domIsVisible.mockRejectedValue(new Error("boom"));
+    deps.manager.domIsEnabled.mockRejectedValue(new Error("boom"));
+    deps.manager.domIsChecked.mockRejectedValue(new Error("boom"));
     deps.manager.clonePage.mockRejectedValue(new Error("boom"));
     deps.manager.cloneComponent.mockRejectedValue(new Error("boom"));
     deps.manager.perfMetrics.mockRejectedValue(new Error("boom"));
@@ -966,11 +1053,21 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_goto.execute({ sessionId: "s1", url: "https://" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", until: "load" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_snapshot.execute({ sessionId: "s1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_hover.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_press.execute({ sessionId: "s1", key: "Enter" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_check.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_uncheck.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_type.execute({ sessionId: "s1", ref: "r1", text: "hi" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_select.execute({ sessionId: "s1", ref: "r1", values: ["v"] } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_scroll.execute({ sessionId: "s1", dy: 10 } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_scroll_into_view.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_dom_get_html.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_dom_get_text.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_get_attr.execute({ sessionId: "s1", ref: "r1", name: "id" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_get_value.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_is_visible.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_is_enabled.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_is_checked.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_run.execute({ sessionId: "s1", steps: [] } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_console_poll.execute({ sessionId: "s1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_network_poll.execute({ sessionId: "s1" } as never)).ok).toBe(false);

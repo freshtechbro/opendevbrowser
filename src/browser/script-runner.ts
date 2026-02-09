@@ -83,6 +83,18 @@ export class ScriptRunner {
         );
       case "click":
         return withRetry("click", () => this.manager.click(sessionId, requireString(args.ref, "ref")));
+      case "hover":
+        return withRetry("hover", () => this.manager.hover(sessionId, requireString(args.ref, "ref")));
+      case "press":
+        return withRetry("press", () => this.manager.press(
+          sessionId,
+          requireString(args.key, "key"),
+          typeof args.ref === "string" ? args.ref : undefined
+        ));
+      case "check":
+        return withRetry("check", () => this.manager.check(sessionId, requireString(args.ref, "ref")));
+      case "uncheck":
+        return withRetry("uncheck", () => this.manager.uncheck(sessionId, requireString(args.ref, "ref")));
       case "type":
         return withRetry("type", () => this.manager.type(
           sessionId,
@@ -103,10 +115,25 @@ export class ScriptRunner {
           requireNumber(args.dy, 0),
           typeof args.ref === "string" ? args.ref : undefined
         ));
+      case "scroll_into_view":
+        return withRetry("scroll_into_view", () => this.manager.scrollIntoView(
+          sessionId,
+          requireString(args.ref, "ref")
+        ));
       case "dom_get_html":
         return this.manager.domGetHtml(sessionId, requireString(args.ref, "ref"), requireNumber(args.maxChars, 8000));
       case "dom_get_text":
         return this.manager.domGetText(sessionId, requireString(args.ref, "ref"), requireNumber(args.maxChars, 8000));
+      case "dom_get_attr":
+        return this.manager.domGetAttr(sessionId, requireString(args.ref, "ref"), requireString(args.name, "name"));
+      case "dom_get_value":
+        return this.manager.domGetValue(sessionId, requireString(args.ref, "ref"));
+      case "dom_is_visible":
+        return this.manager.domIsVisible(sessionId, requireString(args.ref, "ref"));
+      case "dom_is_enabled":
+        return this.manager.domIsEnabled(sessionId, requireString(args.ref, "ref"));
+      case "dom_is_checked":
+        return this.manager.domIsChecked(sessionId, requireString(args.ref, "ref"));
       default:
         throw new Error(`Unknown action: ${step.action}`);
     }
@@ -151,7 +178,18 @@ function requireState(value: unknown): "attached" | "visible" | "hidden" {
   return "attached";
 }
 
-const RETRY_ACTIONS = new Set(["click", "type", "select", "scroll", "wait"]);
+const RETRY_ACTIONS = new Set([
+  "click",
+  "hover",
+  "press",
+  "check",
+  "uncheck",
+  "type",
+  "select",
+  "scroll",
+  "scroll_into_view",
+  "wait"
+]);
 const RETRY_MAX_ATTEMPTS = 2;
 const RETRY_BASE_DELAY_MS = 150;
 const RETRY_MAX_DELAY_MS = 1000;

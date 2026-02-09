@@ -1,3 +1,4 @@
+/* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
 
 export type BrowserManagerLike = Pick<BrowserManager,
@@ -6,16 +7,27 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "connectRelay"
   | "disconnect"
   | "status"
+  | "withPage"
   | "goto"
   | "waitForLoad"
   | "waitForRef"
   | "snapshot"
   | "click"
+  | "hover"
+  | "press"
+  | "check"
+  | "uncheck"
   | "type"
   | "select"
   | "scroll"
+  | "scrollIntoView"
   | "domGetHtml"
   | "domGetText"
+  | "domGetAttr"
+  | "domGetValue"
+  | "domIsVisible"
+  | "domIsEnabled"
+  | "domIsChecked"
   | "clonePage"
   | "cloneComponent"
   | "perfMetrics"

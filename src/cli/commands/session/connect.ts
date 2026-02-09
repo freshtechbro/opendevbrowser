@@ -1,11 +1,13 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseNumberFlag } from "../../utils/parse";
 
 type ConnectArgs = {
   wsEndpoint?: string;
   host?: string;
   port?: number;
+  extensionLegacy?: boolean;
 };
 
 function parseConnectArgs(rawArgs: string[]): ConnectArgs {
@@ -31,18 +33,26 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       continue;
     }
     if (arg?.startsWith("--host=")) {
-      parsed.host = arg.split("=", 2)[1];
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --host");
+      parsed.host = value;
       continue;
     }
     if (arg === "--cdp-port") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --cdp-port");
-      parsed.port = Number(value);
+      parsed.port = parseNumberFlag(value, "--cdp-port", { min: 1, max: 65535 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--cdp-port=")) {
-      parsed.port = Number(arg.split("=", 2)[1]);
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --cdp-port");
+      parsed.port = parseNumberFlag(value, "--cdp-port", { min: 1, max: 65535 });
+      continue;
+    }
+    if (arg === "--extension-legacy") {
+      parsed.extensionLegacy = true;
       continue;
     }
   }

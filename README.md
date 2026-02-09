@@ -4,11 +4,29 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
 [![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-green.svg?style=flat-square)](https://opencode.ai)
-[![Test Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
+[![CLI](https://img.shields.io/badge/Interface-CLI-orange.svg?style=flat-square)](docs/CLI.md)
+[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-blue.svg?style=flat-square)](docs/EXTENSION.md)
+[![Test Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
 
 > **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
-OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents direct browser control via Chrome DevTools Protocol. Launch browsers, capture page snapshots, and interact with elements using stable refs.
+OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions.
+
+<p align="center">
+  <img src="assets/readme-image-candidates/2026-02-08/04-annotation-automation-scene.jpg" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
+  <br />
+  <em>AI-assisted annotation and browser automation workflow</em>
+</p>
+
+## Use It Your Way
+
+| Interface | OpenCode Required | Best For |
+|-----------|-------------------|----------|
+| **CLI (`npx opendevbrowser ...`)** | No | Any agent/workflow that can run shell commands |
+| **Chrome Extension + Relay** | No | Reusing existing logged-in tabs without launching a new browser |
+| **OpenCode Plugin Tools** | Yes | Native tool-calling inside OpenCode (`opendevbrowser_*`) |
+
+All core automation flows are available through the CLI command surface and the plugin tool surface.
 
 ## Why OpenDevBrowser?
 
@@ -19,11 +37,12 @@ OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents
 | **Stable refs** | Elements identified by `backendNodeId`, not fragile selectors |
 | **Security by default** | CDP localhost-only, timing-safe auth, HTML sanitization |
 | **3 browser modes** | Managed, CDP connect, or extension relay for logged-in sessions |
+| **Ops + CDP channels** | High-level multi-client `/ops` plus legacy `/cdp` compatibility |
 | **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
 | **5 bundled skill packs** | Best practices for login, forms, data extraction |
-| **30 tools** | Complete browser automation coverage |
-| **95% test coverage** | Production-ready with strict TypeScript |
+| **41 tools** | Complete browser automation coverage |
+| **97% test coverage** | Production-ready with strict TypeScript |
 
 ---
 
@@ -43,9 +62,25 @@ npx opendevbrowser --local    # ./opencode.json
 npx opendevbrowser --full
 ```
 
-Restart OpenCode after installation.
+Use OpenCode only if you want plugin tools. CLI and extension workflows work without OpenCode.
+
+On first successful install, the CLI attempts to install daemon auto-start on supported platforms so the relay is available on login.
+You can remove it later with `npx opendevbrowser daemon uninstall`.
 
 OpenCode discovers skills in `.opencode/skill` (project) and `~/.config/opencode/skill` (global) first; `.claude/skills` is compatibility-only. The CLI installs bundled skills into the OpenCode-native locations by default.
+
+### CLI + Extension (No OpenCode)
+
+```bash
+# Start relay/daemon runtime
+npx opendevbrowser serve
+
+# Launch using extension mode (requires extension popup connected)
+npx opendevbrowser launch --extension-only --wait-for-extension
+
+# Or force managed mode without extension
+npx opendevbrowser launch --no-extension
+```
 
 ### Agent Installation (OpenCode)
 
@@ -78,6 +113,8 @@ Restart OpenCode, then run `opendevbrowser_status` to verify the plugin is loade
 
 ## Quick Start
 
+OpenDevBrowser uses the same automation model across plugin tools and CLI commands:
+
 ```
 1. Launch a browser session
 2. Navigate to a URL
@@ -86,7 +123,7 @@ Restart OpenCode, then run `opendevbrowser_status` to verify the plugin is loade
 5. Re-snapshot after navigation
 ```
 
-### Core Workflow
+### Core Workflow (Plugin Tools)
 
 | Step | Tool | Purpose |
 |------|------|---------|
@@ -105,6 +142,12 @@ Run a local daemon for persistent sessions, then drive automation via CLI comman
 ```bash
 # Start daemon
 npx opendevbrowser serve
+
+# Install auto-start (recommended for resilience)
+npx opendevbrowser daemon install
+
+# Stop/kill the daemon before restarting
+npx opendevbrowser serve --stop
 
 # Launch a session
 npx opendevbrowser launch --start-url https://example.com
@@ -125,6 +168,24 @@ npx opendevbrowser run --script ./script.json --output-format json
 Use `--output-format json|stream-json` for automation-friendly output.
 
 ---
+
+## Recent Features
+
+### v0.0.15 (Latest)
+
+- **Documentation and release readiness refresh** across README/CLI/extension guidance.
+- **Extension mode stabilization** with stronger native host flow and recovery paths.
+- **Ops/CDP hardening** for disconnect cleanup and extension routing reliability.
+- **Coverage expansion** for browser/target/native workflows while preserving the 97% threshold.
+
+### v0.0.14
+
+- **Ops parity delivery** across daemon, relay, and extension runtime paths.
+- **New automation surface**: expanded DOM query + interaction commands/tools.
+- **Multi-client/session improvements** in core tracking and extension router behavior.
+- **Security and reliability hardening** for relay + daemon connection handling.
+
+See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Features
 
@@ -157,13 +218,14 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ## Tool Reference
 
-OpenDevBrowser provides **30 tools** organized by category:
+OpenDevBrowser provides **41 tools** organized by category:
+Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 
 ### Session Management
 | Tool | Description |
 |------|-------------|
 | `opendevbrowser_launch` | Launch a session (extension relay first; managed is explicit) |
-| `opendevbrowser_connect` | Connect to existing Chrome CDP endpoint (or relay /cdp) |
+| `opendevbrowser_connect` | Connect to existing Chrome CDP endpoint (or relay `/ops`; legacy `/cdp` via `--extension-legacy`) |
 | `opendevbrowser_disconnect` | Disconnect browser session |
 | `opendevbrowser_status` | Get session status and connection info (daemon status in hub mode) |
 
@@ -189,9 +251,14 @@ OpenDevBrowser provides **30 tools** organized by category:
 | `opendevbrowser_wait` | Wait for load state or element |
 | `opendevbrowser_snapshot` | Capture page accessibility tree with refs |
 | `opendevbrowser_click` | Click element by ref |
+| `opendevbrowser_hover` | Hover element by ref |
+| `opendevbrowser_press` | Press a keyboard key (optionally focusing a ref) |
+| `opendevbrowser_check` | Check checkbox/toggle by ref |
+| `opendevbrowser_uncheck` | Uncheck checkbox/toggle by ref |
 | `opendevbrowser_type` | Type text into input by ref |
 | `opendevbrowser_select` | Select dropdown option by ref |
 | `opendevbrowser_scroll` | Scroll page or element |
+| `opendevbrowser_scroll_into_view` | Scroll element into view by ref |
 | `opendevbrowser_run` | Execute multiple actions in sequence |
 
 ### DOM Inspection
@@ -199,6 +266,11 @@ OpenDevBrowser provides **30 tools** organized by category:
 |------|-------------|
 | `opendevbrowser_dom_get_html` | Get outerHTML of element by ref |
 | `opendevbrowser_dom_get_text` | Get innerText of element by ref |
+| `opendevbrowser_get_attr` | Get attribute value by ref |
+| `opendevbrowser_get_value` | Get input value by ref |
+| `opendevbrowser_is_visible` | Check if element is visible |
+| `opendevbrowser_is_enabled` | Check if element is enabled |
+| `opendevbrowser_is_checked` | Check if element is checked |
 
 ### DevTools & Analysis
 | Tool | Description |
@@ -208,6 +280,11 @@ OpenDevBrowser provides **30 tools** organized by category:
 | `opendevbrowser_screenshot` | Capture page screenshot |
 | `opendevbrowser_perf` | Get page performance metrics |
 | `opendevbrowser_prompting_guide` | Get best-practice prompting guidance |
+
+### Annotation
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_annotate` | Capture interactive annotations via extension relay |
 
 ### Export & Cloning
 | Tool | Description |
@@ -258,15 +335,25 @@ Default behavior: `opendevbrowser_launch` prefers **Extension Relay** when avail
 
 Extension relay relies on **flat CDP sessions (Chrome 125+)** and uses DebuggerSession `sessionId` routing for multi-tab and child-target support. When hub mode is enabled, the hub daemon is the sole relay owner and there is **no local relay fallback**.
 
-Relay CDP endpoint: `ws://127.0.0.1:<relayPort>/cdp`.
-The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/cdp`.
-When pairing is enabled, `/cdp` requires a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
+Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`.
+The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/ops`.
+Legacy relay `/cdp` remains available with explicit opt-in (`--extension-legacy`).
+When pairing is enabled, both `/ops` and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
+
+## Ops vs CDP
+
+| Channel | What It Does | When to Use It |
+|---------|---------------|----------------|
+| **`/ops` (default)** | High-level automation protocol with session ownership, event streaming, and multi-client handling | Preferred extension relay path for modern workflows |
+| **`/cdp` (legacy)** | Low-level CDP relay path with compatibility-focused behavior | Opt-in compatibility mode (`--extension-legacy`) |
+| **Direct CDP connect** | Attach to Chrome started with `--remote-debugging-port` | Existing debug/browser setups without extension relay |
+
 ---
 
 ## Breaking Changes (latest)
 
 - `opendevbrowser_launch` now prefers the extension relay by default. Use `--no-extension` (and `--headless` if desired) for managed sessions.
-- Relay `/cdp` requires a token when pairing is enabled; tools/CLI handle this automatically.
+- Relay `/ops` (default) and legacy `/cdp` both require a token when pairing is enabled; tools/CLI handle this automatically.
 
 ## Chrome Extension (Optional)
 
@@ -276,14 +363,15 @@ The extension enables **Extension Relay** mode - attach to existing logged-in br
 
 ### Auto-Connect + Auto-Pair
 
-The plugin and extension can automatically pair:
+The runtime (plugin or CLI daemon) and extension can automatically pair:
 
-1. **Plugin side**: Starts a local relay server and config discovery endpoint
+1. **Runtime side**: Starts a local relay server and config discovery endpoint
 2. **Extension side**: Enable "Auto-Pair" toggle and click Connect
 3. Extension fetches relay port from discovery, then fetches token from the relay server
 4. Connection established with color indicator (green = connected)
 
 **Auto-connect** and **Auto-pair** are enabled by default for a seamless setup. The extension badge shows status (ON/OFF).
+If the relay is unavailable, the background worker retries `/config` + `/pair` with exponential backoff (using `chrome.alarms`).
 
 ### Default Settings (Extension)
 
@@ -302,23 +390,28 @@ The plugin and extension can automatically pair:
 3. If pairing is required and Auto-pair is on, it fetches the token from `http://127.0.0.1:<relayPort>/pair`.
 4. It connects to `ws://127.0.0.1:<relayPort>/extension` using the extension origin.
 
-`/config` and `/pair` are extension-origin only for CSWSH protection.
+`/config` and `/pair` accept loopback requests with no `Origin` (including `Origin: null`) to support MV3 + PNA; non-extension origins are still rejected, and preflights include `Access-Control-Allow-Private-Network: true`.
 
 ### Troubleshooting: Extension Won't Connect
 
 - Ensure the active tab is a normal `http(s)` page (not `chrome://` or extension pages).
 - Confirm `relayPort` and `relayToken` in `~/.config/opencode/opendevbrowser.jsonc` match the popup (Auto-pair should fetch the token).
-- If pairing is disabled (`relayToken: false`) or `relayPort` is `0`, the relay is off.
+- If `relayPort` is `0`, the relay is off.
+- `relayToken: false` disables relay/hub behavior entirely.
+- `relayToken: ""` (empty string) keeps relay enabled but disables pairing requirements.
+- Install auto-start with `npx opendevbrowser daemon install` so the relay is available on login.
 - Clear extension local data and retry if the token/port seem stuck.
 - If another process owns the port, change `relayPort` or stop it; `opencode` listening is expected.
 
 ### Manual Setup
 
-1. Start OpenCode once so the plugin can extract the extension assets.
+1. Ensure extension assets exist by running either:
+   - `npx opendevbrowser --full` (installer path), or
+   - `npm run extension:build` (repo/dev path)
 2. Load unpacked from `~/.config/opencode/opendevbrowser/extension`
    (fallback: `~/.cache/opencode/node_modules/opendevbrowser/extension`).
 3. Open extension popup
-4. Enter the same relay port and token as the plugin config
+4. Enter the same relay port and token as the runtime config
    (if `relayToken` is missing, either add one to `opendevbrowser.jsonc` or use Auto-Pair).
 5. Click Connect
 
@@ -396,11 +489,15 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
 }
 ```
 
-All fields optional. Plugin works with sensible defaults.
+All fields are optional. OpenDevBrowser works with sensible defaults.
 
 ---
 
 ## CLI Commands
+
+The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, and annotate).
+All commands listed in the CLI reference are implemented and available in the current codebase.
+See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
 
 ### Install/Management
 
@@ -415,14 +512,14 @@ All fields optional. Plugin works with sensible defaults.
 | `npx opendevbrowser --uninstall` | Remove from config |
 | `npx opendevbrowser --version` | Show version |
 
-### Automation (Daemon-backed)
+### Common Automation Commands (Daemon-backed)
 
 Start the daemon with `npx opendevbrowser serve`, then use:
 
 | Command | Description |
 |---------|-------------|
-| `npx opendevbrowser launch` | Launch managed session |
-| `npx opendevbrowser connect` | Connect to existing CDP endpoint |
+| `npx opendevbrowser launch` | Launch session (defaults to extension mode when available) |
+| `npx opendevbrowser connect` | Connect via relay or direct CDP endpoint |
 | `npx opendevbrowser disconnect` | Disconnect session |
 | `npx opendevbrowser status` | Show session status |
 | `npx opendevbrowser goto` | Navigate to URL |
@@ -444,8 +541,9 @@ OpenDevBrowser is **secure by default** with defense-in-depth protections:
 |------------|---------|
 | **CDP Localhost-Only** | Remote endpoints blocked; hostname normalized to prevent bypass |
 | **Timing-Safe Auth** | `crypto.timingSafeEqual()` for token comparison |
-| **Origin Validation** | Only `chrome-extension://` origins can connect to relay |
-| **Rate Limiting** | 5 handshake attempts/minute per IP |
+| **Origin Validation** | `/extension` requires `chrome-extension://` origin; `/ops`, `/cdp`, `/annotation`, and `/config`/`/status`/`/pair` allow loopback no-Origin requests |
+| **PNA Preflights** | HTTP preflights include `Access-Control-Allow-Private-Network: true` when requested |
+| **Rate Limiting** | 5 handshake attempts/minute per IP, plus HTTP rate limiting for `/config`, `/status`, `/pair` |
 | **Data Redaction** | Tokens, API keys, sensitive paths auto-redacted |
 | **Export Sanitization** | Scripts, event handlers, dangerous CSS stripped |
 | **Atomic Writes** | Config writes are atomic to prevent corruption |
@@ -481,7 +579,7 @@ src/
 ├── relay/        # Extension relay server, protocol types
 ├── skills/       # SkillLoader for skill pack discovery
 ├── snapshot/     # AX-tree snapshots, ref management
-├── tools/        # 30 opendevbrowser_* tool definitions
+├── tools/        # 41 opendevbrowser_* tool definitions
 └── utils/        # Shared utilities
 ```
 
@@ -496,7 +594,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed component diagrams
 ```bash
 npm install
 npm run build      # Compile to dist/
-npm run test       # Run tests with coverage (95% threshold)
+npm run test       # Run tests with coverage (97% threshold)
 npm run lint       # ESLint checks (strict TypeScript)
 npm run extension:build  # Compile extension
 npm run version:check    # Verify package/extension version alignment

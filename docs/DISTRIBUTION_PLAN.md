@@ -1,115 +1,207 @@
-# Distribution and Versioning Plan
+# OpenDevBrowser Distribution Plan
 
-Align release artifacts across NPM, GitHub, and the Chrome extension so versioning is consistent and repeatable.
+This plan prepares and ships a release to all distribution channels: npm, GitHub repository history, and GitHub Releases.
 
 ---
 
 ## Overview
 
 ### Distribution channels
-- **NPM**: `opendevbrowser` package (plugin + CLI + bundled skills + extension sources).
-- **GitHub**: source releases and tagged versions.
-- **Chrome extension**: packaged `opendevbrowser-extension.zip`.
+- npm package: `opendevbrowser`
+- GitHub code changes: branch + pull request into `main`
+- GitHub Release: version tag + release notes + extension zip asset
 
 ### Key decisions
-- `package.json` version is the source of truth.
-- `extension/manifest.json` must always match `package.json` (sync script already exists).
-- GitHub release tags should match the exact package version (`vX.Y.Z`).
+- Source of truth for version is root `package.json`.
+- `extension/manifest.json` must be synced to the same version before publishing.
+- `main` is protected; release changes must be merged via pull request.
 
 ---
 
-## Task 1 — Enforce version alignment
+## Task 1 — Release Preflight
 
 ### Reasoning
-Avoid mismatches between the NPM package and the extension manifest when publishing.
+Publishing from inconsistent or unverified state causes broken artifacts and rollback overhead.
 
 ### What to do
-Add a lightweight version check script and expose it as `npm run version:check`.
+Confirm repo state, auth, and branch strategy before changing version.
 
 ### How
-1. Create `scripts/verify-versions.mjs` to compare `package.json` vs `extension/manifest.json`.
-2. Add a `version:check` npm script that exits non-zero on mismatch.
-3. Document when to run it in this plan.
+1. Verify git status and active branch.
+2. Confirm remote push strategy (PR-required workflow for `main`).
+3. Confirm npm auth with `npm whoami`.
 
 ### Files impacted
-- `scripts/verify-versions.mjs` (new file)
+- None.
+
+### End goal
+Release operator has a valid authenticated environment and known git path to merge release changes.
+
+### Acceptance criteria
+- [ ] Git state is known and documented.
+- [ ] Push target branch is available remotely.
+- [ ] npm authentication is valid.
+
+---
+
+## Task 2 — Version Bump and Alignment
+
+### Reasoning
+Release artifacts across package and extension must carry exactly the same version.
+
+### What to do
+Bump semver and sync extension manifest to that value.
+
+### How
+1. Run one of:
+   - Patch: `npm version patch --no-git-tag-version`
+   - Minor: `npm version minor --no-git-tag-version`
+   - Major: `npm version major --no-git-tag-version`
+2. Run `npm run extension:sync`.
+3. Run `npm run version:check`.
+
+### Files impacted
 - `package.json`
+- `package-lock.json`
+- `extension/manifest.json`
 
 ### End goal
-One command reliably verifies version consistency before release.
+All version-bearing files match the new semver.
 
 ### Acceptance criteria
-- [ ] `npm run version:check` fails when versions differ.
-- [ ] `npm run version:check` passes when versions match.
-- [ ] `npm run prepack` runs `version:check` before building release artifacts.
+- [ ] `package.json` contains new version.
+- [ ] `extension/manifest.json` matches `package.json` version.
+- [ ] `npm run version:check` exits successfully.
 
 ---
 
-## Task 2 — Document the release workflow here
+## Task 3 — Build, Test, and Package Artifacts
 
 ### Reasoning
-Releases must update NPM, GitHub, and extension artifacts in sync.
+Publishing unvalidated outputs risks broken installs and extension payload failures.
 
 ### What to do
-Add a release checklist section to this document.
+Run quality gates and build both npm and extension artifacts.
 
 ### How
-1. Add a step-by-step checklist in this file.
-2. Include: bump `package.json`, run `npm run extension:sync`, `npm run build`, `npm run extension:build`, `npm run extension:pack`, and create a GitHub release tag.
-3. Note where the extension zip is produced.
+1. Run `npm run lint`.
+2. Run `npm run test`.
+3. Run `npm run build`.
+4. Run `npm run extension:build`.
+5. Run `npm run extension:pack` and keep generated zip for release assets.
 
 ### Files impacted
+- `dist/**` (generated)
+- `extension/dist/**` (generated)
+- `opendevbrowser-extension.zip` (generated)
+
+### End goal
+Validated, releasable package and extension artifacts exist locally.
+
+### Acceptance criteria
+- [ ] Lint/test/build commands pass.
+- [ ] Extension build and pack commands pass.
+- [ ] Extension zip artifact exists.
+
+---
+
+## Task 4 — GitHub Branch and Pull Request
+
+### Reasoning
+Protected `main` requires a reviewable, auditable merge path.
+
+### What to do
+Commit version changes, push branch, and open PR to `main`.
+
+### How
+1. Commit release-prep files with a conventional commit message.
+2. Push to remote release branch.
+3. Open PR targeting `main`.
+4. Merge after checks pass.
+
+### Files impacted
+- `package.json`
+- `package-lock.json`
+- `extension/manifest.json`
 - `docs/DISTRIBUTION_PLAN.md`
-- `README.md` (link to this plan)
 
 ### End goal
-Release steps are explicit and consistently followed.
+Release version changes are merged into `main` through required repository policy.
 
 ### Acceptance criteria
-- [ ] Release checklist lists NPM, GitHub, and extension steps.
-- [ ] Release checklist states the version source of truth.
+- [ ] Release PR exists and targets `main`.
+- [ ] Required checks pass.
+- [ ] PR merged to `main`.
 
 ---
 
-## Task 3 — Add agent installation instructions to README(s)
+## Task 5 — Publish to npm
 
 ### Reasoning
-Agents need a clear, minimal installation path that doesn’t rely on manual config edits.
+npm is the canonical install channel; publish must map exactly to merged git state.
 
 ### What to do
-Add an “Agent Installation” section with CLI and manual config steps.
+Publish the new package version from the merged commit.
 
 ### How
-1. Add a section to README that describes `npx opendevbrowser --global --with-config --skills-global`.
-2. Include the manual config fallback.
-3. Mention skill installation locations briefly.
+1. Checkout merged `main` commit.
+2. Verify package version one final time.
+3. Run `npm publish --access public`.
+4. Confirm published version on npm registry.
 
 ### Files impacted
-- `README.md`
+- None (registry operation).
 
 ### End goal
-Agents can install the plugin with clear, copy-pasteable instructions.
+New version is installable via npm.
 
 ### Acceptance criteria
-- [ ] README includes an “Agent Installation” section.
-- [ ] Instructions mention the CLI path and manual fallback.
+- [ ] `npm publish` succeeds.
+- [ ] `npm view opendevbrowser version` returns released version.
+
+---
+
+## Task 6 — Create GitHub Release
+
+### Reasoning
+GitHub Release provides changelog visibility and extension binary distribution.
+
+### What to do
+Create version tag, publish release notes, and attach extension zip artifact.
+
+### How
+1. Create tag `vX.Y.Z` on merged `main` commit.
+2. Push tag to origin.
+3. Create GitHub Release from that tag.
+4. Attach `opendevbrowser-extension.zip`.
+5. Include highlights and breaking-change notes (if any).
+
+### Files impacted
+- Git tag: `vX.Y.Z`
+- GitHub Release assets/notes
+
+### End goal
+GitHub users can discover release notes and download extension artifact from the release page.
+
+### Acceptance criteria
+- [ ] Tag exists on remote.
+- [ ] GitHub Release is published.
+- [ ] Extension zip is attached and downloadable.
 
 ---
 
 ## File-by-file implementation sequence
 
-1. `scripts/verify-versions.mjs` — Task 1 (new)
-2. `package.json` — Task 1
-3. `docs/DISTRIBUTION_PLAN.md` — Task 2 (this doc)
-4. `README.md` — Task 2, Task 3
+1. `package.json` — set new semver
+2. `package-lock.json` — lockfile version update from npm
+3. `extension/manifest.json` — sync extension version
+4. `docs/DISTRIBUTION_PLAN.md` — maintain release workflow
 
 ---
 
 ## Dependencies to add
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| None | | |
+No new dependencies are required for release workflow.
 
 ---
 
@@ -117,18 +209,4 @@ Agents can install the plugin with clear, copy-pasteable instructions.
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0 | 2026-01-01 | Initial distribution and versioning plan |
-
----
-
-## Release checklist
-
-1. Bump `package.json` version.
-2. Run: `npm run extension:sync`
-3. Run: `npm run version:check`
-4. Run: `npm run build`
-5. Run: `npm run extension:build`
-6. Run: `npm run extension:pack` (generates `opendevbrowser-extension.zip`)
-   - Output: `./opendevbrowser-extension.zip` at repo root.
-7. Publish to NPM: `npm publish`
-8. Create GitHub release tag `vX.Y.Z` and attach `opendevbrowser-extension.zip`
+| 1.0 | 2026-02-09 | Initial distribution plan for npm + GitHub + GitHub Releases |

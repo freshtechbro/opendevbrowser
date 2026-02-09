@@ -1,113 +1,106 @@
 ---
 name: form-testing
-description: Comprehensive form testing patterns including validation, submission, and error handling with OpenDevBrowser.
-version: 1.0.0
+description: This skill should be used when the user asks to "test a form", "verify validation", "check submission behavior", "test multi-step forms", or "debug form errors" with OpenDevBrowser.
+version: 1.1.0
 ---
 
 # Form Testing Skill
 
-## Form Field Discovery
+Use this guide for comprehensive validation, submission, and error-state testing.
 
-1. Take a snapshot to map all form elements:
-   ```
-   opendevbrowser_snapshot
-   ```
+## Form Discovery Pass
 
-2. Identify field types:
-   - Text inputs: `<input type="text">`
-   - Email fields: `<input type="email">`
-   - Number fields: `<input type="number">`
-   - Select dropdowns: `<select>`
-   - Checkboxes: `<input type="checkbox">`
-   - Radio buttons: `<input type="radio">`
-   - Textareas: `<textarea>`
-   - File uploads: `<input type="file">`
+Start every form suite with structural discovery:
 
-3. Note required fields (often marked with `required` attribute or asterisk).
+1. Capture `actionables` snapshot.
+2. Map refs for each input, control, and submit button.
+3. Record required and optional fields.
+4. Record dependent/conditional fields.
 
-## Validation Testing
+```text
+opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
+```
 
-Test each field's validation rules:
+## Validation Matrix
 
-### Required Fields
-1. Leave field empty
-2. Submit form
-3. Verify error message appears
+Build a deterministic matrix per field type:
 
-### Email Validation
-Test with:
-- Valid email: `user@example.com`
-- Missing @: `userexample.com`
-- Missing domain: `user@`
-- Invalid TLD: `user@example`
+| Category | Cases |
+|---|---|
+| Required | empty value, whitespace-only, valid value |
+| Email | valid format, missing `@`, missing domain |
+| Numeric | below min, above max, boundary values |
+| Length | below min length, exact bounds, above max length |
+| Pattern | valid regex match, invalid charset, malformed input |
+| Select/Radio | no selection, valid selection, invalid dependent state |
 
-### Length Constraints
-- Minimum length: Enter fewer characters than required
-- Maximum length: Enter more characters than allowed
-- Boundary values: Test exact min/max limits
+Re-snapshot after each invalid submit to capture updated error refs.
 
-### Pattern Matching
-For fields with regex patterns:
-- Valid pattern match
-- Invalid characters
-- Edge cases
+## Submission Workflow
 
-## Form Submission Workflow
+Run positive-path submission only after field validation is complete:
 
-1. Fill all required fields:
-   ```
-   opendevbrowser_type ref="[field-ref]" text="value"
-   ```
+1. Fill required fields.
+2. Set select/radio/checkbox controls.
+3. Verify submit button is enabled.
+4. Submit and wait for network/UI completion.
 
-2. For select dropdowns:
-   ```
-   opendevbrowser_select ref="[select-ref]" value="option-value"
-   ```
+```text
+opendevbrowser_type sessionId="<session-id>" ref="<text-ref>" text="valid value"
+opendevbrowser_select sessionId="<session-id>" ref="<select-ref>" values=["expected-option"]
+opendevbrowser_check sessionId="<session-id>" ref="<terms-ref>"
+opendevbrowser_is_enabled sessionId="<session-id>" ref="<submit-ref>"
+opendevbrowser_click sessionId="<session-id>" ref="<submit-ref>"
+opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+```
 
-3. For checkboxes:
-   ```
-   opendevbrowser_click ref="[checkbox-ref]"
-   ```
+## Error-State Assertions
 
-4. Submit the form:
-   ```
-   opendevbrowser_click ref="[submit-ref]"
-   ```
+For invalid submissions, assert three dimensions:
 
-5. Wait for response:
-   ```
-   opendevbrowser_wait state="networkidle"
-   ```
+1. Error text is present and specific.
+2. Accessibility attributes are set correctly (for example `aria-invalid="true"`).
+3. Focus behavior moves to first invalid field when applicable.
 
-## Error Message Verification
+```text
+opendevbrowser_get_attr sessionId="<session-id>" ref="<field-ref>" name="aria-invalid"
+opendevbrowser_dom_get_text sessionId="<session-id>" ref="<error-ref>"
+```
 
-After invalid submission:
-
-1. Take new snapshot to capture error state
-2. Look for error messages near each field
-3. Verify error text matches expected message
-4. Check ARIA attributes for accessibility
-
-## Multi-Step Forms
+## Multi-Step Form Pattern
 
 For wizard-style forms:
 
-1. Complete current step
-2. Click next/continue button
-3. Wait for next step to load
-4. Repeat until completion
-5. Verify final submission
+1. Validate and submit current step.
+2. Wait for next-step container ref.
+3. Continue step-by-step until final submit.
+4. Verify completion state and any generated confirmation ID.
 
-## File Upload Testing
+Use `opendevbrowser_wait` with `ref` checks between steps.
 
-1. Use `opendevbrowser_run` to execute file input script
-2. Verify file preview appears
-3. Test file type restrictions
-4. Test file size limits
+## Network Verification
 
-## Form Reset Testing
+Correlate UI behavior with network activity:
 
-1. Fill form with data
-2. Click reset button
-3. Verify all fields cleared
-4. Verify any default values restored
+- Poll network events after submit.
+- Confirm expected endpoint, method, and status.
+- Flag silent frontend failures where UI does not surface server errors.
+
+```text
+opendevbrowser_network_poll sessionId="<session-id>" max=50
+```
+
+## File Upload Limitation
+
+Current tool surface does not provide direct file input attachment.
+
+- Handle upload steps manually, or
+- Extend tooling with a dedicated upload capability before automating file-input paths.
+
+## Regression-Friendly Batch Pattern
+
+Use `opendevbrowser_run` to keep suites deterministic and compact:
+
+```text
+opendevbrowser_run sessionId="<session-id>" steps=[{"action":"snapshot","args":{"format":"actionables"}},{"action":"type","args":{"ref":"<field-ref>","text":""}},{"action":"click","args":{"ref":"<submit-ref>"}},{"action":"snapshot","args":{"format":"outline"}}]
+```
