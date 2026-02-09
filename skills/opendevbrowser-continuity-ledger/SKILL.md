@@ -1,6 +1,6 @@
 ---
 name: opendevbrowser-continuity-ledger
-description: Maintain an OpenDevBrowser continuity ledger in opendevbrowser_continuity.md for long-running tasks and resumable work.
+description: Maintain an OpenDevBrowser continuity ledger in CONTINUITY.md for long-running tasks and resumable work.
 version: 1.0.0
 ---
 
@@ -15,7 +15,7 @@ Use a lightweight ledger to keep long-running tasks on track across sessions or 
 - Any task likely to resume later
 
 ## Ledger file
-- Always use `opendevbrowser_continuity.md` at the repo root.
+- Always use `CONTINUITY.md` at the repo root.
 - Create it if it does not exist.
 - Keep it short and factual.
 

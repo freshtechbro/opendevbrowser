@@ -36,7 +36,7 @@ npm run test -- -t "test name"      # Single test by name
 
 ## Coverage Scope
 
-Covers `src/**/*.ts` only. Extension excluded from thresholds.
+Covers `src/**/*.ts` with explicit exclusions from `vitest.config.ts` (including `src/cli/**`, `src/index.ts`, `src/relay/protocol.ts`, `src/tools/deps.ts`, `src/extension-extractor.ts`, `src/skills/types.ts`, `src/tools/skill_list.ts`, `src/tools/skill_load.ts`, and `extension/**`).
 
 ## Focus areas (current architecture)
 

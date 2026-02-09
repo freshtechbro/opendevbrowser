@@ -112,12 +112,14 @@ sequenceDiagram
   Extension->>Relay: WS /extension
   Tools->>Relay: GET /config (loopback)
   Tools->>Relay: GET /pair (when pairing required, loopback)
-  Tools->>Hub: acquire relay lease (FIFO)
+  Tools->>Hub: acquire binding/lease when required
   Tools->>Relay: WS /ops?token=...
   Tools->>Relay: WS /annotation?token=... (annotate relay)
-  Relay->>Browser: forward CDP commands (flat sessions)
-  Browser-->>Relay: CDP events
-  Relay-->>Tools: forward events
+  Relay->>Extension: forward ops envelopes
+  Extension->>Browser: execute CDP/debugger commands
+  Browser-->>Extension: CDP events/results
+  Extension-->>Relay: relay events/results
+  Relay-->>Tools: forward events/results
 ```
 
 ### Session modes
@@ -128,7 +130,7 @@ sequenceDiagram
 - `connect` routing: local relay WS endpoints (for example `ws://127.0.0.1:<relayPort>` or `/ops`) are normalized to `/ops` and routed via the relay (`extension` mode). Legacy `/cdp` requires `--extension-legacy`.
 - Launch defaults to `extension` when available; managed/CDPConnect require explicit user choice.
 - Extension relay requires **Chrome 125+** and uses flat-session routing with DebuggerSession `sessionId`.
-- Hub mode supports multi-client access via FIFO lease queueing; only one relay client holds the lease at a time.
+- Hub mode supports multi-client access. `/ops` accepts multiple clients, while FIFO binding/lease coordination applies to legacy `/cdp` and protected extension-session command paths.
 
 ---
 

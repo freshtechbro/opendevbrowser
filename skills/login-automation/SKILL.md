@@ -11,8 +11,7 @@ version: 1.0.0
 Store credentials securely using environment variables or config files outside the repository.
 
 Never hardcode credentials in test scripts or skill files.
-
-Use `opendevbrowser_type` with `sensitive: true` (if available) for password fields.
+Use environment variables/secure config, and avoid echoing password values in logs or transcripts.
 
 ## Form Detection Workflow
 
@@ -32,37 +31,37 @@ Use `opendevbrowser_type` with `sensitive: true` (if available) for password fie
 
 1. Navigate to login page:
    ```
-   opendevbrowser_goto url="https://example.com/login"
+   opendevbrowser_goto sessionId="<session-id>" url="https://example.com/login"
    ```
 
 2. Wait for form to load:
    ```
-   opendevbrowser_wait state="networkidle"
+   opendevbrowser_wait sessionId="<session-id>" until="networkidle"
    ```
 
 3. Take snapshot to get refs:
    ```
-   opendevbrowser_snapshot
+   opendevbrowser_snapshot sessionId="<session-id>"
    ```
 
 4. Enter username/email:
    ```
-   opendevbrowser_type ref="[email-input-ref]" text="user@example.com"
+   opendevbrowser_type sessionId="<session-id>" ref="[email-input-ref]" text="user@example.com"
    ```
 
 5. Enter password:
    ```
-   opendevbrowser_type ref="[password-input-ref]" text="password123"
+   opendevbrowser_type sessionId="<session-id>" ref="[password-input-ref]" text="password123"
    ```
 
 6. Click submit:
    ```
-   opendevbrowser_click ref="[submit-button-ref]"
+   opendevbrowser_click sessionId="<session-id>" ref="[submit-button-ref]"
    ```
 
 7. Wait for navigation:
    ```
-   opendevbrowser_wait state="networkidle"
+   opendevbrowser_wait sessionId="<session-id>" until="networkidle"
    ```
 
 ## Error Handling
@@ -71,7 +70,7 @@ After login attempt, verify success:
 
 1. Check URL changed to expected destination
 2. Look for error messages in snapshot
-3. Verify session cookies are set via network poll
+3. Use `opendevbrowser_network_poll` to confirm auth/network requests succeeded (status/method/url), and verify authenticated state via URL/UI/session behavior
 
 Common failure patterns:
 - "Invalid credentials" messages

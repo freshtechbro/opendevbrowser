@@ -170,7 +170,7 @@ npm run version:check     # Verify version alignment
 - Hostname normalization: lowercase before validation
 - Relay auth: timing-safe token comparison
 - Rate limiting: 5 handshakes/min/IP
-- Origin validation: chrome-extension:// only for WebSocket
+- Origin validation: `/extension` requires `chrome-extension://`; `/cdp`, `/ops`, and `/annotation` accept extension origin or loopback requests without `Origin`
 - Export sanitization: strip scripts, handlers, dangerous CSS
 
 ### File Permissions
@@ -221,7 +221,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Source of truth: `docs/`
 - Architecture: `docs/ARCHITECTURE.md`
 - CLI reference: `docs/CLI.md`
-- Refactor plans: `docs/REFACTORING_PLAN.md`
+- Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
 - If tool list or outputs change, update `docs/CLI.md` and this file together.
 
@@ -233,6 +233,10 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 
 Subdirectory guides override this root file:
 - `src/AGENTS.md` — module boundaries, manager patterns
+- `src/browser/AGENTS.md` — browser/session module specifics
+- `src/cli/AGENTS.md` — CLI command and daemon conventions
+- `src/relay/AGENTS.md` — relay protocol and security specifics
+- `src/snapshot/AGENTS.md` — snapshot/ref pipeline specifics
 - `src/tools/AGENTS.md` — tool development patterns
 - `extension/AGENTS.md` — Chrome extension specifics
 - `tests/AGENTS.md` — testing conventions

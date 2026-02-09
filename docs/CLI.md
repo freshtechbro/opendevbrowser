@@ -2,7 +2,7 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 OpenDevBrowser exposes 41 `opendevbrowser_*` tools; see `README.md` for the full list.
-Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require the relay/daemon.
+Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 
 ## Installation
 
@@ -48,7 +48,7 @@ Use `--quiet` to suppress output. Use `--no-interactive` (alias of `--no-prompt`
 - `2`: execution error (runtime/daemon failures)
 - `10`: disconnected (daemon not running or unreachable)
 
-Errors are emitted even when `--quiet` is set. For JSON output, errors are emitted as:
+Fatal errors are emitted even when `--quiet` is set. For JSON output, fatal errors are emitted as:
 
 ```json
 { "success": false, "error": "message", "exitCode": 2 }
@@ -324,7 +324,7 @@ Interactive vs non-interactive:
 | `extensionHandshakeComplete` | Extension handshake done | `false` means reconnect/repair from popup. |
 | `opsConnected` | Active `/ops` client attached | `false` means no ops client is connected. |
 | `cdpConnected` | Active `/cdp` client attached | Expected `false` until a legacy `/cdp` session connects. |
-| `pairingRequired` | Relay token required | When `true`, `/cdp` requires a token (auto-fetched). |
+| `pairingRequired` | Relay token required | When `true`, both `/ops` and `/cdp` require a token (auto-fetched). |
 
 ### Connect
 
@@ -338,14 +338,14 @@ If the `--ws-endpoint` points at the local relay (for example `ws://127.0.0.1:87
 the CLI will normalize to `/ops` and route through the extension relay (`extension` mode).
 Use `--extension-legacy` if you need the legacy `/cdp` relay path.
 When routing through the relay, the CLI automatically fetches relay config and the pairing token (if required) and authenticates
-the `/ops` or `/cdp` connection. Direct `/cdp` connections without a token are rejected when pairing is enabled.
+the `/ops` or `/cdp` connection. Direct relay websocket connections without a token are rejected when pairing is enabled.
 
 ### Relay binding queue
 
-Only one client can hold the hub relay binding at a time. Additional clients are queued FIFO and wait up to 30s by default.
-If you see `RELAY_WAIT_TIMEOUT`, retry after the current binding expires or stop the other client.
+Hub binding is exclusive only for binding/legacy paths (for example `/cdp` and commands that require a binding). Additional clients are queued FIFO and wait up to 30s by default.
+If you see `RELAY_WAIT_TIMEOUT`, retry after the current binding expires or stop the other bound client.
 
-Relay singleton note: the extension relay is single-tenant. Disconnecting the extension or restarting the relay drops all active sessions, including annotation flows. Reconnect via the popup (or restart the daemon) before retrying.
+Relay behavior note: extension uses a single extension websocket, while the relay can serve multiple `/ops` clients. Disconnecting the extension or restarting the relay drops active sessions, including annotation flows. Reconnect via the popup (or restart the daemon) before retrying.
 
 ### Disconnect
 
@@ -668,7 +668,7 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 | `--ref` | `wait` | Element ref to wait for |
 | `--state` | `wait` | Element state (e.g. `visible`) |
 | `--until` | `wait` | Page load state |
-| `--mode` | `snapshot` | Snapshot mode (`actionables`, `full`, etc.) |
+| `--mode` | `snapshot` | Snapshot mode (`outline` or `actionables`) |
 | `--max-chars` | `snapshot`, `dom-*` | Max characters returned |
 | `--cursor` | `snapshot` | Snapshot pagination cursor |
 
@@ -727,11 +727,17 @@ node scripts/cli-smoke-test.mjs
 The script uses temporary config/cache directories and exercises all CLI commands, including the new interaction and DOM state checks.
 Validate extension mode separately with `launch` + `disconnect` while the extension is connected.
 
-### Latest validation (2026-01-30)
+### Latest validation (2026-02-08)
 
 - Managed mode: PASS (`node scripts/cli-smoke-test.mjs`)
-- CDP-connect: PASS (`connect --cdp-port 9222`, `status`, `disconnect`)
-- Extension relay: PASS (`launch --extension-only --wait-for-extension`, `disconnect`)
+- Connection modes: PASS (`node /tmp/connection_modes_real_test.mjs` => `22/22`)
+- Extension-only command matrix: PASS (`node /tmp/odb_ext_test_matrix.mjs` => `cli_common 10/10`, `cli_extension_surface 32/32`, `daemon_extension_lease_aware 31/31`)
+- Extension-only low-churn rerun: PASS (`node /tmp/odb_rerun_low_churn.mjs` => `23/23`)
+- Real tool-surface run: PASS (`bun /tmp/opendevbrowser_tools_real_matrix.mjs` => `59/59`)
+- Real admin/native command run: PASS (`node /tmp/opendevbrowser_admin_commands_real.mjs` => `10/10`)
+
+OpenCode prompt-driven background run note:
+- If `opencode run --command` reports `command3.agent`, use explicit shell command routing (`--command shell "..."`), then re-run JSON probe checks.
 
 ---
 
@@ -739,7 +745,7 @@ Validate extension mode separately with `launch` + `disconnect` while the extens
 
 Use this to validate the Chrome extension + relay without starting OpenCode.
 
-1. Ensure the daemon is running: `npx opendevbrowser daemon install` (auto-start) or `npx opendevbrowser serve` (manual).
+1. Ensure the daemon is running: `npx opendevbrowser serve` (manual). `npx opendevbrowser daemon install` configures auto-start for future logins but does not start it immediately.
 2. Build and load the extension: `npm run extension:build`, then Chrome → `chrome://extensions` → Developer mode → Load unpacked → `extension/`.
 3. Open a normal `http(s)` tab (not `chrome://` or extension pages).
 4. Open the extension popup, confirm Auto-connect + Auto-pair are ON, click Connect.
@@ -801,7 +807,9 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
     }
   },
   "daemonPort": 8788,
-  "daemonToken": "auto-generated-on-first-run"
+  "daemonToken": "auto-generated-on-first-run",
+  "flags": [],
+  "checkForUpdates": false
 }
 ```
 

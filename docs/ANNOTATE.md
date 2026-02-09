@@ -102,7 +102,7 @@ Use `details` for inspection; avoid shipping raw output without review.
 
 ## Troubleshooting
 
-- **Relay singleton**: the relay is single-tenant today. Disconnecting the extension or restarting the relay drops all active annotation sessions. If annotations stall, reconnect in the popup (or restart the daemon) before retrying.
+- **Relay behavior**: the extension websocket is singular, but the relay can serve multiple `/ops` clients. Disconnecting the extension or restarting the relay drops active annotation sessions. If annotations stall, reconnect in the popup (or restart the daemon) before retrying.
 - **Restricted URL**: `chrome://` and Chrome Web Store pages cannot be annotated. Use a normal `http(s)` URL.
 - **Relay unavailable**: start the daemon and confirm the popup shows **Connected**.
 - **Injection failed**: reload the tab and retry; ensure the extension has `<all_urls>` host permissions.

@@ -10,7 +10,7 @@ version: 1.0.0
 
 1. Take a snapshot to map all form elements:
    ```
-   opendevbrowser_snapshot
+   opendevbrowser_snapshot sessionId="<session-id>"
    ```
 
 2. Identify field types:
@@ -56,27 +56,27 @@ For fields with regex patterns:
 
 1. Fill all required fields:
    ```
-   opendevbrowser_type ref="[field-ref]" text="value"
+   opendevbrowser_type sessionId="<session-id>" ref="[field-ref]" text="value"
    ```
 
 2. For select dropdowns:
    ```
-   opendevbrowser_select ref="[select-ref]" value="option-value"
+   opendevbrowser_select sessionId="<session-id>" ref="[select-ref]" values=["option-value"]
    ```
 
 3. For checkboxes:
    ```
-   opendevbrowser_click ref="[checkbox-ref]"
+   opendevbrowser_click sessionId="<session-id>" ref="[checkbox-ref]"
    ```
 
 4. Submit the form:
    ```
-   opendevbrowser_click ref="[submit-ref]"
+   opendevbrowser_click sessionId="<session-id>" ref="[submit-ref]"
    ```
 
 5. Wait for response:
    ```
-   opendevbrowser_wait state="networkidle"
+   opendevbrowser_wait sessionId="<session-id>" until="networkidle"
    ```
 
 ## Error Message Verification
@@ -100,10 +100,11 @@ For wizard-style forms:
 
 ## File Upload Testing
 
-1. Use `opendevbrowser_run` to execute file input script
-2. Verify file preview appears
-3. Test file type restrictions
-4. Test file size limits
+1. Current tools do not support file-input attachment directly.
+2. Use manual upload steps or extend the toolset with a dedicated upload capability.
+3. Verify file preview appears
+4. Test file type restrictions
+5. Test file size limits
 
 ## Form Reset Testing
 

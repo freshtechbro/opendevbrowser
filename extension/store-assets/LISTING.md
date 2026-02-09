@@ -15,7 +15,7 @@ OpenDevBrowser Relay bridges the OpenDevBrowser plugin with your Chrome browser,
 - **Zero Config**: Works out of the box with sensible defaults
 - **Local Only**: All communication stays on your machine (localhost)
 - **Secure**: Token-based pairing prevents unauthorized access
-- **Lightweight**: Minimal permissions, no background resource usage when idle
+- **Lightweight**: Permissions scoped to local relay + automation workflows, with background alarms used only for reconnect retries
 
 ### How It Works
 1. Install the extension
@@ -50,8 +50,12 @@ English (United States)
 | Permission | Justification |
 |------------|---------------|
 | **debugger** | Required to access Chrome DevTools Protocol (CDP) for browser automation. Enables clicking, typing, screenshots, and DOM access. |
+| **alarms** | Required to schedule reconnect retries when the relay is temporarily unavailable. |
 | **tabs** | Required to list available browser tabs and identify targets for automation. |
 | **storage** | Required to persist user preferences (relay port, pairing token) locally in Chrome. |
+| **scripting** | Required to inject runtime/annotation scripts into active pages. |
+| **activeTab** | Required for user-initiated actions against the currently active tab. |
+| **nativeMessaging** | Required for optional local native-host fallback integration. |
 
 ## Host Permissions
 
@@ -59,6 +63,7 @@ English (United States)
 |------|---------------|
 | `http://127.0.0.1/*` | Connect to local relay server running on your machine |
 | `http://localhost/*` | Alternative localhost binding for relay connection |
+| `<all_urls>` | Required to run automation and annotation flows across user-opened websites during local sessions |
 
 ## Screenshots Required
 
@@ -102,4 +107,4 @@ English (United States)
 - [x] No keyword stuffing in listing
 - [x] Privacy policy hosted and accessible
 - [x] All permissions are minimal and justified
-- [x] Host permissions limited to localhost only
+- [x] Host permissions documented with localhost relay endpoints plus `<all_urls>` for automation scope

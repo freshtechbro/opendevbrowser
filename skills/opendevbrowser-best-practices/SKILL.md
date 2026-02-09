@@ -71,8 +71,8 @@ Use polling tools only when needed:
 
 ## Mode Guidance
 
-- Use Mode A (managed) by default for zero-config operation.
-- Use Mode C (extension) only when existing logged-in tabs are required.
+- Use managed mode by default for zero-config operation.
+- Use extension mode only when existing logged-in tabs are required.
 
 ## Safe Defaults
 

@@ -34,17 +34,17 @@ src/
 | Module | Responsibility |
 |--------|----------------|
 | `annotate/` | Direct/relay annotation transport + output formatting |
-| `browser/` | BrowserManager, OpsBrowserManager, TargetManager, AnnotationManager, CDP lifecycle |
+| `browser/` | BrowserManager, OpsBrowserManager, TargetManager, AnnotationManager, CDP lifecycle. See `browser/AGENTS.md` |
 | `cache/` | Chrome executable resolution |
-| `cli/` | CLI commands, installers, daemon autostart + hub tooling |
+| `cli/` | CLI commands, installers, daemon autostart + hub tooling. See `cli/AGENTS.md` |
 | `cli/` (hub) | Daemon lifecycle, FIFO lease queue, relay status refresh |
 | `core/` | Bootstrap, runtime wiring |
 | `devtools/` | Console/network trackers, redaction |
 | `export/` | DOM capture, React emitter, sanitization |
-| `relay/` | Extension relay server, protocol types |
-| `skills/` | SkillLoader, topic filtering |
-| `snapshot/` | AX-tree snapshots, ref management |
-| `tools/` | 41 tool definitions (thin wrappers) |
+| `relay/` | Extension relay server, protocol types. See `relay/AGENTS.md` |
+| `skills/` | SkillLoader, topic filtering. See `../skills/AGENTS.md` |
+| `snapshot/` | AX-tree snapshots, ref management. See `snapshot/AGENTS.md` |
+| `tools/` | 41 tool definitions (thin wrappers). See `tools/AGENTS.md` |
 | `utils/` | Shared utilities |
 
 ## Manager Pattern
@@ -72,12 +72,12 @@ class BrowserManager {
 bootstrap.ts
   ├── Creates: BrowserManager, AnnotationManager, ScriptRunner, SkillLoader, RelayServer
   └── Returns: ToolDeps interface
-        ├── browserManager
+        ├── manager
         ├── annotationManager
-        ├── scriptRunner
-        ├── skillLoader
-        ├── snapshotter
-        └── config
+        ├── runner
+        ├── skills
+        ├── config
+        ├── relay? / getExtensionPath? / ensureHub?
 ```
 
 Tools receive `ToolDeps` and delegate logic:
@@ -86,9 +86,9 @@ Tools receive `ToolDeps` and delegate logic:
 export function createLaunchTool(deps: ToolDeps): ToolDefinition {
   return {
     name: 'opendevbrowser_launch',
-    handler: async (params) => {
-      const session = await deps.browserManager.launch(params);
-      return { success: true, sessionId: session.id };
+    execute: async (params) => {
+      const session = await deps.manager.launch(params);
+      return { success: true, ...session };
     }
   };
 }

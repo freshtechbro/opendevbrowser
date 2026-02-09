@@ -15,11 +15,11 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
   return {
     name: 'opendevbrowser_foo',
     description: 'One-line description',
-    parameters: z.object({ ... }),  // Zod schema
-    handler: async (params, context) => {
+    args: { ... },  // Zod schema fields
+    execute: async (params, context) => {
       // 1. Validate (already done by Zod)
       // 2. Delegate to manager
-      const result = await deps.browserManager.foo(params);
+      const result = await deps.manager.foo(params);
       // 3. Shape response
       return { success: true, data: result };
     }

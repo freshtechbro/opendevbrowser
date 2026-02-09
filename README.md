@@ -10,6 +10,12 @@
 
 OpenDevBrowser is an [OpenCode](https://opencode.ai) plugin that gives AI agents direct browser control via Chrome DevTools Protocol. Launch browsers, capture page snapshots, and interact with elements using stable refs.
 
+<p align="center">
+  <img src="assets/readme-image-candidates/2026-02-08/04-annotation-automation-scene.jpg" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
+  <br />
+  <em>AI-assisted annotation and browser automation workflow</em>
+</p>
+
 ## Why OpenDevBrowser?
 
 | Feature | Benefit |
@@ -135,6 +141,18 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ---
 
+## Recent Features
+
+### v0.0.14 (Latest)
+
+- **Extension Mode Remediation** - Improved extension-only workflow with better error handling and recovery. See [Extension Guide](docs/EXTENSION.md) for details.
+- **Daemon Auto-Install** - The hub daemon now automatically installs on first use, simplifying setup for new users.
+- **Ops Coverage** - Comprehensive E2E testing for daemon and relay operations, ensuring reliability across all modes.
+- **CLI Native Status** - Enhanced native host integration with better status reporting and debugging.
+- **Security Hardening** - Improved relay authentication, rate limiting, and extension security.
+
+See [CHANGELOG.md](CHANGELOG.md) for complete version history.
+
 ## Features
 
 ### Browser Control
@@ -172,7 +190,7 @@ OpenDevBrowser provides **41 tools** organized by category:
 | Tool | Description |
 |------|-------------|
 | `opendevbrowser_launch` | Launch a session (extension relay first; managed is explicit) |
-| `opendevbrowser_connect` | Connect to existing Chrome CDP endpoint (or relay /cdp) |
+| `opendevbrowser_connect` | Connect to existing Chrome CDP endpoint (or relay `/ops`; legacy `/cdp` via `--extension-legacy`) |
 | `opendevbrowser_disconnect` | Disconnect browser session |
 | `opendevbrowser_status` | Get session status and connection info (daemon status in hub mode) |
 
@@ -282,15 +300,16 @@ Default behavior: `opendevbrowser_launch` prefers **Extension Relay** when avail
 
 Extension relay relies on **flat CDP sessions (Chrome 125+)** and uses DebuggerSession `sessionId` routing for multi-tab and child-target support. When hub mode is enabled, the hub daemon is the sole relay owner and there is **no local relay fallback**.
 
-Relay CDP endpoint: `ws://127.0.0.1:<relayPort>/cdp`.
-The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/cdp`.
-When pairing is enabled, `/cdp` requires a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
+Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`.
+The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/ops`.
+Legacy relay `/cdp` remains available with explicit opt-in (`--extension-legacy`).
+When pairing is enabled, both `/ops` and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
 ---
 
 ## Breaking Changes (latest)
 
 - `opendevbrowser_launch` now prefers the extension relay by default. Use `--no-extension` (and `--headless` if desired) for managed sessions.
-- Relay `/cdp` requires a token when pairing is enabled; tools/CLI handle this automatically.
+- Relay `/ops` (default) and legacy `/cdp` both require a token when pairing is enabled; tools/CLI handle this automatically.
 
 ## Chrome Extension (Optional)
 
@@ -333,7 +352,9 @@ If the relay is unavailable, the background worker retries `/config` + `/pair` w
 
 - Ensure the active tab is a normal `http(s)` page (not `chrome://` or extension pages).
 - Confirm `relayPort` and `relayToken` in `~/.config/opencode/opendevbrowser.jsonc` match the popup (Auto-pair should fetch the token).
-- If pairing is disabled (`relayToken: false`) or `relayPort` is `0`, the relay is off.
+- If `relayPort` is `0`, the relay is off.
+- `relayToken: false` disables relay/hub behavior entirely.
+- `relayToken: ""` (empty string) keeps relay enabled but disables pairing requirements.
 - Install auto-start with `npx opendevbrowser daemon install` so the relay is available on login.
 - Clear extension local data and retry if the token/port seem stuck.
 - If another process owns the port, change `relayPort` or stop it; `opencode` listening is expected.
@@ -470,7 +491,7 @@ OpenDevBrowser is **secure by default** with defense-in-depth protections:
 |------------|---------|
 | **CDP Localhost-Only** | Remote endpoints blocked; hostname normalized to prevent bypass |
 | **Timing-Safe Auth** | `crypto.timingSafeEqual()` for token comparison |
-| **Origin Validation** | Only `chrome-extension://` origins can connect to relay WebSocket; loopback no-Origin is allowed for `/config`, `/status`, `/pair` |
+| **Origin Validation** | `/extension` requires `chrome-extension://` origin; `/ops`, `/cdp`, `/annotation`, and `/config`/`/status`/`/pair` allow loopback no-Origin requests |
 | **PNA Preflights** | HTTP preflights include `Access-Control-Allow-Private-Network: true` when requested |
 | **Rate Limiting** | 5 handshake attempts/minute per IP, plus HTTP rate limiting for `/config`, `/status`, `/pair` |
 | **Data Redaction** | Tokens, API keys, sensitive paths auto-redacted |

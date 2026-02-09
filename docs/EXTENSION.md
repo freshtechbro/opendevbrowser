@@ -5,10 +5,10 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 ## What it does
 
 - Connects to the local relay server (`ws://127.0.0.1:<port>/extension`).
-- Uses the Chrome Debugger API to forward CDP commands for the active tab.
+- Uses the Chrome Debugger API to forward CDP commands across attached tabs/targets (with a primary tab used for handshake/status).
 - Allows OpenDevBrowser to control tabs without launching a new browser.
 - Supports multi-tab CDP routing with flat sessions (Chrome 125+).
-- Lists only top-level tabs for discovery; child targets (workers/OOPIF) are auto-attached internally.
+- Exposes top-level tabs and auto-attached child targets (workers/OOPIF) through `Target.getTargets`.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
 - When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
 
@@ -70,8 +70,8 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 
 ## Multi-tab + primary tab behavior
 
-- Target discovery lists only top-level tabs.
-- Child targets are auto-attached recursively (not listed in `Target.getTargets`).
+- Target discovery (`Target.getTargets`) includes top-level tabs and child targets.
+- Child targets are auto-attached recursively for session-aware routing.
 - A single **primary tab** is used for relay handshake/status; switching tabs updates the handshake without disconnecting others.
 
 ## Security notes

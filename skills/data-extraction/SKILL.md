@@ -10,17 +10,17 @@ version: 1.0.0
 
 1. Navigate to page with data table:
    ```
-   opendevbrowser_goto url="https://example.com/data"
+   opendevbrowser_goto sessionId="<session-id>" url="https://example.com/data"
    ```
 
 2. Wait for table to load:
    ```
-   opendevbrowser_wait state="networkidle"
+   opendevbrowser_wait sessionId="<session-id>" until="networkidle"
    ```
 
 3. Get table HTML structure:
    ```
-   opendevbrowser_dom_get_html ref="[table-ref]"
+   opendevbrowser_dom_get_html sessionId="<session-id>" ref="[table-ref]"
    ```
 
 4. Parse the HTML to extract rows and cells.
@@ -50,7 +50,7 @@ For unordered/ordered lists:
 1. Identify list container ref
 2. Extract text content:
    ```
-   opendevbrowser_dom_get_text ref="[list-ref]"
+   opendevbrowser_dom_get_text sessionId="<session-id>" ref="[list-ref]"
    ```
 
 For card-based layouts:
@@ -64,15 +64,15 @@ For card-based layouts:
 1. Extract current page data
 2. Find "Next" or page number button:
    ```
-   opendevbrowser_snapshot
+   opendevbrowser_snapshot sessionId="<session-id>"
    ```
 3. Click next page:
    ```
-   opendevbrowser_click ref="[next-button-ref]"
+   opendevbrowser_click sessionId="<session-id>" ref="[next-button-ref]"
    ```
 4. Wait for new content:
    ```
-   opendevbrowser_wait state="networkidle"
+   opendevbrowser_wait sessionId="<session-id>" until="networkidle"
    ```
 5. Repeat until no more pages
 
@@ -81,7 +81,7 @@ For card-based layouts:
 1. Extract visible data
 2. Scroll to load more:
    ```
-   opendevbrowser_scroll direction="down" amount=1000
+   opendevbrowser_scroll sessionId="<session-id>" dy=1000
    ```
 3. Wait for new content
 4. Repeat until no new items appear
@@ -99,10 +99,7 @@ For card-based layouts:
 ## Data Export Workflow
 
 1. Collect all extracted data in structured format
-2. Use `opendevbrowser_run` to serialize data:
-   ```javascript
-   return JSON.stringify(collectedData, null, 2);
-   ```
+2. Serialize/export in your host script (outside OpenDevBrowser tools), for example as JSON/CSV in your test runner.
 
 ## Handling Dynamic Content
 
@@ -111,7 +108,7 @@ For JavaScript-rendered content:
 1. Wait for specific element to appear
 2. Use network polling to detect data loading:
    ```
-   opendevbrowser_network_poll
+   opendevbrowser_network_poll sessionId="<session-id>"
    ```
 3. Take snapshot after XHR/Fetch completes
 
@@ -124,7 +121,8 @@ Look for embedded structured data:
 
 Extract via:
 ```
-opendevbrowser_run script="return document.querySelector('script[type=\"application/ld+json\"]')?.textContent"
+opendevbrowser_snapshot sessionId="<session-id>"
+opendevbrowser_dom_get_text sessionId="<session-id>" ref="[json-ld-script-ref]"
 ```
 
 ## Rate Limiting Considerations
