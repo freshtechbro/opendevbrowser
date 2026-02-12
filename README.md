@@ -570,7 +570,6 @@ npx opendevbrowser --update
 ```
 
 Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-Release checklist: [docs/DISTRIBUTION_PLAN.md](docs/DISTRIBUTION_PLAN.md)
 
 ---
 
@@ -620,7 +619,7 @@ Uniform versioning is required (source of truth: `package.json`):
 6. Run: `npm run extension:pack` (outputs `./opendevbrowser-extension.zip`)
 7. Publish to NPM and attach the zip to the GitHub release tag (`vX.Y.Z`).
 
-Release checklist: `docs/DISTRIBUTION_PLAN.md`
+Release checklist: follow the 7-step packaging sequence above before publishing.
 
 ---
 

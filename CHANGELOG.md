@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.0.15] - 2026-02-08
 
 ### Added
-- Release distribution plan for npm, GitHub branch/PR flow, and GitHub Releases (`docs/DISTRIBUTION_PLAN.md`).
+- Release distribution guidance for npm, GitHub branch/PR flow, and GitHub Releases.
 
 ### Changed
 - Updated README/CLI/extension guidance and project metadata.
