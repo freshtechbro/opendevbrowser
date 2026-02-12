@@ -1,0 +1,11 @@
+run_index: 1
+completed: false
+final_step: null
+final_url: 
+wall_time: 47.500s (47500 ms)
+agent_time: 8.352s (8352 ms)
+tool_time: 39.148s (39148 ms)
+api_latency: 0.000s (0 ms)
+actions: 198
+step_buckets: 11
+errors: stuck_on_step_11

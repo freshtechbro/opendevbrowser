@@ -1,0 +1,3339 @@
+[
+  {
+    "ts": "2026-02-10T21:44:16.243Z",
+    "type": "launch",
+    "sessionId": "a0cfb11e-53ad-4bef-92af-7de7f074594d",
+    "mode": "managed"
+  },
+  {
+    "ts": "2026-02-10T21:44:18.137Z",
+    "type": "state",
+    "step": 1,
+    "version": 3,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-10T21:44:18.317Z",
+    "type": "action",
+    "step": 1,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-10T21:44:18.863Z",
+    "type": "state",
+    "step": 1,
+    "version": 3,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "EGTB93"
+    ],
+    "revealedCodes": [
+      "EGTB93"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2988px / 500pxEGTB93"
+  },
+  {
+    "ts": "2026-02-10T21:44:19.122Z",
+    "type": "action",
+    "step": 1,
+    "method": "scroll_reveal",
+    "action": "submit",
+    "code": "EGTB93",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:19.689Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:20.249Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:20.253Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:20.806Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:20.811Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:21.364Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:21.373Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:21.926Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:21.933Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:22.488Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:22.495Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:23.049Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:23.054Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:23.607Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:23.613Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:24.166Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:24.172Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:24.725Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:24.730Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 3.9s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:25.284Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:25.291Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 3.3s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:25.844Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:25.848Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 2.7s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:26.402Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:26.407Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 2.2s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:26.958Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:26.963Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 1.6s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:27.517Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:27.521Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 1.1s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:28.075Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:28.081Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 0.5s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:44:28.635Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:28.642Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "HQMHQ6"
+    ],
+    "revealedCodes": [
+      "HQMHQ6"
+    ],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Wait complete! Code revealed:HQMHQ6"
+  },
+  {
+    "ts": "2026-02-10T21:44:28.877Z",
+    "type": "action",
+    "step": 2,
+    "method": "delayed_reveal",
+    "action": "submit",
+    "code": "HQMHQ6",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:29.442Z",
+    "type": "state",
+    "step": 3,
+    "version": 3,
+    "expectedMethod": "visible",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "8E5AHN"
+    ],
+    "revealedCodes": [],
+    "challenge": "Challenge Code for Step 4:Enter this code below to proceed to step 4:8E5AHN"
+  },
+  {
+    "ts": "2026-02-10T21:44:29.663Z",
+    "type": "action",
+    "step": 3,
+    "method": "visible",
+    "action": "submit",
+    "code": "8E5AHN",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:30.231Z",
+    "type": "state",
+    "step": 4,
+    "version": 3,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 3 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.Code hidden - complete challenge to reveal"
+  },
+  {
+    "ts": "2026-02-10T21:44:30.488Z",
+    "type": "action",
+    "step": 4,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:44:30.488Z",
+    "type": "action",
+    "step": 4,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T21:44:30.488Z",
+    "type": "action",
+    "step": 4,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T21:44:30.488Z",
+    "type": "action",
+    "step": 4,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T21:44:30.498Z",
+    "type": "state",
+    "step": 4,
+    "version": 3,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "Q2QZXZ"
+    ],
+    "revealedCodes": [
+      "Q2QZXZ"
+    ],
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 0 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.Q2QZXZ"
+  },
+  {
+    "ts": "2026-02-10T21:44:30.719Z",
+    "type": "action",
+    "step": 4,
+    "method": "hidden_dom",
+    "action": "submit",
+    "code": "Q2QZXZ",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:31.287Z",
+    "type": "state",
+    "step": 5,
+    "version": 3,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step5?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:44:31.416Z",
+    "type": "action",
+    "step": 5,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:44:31.421Z",
+    "type": "state",
+    "step": 5,
+    "version": 3,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step5?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "GMTTNS"
+    ],
+    "revealedCodes": [
+      "GMTTNS"
+    ],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode RevealedGMTTNS"
+  },
+  {
+    "ts": "2026-02-10T21:44:31.629Z",
+    "type": "action",
+    "step": 5,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "GMTTNS",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:32.196Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T21:44:32.538Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:44:32.538Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:32.543Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T21:44:32.881Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:44:32.881Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:32.887Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T21:44:33.224Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:44:33.224Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:33.229Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7LUZ7E"
+  },
+  {
+    "ts": "2026-02-10T21:44:33.491Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:33.499Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7LUZ7E"
+  },
+  {
+    "ts": "2026-02-10T21:44:33.844Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:33.844Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:33.848Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7LUZ7E"
+  },
+  {
+    "ts": "2026-02-10T21:44:34.186Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:34.186Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:34.191Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7LUZ7E"
+  },
+  {
+    "ts": "2026-02-10T21:44:34.533Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:34.533Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:34.537Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7LUZ7E"
+  },
+  {
+    "ts": "2026-02-10T21:44:34.793Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:34.802Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7LUZ7E"
+  },
+  {
+    "ts": "2026-02-10T21:44:35.060Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:35.064Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7LUZ7E"
+  },
+  {
+    "ts": "2026-02-10T21:44:35.321Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:44:35.324Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code has been hidden. Did you see it?The code has disappeared! If you saw it, click the button below.I Remember - Reveal Rea"
+  },
+  {
+    "ts": "2026-02-10T21:44:35.451Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_confirm"
+  },
+  {
+    "ts": "2026-02-10T21:44:35.454Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "FEQZ59"
+    ],
+    "revealedCodes": [
+      "FEQZ59"
+    ],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code has been hidden. Did you see it?Challenge completed! The real code is:FEQZ59"
+  },
+  {
+    "ts": "2026-02-10T21:44:35.677Z",
+    "type": "action",
+    "step": 6,
+    "method": "memory",
+    "action": "submit",
+    "code": "FEQZ59",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:36.236Z",
+    "type": "state",
+    "step": 7,
+    "version": 3,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeHover here to reveal code"
+  },
+  {
+    "ts": "2026-02-10T21:44:37.393Z",
+    "type": "action",
+    "step": 7,
+    "action": "hover_hold"
+  },
+  {
+    "ts": "2026-02-10T21:44:37.397Z",
+    "type": "state",
+    "step": 7,
+    "version": 3,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeKeep hovering..."
+  },
+  {
+    "ts": "2026-02-10T21:44:38.639Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:38.639Z",
+    "type": "action",
+    "step": 7,
+    "action": "hover_hold"
+  },
+  {
+    "ts": "2026-02-10T21:44:38.643Z",
+    "type": "state",
+    "step": 7,
+    "version": 3,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "ANDVU9"
+    ],
+    "revealedCodes": [],
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeANDVU9"
+  },
+  {
+    "ts": "2026-02-10T21:44:38.855Z",
+    "type": "action",
+    "step": 7,
+    "method": "hover_reveal",
+    "action": "submit",
+    "code": "ANDVU9",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:39.414Z",
+    "type": "state",
+    "step": 8,
+    "version": 3,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:44:39.541Z",
+    "type": "action",
+    "step": 8,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:44:39.543Z",
+    "type": "state",
+    "step": 8,
+    "version": 3,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "9K6RR2"
+    ],
+    "revealedCodes": [
+      "9K6RR2"
+    ],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode Revealed9K6RR2"
+  },
+  {
+    "ts": "2026-02-10T21:44:39.737Z",
+    "type": "action",
+    "step": 8,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "9K6RR2",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:40.304Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:8LABFNFUBFJ5Drop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:44:40.515Z",
+    "type": "action",
+    "step": 9,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T21:44:40.515Z",
+    "type": "action",
+    "step": 9,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-10T21:44:40.520Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:8LABFNFUBFJ5Drop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:44:40.728Z",
+    "type": "action",
+    "step": 9,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:40.728Z",
+    "type": "action",
+    "step": 9,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-10T21:44:40.732Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:8LABFNFUBFJ5Drop zones (4/6 filled):NNNNSlot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:44:40.941Z",
+    "type": "action",
+    "step": 9,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:40.941Z",
+    "type": "action",
+    "step": 9,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-10T21:44:40.945Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:8LABFNFUBFJ5Drop zones (4/6 filled):NNNNSlot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:44:41.075Z",
+    "type": "action",
+    "step": 9,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-10T21:44:41.078Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "E7NKUS"
+    ],
+    "revealedCodes": [
+      "E7NKUS"
+    ],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:8LABFNFUBFJ5Drop zones (6/6 filled):NNNNBBChallenge completed! The code is:E7NKUS"
+  },
+  {
+    "ts": "2026-02-10T21:44:41.298Z",
+    "type": "action",
+    "step": 9,
+    "method": "drag_drop",
+    "action": "submit",
+    "code": "E7NKUS",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:41.860Z",
+    "type": "state",
+    "step": 10,
+    "version": 3,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Keyboard Sequence Challenge: Press 4 keys in sequence to reveal the code.Required sequence:Control+Shift+KTabEnterEscapeYour input (0/4):Press any key to start..."
+  },
+  {
+    "ts": "2026-02-10T21:44:42.083Z",
+    "type": "action",
+    "step": 10,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:42.083Z",
+    "type": "action",
+    "step": 10,
+    "action": "keyboard_sequence:4"
+  },
+  {
+    "ts": "2026-02-10T21:44:42.086Z",
+    "type": "state",
+    "step": 10,
+    "version": 3,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "CGHJDD"
+    ],
+    "revealedCodes": [
+      "CGHJDD"
+    ],
+    "challenge": "Keyboard Sequence Challenge: Press 4 keys in sequence to reveal the code.Required sequence:Control+Shift+KTabEnterEscapeYour input (4/4):AAAASequence completed! Code revealed:CGHJDD"
+  },
+  {
+    "ts": "2026-02-10T21:44:42.278Z",
+    "type": "action",
+    "step": 10,
+    "method": "keyboard_sequence",
+    "action": "submit",
+    "code": "CGHJDD",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:42.834Z",
+    "type": "state",
+    "step": 11,
+    "version": 3,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AudioClick to hear the hint"
+  },
+  {
+    "ts": "2026-02-10T21:44:46.611Z",
+    "type": "action",
+    "step": 11,
+    "action": "audio_patch"
+  },
+  {
+    "ts": "2026-02-10T21:44:46.611Z",
+    "type": "action",
+    "step": 11,
+    "action": "audio_play:Play Audio"
+  },
+  {
+    "ts": "2026-02-10T21:44:46.611Z",
+    "type": "action",
+    "step": 11,
+    "action": "audio_complete"
+  },
+  {
+    "ts": "2026-02-10T21:44:46.615Z",
+    "type": "state",
+    "step": 11,
+    "version": 3,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "US9GF6"
+    ],
+    "revealedCodes": [
+      "US9GF6"
+    ],
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AgainAudio played!Audio listened! The real code is:US9GF6"
+  },
+  {
+    "ts": "2026-02-10T21:44:46.826Z",
+    "type": "action",
+    "step": 11,
+    "method": "audio",
+    "action": "submit",
+    "code": "US9GF6",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:47.463Z",
+    "type": "state",
+    "step": 12,
+    "version": 3,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 42, then complete the challenge.-10-1Frame 42+1+10Seek operations: 0/3 requiredSeek 3 more times"
+  },
+  {
+    "ts": "2026-02-10T21:44:47.721Z",
+    "type": "action",
+    "step": 12,
+    "action": "video_seek:Frame 42"
+  },
+  {
+    "ts": "2026-02-10T21:44:47.721Z",
+    "type": "action",
+    "step": 12,
+    "action": "video_seek:Frame 42"
+  },
+  {
+    "ts": "2026-02-10T21:44:47.721Z",
+    "type": "action",
+    "step": 12,
+    "action": "video_seek:Frame 42"
+  },
+  {
+    "ts": "2026-02-10T21:44:47.721Z",
+    "type": "action",
+    "step": 12,
+    "action": "video_complete"
+  },
+  {
+    "ts": "2026-02-10T21:44:47.724Z",
+    "type": "state",
+    "step": 12,
+    "version": 3,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "6VF73Z"
+    ],
+    "revealedCodes": [
+      "6VF73Z"
+    ],
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 42, then complete the challenge.-10-1Frame 42+1+10Seek operations: 3/3 requiredCode RevealedVideo explored! The real code is:6VF73Z"
+  },
+  {
+    "ts": "2026-02-10T21:44:47.940Z",
+    "type": "action",
+    "step": 12,
+    "method": "video",
+    "action": "submit",
+    "code": "6VF73Z",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:44:48.504Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:KZ"
+  },
+  {
+    "ts": "2026-02-10T21:44:48.630Z",
+    "type": "action",
+    "step": 13,
+    "action": "split_parts:6"
+  },
+  {
+    "ts": "2026-02-10T21:44:48.634Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:MH✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:48.721Z",
+    "type": "action",
+    "step": 13,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:48.725Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:Z4✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:48.819Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:48.823Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:TW✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:48.913Z",
+    "type": "action",
+    "step": 13,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:44:48.916Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:H2✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.006Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.011Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:5C✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.101Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.105Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:FA✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.198Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.201Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:NR✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.291Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.294Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:HU✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.386Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.389Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:FX✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.481Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.483Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:M6✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.572Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.582Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:43✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.671Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.674Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:SK✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.761Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.764Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:UA✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.856Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.858Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:Q5✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.948Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:49.954Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:H9✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.043Z",
+    "type": "action",
+    "step": 13,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.045Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:X6✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.131Z",
+    "type": "action",
+    "step": 13,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.137Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:L4✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.223Z",
+    "type": "action",
+    "step": 13,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.227Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:WN✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.320Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.323Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:A5✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.413Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.416Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:HD✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.512Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.517Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:CU✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.604Z",
+    "type": "action",
+    "step": 13,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.607Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:A6✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.694Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.698Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:A4✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.784Z",
+    "type": "action",
+    "step": 13,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.788Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:KG✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.880Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.884Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:EM✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.970Z",
+    "type": "action",
+    "step": 13,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:44:50.975Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:PY✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.065Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.068Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:FU✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.158Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.161Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:XP✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.252Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.255Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:YR✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.344Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.346Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:EZ✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.435Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.437Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:UK✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.527Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.533Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:6G✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.622Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.625Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:FB✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.716Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.719Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:PT✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.806Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.809Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:BJ✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.901Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.905Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:FW✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.994Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:51.997Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:A5✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.089Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.092Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:UY✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.179Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.182Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:FP✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.275Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.277Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:ZV✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.366Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.369Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:46✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.456Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.458Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:H9✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.547Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.550Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:95✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.650Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.653Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:WM✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.746Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.749Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:TA✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.838Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.841Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:57✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.929Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:52.932Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:RY✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.021Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.024Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:V6✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.113Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.116Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:U5✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.205Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.210Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:SL✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.301Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.304Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:R4✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.396Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.399Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:WC✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.488Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.491Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:VD✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.583Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.587Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:EM✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.676Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.679Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:KY✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.768Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.772Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:AE✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.862Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.865Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:DH✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.954Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:53.956Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:XX✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.045Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.048Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:U9✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.140Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.143Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:8E✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.232Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.235Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:4X✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.330Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.333Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:4Z✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.420Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.423Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:EV✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.514Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.517Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:G8✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.610Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.612Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:JZ✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.704Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.706Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:VJ✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.796Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.801Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:9M✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.891Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.894Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:HC✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.983Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:54.987Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:PP✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.078Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.082Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:VW✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.170Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.173Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:Z4✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.262Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.265Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:EN✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.352Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.355Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:HU✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.456Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.459Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:W3✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.548Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.551Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:BF✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.640Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.642Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:ES✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.732Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.738Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:97✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.829Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.832Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:KN✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.920Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:55.923Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:E2✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.011Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.014Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:YR✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.103Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.107Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:WG✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.199Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.205Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:JX✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.297Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.300Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:NY✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.399Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.402Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:5K✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.491Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.494Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:FM✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.584Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.587Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:2E✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.675Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.680Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:YB✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.775Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.778Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:YN✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.868Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.871Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:TV✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.964Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:56.967Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:E8✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.055Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.058Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:GC✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.147Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.152Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:DF✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.244Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.250Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:MM✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.341Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.344Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:EK✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.434Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.437Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:EJ✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.527Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.530Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:25✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.621Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.624Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:XU✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.714Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.717Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:NW✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.806Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.809Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:BV✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.896Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.899Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:56✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.989Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:57.993Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:V4✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.088Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.091Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:AH✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.180Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.183Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:62✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.281Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.284Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:9Z✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.372Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.375Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:Q7✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.465Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.468Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:9A✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.566Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.569Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:TF✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.657Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.659Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:B9✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.749Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.752Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:8X✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.841Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.844Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:SU✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.932Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:58.935Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:69✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.021Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.024Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:5G✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.111Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.114Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:5F✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.203Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.205Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:P4✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.293Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.297Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:RE✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.390Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.393Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:RL✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.484Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.487Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:8C✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.584Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.586Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:GK✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.673Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.675Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:F2✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.764Z",
+    "type": "action",
+    "step": 13,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.767Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Part 1:3S✓"
+  },
+  {
+    "ts": "2026-02-10T21:44:59.767Z",
+    "type": "error",
+    "message": "stuck_on_step_13"
+  }
+]

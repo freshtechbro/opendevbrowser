@@ -1,0 +1,2 @@
+{"ts":"2026-02-11T02:38:02.796Z","type":"launch","sessionId":"25a726fe-982d-4424-acb2-2a0f588cd997","mode":"extension","cdpEndpoint":null,"relayEndpoint":"ws://127.0.0.1:8787/cdp"}
+{"ts":"2026-02-11T02:38:08.453Z","type":"error","message":"page.goto: Frame has been detached.\nCall log:\n\u001b[2m  - navigating to \"https://serene-frangipane-7fd25b.netlify.app/\", waiting until \"load\"\u001b[22m\n"}

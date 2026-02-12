@@ -1,0 +1,26 @@
+step 1: calls=4 errors=0
+actions: hidden_dom_click:DIV | hidden_dom_click:DIV | hidden_dom_click:DIV | submit:JKMK8J
+
+step 2: calls=3 errors=0
+actions: dismiss_overlay:Accept | reveal_click:Reveal Code | submit:YCX873
+
+step 3: calls=5 errors=0
+actions: dismiss_overlay:Dismiss | scroll:720 | dismiss_overlay:Dismiss | scroll:720 | submit:2HGM4P
+
+step 4: calls=19 errors=0
+actions: passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | submit:VHM2WQ
+
+step 5: calls=1 errors=0
+actions: submit:37734Q
+
+step 6: calls=7 errors=0
+actions: drag_drop:6 | drag_drop:6 | dismiss_overlay:Dismiss | drag_drop:4 | dismiss_overlay:Dismiss | drag_drop:4 | submit:CEVNCA
+
+step 7: calls=2 errors=0
+actions: keyboard_sequence:3 | submit:73GFPT
+
+step 8: calls=15 errors=0
+actions: dismiss_overlay:Close | memory_wait | dismiss_overlay:Accept | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Dismiss | memory_wait | dismiss_overlay:Dismiss | memory_confirm | submit:48NUKY
+
+step 9: calls=43 errors=0
+actions: dismiss_overlay:Close | hover_hold | dismiss_overlay:Close | hover_hold | dismiss_overlay:Close | hover_hold | dismiss_overlay:Dismiss | hover_hold | dismiss_overlay:Dismiss | hover_hold | dismiss_overlay:Close | hover_hold | dismiss_overlay:Dismiss | hover_hold | dismiss_overlay:Close | hover_hold | dismiss_overlay:Accept | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold

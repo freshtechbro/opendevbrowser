@@ -1,0 +1,11 @@
+run_index: 1
+completed: true
+final_step: null
+final_url: https://serene-frangipane-7fd25b.netlify.app/finish
+wall_time: 60.951s (60951 ms)
+agent_time: 21.894s (21894 ms)
+tool_time: 39.057s (39057 ms)
+api_latency: 0.000s (0 ms)
+actions: 193
+step_buckets: 30
+errors: none

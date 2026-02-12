@@ -1,0 +1,5434 @@
+[
+  {
+    "ts": "2026-02-10T22:13:10.017Z",
+    "type": "launch",
+    "sessionId": "184431c8-5945-45ce-a1ce-dd27156738b3",
+    "mode": "managed"
+  },
+  {
+    "ts": "2026-02-10T22:13:14.245Z",
+    "type": "state",
+    "step": 1,
+    "version": 1,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 3 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.Code hidden - complete challenge to reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:14.420Z",
+    "type": "action",
+    "step": 1,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T22:13:14.420Z",
+    "type": "action",
+    "step": 1,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T22:13:14.420Z",
+    "type": "action",
+    "step": 1,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T22:13:14.424Z",
+    "type": "state",
+    "step": 1,
+    "version": 1,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "GKBFUJ"
+    ],
+    "revealedCodes": [
+      "GKBFUJ"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 0 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.GKBFUJ"
+  },
+  {
+    "ts": "2026-02-10T22:13:14.662Z",
+    "type": "action",
+    "step": 1,
+    "method": "hidden_dom",
+    "action": "submit",
+    "code": "GKBFUJ",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:15.235Z",
+    "type": "state",
+    "step": 2,
+    "version": 1,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:15.376Z",
+    "type": "action",
+    "step": 2,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:15.380Z",
+    "type": "state",
+    "step": 2,
+    "version": 1,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "358EKX"
+    ],
+    "revealedCodes": [
+      "358EKX"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode Revealed358EKX"
+  },
+  {
+    "ts": "2026-02-10T22:13:15.573Z",
+    "type": "action",
+    "step": 2,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "358EKX",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:16.145Z",
+    "type": "state",
+    "step": 3,
+    "version": 1,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-10T22:13:16.419Z",
+    "type": "action",
+    "step": 3,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-10T22:13:16.427Z",
+    "type": "state",
+    "step": 3,
+    "version": 1,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-10T22:13:16.704Z",
+    "type": "action",
+    "step": 3,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T22:13:16.704Z",
+    "type": "action",
+    "step": 3,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-10T22:13:16.714Z",
+    "type": "state",
+    "step": 3,
+    "version": 1,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "CF2WL9"
+    ],
+    "revealedCodes": [
+      "CF2WL9"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 833px / 500pxCF2WL9"
+  },
+  {
+    "ts": "2026-02-10T22:13:16.927Z",
+    "type": "action",
+    "step": 3,
+    "method": "scroll_reveal",
+    "action": "submit",
+    "code": "CF2WL9",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:17.492Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:18.044Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:18.051Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:18.604Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:18.611Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:19.164Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:19.179Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:19.734Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:19.740Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 5.9s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:20.294Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:20.300Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 5.7s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:20.854Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:20.864Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:21.418Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:21.425Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 5.6s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:21.977Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:21.982Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 5.8s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:22.535Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:22.541Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 5.3s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:23.102Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:23.106Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 4.7s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:23.662Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:23.668Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 4.1s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:24.220Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:24.225Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 3.6s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:24.780Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:24.786Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 3.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:25.337Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:25.343Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 2.5s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:25.895Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:25.901Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 1.9s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:26.453Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:26.459Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 1.4s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:27.013Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:27.019Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 0.8s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:27.572Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:27.579Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 0.2s remaining"
+  },
+  {
+    "ts": "2026-02-10T22:13:28.133Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:28.138Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "9QKK5V"
+    ],
+    "revealedCodes": [
+      "9QKK5V"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Wait complete! Code revealed:9QKK5V"
+  },
+  {
+    "ts": "2026-02-10T22:13:28.365Z",
+    "type": "action",
+    "step": 4,
+    "method": "delayed_reveal",
+    "action": "submit",
+    "code": "9QKK5V",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:28.945Z",
+    "type": "state",
+    "step": 5,
+    "version": 1,
+    "expectedMethod": "visible",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step5?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "JC36UF"
+    ],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Challenge Code for Step 6:Enter this code below to proceed to step 6:JC36UF"
+  },
+  {
+    "ts": "2026-02-10T22:13:29.150Z",
+    "type": "action",
+    "step": 5,
+    "method": "visible",
+    "action": "submit",
+    "code": "JC36UF",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:29.715Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:VUXYTW7AEM6EDrop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T22:13:29.842Z",
+    "type": "action",
+    "step": 6,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-10T22:13:29.850Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:VUXYTW7AEM6EDrop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T22:13:30.057Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T22:13:30.057Z",
+    "type": "action",
+    "step": 6,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-10T22:13:30.061Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:VUXYTW7AEM6EDrop zones (4/6 filled):WWWWSlot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T22:13:30.185Z",
+    "type": "action",
+    "step": 6,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-10T22:13:30.191Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:VUXYTW7AEM6EDrop zones (4/6 filled):WWWWSlot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T22:13:30.403Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:30.403Z",
+    "type": "action",
+    "step": 6,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-10T22:13:30.409Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "BERZZJ"
+    ],
+    "revealedCodes": [
+      "BERZZJ"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:VUXYTW7AEM6EDrop zones (6/6 filled):WWWWYYChallenge completed! The code is:BERZZJ"
+  },
+  {
+    "ts": "2026-02-10T22:13:30.604Z",
+    "type": "action",
+    "step": 6,
+    "method": "drag_drop",
+    "action": "submit",
+    "code": "BERZZJ",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:31.170Z",
+    "type": "state",
+    "step": 7,
+    "version": 1,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Keyboard Sequence Challenge: Press 3 keys in sequence to reveal the code.Required sequence:Control+AControl+CControl+VYour input (0/3):Press any key to start..."
+  },
+  {
+    "ts": "2026-02-10T22:13:31.389Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:31.389Z",
+    "type": "action",
+    "step": 7,
+    "action": "keyboard_sequence:3"
+  },
+  {
+    "ts": "2026-02-10T22:13:31.395Z",
+    "type": "state",
+    "step": 7,
+    "version": 1,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "AGKP3S"
+    ],
+    "revealedCodes": [
+      "AGKP3S"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Keyboard Sequence Challenge: Press 3 keys in sequence to reveal the code.Required sequence:Control+AControl+CControl+VYour input (3/3):AAASequence completed! Code revealed:AGKP3S"
+  },
+  {
+    "ts": "2026-02-10T22:13:31.616Z",
+    "type": "action",
+    "step": 7,
+    "method": "keyboard_sequence",
+    "action": "submit",
+    "code": "AGKP3S",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:32.182Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T22:13:32.518Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:32.518Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:32.523Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T22:13:32.860Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:32.860Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:32.863Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T22:13:33.205Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:33.206Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:33.211Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!9Z79DU"
+  },
+  {
+    "ts": "2026-02-10T22:13:33.550Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:33.550Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:33.555Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!9Z79DU"
+  },
+  {
+    "ts": "2026-02-10T22:13:33.892Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:33.892Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:33.901Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!9Z79DU"
+  },
+  {
+    "ts": "2026-02-10T22:13:34.238Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:34.239Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:34.242Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code has been hidden. Did you see it?The code has disappeared! If you saw it, click the button below.I Remember - Reveal Rea"
+  },
+  {
+    "ts": "2026-02-10T22:13:34.451Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:34.451Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_confirm"
+  },
+  {
+    "ts": "2026-02-10T22:13:34.455Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "2PRLLW"
+    ],
+    "revealedCodes": [
+      "2PRLLW"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code has been hidden. Did you see it?Challenge completed! The real code is:2PRLLW"
+  },
+  {
+    "ts": "2026-02-10T22:13:34.644Z",
+    "type": "action",
+    "step": 8,
+    "method": "memory",
+    "action": "submit",
+    "code": "2PRLLW",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:35.203Z",
+    "type": "state",
+    "step": 9,
+    "version": 1,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeHover here to reveal code"
+  },
+  {
+    "ts": "2026-02-10T22:13:36.359Z",
+    "type": "action",
+    "step": 9,
+    "action": "hover_hold"
+  },
+  {
+    "ts": "2026-02-10T22:13:36.366Z",
+    "type": "state",
+    "step": 9,
+    "version": 1,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "29LMMZ"
+    ],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the code29LMMZ"
+  },
+  {
+    "ts": "2026-02-10T22:13:36.582Z",
+    "type": "action",
+    "step": 9,
+    "method": "hover_reveal",
+    "action": "submit",
+    "code": "29LMMZ",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:37.147Z",
+    "type": "state",
+    "step": 10,
+    "version": 1,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:37.276Z",
+    "type": "action",
+    "step": 10,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:37.280Z",
+    "type": "state",
+    "step": 10,
+    "version": 1,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "FJDQMJ"
+    ],
+    "revealedCodes": [
+      "FJDQMJ"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode RevealedFJDQMJ"
+  },
+  {
+    "ts": "2026-02-10T22:13:37.477Z",
+    "type": "action",
+    "step": 10,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "FJDQMJ",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:38.035Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-10T22:13:38.374Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:38.374Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:38.381Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-10T22:13:38.724Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:38.724Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:38.729Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-10T22:13:39.073Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T22:13:39.073Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:39.079Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-10T22:13:39.422Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:39.422Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:39.431Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-10T22:13:39.771Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:39.771Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:39.775Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-10T22:13:40.113Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:40.113Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-10T22:13:40.121Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!4QC3K52.9 seconds remainingCapture Now!"
+  },
+  {
+    "ts": "2026-02-10T22:13:40.332Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:40.332Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_capture"
+  },
+  {
+    "ts": "2026-02-10T22:13:40.336Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "V5PQ9K"
+    ],
+    "revealedCodes": [
+      "V5PQ9K"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Captured!Captured! The real code is:V5PQ9K"
+  },
+  {
+    "ts": "2026-02-10T22:13:40.551Z",
+    "type": "action",
+    "step": 11,
+    "method": "timing",
+    "action": "submit",
+    "code": "V5PQ9K",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:41.117Z",
+    "type": "state",
+    "step": 12,
+    "version": 1,
+    "expectedMethod": "canvas",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Canvas Challenge: Draw at least 3 strokes on the canvas below to reveal the code.Strokes: 0/3 Draw 3 more strokes"
+  },
+  {
+    "ts": "2026-02-10T22:13:41.245Z",
+    "type": "action",
+    "step": 12,
+    "action": "canvas_draw:3"
+  },
+  {
+    "ts": "2026-02-10T22:13:41.247Z",
+    "type": "state",
+    "step": 12,
+    "version": 1,
+    "expectedMethod": "canvas",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Canvas Challenge: Draw at least 3 strokes on the canvas below to reveal the code.Strokes: 0/3 Draw 3 more strokes"
+  },
+  {
+    "ts": "2026-02-10T22:13:41.500Z",
+    "type": "action",
+    "step": 12,
+    "action": "canvas_draw:3"
+  },
+  {
+    "ts": "2026-02-10T22:13:41.500Z",
+    "type": "action",
+    "step": 12,
+    "action": "canvas_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:41.505Z",
+    "type": "state",
+    "step": 12,
+    "version": 1,
+    "expectedMethod": "canvas",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "5B2KQC"
+    ],
+    "revealedCodes": [
+      "5B2KQC"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Canvas Challenge: Draw at least 3 strokes on the canvas below to reveal the code.Strokes: 3/3 ✓Code RevealedDrawing complete! The code is:5B2KQC"
+  },
+  {
+    "ts": "2026-02-10T22:13:41.715Z",
+    "type": "action",
+    "step": 12,
+    "method": "canvas",
+    "action": "submit",
+    "code": "5B2KQC",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:42.275Z",
+    "type": "state",
+    "step": 13,
+    "version": 1,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AudioClick to hear the hint"
+  },
+  {
+    "ts": "2026-02-10T22:13:46.065Z",
+    "type": "action",
+    "step": 13,
+    "action": "audio_patch"
+  },
+  {
+    "ts": "2026-02-10T22:13:46.065Z",
+    "type": "action",
+    "step": 13,
+    "action": "audio_play:Play Audio"
+  },
+  {
+    "ts": "2026-02-10T22:13:46.065Z",
+    "type": "action",
+    "step": 13,
+    "action": "audio_complete"
+  },
+  {
+    "ts": "2026-02-10T22:13:46.069Z",
+    "type": "state",
+    "step": 13,
+    "version": 1,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "TG629B"
+    ],
+    "revealedCodes": [
+      "TG629B"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AgainAudio played!Audio listened! The real code is:TG629B"
+  },
+  {
+    "ts": "2026-02-10T22:13:46.275Z",
+    "type": "action",
+    "step": 13,
+    "method": "audio",
+    "action": "submit",
+    "code": "TG629B",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:46.836Z",
+    "type": "state",
+    "step": 14,
+    "version": 1,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step14?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 44, then complete the challenge.-10-1Frame 44+1+10Seek operations: 0/3 requiredSeek 3 more times"
+  },
+  {
+    "ts": "2026-02-10T22:13:47.094Z",
+    "type": "action",
+    "step": 14,
+    "action": "video_seek:Frame 44"
+  },
+  {
+    "ts": "2026-02-10T22:13:47.094Z",
+    "type": "action",
+    "step": 14,
+    "action": "video_seek:Frame 44"
+  },
+  {
+    "ts": "2026-02-10T22:13:47.094Z",
+    "type": "action",
+    "step": 14,
+    "action": "video_seek:Frame 44"
+  },
+  {
+    "ts": "2026-02-10T22:13:47.094Z",
+    "type": "action",
+    "step": 14,
+    "action": "video_complete"
+  },
+  {
+    "ts": "2026-02-10T22:13:47.099Z",
+    "type": "state",
+    "step": 14,
+    "version": 1,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step14?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "QUKTE6"
+    ],
+    "revealedCodes": [
+      "QUKTE6"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 44, then complete the challenge.-10-1Frame 44+1+10Seek operations: 3/3 requiredCode RevealedVideo explored! The real code is:QUKTE6"
+  },
+  {
+    "ts": "2026-02-10T22:13:47.289Z",
+    "type": "action",
+    "step": 14,
+    "method": "video",
+    "action": "submit",
+    "code": "QUKTE6",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:47.858Z",
+    "type": "state",
+    "step": 15,
+    "version": 1,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step15?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Split Parts Challenge: Find and click all 2 parts scattered on this page. (0/2 found)"
+  },
+  {
+    "ts": "2026-02-10T22:13:48.072Z",
+    "type": "action",
+    "step": 15,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:48.072Z",
+    "type": "action",
+    "step": 15,
+    "action": "split_parts:5"
+  },
+  {
+    "ts": "2026-02-10T22:13:48.076Z",
+    "type": "state",
+    "step": 15,
+    "version": 1,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step15?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "LS78YH"
+    ],
+    "revealedCodes": [
+      "LS78YH"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Split Parts Challenge: Find and click all 2 parts scattered on this page. (2/2 found)All parts found! The code is:LS78YH"
+  },
+  {
+    "ts": "2026-02-10T22:13:48.304Z",
+    "type": "action",
+    "step": 15,
+    "method": "split_parts",
+    "action": "submit",
+    "code": "LS78YH",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:48.880Z",
+    "type": "state",
+    "step": 16,
+    "version": 1,
+    "expectedMethod": "multi_tab",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Multi-Tab Challenge: Visit all 4 tabs by clicking each button. Each tab contains a part of the puzzle.Tabs to visit (0/4):Tab 1Tab 2Tab 3Tab 4"
+  },
+  {
+    "ts": "2026-02-10T22:13:49.199Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:49.200Z",
+    "type": "action",
+    "step": 16,
+    "action": "multi_tab_clicks:4"
+  },
+  {
+    "ts": "2026-02-10T22:13:49.200Z",
+    "type": "action",
+    "step": 16,
+    "action": "multi_tab_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:49.204Z",
+    "type": "state",
+    "step": 16,
+    "version": 1,
+    "expectedMethod": "multi_tab",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "KJ4KYH"
+    ],
+    "revealedCodes": [
+      "KJ4KYH"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Multi-Tab Challenge: Visit all 4 tabs by clicking each button. Each tab contains a part of the puzzle.Tabs to visit (4/4):✓ Tab 1: RX✓ Tab 2: 4P✓ Tab 3: 69✓ Tab 4: ZMAll tabs collected! The real code is:KJ4KYH"
+  },
+  {
+    "ts": "2026-02-10T22:13:49.396Z",
+    "type": "action",
+    "step": 16,
+    "method": "multi_tab",
+    "action": "submit",
+    "code": "KJ4KYH",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:49.957Z",
+    "type": "state",
+    "step": 17,
+    "version": 1,
+    "expectedMethod": "gesture",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step17?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Gesture Challenge: Draw a square on the canvas below, then click complete.ClearAttempts: 0Draw something first"
+  },
+  {
+    "ts": "2026-02-10T22:13:50.056Z",
+    "type": "action",
+    "step": 17,
+    "action": "gesture_draw"
+  },
+  {
+    "ts": "2026-02-10T22:13:50.059Z",
+    "type": "state",
+    "step": 17,
+    "version": 1,
+    "expectedMethod": "gesture",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step17?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Gesture Challenge: Draw a square on the canvas below, then click complete.ClearAttempts: 0Draw something first"
+  },
+  {
+    "ts": "2026-02-10T22:13:50.283Z",
+    "type": "action",
+    "step": 17,
+    "action": "gesture_draw"
+  },
+  {
+    "ts": "2026-02-10T22:13:50.283Z",
+    "type": "action",
+    "step": 17,
+    "action": "gesture_complete"
+  },
+  {
+    "ts": "2026-02-10T22:13:50.290Z",
+    "type": "state",
+    "step": 17,
+    "version": 1,
+    "expectedMethod": "gesture",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step17?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "364RNM"
+    ],
+    "revealedCodes": [
+      "364RNM"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Gesture Challenge: Draw a square on the canvas below, then click complete.ClearAttempts: 1Code RevealedGesture completed! The code is:364RNM"
+  },
+  {
+    "ts": "2026-02-10T22:13:50.504Z",
+    "type": "action",
+    "step": 17,
+    "method": "gesture",
+    "action": "submit",
+    "code": "364RNM",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:51.065Z",
+    "type": "state",
+    "step": 18,
+    "version": 1,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step18?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 0/4click button hover area type text scroll box Click Me Hover over this area Scroll inside this boxKeep scrolling...Almost there!Complete (0/4)"
+  },
+  {
+    "ts": "2026-02-10T22:13:51.318Z",
+    "type": "action",
+    "step": 18,
+    "action": "sequence_actions:4"
+  },
+  {
+    "ts": "2026-02-10T22:13:51.319Z",
+    "type": "action",
+    "step": 18,
+    "action": "sequence_complete"
+  },
+  {
+    "ts": "2026-02-10T22:13:51.325Z",
+    "type": "state",
+    "step": 18,
+    "version": 1,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step18?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "AG5QRW"
+    ],
+    "revealedCodes": [
+      "AG5QRW"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 5/4click button ✓hover area ✓type text ✓scroll box ✓Click Me ✓Hover over this area ✓✓ TypedScroll inside this boxKeep scrolling...Almost there!✓ ScrolledCode RevealedSe"
+  },
+  {
+    "ts": "2026-02-10T22:13:51.537Z",
+    "type": "action",
+    "step": 18,
+    "method": "sequence",
+    "action": "submit",
+    "code": "AG5QRW",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:52.105Z",
+    "type": "state",
+    "step": 19,
+    "version": 1,
+    "expectedMethod": "puzzle_solve",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": true,
+    "puzzleSolvedVisible": false,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Solve"
+  },
+  {
+    "ts": "2026-02-10T22:13:52.246Z",
+    "type": "action",
+    "step": 19,
+    "action": "puzzle_fill:38"
+  },
+  {
+    "ts": "2026-02-10T22:13:52.246Z",
+    "type": "action",
+    "step": 19,
+    "action": "puzzle_solve_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:52.251Z",
+    "type": "state",
+    "step": 19,
+    "version": 1,
+    "expectedMethod": "puzzle_solve",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "A7URP4"
+    ],
+    "revealedCodes": [
+      "A7URP4"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:A7URP4"
+  },
+  {
+    "ts": "2026-02-10T22:13:52.464Z",
+    "type": "action",
+    "step": 19,
+    "method": "puzzle_solve",
+    "action": "submit",
+    "code": "A7URP4",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:53.030Z",
+    "type": "state",
+    "step": 20,
+    "version": 1,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step20?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "A7URP4"
+    ],
+    "revealedCodes": [
+      "A7URP4"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code10 + 10 = ?Puzzle solved in 1 attempt(s)! Code revealed:A7URP4"
+  },
+  {
+    "ts": "2026-02-10T22:13:53.408Z",
+    "type": "action",
+    "step": 20,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:53.409Z",
+    "type": "action",
+    "step": 20,
+    "action": "puzzle_state_reset"
+  },
+  {
+    "ts": "2026-02-10T22:13:53.409Z",
+    "type": "action",
+    "step": 20,
+    "action": "puzzle_fill:20"
+  },
+  {
+    "ts": "2026-02-10T22:13:53.409Z",
+    "type": "action",
+    "step": 20,
+    "action": "puzzle_solve_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:53.415Z",
+    "type": "state",
+    "step": 20,
+    "version": 1,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step20?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "V9WLT4"
+    ],
+    "revealedCodes": [
+      "V9WLT4"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code10 + 10 = ?Puzzle solved in 1 attempt(s)! Code revealed:V9WLT4"
+  },
+  {
+    "ts": "2026-02-10T22:13:53.611Z",
+    "type": "action",
+    "step": 20,
+    "method": "calculated",
+    "action": "submit",
+    "code": "V9WLT4",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:54.170Z",
+    "type": "state",
+    "step": 21,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step21?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 Levels revealed: 0/3Reveal Code (0/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:13:54.274Z",
+    "type": "action",
+    "step": 21,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:54.278Z",
+    "type": "state",
+    "step": 21,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step21?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:13:54.440Z",
+    "type": "action",
+    "step": 21,
+    "action": "shadow_force_complete:onComplete"
+  },
+  {
+    "ts": "2026-02-10T22:13:54.444Z",
+    "type": "state",
+    "step": 21,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step21?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "RNUTET"
+    ],
+    "revealedCodes": [
+      "RNUTET"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Code RevealedAll shadow levels traversed! The code is:RNUTET"
+  },
+  {
+    "ts": "2026-02-10T22:13:54.631Z",
+    "type": "action",
+    "step": 21,
+    "method": "shadow_dom",
+    "action": "submit",
+    "code": "RNUTET",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:55.198Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connect○ Disconnected$ awaiting connection..."
+  },
+  {
+    "ts": "2026-02-10T22:13:55.407Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.407Z",
+    "type": "action",
+    "step": 22,
+    "action": "websocket_connect"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.412Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.502Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.511Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.595Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.599Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.684Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.692Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.783Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.790Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.875Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.879Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established_"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.965Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:55.969Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established_"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.059Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.066Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established_"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.153Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.160Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established_"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.256Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.271Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established_"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.358Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.363Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.448Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.456Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.550Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.556Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.648Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.655Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.742Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.747Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.835Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.839Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]_"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.928Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:56.932Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]_"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.024Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.028Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]_"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.117Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.122Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]_"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.207Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.211Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]_"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.297Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.302Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.388Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.392Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.483Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.487Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.572Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.580Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.668Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.674Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.760Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.766Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.853Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.858Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting...$ Ready to reveal code_Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.950Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:13:57.955Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting...$ Ready to reveal code_Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T22:13:58.082Z",
+    "type": "action",
+    "step": 22,
+    "action": "websocket_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:13:58.086Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "8GRNX3"
+    ],
+    "revealedCodes": [
+      "8GRNX3"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting...$ Ready to reveal code$ Code: 8GRNX"
+  },
+  {
+    "ts": "2026-02-10T22:13:58.310Z",
+    "type": "action",
+    "step": 22,
+    "method": "websocket",
+    "action": "submit",
+    "code": "8GRNX3",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:13:58.871Z",
+    "type": "state",
+    "step": 23,
+    "version": 1,
+    "expectedMethod": "service_worker",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step23?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Service Worker Challenge: Register a service worker, wait for the cache to be populated, then retrieve the code.1. Register Service Worker○ Not registeredCache status:○ Empty2. Retrieve from Cache"
+  },
+  {
+    "ts": "2026-02-10T22:14:00.102Z",
+    "type": "action",
+    "step": 23,
+    "action": "service_worker_register"
+  },
+  {
+    "ts": "2026-02-10T22:14:00.102Z",
+    "type": "action",
+    "step": 23,
+    "action": "service_worker_retrieve"
+  },
+  {
+    "ts": "2026-02-10T22:14:00.113Z",
+    "type": "state",
+    "step": 23,
+    "version": 1,
+    "expectedMethod": "service_worker",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step23?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "X5QW2R"
+    ],
+    "revealedCodes": [
+      "X5QW2R"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Service Worker Challenge: Register a service worker, wait for the cache to be populated, then retrieve the code.Registered ✓● RegisteredCache status:● Cached2. Retrieve from CacheCode retrieved from cache! The code is:X5QW2R"
+  },
+  {
+    "ts": "2026-02-10T22:14:00.323Z",
+    "type": "action",
+    "step": 23,
+    "method": "service_worker",
+    "action": "submit",
+    "code": "X5QW2R",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:14:00.891Z",
+    "type": "state",
+    "step": 24,
+    "version": 1,
+    "expectedMethod": "mutation",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step24?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Mutation Challenge: Trigger 5 DOM mutations to reveal the code.Mutations triggered: 0 / 5Trigger MutationMutation target area (elements appear here)Complete (0/5)"
+  },
+  {
+    "ts": "2026-02-10T22:14:01.283Z",
+    "type": "action",
+    "step": 24,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:14:01.283Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-10T22:14:01.283Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-10T22:14:01.283Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-10T22:14:01.283Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-10T22:14:01.283Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-10T22:14:01.283Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_complete"
+  },
+  {
+    "ts": "2026-02-10T22:14:01.290Z",
+    "type": "state",
+    "step": 24,
+    "version": 1,
+    "expectedMethod": "mutation",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step24?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "UQBEWT"
+    ],
+    "revealedCodes": [
+      "UQBEWT"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Mutation Challenge: Trigger 5 DOM mutations to reveal the code.Mutations triggered: 5 / 5Trigger MutationMutation target area (elements appear here)Mutation 1Mutation 2Mutation 3Mutation 4Mutation 5Code RevealedMutations complete! The code "
+  },
+  {
+    "ts": "2026-02-10T22:14:01.468Z",
+    "type": "action",
+    "step": 24,
+    "method": "mutation",
+    "action": "submit",
+    "code": "UQBEWT",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:14:02.031Z",
+    "type": "state",
+    "step": 25,
+    "version": 1,
+    "expectedMethod": "recursive_iframe",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step25?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Recursive Iframe Challenge: Navigate through 4 nested levels to find the code at the deepest level.Current depth: 0/4Iframe Level 13 more levels to goEnter Level 2"
+  },
+  {
+    "ts": "2026-02-10T22:14:02.363Z",
+    "type": "action",
+    "step": 25,
+    "action": "recursive_enter:1"
+  },
+  {
+    "ts": "2026-02-10T22:14:02.363Z",
+    "type": "action",
+    "step": 25,
+    "action": "recursive_enter:2"
+  },
+  {
+    "ts": "2026-02-10T22:14:02.363Z",
+    "type": "action",
+    "step": 25,
+    "action": "recursive_force_complete:onComplete"
+  },
+  {
+    "ts": "2026-02-10T22:14:02.369Z",
+    "type": "state",
+    "step": 25,
+    "version": 1,
+    "expectedMethod": "recursive_iframe",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step25?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "K6CFCY"
+    ],
+    "revealedCodes": [
+      "K6CFCY"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Recursive Iframe Challenge: Navigate through 4 nested levels to find the code at the deepest level.Current depth: 4/4Iframe Level 1 ✓Iframe Level 2 ✓Iframe Level 3 ✓Iframe Level 4 ✓ - Deepest level reached!Deepest level reached! The code is"
+  },
+  {
+    "ts": "2026-02-10T22:14:02.582Z",
+    "type": "action",
+    "step": 25,
+    "method": "recursive_iframe",
+    "action": "submit",
+    "code": "K6CFCY",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:14:03.143Z",
+    "type": "state",
+    "step": 26,
+    "version": 1,
+    "expectedMethod": "conditional_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step26?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 0/4click button hover area type text scroll box Click Me Hover over this area Scroll inside this boxKeep scrolling...Almost there!Complete (0/4)"
+  },
+  {
+    "ts": "2026-02-10T22:14:03.397Z",
+    "type": "action",
+    "step": 26,
+    "action": "sequence_actions:4"
+  },
+  {
+    "ts": "2026-02-10T22:14:03.397Z",
+    "type": "action",
+    "step": 26,
+    "action": "sequence_complete"
+  },
+  {
+    "ts": "2026-02-10T22:14:03.405Z",
+    "type": "state",
+    "step": 26,
+    "version": 1,
+    "expectedMethod": "conditional_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step26?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "FMFSHL"
+    ],
+    "revealedCodes": [
+      "FMFSHL"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 5/4click button ✓hover area ✓type text ✓scroll box ✓Click Me ✓Hover over this area ✓✓ TypedScroll inside this boxKeep scrolling...Almost there!✓ ScrolledCode RevealedSe"
+  },
+  {
+    "ts": "2026-02-10T22:14:03.625Z",
+    "type": "action",
+    "step": 26,
+    "method": "conditional_reveal",
+    "action": "submit",
+    "code": "FMFSHL",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:14:04.198Z",
+    "type": "state",
+    "step": 27,
+    "version": 1,
+    "expectedMethod": "multi_tab",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step27?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Multi-Tab Challenge: Visit all 3 tabs by clicking each button. Each tab contains a part of the puzzle.Tabs to visit (0/3):Tab 1Tab 2Tab 3"
+  },
+  {
+    "ts": "2026-02-10T22:14:04.435Z",
+    "type": "action",
+    "step": 27,
+    "action": "multi_tab_clicks:3"
+  },
+  {
+    "ts": "2026-02-10T22:14:04.435Z",
+    "type": "action",
+    "step": 27,
+    "action": "multi_tab_reveal"
+  },
+  {
+    "ts": "2026-02-10T22:14:04.441Z",
+    "type": "state",
+    "step": 27,
+    "version": 1,
+    "expectedMethod": "multi_tab",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step27?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "MVWN3A"
+    ],
+    "revealedCodes": [
+      "MVWN3A"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Multi-Tab Challenge: Visit all 3 tabs by clicking each button. Each tab contains a part of the puzzle.Tabs to visit (3/3):✓ Tab 1: 2Z✓ Tab 2: 3F✓ Tab 3: Y9All tabs collected! The real code is:MVWN3A"
+  },
+  {
+    "ts": "2026-02-10T22:14:04.659Z",
+    "type": "action",
+    "step": 27,
+    "method": "multi_tab",
+    "action": "submit",
+    "code": "MVWN3A",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:14:05.226Z",
+    "type": "state",
+    "step": 28,
+    "version": 1,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step28?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 0/4click button hover area type text scroll box Click Me Hover over this area Scroll inside this boxKeep scrolling...Almost there!Complete (0/4)"
+  },
+  {
+    "ts": "2026-02-10T22:14:05.565Z",
+    "type": "action",
+    "step": 28,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:14:05.565Z",
+    "type": "action",
+    "step": 28,
+    "action": "sequence_actions:4"
+  },
+  {
+    "ts": "2026-02-10T22:14:05.565Z",
+    "type": "action",
+    "step": 28,
+    "action": "sequence_complete"
+  },
+  {
+    "ts": "2026-02-10T22:14:05.571Z",
+    "type": "state",
+    "step": 28,
+    "version": 1,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step28?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "LRDJDH"
+    ],
+    "revealedCodes": [
+      "LRDJDH"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 5/4click button ✓hover area ✓type text ✓scroll box ✓Click Me ✓Hover over this area ✓✓ TypedScroll inside this boxKeep scrolling...Almost there!✓ ScrolledCode RevealedSe"
+  },
+  {
+    "ts": "2026-02-10T22:14:05.784Z",
+    "type": "action",
+    "step": 28,
+    "method": "sequence",
+    "action": "submit",
+    "code": "LRDJDH",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:14:06.349Z",
+    "type": "state",
+    "step": 29,
+    "version": 1,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step29?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": true,
+    "puzzleSolvedVisible": false,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code19 + 19 = ?Solve"
+  },
+  {
+    "ts": "2026-02-10T22:14:06.568Z",
+    "type": "action",
+    "step": 29,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:14:06.568Z",
+    "type": "action",
+    "step": 29,
+    "action": "puzzle_fill:38"
+  },
+  {
+    "ts": "2026-02-10T22:14:06.568Z",
+    "type": "action",
+    "step": 29,
+    "action": "puzzle_solve_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:06.573Z",
+    "type": "state",
+    "step": 29,
+    "version": 1,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step29?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "5892PA"
+    ],
+    "revealedCodes": [
+      "5892PA"
+    ],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code19 + 19 = ?Puzzle solved in 1 attempt(s)! Code revealed:5892PA"
+  },
+  {
+    "ts": "2026-02-10T22:14:06.783Z",
+    "type": "action",
+    "step": 29,
+    "method": "calculated",
+    "action": "submit",
+    "code": "5892PA",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T22:14:07.350Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 Levels revealed: 0/3Reveal Code (0/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.451Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.455Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 Levels revealed: 0/3Reveal Code (0/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.552Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.556Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 Levels revealed: 0/3Reveal Code (0/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.656Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.662Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 Levels revealed: 0/3Reveal Code (0/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.763Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.767Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 Levels revealed: 0/3Reveal Code (0/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.877Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:07.881Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.043Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_force_complete:onComplete"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.046Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.153Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.161Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.268Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.272Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.372Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.375Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.492Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.497Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.600Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.605Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.707Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.711Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.814Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.820Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.920Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:08.924Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.027Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.031Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.136Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.139Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.244Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.247Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.344Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.348Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.449Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.457Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.555Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.559Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.660Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.664Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.765Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.768Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.866Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.870Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.969Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:09.973Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.080Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.084Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.184Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.190Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.293Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.296Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.402Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.405Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.502Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.505Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.615Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.618Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.723Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.727Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.829Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.835Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.934Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T22:14:10.937Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.041Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.045Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.144Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.148Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.247Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.252Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.359Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.363Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.461Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.464Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.566Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.570Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.669Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.673Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.778Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.782Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.879Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.886Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.983Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:11.987Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.091Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.095Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.208Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.211Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.311Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.315Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.414Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.418Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.517Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.522Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.625Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.630Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.731Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.737Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.835Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.839Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.944Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:12.947Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.046Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.049Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.145Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.149Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.247Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.251Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.349Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.353Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.455Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.460Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.557Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.561Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.660Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.664Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.766Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.769Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.868Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.872Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.971Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:13.975Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.072Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.076Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.175Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.178Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.279Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.283Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.380Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.384Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.489Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.493Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.602Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.606Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.706Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.710Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.817Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.820Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.918Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:14.922Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.021Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.025Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.125Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.128Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.227Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.231Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.334Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.337Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.433Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.437Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.538Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.542Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.648Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.651Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.761Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.764Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.859Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.863Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.960Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:15.964Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.060Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.063Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.162Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.165Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.262Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.266Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.375Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.382Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.481Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.484Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.586Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.589Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.699Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.703Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.803Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.807Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.909Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:16.913Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.011Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.015Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.117Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.122Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.224Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.228Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.330Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.334Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.434Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.440Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.539Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.548Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.649Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.652Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.760Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.764Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.864Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.867Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.969Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:17.973Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.070Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.074Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.179Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.182Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.281Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.284Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.384Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.388Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.486Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.495Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.599Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.606Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.717Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.720Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.827Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.830Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.932Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:18.935Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.033Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.036Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.143Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.146Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.242Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.245Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.349Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.353Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.454Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.458Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.561Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.564Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.671Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.678Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.779Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.783Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.885Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.889Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.991Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:19.995Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:20.103Z",
+    "type": "action",
+    "step": 30,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T22:14:20.107Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-10T22:14:20.107Z",
+    "type": "error",
+    "message": "stuck_on_step_30"
+  }
+]

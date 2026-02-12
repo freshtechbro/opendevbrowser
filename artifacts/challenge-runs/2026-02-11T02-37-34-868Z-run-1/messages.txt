@@ -1,0 +1,2 @@
+{"ts":"2026-02-11T02:37:34.910Z","type":"launch","sessionId":"7b3c2b1b-87ee-43ec-9fd0-476ab2d6e3fa","mode":"extension","cdpEndpoint":null,"relayEndpoint":"ws://127.0.0.1:8787"}
+{"ts":"2026-02-11T02:37:35.996Z","type":"error","message":"Direct annotate is unavailable via extension ops sessions."}

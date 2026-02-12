@@ -1,0 +1,16 @@
+{
+  "startIso": "2026-02-11T02:38:02.673Z",
+  "runIndex": 1,
+  "actionCount": 0,
+  "stepCount": 0,
+  "wallMs": 5800,
+  "agentMs": 5665,
+  "toolMs": 135,
+  "apiLatencyMs": 0,
+  "completed": false,
+  "finalStep": null,
+  "finalUrl": null,
+  "errors": [
+    "page.goto: Frame has been detached.\nCall log:\n\u001b[2m  - navigating to \"https://serene-frangipane-7fd25b.netlify.app/\", waiting until \"load\"\u001b[22m\n"
+  ]
+}

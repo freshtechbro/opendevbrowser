@@ -1,0 +1,258 @@
+[
+  {
+    "step": 1,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "scroll:720",
+      "submit:BDVBEG"
+    ]
+  },
+  {
+    "step": 2,
+    "calls": 17,
+    "errors": 0,
+    "actions": [
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "submit:HWGJEW"
+    ]
+  },
+  {
+    "step": 3,
+    "calls": 1,
+    "errors": 0,
+    "actions": [
+      "submit:YSTVG4"
+    ]
+  },
+  {
+    "step": 4,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "hidden_dom_click:DIV",
+      "hidden_dom_click:DIV",
+      "hidden_dom_click:DIV",
+      "submit:2QLPKG"
+    ]
+  },
+  {
+    "step": 5,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "reveal_click:Reveal Code",
+      "submit:FQR5D6"
+    ]
+  },
+  {
+    "step": 6,
+    "calls": 20,
+    "errors": 0,
+    "actions": [
+      "memory_wait",
+      "dismiss_overlay:Accept",
+      "memory_wait",
+      "dismiss_overlay:Accept",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Dismiss",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Dismiss",
+      "memory_confirm",
+      "submit:WM8P9X"
+    ]
+  },
+  {
+    "step": 7,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "hover_hold",
+      "dismiss_overlay:Close",
+      "hover_hold",
+      "submit:Q54Z77"
+    ]
+  },
+  {
+    "step": 8,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Dismiss",
+      "reveal_click:Reveal Code",
+      "submit:RQ3VJ6"
+    ]
+  },
+  {
+    "step": 9,
+    "calls": 7,
+    "errors": 0,
+    "actions": [
+      "drag_drop:6",
+      "drag_drop:6",
+      "dismiss_overlay:Accept",
+      "drag_drop:4",
+      "dismiss_overlay:Close",
+      "drag_drop:4",
+      "submit:3Q94RT"
+    ]
+  },
+  {
+    "step": 10,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "keyboard_sequence:4",
+      "submit:7XX67T"
+    ]
+  },
+  {
+    "step": 11,
+    "calls": 52,
+    "errors": 0,
+    "actions": [
+      "audio_play:Play Audio",
+      "dismiss_overlay:Accept",
+      "dismiss_overlay:Dismiss",
+      "dismiss_overlay:Dismiss",
+      "dismiss_overlay:Close",
+      "dismiss_overlay:Close",
+      "dismiss_overlay:Close",
+      "dismiss_overlay:Close",
+      "dismiss_overlay:Close",
+      "dismiss_overlay:Dismiss",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "audio_play:Play Again",
+      "audio_complete",
+      "submit:6KDT98"
+    ]
+  },
+  {
+    "step": 12,
+    "calls": 58,
+    "errors": 0,
+    "actions": [
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Accept",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Dismiss",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Dismiss",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click"
+    ]
+  }
+]

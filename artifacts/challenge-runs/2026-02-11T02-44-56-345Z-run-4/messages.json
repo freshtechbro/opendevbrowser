@@ -1,0 +1,3699 @@
+[
+  {
+    "ts": "2026-02-11T02:44:57.752Z",
+    "type": "launch",
+    "sessionId": "b9a0a0e2-d9cf-4002-ba18-9e2067f8fb87",
+    "mode": "managed",
+    "cdpEndpoint": null,
+    "relayEndpoint": null
+  },
+  {
+    "ts": "2026-02-11T02:44:59.650Z",
+    "type": "state",
+    "step": 1,
+    "version": 1,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 3 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.Code hidden - complete challenge to reveal"
+  },
+  {
+    "ts": "2026-02-11T02:44:59.923Z",
+    "type": "action",
+    "step": 1,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:44:59.923Z",
+    "type": "action",
+    "step": 1,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-11T02:44:59.924Z",
+    "type": "action",
+    "step": 1,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-11T02:44:59.924Z",
+    "type": "action",
+    "step": 1,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-11T02:44:59.933Z",
+    "type": "state",
+    "step": 1,
+    "version": 1,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "Z8FZVF"
+    ],
+    "revealedCodes": [
+      "Z8FZVF"
+    ],
+    "regexCodes": [
+      "Z8FZVF"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 0 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.Z8FZVF"
+  },
+  {
+    "ts": "2026-02-11T02:45:00.187Z",
+    "type": "action",
+    "step": 1,
+    "method": "hidden_dom",
+    "action": "submit",
+    "code": "Z8FZVF",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:00.771Z",
+    "type": "state",
+    "step": 2,
+    "version": 1,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:00.996Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:00.996Z",
+    "type": "action",
+    "step": 2,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:01.006Z",
+    "type": "state",
+    "step": 2,
+    "version": 1,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "E7Q2LU"
+    ],
+    "revealedCodes": [
+      "E7Q2LU"
+    ],
+    "regexCodes": [
+      "E7Q2LU"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode RevealedE7Q2LU"
+  },
+  {
+    "ts": "2026-02-11T02:45:01.390Z",
+    "type": "action",
+    "step": 2,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "E7Q2LU",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:03.162Z",
+    "type": "state",
+    "step": 3,
+    "version": 1,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-11T02:45:04.359Z",
+    "type": "action",
+    "step": 3,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-11T02:45:04.359Z",
+    "type": "action",
+    "step": 3,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-11T02:45:04.373Z",
+    "type": "state",
+    "step": 3,
+    "version": 1,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-11T02:45:04.810Z",
+    "type": "action",
+    "step": 3,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:04.811Z",
+    "type": "action",
+    "step": 3,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-11T02:45:04.820Z",
+    "type": "state",
+    "step": 3,
+    "version": 1,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "8T6ZGE"
+    ],
+    "revealedCodes": [
+      "8T6ZGE"
+    ],
+    "regexCodes": [
+      "8T6ZGE"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 830px / 500px8T6ZGE"
+  },
+  {
+    "ts": "2026-02-11T02:45:05.097Z",
+    "type": "action",
+    "step": 3,
+    "method": "scroll_reveal",
+    "action": "submit",
+    "code": "8T6ZGE",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:05.687Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:06.241Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:06.265Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:06.824Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:06.853Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:07.407Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:07.425Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:07.978Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:07.990Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 5.6s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:08.555Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:08.574Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 5.8s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:09.129Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:09.155Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:09.708Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:09.725Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:10.278Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:10.295Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 6.0s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:10.853Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:10.870Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 5.7s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:11.431Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:11.447Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 5.1s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:12.001Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:12.013Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 4.5s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:12.567Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:12.577Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:13.131Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:13.144Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 3.4s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:13.700Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:13.711Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 2.9s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:14.267Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:14.281Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 2.3s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:14.836Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:14.852Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 1.7s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:15.408Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:15.421Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 1.1s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:15.976Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:15.985Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Waiting... 0.6s remaining"
+  },
+  {
+    "ts": "2026-02-11T02:45:16.547Z",
+    "type": "action",
+    "step": 4,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:16.560Z",
+    "type": "state",
+    "step": 4,
+    "version": 1,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "CTTYXF"
+    ],
+    "revealedCodes": [
+      "CTTYXF"
+    ],
+    "regexCodes": [
+      "CTTYXF"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Delayed Reveal: The code will appear after waiting 6 seconds...Wait complete! Code revealed:CTTYXF"
+  },
+  {
+    "ts": "2026-02-11T02:45:16.828Z",
+    "type": "action",
+    "step": 4,
+    "method": "delayed_reveal",
+    "action": "submit",
+    "code": "CTTYXF",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:17.417Z",
+    "type": "state",
+    "step": 5,
+    "version": 1,
+    "expectedMethod": "visible",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step5?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "HPAXTS"
+    ],
+    "revealedCodes": [],
+    "regexCodes": [
+      "HPAXTS"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Challenge Code for Step 6:Enter this code below to proceed to step 6:HPAXTS"
+  },
+  {
+    "ts": "2026-02-11T02:45:17.641Z",
+    "type": "action",
+    "step": 5,
+    "method": "visible",
+    "action": "submit",
+    "code": "HPAXTS",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:18.246Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [
+      "KV4MVC",
+      "ZJ4K83"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:KV4MVCZJ4K83Drop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-11T02:45:18.462Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:18.462Z",
+    "type": "action",
+    "step": 6,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-11T02:45:18.471Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [
+      "KV4MVC",
+      "ZJ4K83"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:KV4MVCZJ4K83Drop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-11T02:45:18.692Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:18.692Z",
+    "type": "action",
+    "step": 6,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-11T02:45:18.703Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [
+      "KV4MVC",
+      "ZJ4K83"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:KV4MVCZJ4K83Drop zones (4/6 filled):CCCCSlot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-11T02:45:18.917Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:18.917Z",
+    "type": "action",
+    "step": 6,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-11T02:45:18.936Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [
+      "KV4MVC",
+      "ZJ4K83"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:KV4MVCZJ4K83Drop zones (4/6 filled):CCCCSlot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-11T02:45:19.154Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-11T02:45:19.154Z",
+    "type": "action",
+    "step": 6,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-11T02:45:19.169Z",
+    "type": "state",
+    "step": 6,
+    "version": 1,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "SGA36E"
+    ],
+    "revealedCodes": [
+      "SGA36E"
+    ],
+    "regexCodes": [
+      "KV4MVC",
+      "ZJ4K83",
+      "CCCCMM",
+      "SGA36E"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:KV4MVCZJ4K83Drop zones (6/6 filled):CCCCMMChallenge completed! The code is:SGA36E"
+  },
+  {
+    "ts": "2026-02-11T02:45:19.456Z",
+    "type": "action",
+    "step": 6,
+    "method": "drag_drop",
+    "action": "submit",
+    "code": "SGA36E",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:20.077Z",
+    "type": "state",
+    "step": 7,
+    "version": 1,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Keyboard Sequence Challenge: Press 3 keys in sequence to reveal the code.Required sequence:Control+AControl+CControl+VYour input (0/3):Press any key to start..."
+  },
+  {
+    "ts": "2026-02-11T02:45:20.302Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-11T02:45:20.303Z",
+    "type": "action",
+    "step": 7,
+    "action": "keyboard_sequence:3"
+  },
+  {
+    "ts": "2026-02-11T02:45:20.315Z",
+    "type": "state",
+    "step": 7,
+    "version": 1,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "KUDFGM"
+    ],
+    "revealedCodes": [
+      "KUDFGM"
+    ],
+    "regexCodes": [
+      "KUDFGM"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Keyboard Sequence Challenge: Press 3 keys in sequence to reveal the code.Required sequence:Control+AControl+CControl+VYour input (3/3):AAASequence completed! Code revealed:KUDFGM"
+  },
+  {
+    "ts": "2026-02-11T02:45:20.570Z",
+    "type": "action",
+    "step": 7,
+    "method": "keyboard_sequence",
+    "action": "submit",
+    "code": "KUDFGM",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:21.166Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-11T02:45:21.433Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:21.452Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-11T02:45:21.800Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:21.800Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:21.814Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-11T02:45:22.167Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:22.168Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:22.181Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [
+      "TC3ZXP"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!TC3ZXP"
+  },
+  {
+    "ts": "2026-02-11T02:45:22.527Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:22.527Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:22.542Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [
+      "TC3ZXP"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!TC3ZXP"
+  },
+  {
+    "ts": "2026-02-11T02:45:22.881Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:22.881Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:22.892Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [
+      "TC3ZXP"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!TC3ZXP"
+  },
+  {
+    "ts": "2026-02-11T02:45:23.238Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-11T02:45:23.239Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:23.251Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code has been hidden. Did you see it?The code has disappeared! If you saw it, click the button below.I Remember - Reveal Rea"
+  },
+  {
+    "ts": "2026-02-11T02:45:23.481Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:23.481Z",
+    "type": "action",
+    "step": 8,
+    "action": "memory_confirm"
+  },
+  {
+    "ts": "2026-02-11T02:45:23.496Z",
+    "type": "state",
+    "step": 8,
+    "version": 1,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "GSSMQJ"
+    ],
+    "revealedCodes": [
+      "GSSMQJ"
+    ],
+    "regexCodes": [
+      "GSSMQJ"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Memory Challenge: A code will flash for 1 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code has been hidden. Did you see it?Challenge completed! The real code is:GSSMQJ"
+  },
+  {
+    "ts": "2026-02-11T02:45:23.779Z",
+    "type": "action",
+    "step": 8,
+    "method": "memory",
+    "action": "submit",
+    "code": "GSSMQJ",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:24.398Z",
+    "type": "state",
+    "step": 9,
+    "version": 1,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeHover here to reveal code"
+  },
+  {
+    "ts": "2026-02-11T02:45:25.646Z",
+    "type": "action",
+    "step": 9,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:25.646Z",
+    "type": "action",
+    "step": 9,
+    "action": "hover_hold"
+  },
+  {
+    "ts": "2026-02-11T02:45:25.664Z",
+    "type": "state",
+    "step": 9,
+    "version": 1,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeKeep hovering..."
+  },
+  {
+    "ts": "2026-02-11T02:45:26.904Z",
+    "type": "action",
+    "step": 9,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:26.904Z",
+    "type": "action",
+    "step": 9,
+    "action": "hover_hold"
+  },
+  {
+    "ts": "2026-02-11T02:45:26.913Z",
+    "type": "state",
+    "step": 9,
+    "version": 1,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "HH8ALR"
+    ],
+    "revealedCodes": [],
+    "regexCodes": [
+      "HH8ALR"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeHH8ALR"
+  },
+  {
+    "ts": "2026-02-11T02:45:27.178Z",
+    "type": "action",
+    "step": 9,
+    "method": "hover_reveal",
+    "action": "submit",
+    "code": "HH8ALR",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:27.781Z",
+    "type": "state",
+    "step": 10,
+    "version": 1,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:28.004Z",
+    "type": "action",
+    "step": 10,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:28.004Z",
+    "type": "action",
+    "step": 10,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:28.014Z",
+    "type": "state",
+    "step": 10,
+    "version": 1,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "NSSY4R"
+    ],
+    "revealedCodes": [
+      "NSSY4R"
+    ],
+    "regexCodes": [
+      "NSSY4R"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode RevealedNSSY4R"
+  },
+  {
+    "ts": "2026-02-11T02:45:28.250Z",
+    "type": "action",
+    "step": 10,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "NSSY4R",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:28.844Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-11T02:45:29.116Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:29.126Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-11T02:45:29.471Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:29.471Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:29.480Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-11T02:45:29.821Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:29.821Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:29.830Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-11T02:45:30.179Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-11T02:45:30.179Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:30.191Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-11T02:45:30.542Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:30.542Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:30.553Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Window will appear soon..."
+  },
+  {
+    "ts": "2026-02-11T02:45:30.897Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:30.898Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_wait"
+  },
+  {
+    "ts": "2026-02-11T02:45:30.907Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [
+      "4WQLRQ"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!4WQLRQ2.9 seconds remainingCapture Now!"
+  },
+  {
+    "ts": "2026-02-11T02:45:31.128Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:31.128Z",
+    "type": "action",
+    "step": 11,
+    "action": "timing_capture"
+  },
+  {
+    "ts": "2026-02-11T02:45:31.145Z",
+    "type": "state",
+    "step": 11,
+    "version": 1,
+    "expectedMethod": "timing",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "UEVWBV"
+    ],
+    "revealedCodes": [
+      "UEVWBV"
+    ],
+    "regexCodes": [
+      "UEVWBV"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Timing Challenge: Click \"Capture\" while the window is active to reveal the real code!Captured!Captured! The real code is:UEVWBV"
+  },
+  {
+    "ts": "2026-02-11T02:45:31.416Z",
+    "type": "action",
+    "step": 11,
+    "method": "timing",
+    "action": "submit",
+    "code": "UEVWBV",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:32.006Z",
+    "type": "state",
+    "step": 12,
+    "version": 1,
+    "expectedMethod": "canvas",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Canvas Challenge: Draw at least 3 strokes on the canvas below to reveal the code.Strokes: 0/3 Draw 3 more strokes"
+  },
+  {
+    "ts": "2026-02-11T02:45:32.224Z",
+    "type": "action",
+    "step": 12,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:32.224Z",
+    "type": "action",
+    "step": 12,
+    "action": "canvas_draw:3"
+  },
+  {
+    "ts": "2026-02-11T02:45:32.240Z",
+    "type": "state",
+    "step": 12,
+    "version": 1,
+    "expectedMethod": "canvas",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Canvas Challenge: Draw at least 3 strokes on the canvas below to reveal the code.Strokes: 0/3 Draw 3 more strokes"
+  },
+  {
+    "ts": "2026-02-11T02:45:32.502Z",
+    "type": "action",
+    "step": 12,
+    "action": "canvas_draw:3"
+  },
+  {
+    "ts": "2026-02-11T02:45:32.502Z",
+    "type": "action",
+    "step": 12,
+    "action": "canvas_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:32.517Z",
+    "type": "state",
+    "step": 12,
+    "version": 1,
+    "expectedMethod": "canvas",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "82YL7B"
+    ],
+    "revealedCodes": [
+      "82YL7B"
+    ],
+    "regexCodes": [
+      "82YL7B"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Canvas Challenge: Draw at least 3 strokes on the canvas below to reveal the code.Strokes: 3/3 ✓Code RevealedDrawing complete! The code is:82YL7B"
+  },
+  {
+    "ts": "2026-02-11T02:45:32.804Z",
+    "type": "action",
+    "step": 12,
+    "method": "canvas",
+    "action": "submit",
+    "code": "82YL7B",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:33.411Z",
+    "type": "state",
+    "step": 13,
+    "version": 1,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AudioClick to hear the hint"
+  },
+  {
+    "ts": "2026-02-11T02:45:36.859Z",
+    "type": "action",
+    "step": 13,
+    "action": "audio_patch"
+  },
+  {
+    "ts": "2026-02-11T02:45:36.859Z",
+    "type": "action",
+    "step": 13,
+    "action": "audio_play:Play Audio"
+  },
+  {
+    "ts": "2026-02-11T02:45:36.859Z",
+    "type": "action",
+    "step": 13,
+    "action": "audio_complete"
+  },
+  {
+    "ts": "2026-02-11T02:45:36.886Z",
+    "type": "state",
+    "step": 13,
+    "version": 1,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "AMVWWC"
+    ],
+    "revealedCodes": [
+      "AMVWWC"
+    ],
+    "regexCodes": [
+      "AMVWWC"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AgainAudio played!Audio listened! The real code is:AMVWWC"
+  },
+  {
+    "ts": "2026-02-11T02:45:37.185Z",
+    "type": "action",
+    "step": 13,
+    "method": "audio",
+    "action": "submit",
+    "code": "AMVWWC",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:37.776Z",
+    "type": "state",
+    "step": 14,
+    "version": 1,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step14?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 44, then complete the challenge.-10-1Frame 44+1+10Seek operations: 0/3 requiredSeek 3 more times"
+  },
+  {
+    "ts": "2026-02-11T02:45:38.057Z",
+    "type": "action",
+    "step": 14,
+    "action": "video_seek:Frame 44"
+  },
+  {
+    "ts": "2026-02-11T02:45:38.057Z",
+    "type": "action",
+    "step": 14,
+    "action": "video_seek:Frame 44"
+  },
+  {
+    "ts": "2026-02-11T02:45:38.057Z",
+    "type": "action",
+    "step": 14,
+    "action": "video_seek:Frame 44"
+  },
+  {
+    "ts": "2026-02-11T02:45:38.057Z",
+    "type": "action",
+    "step": 14,
+    "action": "video_complete"
+  },
+  {
+    "ts": "2026-02-11T02:45:38.066Z",
+    "type": "state",
+    "step": 14,
+    "version": 1,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step14?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "HG2G73"
+    ],
+    "revealedCodes": [
+      "HG2G73"
+    ],
+    "regexCodes": [
+      "HG2G73"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 44, then complete the challenge.-10-1Frame 44+1+10Seek operations: 3/3 requiredCode RevealedVideo explored! The real code is:HG2G73"
+  },
+  {
+    "ts": "2026-02-11T02:45:38.313Z",
+    "type": "action",
+    "step": 14,
+    "method": "video",
+    "action": "submit",
+    "code": "HG2G73",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:38.907Z",
+    "type": "state",
+    "step": 15,
+    "version": 1,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step15?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Split Parts Challenge: Find and click all 2 parts scattered on this page. (0/2 found)"
+  },
+  {
+    "ts": "2026-02-11T02:45:39.138Z",
+    "type": "action",
+    "step": 15,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:39.138Z",
+    "type": "action",
+    "step": 15,
+    "action": "split_parts:5"
+  },
+  {
+    "ts": "2026-02-11T02:45:39.150Z",
+    "type": "state",
+    "step": 15,
+    "version": 1,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step15?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "BABNMX"
+    ],
+    "revealedCodes": [
+      "BABNMX"
+    ],
+    "regexCodes": [
+      "BABNMX"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Split Parts Challenge: Find and click all 2 parts scattered on this page. (2/2 found)All parts found! The code is:BABNMX"
+  },
+  {
+    "ts": "2026-02-11T02:45:39.435Z",
+    "type": "action",
+    "step": 15,
+    "method": "split_parts",
+    "action": "submit",
+    "code": "BABNMX",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:40.054Z",
+    "type": "state",
+    "step": 16,
+    "version": 1,
+    "expectedMethod": "multi_tab",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Multi-Tab Challenge: Visit all 4 tabs by clicking each button. Each tab contains a part of the puzzle.Tabs to visit (0/4):Tab 1Tab 2Tab 3Tab 4"
+  },
+  {
+    "ts": "2026-02-11T02:45:40.392Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:40.392Z",
+    "type": "action",
+    "step": 16,
+    "action": "multi_tab_clicks:4"
+  },
+  {
+    "ts": "2026-02-11T02:45:40.392Z",
+    "type": "action",
+    "step": 16,
+    "action": "multi_tab_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:40.406Z",
+    "type": "state",
+    "step": 16,
+    "version": 1,
+    "expectedMethod": "multi_tab",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "ZQVAUL"
+    ],
+    "revealedCodes": [
+      "ZQVAUL"
+    ],
+    "regexCodes": [
+      "ZQVAUL"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Multi-Tab Challenge: Visit all 4 tabs by clicking each button. Each tab contains a part of the puzzle.Tabs to visit (4/4):✓ Tab 1: CC✓ Tab 2: 5D✓ Tab 3: RC✓ Tab 4: WKAll tabs collected! The real code is:ZQVAUL"
+  },
+  {
+    "ts": "2026-02-11T02:45:40.696Z",
+    "type": "action",
+    "step": 16,
+    "method": "multi_tab",
+    "action": "submit",
+    "code": "ZQVAUL",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:41.299Z",
+    "type": "state",
+    "step": 17,
+    "version": 1,
+    "expectedMethod": "gesture",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step17?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Gesture Challenge: Draw a square on the canvas below, then click complete.ClearAttempts: 0Draw something first"
+  },
+  {
+    "ts": "2026-02-11T02:45:41.496Z",
+    "type": "action",
+    "step": 17,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:41.496Z",
+    "type": "action",
+    "step": 17,
+    "action": "gesture_draw"
+  },
+  {
+    "ts": "2026-02-11T02:45:41.504Z",
+    "type": "state",
+    "step": 17,
+    "version": 1,
+    "expectedMethod": "gesture",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step17?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Gesture Challenge: Draw a square on the canvas below, then click complete.ClearAttempts: 0Draw something first"
+  },
+  {
+    "ts": "2026-02-11T02:45:41.817Z",
+    "type": "action",
+    "step": 17,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:41.817Z",
+    "type": "action",
+    "step": 17,
+    "action": "gesture_draw"
+  },
+  {
+    "ts": "2026-02-11T02:45:41.817Z",
+    "type": "action",
+    "step": 17,
+    "action": "gesture_complete"
+  },
+  {
+    "ts": "2026-02-11T02:45:41.826Z",
+    "type": "state",
+    "step": 17,
+    "version": 1,
+    "expectedMethod": "gesture",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step17?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "W8RWY2"
+    ],
+    "revealedCodes": [
+      "W8RWY2"
+    ],
+    "regexCodes": [
+      "W8RWY2"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Gesture Challenge: Draw a square on the canvas below, then click complete.ClearAttempts: 1Code RevealedGesture completed! The code is:W8RWY2"
+  },
+  {
+    "ts": "2026-02-11T02:45:42.043Z",
+    "type": "action",
+    "step": 17,
+    "method": "gesture",
+    "action": "submit",
+    "code": "W8RWY2",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:42.644Z",
+    "type": "state",
+    "step": 18,
+    "version": 1,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step18?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 0/4click button hover area type text scroll box Click Me Hover over this area Scroll inside this boxKeep scrolling...Almost there!Complete (0/4)"
+  },
+  {
+    "ts": "2026-02-11T02:45:42.925Z",
+    "type": "action",
+    "step": 18,
+    "action": "sequence_actions:4"
+  },
+  {
+    "ts": "2026-02-11T02:45:42.925Z",
+    "type": "action",
+    "step": 18,
+    "action": "sequence_complete"
+  },
+  {
+    "ts": "2026-02-11T02:45:42.939Z",
+    "type": "state",
+    "step": 18,
+    "version": 1,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step18?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "K77PZ3"
+    ],
+    "revealedCodes": [
+      "K77PZ3"
+    ],
+    "regexCodes": [
+      "K77PZ3"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 5/4click button ✓hover area ✓type text ✓scroll box ✓Click Me ✓Hover over this area ✓✓ TypedScroll inside this boxKeep scrolling...Almost there!✓ ScrolledCode RevealedSe"
+  },
+  {
+    "ts": "2026-02-11T02:45:43.213Z",
+    "type": "action",
+    "step": 18,
+    "method": "sequence",
+    "action": "submit",
+    "code": "K77PZ3",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:43.829Z",
+    "type": "state",
+    "step": 19,
+    "version": 1,
+    "expectedMethod": "puzzle_solve",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": true,
+    "puzzleSolvedVisible": false,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Solve"
+  },
+  {
+    "ts": "2026-02-11T02:45:44.001Z",
+    "type": "action",
+    "step": 19,
+    "action": "puzzle_fill:38"
+  },
+  {
+    "ts": "2026-02-11T02:45:44.001Z",
+    "type": "action",
+    "step": 19,
+    "action": "puzzle_solve_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:44.012Z",
+    "type": "state",
+    "step": 19,
+    "version": 1,
+    "expectedMethod": "puzzle_solve",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "S9ET8C"
+    ],
+    "revealedCodes": [
+      "S9ET8C"
+    ],
+    "regexCodes": [
+      "S9ET8C"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:S9ET8C"
+  },
+  {
+    "ts": "2026-02-11T02:45:44.309Z",
+    "type": "action",
+    "step": 19,
+    "method": "puzzle_solve",
+    "action": "submit",
+    "code": "S9ET8C",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:44.938Z",
+    "type": "state",
+    "step": 20,
+    "version": 1,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step20?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [
+      "S9ET8C"
+    ],
+    "regexCodes": [
+      "S9ET8C"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code10 + 10 = ?Puzzle solved in 1 attempt(s)! Code revealed:S9ET8C"
+  },
+  {
+    "ts": "2026-02-11T02:45:45.326Z",
+    "type": "action",
+    "step": 20,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:45.326Z",
+    "type": "action",
+    "step": 20,
+    "action": "puzzle_state_reset"
+  },
+  {
+    "ts": "2026-02-11T02:45:45.326Z",
+    "type": "action",
+    "step": 20,
+    "action": "puzzle_fill:20"
+  },
+  {
+    "ts": "2026-02-11T02:45:45.326Z",
+    "type": "action",
+    "step": 20,
+    "action": "puzzle_solve_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:45.337Z",
+    "type": "state",
+    "step": 20,
+    "version": 1,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step20?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "CTW4D3"
+    ],
+    "revealedCodes": [
+      "CTW4D3"
+    ],
+    "regexCodes": [
+      "CTW4D3"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code10 + 10 = ?Puzzle solved in 1 attempt(s)! Code revealed:CTW4D3"
+  },
+  {
+    "ts": "2026-02-11T02:45:45.644Z",
+    "type": "action",
+    "step": 20,
+    "method": "calculated",
+    "action": "submit",
+    "code": "CTW4D3",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:46.245Z",
+    "type": "state",
+    "step": 21,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step21?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 Levels revealed: 0/3Reveal Code (0/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:45:46.445Z",
+    "type": "action",
+    "step": 21,
+    "action": "shadow_level_1"
+  },
+  {
+    "ts": "2026-02-11T02:45:46.445Z",
+    "type": "action",
+    "step": 21,
+    "action": "shadow_level_2"
+  },
+  {
+    "ts": "2026-02-11T02:45:46.453Z",
+    "type": "state",
+    "step": 21,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step21?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:45:46.754Z",
+    "type": "action",
+    "step": 21,
+    "action": "shadow_deep_sweep:2"
+  },
+  {
+    "ts": "2026-02-11T02:45:46.755Z",
+    "type": "action",
+    "step": 21,
+    "action": "shadow_force_complete:onComplete"
+  },
+  {
+    "ts": "2026-02-11T02:45:46.788Z",
+    "type": "state",
+    "step": 21,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step21?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "WJ8AVK"
+    ],
+    "revealedCodes": [
+      "WJ8AVK"
+    ],
+    "regexCodes": [
+      "WJ8AVK"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 ✓Shadow Level 3 Levels revealed: 4/3Code RevealedAll shadow levels traversed! The code is"
+  },
+  {
+    "ts": "2026-02-11T02:45:47.100Z",
+    "type": "action",
+    "step": 21,
+    "method": "shadow_dom",
+    "action": "submit",
+    "code": "WJ8AVK",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:47.727Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connect○ Disconnected$ awaiting connection..."
+  },
+  {
+    "ts": "2026-02-11T02:45:47.861Z",
+    "type": "action",
+    "step": 22,
+    "action": "websocket_connect"
+  },
+  {
+    "ts": "2026-02-11T02:45:47.870Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting..._"
+  },
+  {
+    "ts": "2026-02-11T02:45:47.959Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:47.971Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting..._"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.058Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.068Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting..._"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.175Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.185Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting..._"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.285Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.299Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established_"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.386Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.405Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established_"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.513Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.537Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established_"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.640Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.659Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established_"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.754Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.769Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.865Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.882Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.980Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:48.999Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.085Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.110Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.205Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.224Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data..._"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.315Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.329Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]_"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.421Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.434Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]_"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.531Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.546Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]_"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.654Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.668Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]_"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.759Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.768Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.870Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.885Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.975Z",
+    "type": "action",
+    "step": 22,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:49.990Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:50.080Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:50.090Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:50.183Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:50.193Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting..._Reveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:50.286Z",
+    "type": "action",
+    "step": 22,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-11T02:45:50.297Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting...$ Ready to reveal code_Reveal Code"
+  },
+  {
+    "ts": "2026-02-11T02:45:50.545Z",
+    "type": "action",
+    "step": 22,
+    "action": "websocket_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:50.564Z",
+    "type": "state",
+    "step": 22,
+    "version": 1,
+    "expectedMethod": "websocket",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step22?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "FXQSHD"
+    ],
+    "revealedCodes": [
+      "FXQSHD"
+    ],
+    "regexCodes": [
+      "FXQSHD"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "WebSocket Challenge: Connect to the simulated WebSocket server and receive the code.Connected● Connected$ Connecting...$ Connection established$ Receiving data...$ Data received: [encrypted]$ Decrypting...$ Ready to reveal code$ Code: FXQSH"
+  },
+  {
+    "ts": "2026-02-11T02:45:50.893Z",
+    "type": "action",
+    "step": 22,
+    "method": "websocket",
+    "action": "submit",
+    "code": "FXQSHD",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:51.496Z",
+    "type": "state",
+    "step": 23,
+    "version": 1,
+    "expectedMethod": "service_worker",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step23?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Service Worker Challenge: Register a service worker, wait for the cache to be populated, then retrieve the code.1. Register Service Worker○ Not registeredCache status:○ Empty2. Retrieve from Cache"
+  },
+  {
+    "ts": "2026-02-11T02:45:53.250Z",
+    "type": "action",
+    "step": 23,
+    "action": "service_worker_register"
+  },
+  {
+    "ts": "2026-02-11T02:45:53.250Z",
+    "type": "action",
+    "step": 23,
+    "action": "service_worker_retrieve"
+  },
+  {
+    "ts": "2026-02-11T02:45:53.267Z",
+    "type": "state",
+    "step": 23,
+    "version": 1,
+    "expectedMethod": "service_worker",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step23?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "JBFZ9G"
+    ],
+    "revealedCodes": [
+      "JBFZ9G"
+    ],
+    "regexCodes": [
+      "JBFZ9G"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Service Worker Challenge: Register a service worker, wait for the cache to be populated, then retrieve the code.Registered ✓● RegisteredCache status:● Cached2. Retrieve from CacheCode retrieved from cache! The code is:JBFZ9G"
+  },
+  {
+    "ts": "2026-02-11T02:45:53.568Z",
+    "type": "action",
+    "step": 23,
+    "method": "service_worker",
+    "action": "submit",
+    "code": "JBFZ9G",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:54.177Z",
+    "type": "state",
+    "step": 24,
+    "version": 1,
+    "expectedMethod": "mutation",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step24?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Mutation Challenge: Trigger 5 DOM mutations to reveal the code.Mutations triggered: 0 / 5Trigger MutationMutation target area (elements appear here)Complete (0/5)"
+  },
+  {
+    "ts": "2026-02-11T02:45:54.597Z",
+    "type": "action",
+    "step": 24,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-11T02:45:54.597Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-11T02:45:54.597Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-11T02:45:54.597Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-11T02:45:54.597Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-11T02:45:54.597Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_trigger"
+  },
+  {
+    "ts": "2026-02-11T02:45:54.597Z",
+    "type": "action",
+    "step": 24,
+    "action": "mutation_complete"
+  },
+  {
+    "ts": "2026-02-11T02:45:54.608Z",
+    "type": "state",
+    "step": 24,
+    "version": 1,
+    "expectedMethod": "mutation",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step24?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "DMMRGC"
+    ],
+    "revealedCodes": [
+      "DMMRGC"
+    ],
+    "regexCodes": [
+      "DMMRGC"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Mutation Challenge: Trigger 5 DOM mutations to reveal the code.Mutations triggered: 5 / 5Trigger MutationMutation target area (elements appear here)Mutation 1Mutation 2Mutation 3Mutation 4Mutation 5Code RevealedMutations complete! The code "
+  },
+  {
+    "ts": "2026-02-11T02:45:54.843Z",
+    "type": "action",
+    "step": 24,
+    "method": "mutation",
+    "action": "submit",
+    "code": "DMMRGC",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:55.452Z",
+    "type": "state",
+    "step": 25,
+    "version": 1,
+    "expectedMethod": "recursive_iframe",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step25?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Recursive Iframe Challenge: Navigate through 4 nested levels to find the code at the deepest level.Current depth: 0/4Iframe Level 13 more levels to goEnter Level 2"
+  },
+  {
+    "ts": "2026-02-11T02:45:55.812Z",
+    "type": "action",
+    "step": 25,
+    "action": "recursive_enter:1"
+  },
+  {
+    "ts": "2026-02-11T02:45:55.813Z",
+    "type": "action",
+    "step": 25,
+    "action": "recursive_enter:2"
+  },
+  {
+    "ts": "2026-02-11T02:45:55.813Z",
+    "type": "action",
+    "step": 25,
+    "action": "recursive_force_complete:onComplete"
+  },
+  {
+    "ts": "2026-02-11T02:45:55.846Z",
+    "type": "state",
+    "step": 25,
+    "version": 1,
+    "expectedMethod": "recursive_iframe",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step25?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "78FZC9"
+    ],
+    "revealedCodes": [
+      "78FZC9"
+    ],
+    "regexCodes": [
+      "78FZC9"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Recursive Iframe Challenge: Navigate through 4 nested levels to find the code at the deepest level.Current depth: 4/4Iframe Level 1 ✓Iframe Level 2 ✓Iframe Level 3 ✓Iframe Level 4 ✓ - Deepest level reached!Deepest level reached! The code is"
+  },
+  {
+    "ts": "2026-02-11T02:45:56.145Z",
+    "type": "action",
+    "step": 25,
+    "method": "recursive_iframe",
+    "action": "submit",
+    "code": "78FZC9",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:56.749Z",
+    "type": "state",
+    "step": 26,
+    "version": 1,
+    "expectedMethod": "conditional_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step26?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 0/4click button hover area type text scroll box Click Me Hover over this area Scroll inside this boxKeep scrolling...Almost there!Complete (0/4)"
+  },
+  {
+    "ts": "2026-02-11T02:45:57.025Z",
+    "type": "action",
+    "step": 26,
+    "action": "sequence_actions:4"
+  },
+  {
+    "ts": "2026-02-11T02:45:57.025Z",
+    "type": "action",
+    "step": 26,
+    "action": "sequence_complete"
+  },
+  {
+    "ts": "2026-02-11T02:45:57.035Z",
+    "type": "state",
+    "step": 26,
+    "version": 1,
+    "expectedMethod": "conditional_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step26?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "ZN5728"
+    ],
+    "revealedCodes": [
+      "ZN5728"
+    ],
+    "regexCodes": [
+      "ZN5728"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 5/4click button ✓hover area ✓type text ✓scroll box ✓Click Me ✓Hover over this area ✓✓ TypedScroll inside this boxKeep scrolling...Almost there!✓ ScrolledCode RevealedSe"
+  },
+  {
+    "ts": "2026-02-11T02:45:57.268Z",
+    "type": "action",
+    "step": 26,
+    "method": "conditional_reveal",
+    "action": "submit",
+    "code": "ZN5728",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:57.873Z",
+    "type": "state",
+    "step": 27,
+    "version": 1,
+    "expectedMethod": "multi_tab",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step27?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Multi-Tab Challenge: Visit all 3 tabs by clicking each button. Each tab contains a part of the puzzle.Tabs to visit (0/3):Tab 1Tab 2Tab 3"
+  },
+  {
+    "ts": "2026-02-11T02:45:58.205Z",
+    "type": "action",
+    "step": 27,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:45:58.205Z",
+    "type": "action",
+    "step": 27,
+    "action": "multi_tab_clicks:3"
+  },
+  {
+    "ts": "2026-02-11T02:45:58.205Z",
+    "type": "action",
+    "step": 27,
+    "action": "multi_tab_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:45:58.217Z",
+    "type": "state",
+    "step": 27,
+    "version": 1,
+    "expectedMethod": "multi_tab",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step27?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "FMRUAZ"
+    ],
+    "revealedCodes": [
+      "FMRUAZ"
+    ],
+    "regexCodes": [
+      "FMRUAZ"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Multi-Tab Challenge: Visit all 3 tabs by clicking each button. Each tab contains a part of the puzzle.Tabs to visit (3/3):✓ Tab 1: V3✓ Tab 2: PF✓ Tab 3: WCAll tabs collected! The real code is:FMRUAZ"
+  },
+  {
+    "ts": "2026-02-11T02:45:58.473Z",
+    "type": "action",
+    "step": 27,
+    "method": "multi_tab",
+    "action": "submit",
+    "code": "FMRUAZ",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:45:59.087Z",
+    "type": "state",
+    "step": 28,
+    "version": 1,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step28?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 0/4click button hover area type text scroll box Click Me Hover over this area Scroll inside this boxKeep scrolling...Almost there!Complete (0/4)"
+  },
+  {
+    "ts": "2026-02-11T02:45:59.441Z",
+    "type": "action",
+    "step": 28,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:45:59.442Z",
+    "type": "action",
+    "step": 28,
+    "action": "sequence_actions:4"
+  },
+  {
+    "ts": "2026-02-11T02:45:59.442Z",
+    "type": "action",
+    "step": 28,
+    "action": "sequence_complete"
+  },
+  {
+    "ts": "2026-02-11T02:45:59.450Z",
+    "type": "state",
+    "step": 28,
+    "version": 1,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step28?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "NTT6F4"
+    ],
+    "revealedCodes": [
+      "NTT6F4"
+    ],
+    "regexCodes": [
+      "NTT6F4"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 5/4click button ✓hover area ✓type text ✓scroll box ✓Click Me ✓Hover over this area ✓✓ TypedScroll inside this boxKeep scrolling...Almost there!✓ ScrolledCode RevealedSe"
+  },
+  {
+    "ts": "2026-02-11T02:45:59.736Z",
+    "type": "action",
+    "step": 28,
+    "method": "sequence",
+    "action": "submit",
+    "code": "NTT6F4",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:46:00.332Z",
+    "type": "state",
+    "step": 29,
+    "version": 1,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step29?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": true,
+    "puzzleSolvedVisible": false,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code19 + 19 = ?Solve"
+  },
+  {
+    "ts": "2026-02-11T02:46:00.577Z",
+    "type": "action",
+    "step": 29,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:46:00.578Z",
+    "type": "action",
+    "step": 29,
+    "action": "puzzle_fill:38"
+  },
+  {
+    "ts": "2026-02-11T02:46:00.578Z",
+    "type": "action",
+    "step": 29,
+    "action": "puzzle_solve_click"
+  },
+  {
+    "ts": "2026-02-11T02:46:00.587Z",
+    "type": "state",
+    "step": 29,
+    "version": 1,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step29?version=1",
+    "submitEnabled": false,
+    "codes": [
+      "DB6VWH"
+    ],
+    "revealedCodes": [
+      "DB6VWH"
+    ],
+    "regexCodes": [
+      "DB6VWH"
+    ],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": true,
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code19 + 19 = ?Puzzle solved in 1 attempt(s)! Code revealed:DB6VWH"
+  },
+  {
+    "ts": "2026-02-11T02:46:00.844Z",
+    "type": "action",
+    "step": 29,
+    "method": "calculated",
+    "action": "submit",
+    "code": "DB6VWH",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-11T02:46:01.424Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 Levels revealed: 0/3Reveal Code (0/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:46:01.631Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_level_1"
+  },
+  {
+    "ts": "2026-02-11T02:46:01.631Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_level_2"
+  },
+  {
+    "ts": "2026-02-11T02:46:01.643Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 Levels revealed: 2/3Reveal Code (2/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:46:01.877Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:46:01.878Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_deep_sweep:2"
+  },
+  {
+    "ts": "2026-02-11T02:46:01.893Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 ✓Shadow Level 3 Levels revealed: 4/3Reveal Code (4/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:46:02.238Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:46:02.238Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:46:02.250Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 ✓Shadow Level 3 Levels revealed: 4/3Reveal Code (4/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:46:02.522Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:46:02.522Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_wait"
+  },
+  {
+    "ts": "2026-02-11T02:46:02.542Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 ✓Shadow Level 3 Levels revealed: 4/3Reveal Code (4/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:46:02.819Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-11T02:46:02.819Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_wait"
+  },
+  {
+    "ts": "2026-02-11T02:46:02.831Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 ✓Shadow Level 3 Levels revealed: 4/3Reveal Code (4/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:46:03.102Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:46:03.103Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_wait"
+  },
+  {
+    "ts": "2026-02-11T02:46:03.114Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 ✓Shadow Level 3 Levels revealed: 4/3Reveal Code (4/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:46:03.385Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:46:03.386Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_wait"
+  },
+  {
+    "ts": "2026-02-11T02:46:03.395Z",
+    "type": "state",
+    "step": 30,
+    "version": 1,
+    "expectedMethod": "shadow_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step30?version=1",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "Shadow DOM Challenge: Navigate through 3 nested layers to reveal the code. Click each layer in order to access the next.Shadow Level 1 ✓Shadow Level 2 ✓Shadow Level 3 Levels revealed: 4/3Reveal Code (4/3 levels)"
+  },
+  {
+    "ts": "2026-02-11T02:46:03.733Z",
+    "type": "action",
+    "step": 30,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-11T02:46:03.734Z",
+    "type": "action",
+    "step": 30,
+    "action": "shadow_reveal"
+  },
+  {
+    "ts": "2026-02-11T02:46:03.791Z",
+    "type": "action",
+    "step": 30,
+    "action": "step30_finish_route",
+    "routed": {
+      "ok": true,
+      "before": "/step30",
+      "after": "/finish",
+      "mode": "pushstate"
+    }
+  },
+  {
+    "ts": "2026-02-11T02:46:03.976Z",
+    "type": "state",
+    "step": null,
+    "version": 1,
+    "expectedMethod": null,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/finish",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "regexCodes": [],
+    "globalCodes": [],
+    "valueCodes": [],
+    "puzzleInputVisible": false,
+    "puzzleSolvedVisible": false,
+    "challenge": "🎉 YOU ARE HERE!!! 🎉Congratulations! You've completed the challenge!"
+  }
+]

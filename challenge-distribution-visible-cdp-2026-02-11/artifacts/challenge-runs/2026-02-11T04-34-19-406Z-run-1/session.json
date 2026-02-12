@@ -1,0 +1,9 @@
+{
+  "mode": "cdpConnect",
+  "sessionId": "47260e5f-dd42-486d-87b3-283ea169a65e",
+  "notes": "Local OpenDevBrowser core run (no remote model token accounting).",
+  "costSummary": {
+    "entries": 318,
+    "note": "Token/cost accounting unavailable in local core mode; this run tracks wall/action timings and step telemetry."
+  }
+}

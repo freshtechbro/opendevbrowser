@@ -1,0 +1,446 @@
+[
+  {
+    "step": 1,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "reveal_click:Reveal Code",
+      "submit:86V48R"
+    ]
+  },
+  {
+    "step": 2,
+    "calls": 5,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Dismiss",
+      "scroll:720",
+      "dismiss_overlay:Close",
+      "scroll:720",
+      "submit:MSBDEJ"
+    ]
+  },
+  {
+    "step": 3,
+    "calls": 17,
+    "errors": 0,
+    "actions": [
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "submit:S5WR5S"
+    ]
+  },
+  {
+    "step": 4,
+    "calls": 1,
+    "errors": 0,
+    "actions": [
+      "submit:477XE7"
+    ]
+  },
+  {
+    "step": 5,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "hidden_dom_click:DIV",
+      "hidden_dom_click:DIV",
+      "hidden_dom_click:DIV",
+      "submit:KD6UP7"
+    ]
+  },
+  {
+    "step": 6,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "keyboard_sequence:3",
+      "submit:UK7TCM"
+    ]
+  },
+  {
+    "step": 7,
+    "calls": 18,
+    "errors": 0,
+    "actions": [
+      "memory_wait",
+      "dismiss_overlay:Dismiss",
+      "memory_wait",
+      "dismiss_overlay:Accept",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Dismiss",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_confirm",
+      "submit:FE48NY"
+    ]
+  },
+  {
+    "step": 8,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "hover_hold",
+      "dismiss_overlay:Dismiss",
+      "hover_hold",
+      "submit:VATB6G"
+    ]
+  },
+  {
+    "step": 9,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "reveal_click:Reveal Code",
+      "submit:YWM4EY"
+    ]
+  },
+  {
+    "step": 10,
+    "calls": 8,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "drag_drop:6",
+      "drag_drop:6",
+      "dismiss_overlay:Close",
+      "drag_drop:4",
+      "dismiss_overlay:Close",
+      "drag_drop:4",
+      "submit:K8G4J7"
+    ]
+  },
+  {
+    "step": 11,
+    "calls": 5,
+    "errors": 0,
+    "actions": [
+      "canvas_draw:3",
+      "dismiss_overlay:Close",
+      "canvas_draw:3",
+      "canvas_reveal",
+      "submit:SX9B5E"
+    ]
+  },
+  {
+    "step": 12,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "audio_patch",
+      "audio_play:Play Audio",
+      "audio_complete",
+      "submit:AYK2U9"
+    ]
+  },
+  {
+    "step": 13,
+    "calls": 5,
+    "errors": 0,
+    "actions": [
+      "video_seek:Frame 43",
+      "video_seek:Frame 43",
+      "video_seek:Frame 43",
+      "video_complete",
+      "submit:GS75RQ"
+    ]
+  },
+  {
+    "step": 14,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "split_parts:7",
+      "submit:CK7BKS"
+    ]
+  },
+  {
+    "step": 15,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "encoded_fill",
+      "encoded_reveal",
+      "submit:85R9BR"
+    ]
+  },
+  {
+    "step": 16,
+    "calls": 6,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "gesture_draw",
+      "dismiss_overlay:Dismiss",
+      "gesture_draw",
+      "gesture_complete",
+      "submit:5MAFQV"
+    ]
+  },
+  {
+    "step": 17,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "sequence_actions:4",
+      "sequence_complete",
+      "submit:VUGU97"
+    ]
+  },
+  {
+    "step": 18,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "puzzle_fill:36",
+      "puzzle_solve_click",
+      "submit:J38HSW"
+    ]
+  },
+  {
+    "step": 19,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "puzzle_state_reset",
+      "puzzle_fill:38",
+      "puzzle_solve_click",
+      "submit:G9WSTZ"
+    ]
+  },
+  {
+    "step": 20,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "multi_tab_clicks:5",
+      "multi_tab_reveal",
+      "submit:LKRUXL"
+    ]
+  },
+  {
+    "step": 21,
+    "calls": 29,
+    "errors": 0,
+    "actions": [
+      "websocket_connect",
+      "dismiss_overlay:Dismiss",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Close",
+      "dismiss_overlay:Close",
+      "dismiss_overlay:Dismiss",
+      "dismiss_overlay:Dismiss",
+      "dismiss_overlay:Dismiss",
+      "dismiss_overlay:Accept",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Close",
+      "dismiss_overlay:Dismiss",
+      "dismiss_overlay:Dismiss",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "websocket_reveal",
+      "submit:YKDJJ2"
+    ]
+  },
+  {
+    "step": 22,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "service_worker_register",
+      "service_worker_retrieve",
+      "submit:G4FLRN"
+    ]
+  },
+  {
+    "step": 23,
+    "calls": 8,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "mutation_trigger",
+      "mutation_trigger",
+      "mutation_trigger",
+      "mutation_trigger",
+      "mutation_trigger",
+      "mutation_complete",
+      "submit:QBF3HG"
+    ]
+  },
+  {
+    "step": 24,
+    "calls": 135,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "recursive_enter:1",
+      "recursive_enter:2",
+      "recursive_extract",
+      "dismiss_overlay:Dismiss",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "dismiss_overlay:Dismiss",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "dismiss_overlay:Close",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract",
+      "recursive_extract"
+    ]
+  }
+]

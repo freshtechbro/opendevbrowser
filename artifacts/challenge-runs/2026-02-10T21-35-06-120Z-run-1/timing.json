@@ -1,0 +1,16 @@
+{
+  "startIso": "2026-02-10T21:35:06.122Z",
+  "runIndex": 1,
+  "actionCount": 172,
+  "stepCount": 12,
+  "wallMs": 46534,
+  "agentMs": 8990,
+  "toolMs": 37544,
+  "apiLatencyMs": 0,
+  "completed": false,
+  "finalStep": null,
+  "finalUrl": null,
+  "errors": [
+    "page.waitForTimeout: Target page, context or browser has been closed"
+  ]
+}

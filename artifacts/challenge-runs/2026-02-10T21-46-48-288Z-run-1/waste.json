@@ -1,0 +1,329 @@
+[
+  {
+    "step": 1,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "scroll:720",
+      "dismiss_overlay:Accept",
+      "scroll:720",
+      "submit:7X885H"
+    ]
+  },
+  {
+    "step": 2,
+    "calls": 17,
+    "errors": 0,
+    "actions": [
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "submit:3KPTW8"
+    ]
+  },
+  {
+    "step": 3,
+    "calls": 1,
+    "errors": 0,
+    "actions": [
+      "submit:QZEKQF"
+    ]
+  },
+  {
+    "step": 4,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "hidden_dom_click:DIV",
+      "hidden_dom_click:DIV",
+      "hidden_dom_click:DIV",
+      "submit:7Q546E"
+    ]
+  },
+  {
+    "step": 5,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Accept",
+      "reveal_click:Reveal Code",
+      "submit:SPWRYE"
+    ]
+  },
+  {
+    "step": 6,
+    "calls": 20,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Accept",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Dismiss",
+      "memory_wait",
+      "dismiss_overlay:Dismiss",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Dismiss",
+      "memory_wait",
+      "memory_confirm",
+      "submit:M79RNX"
+    ]
+  },
+  {
+    "step": 7,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "hover_hold",
+      "dismiss_overlay:Close",
+      "hover_hold",
+      "submit:EA9TKX"
+    ]
+  },
+  {
+    "step": 8,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "reveal_click:Reveal Code",
+      "submit:C4LK54"
+    ]
+  },
+  {
+    "step": 9,
+    "calls": 7,
+    "errors": 0,
+    "actions": [
+      "drag_drop:6",
+      "dismiss_overlay:Close",
+      "drag_drop:6",
+      "drag_drop:4",
+      "dismiss_overlay:Close",
+      "drag_drop:4",
+      "submit:TCJV7G"
+    ]
+  },
+  {
+    "step": 10,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "keyboard_sequence:4",
+      "submit:GM3XLR"
+    ]
+  },
+  {
+    "step": 11,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "audio_patch",
+      "audio_play:Play Audio",
+      "audio_complete",
+      "submit:W9694K"
+    ]
+  },
+  {
+    "step": 12,
+    "calls": 5,
+    "errors": 0,
+    "actions": [
+      "video_seek:Frame 42",
+      "video_seek:Frame 42",
+      "video_seek:Frame 42",
+      "video_complete",
+      "submit:VAMQJ6"
+    ]
+  },
+  {
+    "step": 13,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "split_parts:6",
+      "submit:LBH66Q"
+    ]
+  },
+  {
+    "step": 14,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "encoded_fill",
+      "encoded_reveal",
+      "submit:9RW7KN"
+    ]
+  },
+  {
+    "step": 15,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "rotating_capture",
+      "rotating_capture",
+      "rotating_capture",
+      "submit:XDZ9GD"
+    ]
+  },
+  {
+    "step": 16,
+    "calls": 132,
+    "errors": 0,
+    "actions": [
+      "sequence_actions:4",
+      "dismiss_overlay:Close",
+      "sequence_actions:3",
+      "dismiss_overlay:Dismiss",
+      "sequence_actions:3",
+      "dismiss_overlay:Accept",
+      "sequence_actions:3",
+      "dismiss_overlay:Close",
+      "sequence_actions:3",
+      "dismiss_overlay:Close",
+      "sequence_actions:3",
+      "dismiss_overlay:Close",
+      "sequence_actions:3",
+      "dismiss_overlay:Close",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "dismiss_overlay:Close",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "dismiss_overlay:Dismiss",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "dismiss_overlay:Dismiss",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "dismiss_overlay:Close",
+      "sequence_actions:3",
+      "dismiss_overlay:Close",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3",
+      "sequence_actions:3"
+    ]
+  }
+]

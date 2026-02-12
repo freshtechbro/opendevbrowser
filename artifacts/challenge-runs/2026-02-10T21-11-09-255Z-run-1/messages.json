@@ -1,0 +1,2518 @@
+[
+  {
+    "ts": "2026-02-10T21:11:09.920Z",
+    "type": "launch",
+    "sessionId": "7791d488-1ccc-408d-9f48-06740a780303",
+    "mode": "managed"
+  },
+  {
+    "ts": "2026-02-10T21:11:12.197Z",
+    "type": "state",
+    "step": 1,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:11:12.330Z",
+    "type": "action",
+    "step": 1,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:11:12.336Z",
+    "type": "state",
+    "step": 1,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "P4M5YC"
+    ],
+    "revealedCodes": [
+      "P4M5YC"
+    ],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode RevealedP4M5YC"
+  },
+  {
+    "ts": "2026-02-10T21:11:12.540Z",
+    "type": "action",
+    "step": 1,
+    "action": "submit",
+    "code": "P4M5YC",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:11:13.106Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-10T21:11:13.376Z",
+    "type": "action",
+    "step": 2,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-10T21:11:13.383Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-10T21:11:13.906Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T21:11:13.906Z",
+    "type": "action",
+    "step": 2,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-10T21:11:13.911Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2897px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:14.102Z",
+    "type": "action",
+    "step": 2,
+    "action": "submit",
+    "code": "RCSMN6",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:11:23.206Z",
+    "type": "note",
+    "step": 2,
+    "note": "no_advance_retry_allowed",
+    "code": "RCSMN6",
+    "attempt": 1
+  },
+  {
+    "ts": "2026-02-10T21:11:23.291Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:11:23.295Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:23.498Z",
+    "type": "action",
+    "step": 2,
+    "action": "submit",
+    "code": "RCSMN6",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:11:32.621Z",
+    "type": "note",
+    "step": 2,
+    "note": "no_advance_retry_allowed",
+    "code": "RCSMN6",
+    "attempt": 2
+  },
+  {
+    "ts": "2026-02-10T21:11:32.710Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:32.715Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:32.921Z",
+    "type": "action",
+    "step": 2,
+    "action": "submit",
+    "code": "RCSMN6",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:11:42.030Z",
+    "type": "note",
+    "step": 2,
+    "note": "retry_limit_reached",
+    "code": "RCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.115Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.121Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.212Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.216Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.301Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.306Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.392Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.395Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.483Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.490Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.576Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.581Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.668Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.672Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.758Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.761Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.847Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.851Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.940Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:42.944Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.032Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.036Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.124Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.128Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.215Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.219Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.309Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.313Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.403Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.406Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.494Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.498Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.587Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.593Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.684Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.688Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.776Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.780Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.869Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.871Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.957Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:43.961Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.050Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.054Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.142Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.145Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.234Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.237Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.324Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.327Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.414Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.421Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.508Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.512Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.598Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.601Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.689Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.693Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.783Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.787Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.878Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.883Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.972Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:44.983Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.070Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.073Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.162Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.165Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.254Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.258Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.346Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.349Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.438Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.442Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.529Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.533Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.625Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.629Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.718Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.722Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.810Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.813Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.900Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.903Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.994Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:45.997Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.084Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.088Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.178Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.181Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.270Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.274Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.362Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.367Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.453Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.457Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.546Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.551Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.639Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.645Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.732Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.736Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.825Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.828Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.916Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:46.920Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.008Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.011Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.099Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.103Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.190Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.198Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.285Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.289Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.378Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.383Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.471Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.480Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.566Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.570Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.662Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.666Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.755Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.759Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.849Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.853Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.941Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:47.944Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.032Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.035Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.124Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.127Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.214Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.218Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.306Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.309Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.396Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.400Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.488Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.491Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.580Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.583Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.671Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.674Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.763Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.766Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.854Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.857Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.944Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:48.949Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.036Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.039Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.126Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.130Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.218Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.222Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.311Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.315Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.403Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.406Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.492Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.495Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.583Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.586Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.675Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.678Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.767Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.771Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.857Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.860Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.949Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:49.952Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.042Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.046Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.133Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.137Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.232Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.236Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.325Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.328Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.416Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.419Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.513Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.516Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.603Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.606Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.693Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.702Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.792Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.796Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.882Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.885Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.973Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:50.980Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.071Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.078Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.165Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.169Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.262Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.266Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.354Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.357Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.444Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.448Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.534Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.538Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.626Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.629Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.716Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.720Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.808Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.811Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.899Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.902Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.989Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:51.992Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.079Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.083Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.179Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.183Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.269Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.272Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.359Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.362Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.449Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.452Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.540Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.544Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.632Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.636Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.722Z",
+    "type": "action",
+    "step": 2,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.725Z",
+    "type": "state",
+    "step": 2,
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": true,
+    "codes": [
+      "RCSMN6"
+    ],
+    "revealedCodes": [
+      "RCSMN6"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2534px / 500pxRCSMN6"
+  },
+  {
+    "ts": "2026-02-10T21:11:52.725Z",
+    "type": "error",
+    "message": "stuck_on_step_2"
+  }
+]

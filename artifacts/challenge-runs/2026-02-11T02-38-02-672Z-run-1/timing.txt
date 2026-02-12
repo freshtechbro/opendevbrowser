@@ -1,0 +1,14 @@
+run_index: 1
+completed: false
+final_step: null
+final_url: 
+wall_time: 5.800s (5800 ms)
+agent_time: 5.665s (5665 ms)
+tool_time: 0.135s (135 ms)
+api_latency: 0.000s (0 ms)
+actions: 0
+step_buckets: 0
+errors: page.goto: Frame has been detached.
+Call log:
+[2m  - navigating to "https://serene-frangipane-7fd25b.netlify.app/", waiting until "load"[22m
+

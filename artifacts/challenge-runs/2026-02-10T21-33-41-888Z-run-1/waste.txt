@@ -1,0 +1,23 @@
+step 1: calls=2 errors=0
+actions: reveal_click:Reveal Code | submit:GYV2SY
+
+step 2: calls=2 errors=0
+actions: scroll:720 | submit:B9QCHK
+
+step 3: calls=19 errors=0
+actions: passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | submit:FKF3S4
+
+step 4: calls=1 errors=0
+actions: submit:RNU9N8
+
+step 5: calls=4 errors=0
+actions: hidden_dom_click:DIV | hidden_dom_click:DIV | hidden_dom_click:DIV | submit:Z7VKDF
+
+step 6: calls=2 errors=0
+actions: keyboard_sequence:3 | submit:EZDCEK
+
+step 7: calls=17 errors=0
+actions: dismiss_overlay:Dismiss | memory_wait | dismiss_overlay:Accept | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Dismiss | memory_wait | dismiss_overlay:Dismiss | memory_confirm | submit:J5H9WS
+
+step 8: calls=56 errors=0
+actions: hover_hold | dismiss_overlay:Dismiss | hover_hold | dismiss_overlay:Dismiss | hover_hold | dismiss_overlay:Dismiss | hover_hold | dismiss_overlay:Close | hover_hold | dismiss_overlay:Dismiss | hover_hold | dismiss_overlay:Dismiss | hover_hold | dismiss_overlay:Dismiss | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold | hover_hold

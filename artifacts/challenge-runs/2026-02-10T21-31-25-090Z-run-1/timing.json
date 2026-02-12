@@ -1,0 +1,14 @@
+{
+  "startIso": "2026-02-10T21:31:25.091Z",
+  "runIndex": 1,
+  "actionCount": 37,
+  "stepCount": 6,
+  "wallMs": 18661,
+  "agentMs": 4419,
+  "toolMs": 14242,
+  "apiLatencyMs": 0,
+  "completed": true,
+  "finalStep": 6,
+  "finalUrl": "https://serene-frangipane-7fd25b.netlify.app/step6?version=1",
+  "errors": []
+}

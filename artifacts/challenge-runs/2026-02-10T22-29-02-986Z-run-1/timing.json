@@ -1,0 +1,16 @@
+{
+  "startIso": "2026-02-10T22:29:02.988Z",
+  "runIndex": 1,
+  "actionCount": 486,
+  "stepCount": 21,
+  "wallMs": 77915,
+  "agentMs": 15404,
+  "toolMs": 62511,
+  "apiLatencyMs": 0,
+  "completed": false,
+  "finalStep": null,
+  "finalUrl": null,
+  "errors": [
+    "stuck_on_step_21"
+  ]
+}

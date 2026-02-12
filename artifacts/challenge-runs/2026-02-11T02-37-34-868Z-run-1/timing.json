@@ -1,0 +1,16 @@
+{
+  "startIso": "2026-02-11T02:37:34.869Z",
+  "runIndex": 1,
+  "actionCount": 0,
+  "stepCount": 0,
+  "wallMs": 1134,
+  "agentMs": 8,
+  "toolMs": 1126,
+  "apiLatencyMs": 0,
+  "completed": false,
+  "finalStep": null,
+  "finalUrl": null,
+  "errors": [
+    "Direct annotate is unavailable via extension ops sessions."
+  ]
+}

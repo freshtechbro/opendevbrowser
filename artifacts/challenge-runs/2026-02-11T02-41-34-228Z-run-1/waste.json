@@ -1,0 +1,391 @@
+[
+  {
+    "step": 1,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "scroll:720",
+      "submit:9SPAXY"
+    ]
+  },
+  {
+    "step": 2,
+    "calls": 17,
+    "errors": 0,
+    "actions": [
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "passive_wait:delayed_reveal",
+      "submit:K6D4BV"
+    ]
+  },
+  {
+    "step": 3,
+    "calls": 1,
+    "errors": 0,
+    "actions": [
+      "submit:JLC8PF"
+    ]
+  },
+  {
+    "step": 4,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "hidden_dom_click:DIV",
+      "hidden_dom_click:DIV",
+      "hidden_dom_click:DIV",
+      "submit:YL2VYQ"
+    ]
+  },
+  {
+    "step": 5,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "reveal_click:Reveal Code",
+      "submit:UW3GEB"
+    ]
+  },
+  {
+    "step": 6,
+    "calls": 19,
+    "errors": 0,
+    "actions": [
+      "memory_wait",
+      "memory_wait",
+      "dismiss_overlay:Accept",
+      "memory_wait",
+      "dismiss_overlay:Dismiss",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Dismiss",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_wait",
+      "dismiss_overlay:Close",
+      "memory_confirm",
+      "submit:4GDGKX"
+    ]
+  },
+  {
+    "step": 7,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "hover_hold",
+      "submit:ZDHXVR"
+    ]
+  },
+  {
+    "step": 8,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "reveal_click:Reveal Code",
+      "submit:89HKVP"
+    ]
+  },
+  {
+    "step": 9,
+    "calls": 7,
+    "errors": 0,
+    "actions": [
+      "drag_drop:6",
+      "drag_drop:6",
+      "dismiss_overlay:Dismiss",
+      "drag_drop:4",
+      "dismiss_overlay:Close",
+      "drag_drop:4",
+      "submit:36QZV2"
+    ]
+  },
+  {
+    "step": 10,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "keyboard_sequence:4",
+      "submit:254GFY"
+    ]
+  },
+  {
+    "step": 11,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "audio_patch",
+      "audio_play:Play Audio",
+      "audio_complete",
+      "submit:2D9TTX"
+    ]
+  },
+  {
+    "step": 12,
+    "calls": 5,
+    "errors": 0,
+    "actions": [
+      "video_seek:Frame 42",
+      "video_seek:Frame 42",
+      "video_seek:Frame 42",
+      "video_complete",
+      "submit:FYVHXB"
+    ]
+  },
+  {
+    "step": 13,
+    "calls": 2,
+    "errors": 0,
+    "actions": [
+      "split_parts:6",
+      "submit:WJGT52"
+    ]
+  },
+  {
+    "step": 14,
+    "calls": 6,
+    "errors": 0,
+    "actions": [
+      "submit:REVDT0",
+      "submit:RFX01F",
+      "dismiss_overlay:Close",
+      "encoded_fill",
+      "encoded_reveal",
+      "submit:3HYM4P"
+    ]
+  },
+  {
+    "step": 15,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "rotating_capture",
+      "rotating_capture",
+      "rotating_capture",
+      "submit:QWNPWJ"
+    ]
+  },
+  {
+    "step": 16,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "sequence_actions:4",
+      "sequence_complete",
+      "submit:J828QQ"
+    ]
+  },
+  {
+    "step": 17,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "puzzle_fill:34",
+      "puzzle_solve_click",
+      "submit:Z68Y4R"
+    ]
+  },
+  {
+    "step": 18,
+    "calls": 5,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "puzzle_state_reset",
+      "puzzle_fill:36",
+      "puzzle_solve_click",
+      "submit:CR37E6"
+    ]
+  },
+  {
+    "step": 19,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "multi_tab_clicks:4",
+      "multi_tab_reveal",
+      "submit:48BBNR"
+    ]
+  },
+  {
+    "step": 20,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "gesture_draw",
+      "gesture_draw",
+      "gesture_complete",
+      "submit:M44QW4"
+    ]
+  },
+  {
+    "step": 21,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "service_worker_register",
+      "service_worker_retrieve",
+      "submit:FBHCNY"
+    ]
+  },
+  {
+    "step": 22,
+    "calls": 8,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Dismiss",
+      "mutation_trigger",
+      "mutation_trigger",
+      "mutation_trigger",
+      "mutation_trigger",
+      "mutation_trigger",
+      "mutation_complete",
+      "submit:6XFPYJ"
+    ]
+  },
+  {
+    "step": 23,
+    "calls": 6,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Dismiss",
+      "recursive_enter:1",
+      "recursive_enter:2",
+      "recursive_extract",
+      "recursive_force_complete:onComplete",
+      "submit:VH2V5Y"
+    ]
+  },
+  {
+    "step": 24,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Accept",
+      "sequence_actions:4",
+      "sequence_complete",
+      "submit:8P8HGR"
+    ]
+  },
+  {
+    "step": 25,
+    "calls": 3,
+    "errors": 0,
+    "actions": [
+      "multi_tab_clicks:4",
+      "multi_tab_reveal",
+      "submit:UJY2AR"
+    ]
+  },
+  {
+    "step": 26,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Dismiss",
+      "sequence_actions:4",
+      "sequence_complete",
+      "submit:2PW86K"
+    ]
+  },
+  {
+    "step": 27,
+    "calls": 4,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Close",
+      "puzzle_fill:34",
+      "puzzle_solve_click",
+      "submit:HV8MQJ"
+    ]
+  },
+  {
+    "step": 28,
+    "calls": 7,
+    "errors": 0,
+    "actions": [
+      "dismiss_overlay:Dismiss",
+      "shadow_level_1",
+      "shadow_level_2",
+      "dismiss_overlay:Dismiss",
+      "shadow_deep_sweep:2",
+      "shadow_force_complete:onComplete",
+      "submit:4EZLHB"
+    ]
+  },
+  {
+    "step": 29,
+    "calls": 27,
+    "errors": 0,
+    "actions": [
+      "websocket_connect",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Dismiss",
+      "fallback_card_click",
+      "dismiss_overlay:Dismiss",
+      "fallback_card_click",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Accept",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "dismiss_overlay:Close",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "fallback_card_click",
+      "dismiss_overlay:Dismiss",
+      "fallback_card_click",
+      "websocket_reveal",
+      "submit:UNGLEX"
+    ]
+  },
+  {
+    "step": 30,
+    "calls": 14,
+    "errors": 0,
+    "actions": [
+      "service_worker_register",
+      "service_worker_retrieve",
+      "dismiss_overlay:Close",
+      "service_worker_wait",
+      "dismiss_overlay:Dismiss",
+      "service_worker_wait",
+      "dismiss_overlay:Close",
+      "service_worker_wait",
+      "dismiss_overlay:Accept",
+      "service_worker_retrieve",
+      "service_worker_wait",
+      "service_worker_wait",
+      "service_worker_wait",
+      "step30_finish_route:pushstate"
+    ]
+  }
+]

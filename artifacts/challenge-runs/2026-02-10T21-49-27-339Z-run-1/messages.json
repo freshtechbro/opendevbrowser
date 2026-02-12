@@ -1,0 +1,4854 @@
+[
+  {
+    "ts": "2026-02-10T21:49:27.913Z",
+    "type": "launch",
+    "sessionId": "04eb569e-f128-4b84-875b-a4e687ba6d00",
+    "mode": "managed"
+  },
+  {
+    "ts": "2026-02-10T21:49:29.643Z",
+    "type": "state",
+    "step": 1,
+    "version": 2,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:49:29.781Z",
+    "type": "action",
+    "step": 1,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:49:29.787Z",
+    "type": "state",
+    "step": 1,
+    "version": 2,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "PAMFAU"
+    ],
+    "revealedCodes": [
+      "PAMFAU"
+    ],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode RevealedPAMFAU"
+  },
+  {
+    "ts": "2026-02-10T21:49:30.020Z",
+    "type": "action",
+    "step": 1,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "PAMFAU",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:30.590Z",
+    "type": "state",
+    "step": 2,
+    "version": 2,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-10T21:49:30.815Z",
+    "type": "action",
+    "step": 2,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-10T21:49:30.822Z",
+    "type": "state",
+    "step": 2,
+    "version": 2,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-10T21:49:31.434Z",
+    "type": "action",
+    "step": 2,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:31.435Z",
+    "type": "action",
+    "step": 2,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-10T21:49:31.443Z",
+    "type": "state",
+    "step": 2,
+    "version": 2,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "N7ST2M"
+    ],
+    "revealedCodes": [
+      "N7ST2M"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 2887px / 500pxN7ST2M"
+  },
+  {
+    "ts": "2026-02-10T21:49:31.673Z",
+    "type": "action",
+    "step": 2,
+    "method": "scroll_reveal",
+    "action": "submit",
+    "code": "N7ST2M",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:32.245Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 5.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:32.799Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:32.803Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 4.9s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:33.356Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:33.366Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 5.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:33.918Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:33.923Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 5.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:34.476Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:34.485Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 5.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:35.038Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:35.044Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 5.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:35.597Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:35.602Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 4.9s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:36.157Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:36.162Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 4.8s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:36.716Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:36.722Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 4.2s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:37.275Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:37.284Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 4.6s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:37.837Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:37.842Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:38.395Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:38.404Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 3.4s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:38.957Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:38.962Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 2.9s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:39.514Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:39.520Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 2.3s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:40.080Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:40.086Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 1.8s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:40.644Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:40.653Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 1.2s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:41.207Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:41.212Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 0.6s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:41.764Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:41.771Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Waiting... 0.1s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:49:42.323Z",
+    "type": "action",
+    "step": 3,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:42.328Z",
+    "type": "state",
+    "step": 3,
+    "version": 2,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "PG6VVS"
+    ],
+    "revealedCodes": [
+      "PG6VVS"
+    ],
+    "challenge": "Delayed Reveal: The code will appear after waiting 5 seconds...Wait complete! Code revealed:PG6VVS"
+  },
+  {
+    "ts": "2026-02-10T21:49:42.543Z",
+    "type": "action",
+    "step": 3,
+    "method": "delayed_reveal",
+    "action": "submit",
+    "code": "PG6VVS",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:43.107Z",
+    "type": "state",
+    "step": 4,
+    "version": 2,
+    "expectedMethod": "visible",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "H5G4DU"
+    ],
+    "revealedCodes": [],
+    "challenge": "Challenge Code for Step 5:Enter this code below to proceed to step 5:H5G4DU"
+  },
+  {
+    "ts": "2026-02-10T21:49:43.296Z",
+    "type": "action",
+    "step": 4,
+    "method": "visible",
+    "action": "submit",
+    "code": "H5G4DU",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:43.860Z",
+    "type": "state",
+    "step": 5,
+    "version": 2,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step5?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 3 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.Code hidden - complete challenge to reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:44.027Z",
+    "type": "action",
+    "step": 5,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T21:49:44.027Z",
+    "type": "action",
+    "step": 5,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T21:49:44.027Z",
+    "type": "action",
+    "step": 5,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T21:49:44.031Z",
+    "type": "state",
+    "step": 5,
+    "version": 2,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step5?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "M6EBUV"
+    ],
+    "revealedCodes": [
+      "M6EBUV"
+    ],
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 0 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.M6EBUV"
+  },
+  {
+    "ts": "2026-02-10T21:49:44.242Z",
+    "type": "action",
+    "step": 5,
+    "method": "hidden_dom",
+    "action": "submit",
+    "code": "M6EBUV",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:44.808Z",
+    "type": "state",
+    "step": 6,
+    "version": 2,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Keyboard Sequence Challenge: Press 3 keys in sequence to reveal the code.Required sequence:Control+AControl+CControl+VYour input (0/3):Press any key to start..."
+  },
+  {
+    "ts": "2026-02-10T21:49:45.029Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:49:45.029Z",
+    "type": "action",
+    "step": 6,
+    "action": "keyboard_sequence:3"
+  },
+  {
+    "ts": "2026-02-10T21:49:45.033Z",
+    "type": "state",
+    "step": 6,
+    "version": 2,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "WYRX93"
+    ],
+    "revealedCodes": [
+      "WYRX93"
+    ],
+    "challenge": "Keyboard Sequence Challenge: Press 3 keys in sequence to reveal the code.Required sequence:Control+AControl+CControl+VYour input (3/3):AAASequence completed! Code revealed:WYRX93"
+  },
+  {
+    "ts": "2026-02-10T21:49:45.239Z",
+    "type": "action",
+    "step": 6,
+    "method": "keyboard_sequence",
+    "action": "submit",
+    "code": "WYRX93",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:45.810Z",
+    "type": "state",
+    "step": 7,
+    "version": 2,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 1.5 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T21:49:46.148Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:46.148Z",
+    "type": "action",
+    "step": 7,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:49:46.153Z",
+    "type": "state",
+    "step": 7,
+    "version": 2,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 1.5 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T21:49:46.492Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:49:46.492Z",
+    "type": "action",
+    "step": 7,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:49:46.499Z",
+    "type": "state",
+    "step": 7,
+    "version": 2,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 1.5 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T21:49:46.835Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:46.835Z",
+    "type": "action",
+    "step": 7,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:49:46.840Z",
+    "type": "state",
+    "step": 7,
+    "version": 2,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 1.5 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7DRJ8Z"
+  },
+  {
+    "ts": "2026-02-10T21:49:47.178Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:47.179Z",
+    "type": "action",
+    "step": 7,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:49:47.186Z",
+    "type": "state",
+    "step": 7,
+    "version": 2,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 1.5 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7DRJ8Z"
+  },
+  {
+    "ts": "2026-02-10T21:49:47.526Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:47.526Z",
+    "type": "action",
+    "step": 7,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:49:47.529Z",
+    "type": "state",
+    "step": 7,
+    "version": 2,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 1.5 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7DRJ8Z"
+  },
+  {
+    "ts": "2026-02-10T21:49:47.865Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:49:47.865Z",
+    "type": "action",
+    "step": 7,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:49:47.869Z",
+    "type": "state",
+    "step": 7,
+    "version": 2,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 1.5 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7DRJ8Z"
+  },
+  {
+    "ts": "2026-02-10T21:49:48.210Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:48.210Z",
+    "type": "action",
+    "step": 7,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:49:48.221Z",
+    "type": "state",
+    "step": 7,
+    "version": 2,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 1.5 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!7DRJ8Z"
+  },
+  {
+    "ts": "2026-02-10T21:49:48.435Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:49:48.435Z",
+    "type": "action",
+    "step": 7,
+    "action": "memory_confirm"
+  },
+  {
+    "ts": "2026-02-10T21:49:48.441Z",
+    "type": "state",
+    "step": 7,
+    "version": 2,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "BUQ3UD"
+    ],
+    "revealedCodes": [
+      "BUQ3UD"
+    ],
+    "challenge": "Memory Challenge: A code will flash for 1.5 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code has been hidden. Did you see it?Challenge completed! The real code is:BUQ3UD"
+  },
+  {
+    "ts": "2026-02-10T21:49:48.661Z",
+    "type": "action",
+    "step": 7,
+    "method": "memory",
+    "action": "submit",
+    "code": "BUQ3UD",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:49.224Z",
+    "type": "state",
+    "step": 8,
+    "version": 2,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeHover here to reveal code"
+  },
+  {
+    "ts": "2026-02-10T21:49:50.379Z",
+    "type": "action",
+    "step": 8,
+    "action": "hover_hold"
+  },
+  {
+    "ts": "2026-02-10T21:49:50.385Z",
+    "type": "state",
+    "step": 8,
+    "version": 2,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "JSR7V9"
+    ],
+    "revealedCodes": [],
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeJSR7V9"
+  },
+  {
+    "ts": "2026-02-10T21:49:50.595Z",
+    "type": "action",
+    "step": 8,
+    "method": "hover_reveal",
+    "action": "submit",
+    "code": "JSR7V9",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:51.158Z",
+    "type": "state",
+    "step": 9,
+    "version": 2,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:49:51.285Z",
+    "type": "action",
+    "step": 9,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:49:51.289Z",
+    "type": "state",
+    "step": 9,
+    "version": 2,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "DFLFSG"
+    ],
+    "revealedCodes": [
+      "DFLFSG"
+    ],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode RevealedDFLFSG"
+  },
+  {
+    "ts": "2026-02-10T21:49:51.506Z",
+    "type": "action",
+    "step": 9,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "DFLFSG",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:52.070Z",
+    "type": "state",
+    "step": 10,
+    "version": 2,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:CPTPP2P2VX78Drop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.280Z",
+    "type": "action",
+    "step": 10,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.280Z",
+    "type": "action",
+    "step": 10,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.286Z",
+    "type": "state",
+    "step": 10,
+    "version": 2,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:CPTPP2P2VX78Drop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.494Z",
+    "type": "action",
+    "step": 10,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.494Z",
+    "type": "action",
+    "step": 10,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.500Z",
+    "type": "state",
+    "step": 10,
+    "version": 2,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:CPTPP2P2VX78Drop zones (4/6 filled):2222Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.708Z",
+    "type": "action",
+    "step": 10,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.708Z",
+    "type": "action",
+    "step": 10,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.713Z",
+    "type": "state",
+    "step": 10,
+    "version": 2,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:CPTPP2P2VX78Drop zones (4/6 filled):2222Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.925Z",
+    "type": "action",
+    "step": 10,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.925Z",
+    "type": "action",
+    "step": 10,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-10T21:49:52.927Z",
+    "type": "state",
+    "step": 10,
+    "version": 2,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ATN8SU"
+    ],
+    "revealedCodes": [
+      "ATN8SU"
+    ],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:CPTPP2P2VX78Drop zones (6/6 filled):2222PPChallenge completed! The code is:ATN8SU"
+  },
+  {
+    "ts": "2026-02-10T21:49:53.116Z",
+    "type": "action",
+    "step": 10,
+    "method": "drag_drop",
+    "action": "submit",
+    "code": "ATN8SU",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:53.673Z",
+    "type": "state",
+    "step": 11,
+    "version": 2,
+    "expectedMethod": "canvas",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Canvas Challenge: Draw at least 3 strokes on the canvas below to reveal the code.Strokes: 0/3 Draw 3 more strokes"
+  },
+  {
+    "ts": "2026-02-10T21:49:53.801Z",
+    "type": "action",
+    "step": 11,
+    "action": "canvas_draw:3"
+  },
+  {
+    "ts": "2026-02-10T21:49:53.807Z",
+    "type": "state",
+    "step": 11,
+    "version": 2,
+    "expectedMethod": "canvas",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Canvas Challenge: Draw at least 3 strokes on the canvas below to reveal the code.Strokes: 0/3 Draw 3 more strokes"
+  },
+  {
+    "ts": "2026-02-10T21:49:54.144Z",
+    "type": "action",
+    "step": 11,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:54.144Z",
+    "type": "action",
+    "step": 11,
+    "action": "canvas_draw:3"
+  },
+  {
+    "ts": "2026-02-10T21:49:54.144Z",
+    "type": "action",
+    "step": 11,
+    "action": "canvas_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:49:54.150Z",
+    "type": "state",
+    "step": 11,
+    "version": 2,
+    "expectedMethod": "canvas",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "B9VAF9"
+    ],
+    "revealedCodes": [
+      "B9VAF9"
+    ],
+    "challenge": "Canvas Challenge: Draw at least 3 strokes on the canvas below to reveal the code.Strokes: 3/3 ✓Code RevealedDrawing complete! The code is:B9VAF9"
+  },
+  {
+    "ts": "2026-02-10T21:49:54.337Z",
+    "type": "action",
+    "step": 11,
+    "method": "canvas",
+    "action": "submit",
+    "code": "B9VAF9",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:54.903Z",
+    "type": "state",
+    "step": 12,
+    "version": 2,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AudioClick to hear the hint"
+  },
+  {
+    "ts": "2026-02-10T21:49:58.666Z",
+    "type": "action",
+    "step": 12,
+    "action": "audio_patch"
+  },
+  {
+    "ts": "2026-02-10T21:49:58.666Z",
+    "type": "action",
+    "step": 12,
+    "action": "audio_play:Play Audio"
+  },
+  {
+    "ts": "2026-02-10T21:49:58.666Z",
+    "type": "action",
+    "step": 12,
+    "action": "audio_complete"
+  },
+  {
+    "ts": "2026-02-10T21:49:58.672Z",
+    "type": "state",
+    "step": 12,
+    "version": 2,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "DXBQS2"
+    ],
+    "revealedCodes": [
+      "DXBQS2"
+    ],
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AgainAudio played!Audio listened! The real code is:DXBQS2"
+  },
+  {
+    "ts": "2026-02-10T21:49:58.887Z",
+    "type": "action",
+    "step": 12,
+    "method": "audio",
+    "action": "submit",
+    "code": "DXBQS2",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:49:59.460Z",
+    "type": "state",
+    "step": 13,
+    "version": 2,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 43, then complete the challenge.-10-1Frame 43+1+10Seek operations: 0/3 requiredSeek 3 more times"
+  },
+  {
+    "ts": "2026-02-10T21:49:59.810Z",
+    "type": "action",
+    "step": 13,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:49:59.810Z",
+    "type": "action",
+    "step": 13,
+    "action": "video_seek:Frame 43"
+  },
+  {
+    "ts": "2026-02-10T21:49:59.810Z",
+    "type": "action",
+    "step": 13,
+    "action": "video_seek:Frame 43"
+  },
+  {
+    "ts": "2026-02-10T21:49:59.810Z",
+    "type": "action",
+    "step": 13,
+    "action": "video_seek:Frame 43"
+  },
+  {
+    "ts": "2026-02-10T21:49:59.810Z",
+    "type": "action",
+    "step": 13,
+    "action": "video_complete"
+  },
+  {
+    "ts": "2026-02-10T21:49:59.812Z",
+    "type": "state",
+    "step": 13,
+    "version": 2,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "YKCGSH"
+    ],
+    "revealedCodes": [
+      "YKCGSH"
+    ],
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 43, then complete the challenge.-10-1Frame 43+1+10Seek operations: 3/3 requiredCode RevealedVideo explored! The real code is:YKCGSH"
+  },
+  {
+    "ts": "2026-02-10T21:50:00.000Z",
+    "type": "action",
+    "step": 13,
+    "method": "video",
+    "action": "submit",
+    "code": "YKCGSH",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:00.558Z",
+    "type": "state",
+    "step": 14,
+    "version": 2,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step14?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Split Parts Challenge: Find and click all 4 parts scattered on this page. (0/4 found)"
+  },
+  {
+    "ts": "2026-02-10T21:50:00.685Z",
+    "type": "action",
+    "step": 14,
+    "action": "split_parts:7"
+  },
+  {
+    "ts": "2026-02-10T21:50:00.690Z",
+    "type": "state",
+    "step": 14,
+    "version": 2,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step14?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "WCZVXB"
+    ],
+    "revealedCodes": [
+      "WCZVXB"
+    ],
+    "challenge": "Split Parts Challenge: Find and click all 4 parts scattered on this page. (4/4 found)All parts found! The code is:WCZVXB"
+  },
+  {
+    "ts": "2026-02-10T21:50:00.900Z",
+    "type": "action",
+    "step": 14,
+    "method": "split_parts",
+    "action": "submit",
+    "code": "WCZVXB",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:01.471Z",
+    "type": "state",
+    "step": 15,
+    "version": 2,
+    "expectedMethod": "encoded_base64",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step15?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Encoded Code Challenge: Decode this Base64 string to find a hint, then enter a 6-character code:REVDT0RFX01FXzE1Hint: Use Base64 decoding. Then enter any 6-character code attempt.Reveal"
+  },
+  {
+    "ts": "2026-02-10T21:50:01.689Z",
+    "type": "action",
+    "step": 15,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:50:01.689Z",
+    "type": "action",
+    "step": 15,
+    "action": "encoded_fill"
+  },
+  {
+    "ts": "2026-02-10T21:50:01.689Z",
+    "type": "action",
+    "step": 15,
+    "action": "encoded_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:50:01.692Z",
+    "type": "state",
+    "step": 15,
+    "version": 2,
+    "expectedMethod": "encoded_base64",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step15?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "7MTAKJ"
+    ],
+    "revealedCodes": [
+      "7MTAKJ"
+    ],
+    "challenge": "Encoded Code Challenge: Decode this Base64 string to find a hint, then enter a 6-character code:REVDT0RFX01FXzE1Hint: Use Base64 decoding. Then enter any 6-character code attempt.Challenge completed! The real code is:7MTAKJ"
+  },
+  {
+    "ts": "2026-02-10T21:50:01.910Z",
+    "type": "action",
+    "step": 15,
+    "method": "encoded_base64",
+    "action": "submit",
+    "code": "7MTAKJ",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:02.481Z",
+    "type": "state",
+    "step": 16,
+    "version": 2,
+    "expectedMethod": "gesture",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Gesture Challenge: Draw a square on the canvas below, then click complete.ClearAttempts: 0Draw something first"
+  },
+  {
+    "ts": "2026-02-10T21:50:03.034Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:50:03.034Z",
+    "type": "action",
+    "step": 16,
+    "action": "gesture_draw"
+  },
+  {
+    "ts": "2026-02-10T21:50:03.034Z",
+    "type": "action",
+    "step": 16,
+    "action": "gesture_complete"
+  },
+  {
+    "ts": "2026-02-10T21:50:03.042Z",
+    "type": "state",
+    "step": 16,
+    "version": 2,
+    "expectedMethod": "gesture",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "T98XKS"
+    ],
+    "revealedCodes": [
+      "T98XKS"
+    ],
+    "challenge": "Gesture Challenge: Draw a square on the canvas below, then click complete.ClearAttempts: 1Code RevealedGesture completed! The code is:T98XKS"
+  },
+  {
+    "ts": "2026-02-10T21:50:03.264Z",
+    "type": "action",
+    "step": 16,
+    "method": "gesture",
+    "action": "submit",
+    "code": "T98XKS",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:03.842Z",
+    "type": "state",
+    "step": 17,
+    "version": 2,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step17?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 0/4click button hover area type text scroll box Click Me Hover over this area Scroll inside this boxKeep scrolling...Almost there!Complete (0/4)"
+  },
+  {
+    "ts": "2026-02-10T21:50:04.098Z",
+    "type": "action",
+    "step": 17,
+    "action": "sequence_actions:4"
+  },
+  {
+    "ts": "2026-02-10T21:50:04.098Z",
+    "type": "action",
+    "step": 17,
+    "action": "sequence_complete"
+  },
+  {
+    "ts": "2026-02-10T21:50:04.103Z",
+    "type": "state",
+    "step": 17,
+    "version": 2,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step17?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "CMH8RK"
+    ],
+    "revealedCodes": [
+      "CMH8RK"
+    ],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 6/4click button ✓hover area ✓type text ✓scroll box ✓Click Me ✓Hover over this area ✓✓ TypedScroll inside this boxKeep scrolling...Almost there!✓ ScrolledCode RevealedSe"
+  },
+  {
+    "ts": "2026-02-10T21:50:04.317Z",
+    "type": "action",
+    "step": 17,
+    "method": "sequence",
+    "action": "submit",
+    "code": "CMH8RK",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:04.885Z",
+    "type": "state",
+    "step": 18,
+    "version": 2,
+    "expectedMethod": "puzzle_solve",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step18?version=2",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code28 + 8 = ?Solve"
+  },
+  {
+    "ts": "2026-02-10T21:50:05.109Z",
+    "type": "action",
+    "step": 18,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:50:05.109Z",
+    "type": "action",
+    "step": 18,
+    "action": "puzzle_fill:36"
+  },
+  {
+    "ts": "2026-02-10T21:50:05.109Z",
+    "type": "action",
+    "step": 18,
+    "action": "puzzle_solve_click"
+  },
+  {
+    "ts": "2026-02-10T21:50:05.113Z",
+    "type": "state",
+    "step": 18,
+    "version": 2,
+    "expectedMethod": "puzzle_solve",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step18?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code28 + 8 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:05.321Z",
+    "type": "action",
+    "step": 18,
+    "method": "puzzle_solve",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:05.887Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:06.073Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:09.226Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 1,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:09.318Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:50:09.323Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:09.518Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:12.689Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 2,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:12.777Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:50:12.780Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:12.974Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:16.143Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 3,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:16.231Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:50:16.234Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:16.427Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:19.583Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 4,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:19.677Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:50:19.681Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:19.870Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:23.023Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 5,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:23.112Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:50:23.116Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:23.318Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:26.468Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 6,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:26.557Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:50:26.562Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:26.751Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:29.902Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 7,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:29.991Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:50:29.994Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:30.193Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:33.340Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 8,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:33.428Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:50:33.435Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:33.621Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:36.768Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 9,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:36.858Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:50:36.860Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:37.049Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:40.187Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 10,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:40.276Z",
+    "type": "action",
+    "step": 19,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:50:40.278Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:40.470Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:43.594Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 11,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:43.685Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:50:43.688Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:43.874Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:47.006Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 12,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:47.095Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:50:47.098Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:47.284Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:50.407Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 13,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:50.496Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:50:50.499Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:50.691Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:53.822Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 14,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:53.912Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:50:53.915Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:54.102Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:50:57.235Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 15,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:50:57.334Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:50:57.338Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:50:57.526Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:00.669Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 16,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:00.761Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:00.765Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:00.949Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:04.081Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 17,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:04.177Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:04.179Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:04.366Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:07.509Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 18,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:07.602Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:07.607Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:07.805Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:10.944Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 19,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:11.039Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:11.042Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:11.243Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:14.379Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 20,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:14.471Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:14.474Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:14.662Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:17.798Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 21,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:17.890Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:17.893Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:18.092Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:21.234Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 22,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:21.334Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:21.337Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:21.543Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:24.682Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 23,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:24.775Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:24.778Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:24.969Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:28.094Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 24,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:28.184Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:28.187Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:28.371Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:31.520Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 25,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:31.611Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:31.614Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:31.815Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:34.958Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 26,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:35.047Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:35.050Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:35.241Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:38.388Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 27,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:38.481Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:38.484Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:38.670Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:41.794Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 28,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:41.888Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:41.891Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:42.076Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:45.212Z",
+    "type": "note",
+    "step": 19,
+    "note": "no_advance_retry_allowed",
+    "code": "ZYZJ7W",
+    "attempt": 29,
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:45.303Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:45.306Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:45.494Z",
+    "type": "action",
+    "step": 19,
+    "method": "calculated",
+    "action": "submit",
+    "code": "ZYZJ7W",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:51:48.618Z",
+    "type": "note",
+    "step": 19,
+    "note": "retry_limit_reached",
+    "code": "ZYZJ7W",
+    "stepAfter": 19,
+    "inputAfter": "",
+    "wrongToast": false,
+    "acceptedToast": false
+  },
+  {
+    "ts": "2026-02-10T21:51:48.709Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:48.711Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:48.802Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:48.804Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:48.893Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:48.895Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:48.997Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:48.999Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.097Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.105Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.196Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.201Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.293Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.296Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.386Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.389Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.479Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.482Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.573Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.576Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.670Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.680Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.776Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.779Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.869Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.872Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.965Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:49.968Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.059Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.062Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.150Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.153Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.246Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.248Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.340Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.343Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.434Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.437Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.532Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.536Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.628Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.632Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.723Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.726Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.814Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.816Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.908Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:50.910Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.007Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.015Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.105Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.107Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.197Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.199Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.291Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.293Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.383Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.386Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.477Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.482Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.576Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.579Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.668Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.671Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.760Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.763Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.857Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.860Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.950Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:51.952Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.046Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.048Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.139Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.143Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.233Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.236Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.327Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.330Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.419Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.424Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.515Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.523Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.615Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.618Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.709Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.712Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.803Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.805Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.895Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.898Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.988Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:52.991Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.080Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.083Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.174Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.177Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.265Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.267Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.358Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.362Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.451Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.455Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.546Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.549Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.642Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.645Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.736Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.739Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.829Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.832Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.924Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:53.927Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.021Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.024Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.114Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.117Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.211Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.213Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.305Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.308Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.397Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.400Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.492Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.495Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.598Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.601Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.692Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.695Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.789Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.792Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.881Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.887Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.979Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:54.987Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.078Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.081Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.171Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.174Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.264Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.266Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.357Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.361Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.452Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.459Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.554Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.557Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.649Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.653Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.756Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.759Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.852Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.855Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.994Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:55.998Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.090Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.099Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.189Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.192Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.285Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.289Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.381Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.385Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.477Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.481Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.574Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.577Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.668Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.672Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.763Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.766Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.856Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.859Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.949Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:56.952Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:57.043Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:57.045Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:57.137Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:57.140Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:57.230Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:57.233Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:57.325Z",
+    "type": "action",
+    "step": 19,
+    "action": "fallback_card_click"
+  },
+  {
+    "ts": "2026-02-10T21:51:57.328Z",
+    "type": "state",
+    "step": 19,
+    "version": 2,
+    "expectedMethod": "calculated",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step19?version=2",
+    "submitEnabled": false,
+    "codes": [
+      "ZYZJ7W"
+    ],
+    "revealedCodes": [
+      "ZYZJ7W"
+    ],
+    "challenge": "Puzzle Challenge: Solve this puzzle to reveal the code29 + 9 = ?Puzzle solved in 1 attempt(s)! Code revealed:ZYZJ7W"
+  },
+  {
+    "ts": "2026-02-10T21:51:57.328Z",
+    "type": "error",
+    "message": "stuck_on_step_19"
+  }
+]

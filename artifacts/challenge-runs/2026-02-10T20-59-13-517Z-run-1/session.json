@@ -1,0 +1,9 @@
+{
+  "mode": "managed",
+  "sessionId": "a02da0f7-72cc-450f-9c2f-a2d80027fe2c",
+  "notes": "Local OpenDevBrowser core run (no remote model token accounting).",
+  "costSummary": {
+    "entries": 94,
+    "note": "Token/cost accounting unavailable in local core mode; this run tracks wall/action timings and step telemetry."
+  }
+}

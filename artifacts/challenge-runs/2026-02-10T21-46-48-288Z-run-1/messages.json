@@ -1,0 +1,3582 @@
+[
+  {
+    "ts": "2026-02-10T21:46:48.965Z",
+    "type": "launch",
+    "sessionId": "a6c19fbf-59c5-4b29-9214-5a4349e58302",
+    "mode": "managed"
+  },
+  {
+    "ts": "2026-02-10T21:46:50.919Z",
+    "type": "state",
+    "step": 1,
+    "version": 3,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-10T21:46:51.096Z",
+    "type": "action",
+    "step": 1,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-10T21:46:51.102Z",
+    "type": "state",
+    "step": 1,
+    "version": 3,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 0px / 500px"
+  },
+  {
+    "ts": "2026-02-10T21:46:51.913Z",
+    "type": "action",
+    "step": 1,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T21:46:51.913Z",
+    "type": "action",
+    "step": 1,
+    "action": "scroll:720"
+  },
+  {
+    "ts": "2026-02-10T21:46:51.917Z",
+    "type": "state",
+    "step": 1,
+    "version": 3,
+    "expectedMethod": "scroll_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step1?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "7X885H"
+    ],
+    "revealedCodes": [
+      "7X885H"
+    ],
+    "challenge": "Scroll to Reveal: Scroll down at least 500px to reveal the codeScrolled: 3764px / 500px7X885H"
+  },
+  {
+    "ts": "2026-02-10T21:46:52.161Z",
+    "type": "action",
+    "step": 1,
+    "method": "scroll_reveal",
+    "action": "submit",
+    "code": "7X885H",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:46:52.723Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:53.277Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:53.281Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:53.834Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:53.838Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:54.389Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:54.397Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:54.951Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:54.955Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:55.508Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:55.513Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 3.7s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:56.067Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:56.074Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:56.628Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:56.635Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:57.190Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:57.194Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 4.0s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:57.746Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:57.750Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 3.9s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:58.303Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:58.308Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 3.3s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:58.860Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:58.869Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 2.8s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:59.422Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:59.425Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 2.2s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:46:59.978Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:46:59.982Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 1.6s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:47:00.535Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:47:00.539Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 1.1s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:47:01.092Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:47:01.100Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Waiting... 0.5s remaining"
+  },
+  {
+    "ts": "2026-02-10T21:47:01.652Z",
+    "type": "action",
+    "step": 2,
+    "action": "passive_wait:delayed_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:47:01.656Z",
+    "type": "state",
+    "step": 2,
+    "version": 3,
+    "expectedMethod": "delayed_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step2?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "3KPTW8"
+    ],
+    "revealedCodes": [
+      "3KPTW8"
+    ],
+    "challenge": "Delayed Reveal: The code will appear after waiting 4 seconds...Wait complete! Code revealed:3KPTW8"
+  },
+  {
+    "ts": "2026-02-10T21:47:01.851Z",
+    "type": "action",
+    "step": 2,
+    "method": "delayed_reveal",
+    "action": "submit",
+    "code": "3KPTW8",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:02.412Z",
+    "type": "state",
+    "step": 3,
+    "version": 3,
+    "expectedMethod": "visible",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step3?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "QZEKQF"
+    ],
+    "revealedCodes": [],
+    "challenge": "Challenge Code for Step 4:Enter this code below to proceed to step 4:QZEKQF"
+  },
+  {
+    "ts": "2026-02-10T21:47:02.624Z",
+    "type": "action",
+    "step": 3,
+    "method": "visible",
+    "action": "submit",
+    "code": "QZEKQF",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:03.195Z",
+    "type": "state",
+    "step": 4,
+    "version": 3,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 3 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.Code hidden - complete challenge to reveal"
+  },
+  {
+    "ts": "2026-02-10T21:47:03.375Z",
+    "type": "action",
+    "step": 4,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T21:47:03.375Z",
+    "type": "action",
+    "step": 4,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T21:47:03.375Z",
+    "type": "action",
+    "step": 4,
+    "action": "hidden_dom_click:DIV"
+  },
+  {
+    "ts": "2026-02-10T21:47:03.378Z",
+    "type": "state",
+    "step": 4,
+    "version": 3,
+    "expectedMethod": "hidden_dom",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step4?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "7Q546E"
+    ],
+    "revealedCodes": [
+      "7Q546E"
+    ],
+    "challenge": "Hidden DOM Challenge: The code is hidden somewhere in this element. Inspect the DOM to find it, or click here 0 more times to reveal.Hint: Check the element attributes, aria labels, or meta tags.7Q546E"
+  },
+  {
+    "ts": "2026-02-10T21:47:03.590Z",
+    "type": "action",
+    "step": 4,
+    "method": "hidden_dom",
+    "action": "submit",
+    "code": "7Q546E",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:04.173Z",
+    "type": "state",
+    "step": 5,
+    "version": 3,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step5?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:47:04.392Z",
+    "type": "action",
+    "step": 5,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T21:47:04.392Z",
+    "type": "action",
+    "step": 5,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:47:04.397Z",
+    "type": "state",
+    "step": 5,
+    "version": 3,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step5?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "SPWRYE"
+    ],
+    "revealedCodes": [
+      "SPWRYE"
+    ],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode RevealedSPWRYE"
+  },
+  {
+    "ts": "2026-02-10T21:47:04.625Z",
+    "type": "action",
+    "step": 5,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "SPWRYE",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:05.194Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T21:47:05.533Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:05.533Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:47:05.538Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T21:47:05.876Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:05.877Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:47:05.883Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code will appear in 1 seconds..."
+  },
+  {
+    "ts": "2026-02-10T21:47:06.220Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T21:47:06.220Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:47:06.227Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!5TJKMP"
+  },
+  {
+    "ts": "2026-02-10T21:47:06.566Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:06.567Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:47:06.571Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!5TJKMP"
+  },
+  {
+    "ts": "2026-02-10T21:47:06.911Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:47:06.912Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:47:06.915Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!5TJKMP"
+  },
+  {
+    "ts": "2026-02-10T21:47:07.253Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:47:07.253Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:47:07.257Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!5TJKMP"
+  },
+  {
+    "ts": "2026-02-10T21:47:07.595Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:07.595Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:47:07.601Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!5TJKMP"
+  },
+  {
+    "ts": "2026-02-10T21:47:07.938Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:07.938Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:47:07.942Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!5TJKMP"
+  },
+  {
+    "ts": "2026-02-10T21:47:08.281Z",
+    "type": "action",
+    "step": 6,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:47:08.281Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_wait"
+  },
+  {
+    "ts": "2026-02-10T21:47:08.285Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code has been hidden. Did you see it?The code has disappeared! If you saw it, click the button below.I Remember - Reveal Rea"
+  },
+  {
+    "ts": "2026-02-10T21:47:08.410Z",
+    "type": "action",
+    "step": 6,
+    "action": "memory_confirm"
+  },
+  {
+    "ts": "2026-02-10T21:47:08.418Z",
+    "type": "state",
+    "step": 6,
+    "version": 3,
+    "expectedMethod": "memory",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step6?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "M79RNX"
+    ],
+    "revealedCodes": [
+      "M79RNX"
+    ],
+    "challenge": "Memory Challenge: A code will flash for 2 seconds. Watch carefully, then click \"I Remember\" to reveal the real code!Code has been hidden. Did you see it?Challenge completed! The real code is:M79RNX"
+  },
+  {
+    "ts": "2026-02-10T21:47:08.636Z",
+    "type": "action",
+    "step": 6,
+    "method": "memory",
+    "action": "submit",
+    "code": "M79RNX",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:09.199Z",
+    "type": "state",
+    "step": 7,
+    "version": 3,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeHover here to reveal code"
+  },
+  {
+    "ts": "2026-02-10T21:47:10.355Z",
+    "type": "action",
+    "step": 7,
+    "action": "hover_hold"
+  },
+  {
+    "ts": "2026-02-10T21:47:10.359Z",
+    "type": "state",
+    "step": 7,
+    "version": 3,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeKeep hovering..."
+  },
+  {
+    "ts": "2026-02-10T21:47:11.595Z",
+    "type": "action",
+    "step": 7,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:11.595Z",
+    "type": "action",
+    "step": 7,
+    "action": "hover_hold"
+  },
+  {
+    "ts": "2026-02-10T21:47:11.600Z",
+    "type": "state",
+    "step": 7,
+    "version": 3,
+    "expectedMethod": "hover_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step7?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "EA9TKX"
+    ],
+    "revealedCodes": [],
+    "challenge": "Hover Challenge: Hover over the box below for at least 1 second to reveal the codeEA9TKX"
+  },
+  {
+    "ts": "2026-02-10T21:47:11.785Z",
+    "type": "action",
+    "step": 7,
+    "method": "hover_reveal",
+    "action": "submit",
+    "code": "EA9TKX",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:12.351Z",
+    "type": "state",
+    "step": 8,
+    "version": 3,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeReveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:47:12.563Z",
+    "type": "action",
+    "step": 8,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:12.563Z",
+    "type": "action",
+    "step": 8,
+    "action": "reveal_click:Reveal Code"
+  },
+  {
+    "ts": "2026-02-10T21:47:12.567Z",
+    "type": "state",
+    "step": 8,
+    "version": 3,
+    "expectedMethod": "click_reveal",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step8?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "C4LK54"
+    ],
+    "revealedCodes": [
+      "C4LK54"
+    ],
+    "challenge": "Click to Reveal: Click the button below to reveal the codeCode RevealedC4LK54"
+  },
+  {
+    "ts": "2026-02-10T21:47:12.775Z",
+    "type": "action",
+    "step": 8,
+    "method": "click_reveal",
+    "action": "submit",
+    "code": "C4LK54",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:13.336Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:BBVJS4NQ675PDrop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:47:13.465Z",
+    "type": "action",
+    "step": 9,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-10T21:47:13.469Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:BBVJS4NQ675PDrop zones (0/6 filled):Slot 1Slot 2Slot 3Slot 4Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:47:13.679Z",
+    "type": "action",
+    "step": 9,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:13.679Z",
+    "type": "action",
+    "step": 9,
+    "action": "drag_drop:6"
+  },
+  {
+    "ts": "2026-02-10T21:47:13.683Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:BBVJS4NQ675PDrop zones (4/6 filled):4444Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:47:13.808Z",
+    "type": "action",
+    "step": 9,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-10T21:47:13.813Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:BBVJS4NQ675PDrop zones (4/6 filled):4444Slot 5Slot 6"
+  },
+  {
+    "ts": "2026-02-10T21:47:14.026Z",
+    "type": "action",
+    "step": 9,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:14.026Z",
+    "type": "action",
+    "step": 9,
+    "action": "drag_drop:4"
+  },
+  {
+    "ts": "2026-02-10T21:47:14.030Z",
+    "type": "state",
+    "step": 9,
+    "version": 3,
+    "expectedMethod": "drag_drop",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step9?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "TCJV7G"
+    ],
+    "revealedCodes": [
+      "TCJV7G"
+    ],
+    "challenge": "Drag-and-Drop Challenge: Fill all 6 slots with any pieces to reveal the code.Available pieces:BBVJS4NQ675PDrop zones (6/6 filled):4444JJChallenge completed! The code is:TCJV7G"
+  },
+  {
+    "ts": "2026-02-10T21:47:14.222Z",
+    "type": "action",
+    "step": 9,
+    "method": "drag_drop",
+    "action": "submit",
+    "code": "TCJV7G",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:14.785Z",
+    "type": "state",
+    "step": 10,
+    "version": 3,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Keyboard Sequence Challenge: Press 4 keys in sequence to reveal the code.Required sequence:Control+Shift+KTabEnterEscapeYour input (0/4):Press any key to start..."
+  },
+  {
+    "ts": "2026-02-10T21:47:14.921Z",
+    "type": "action",
+    "step": 10,
+    "action": "keyboard_sequence:4"
+  },
+  {
+    "ts": "2026-02-10T21:47:14.925Z",
+    "type": "state",
+    "step": 10,
+    "version": 3,
+    "expectedMethod": "keyboard_sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step10?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "GM3XLR"
+    ],
+    "revealedCodes": [
+      "GM3XLR"
+    ],
+    "challenge": "Keyboard Sequence Challenge: Press 4 keys in sequence to reveal the code.Required sequence:Control+Shift+KTabEnterEscapeYour input (4/4):AAAASequence completed! Code revealed:GM3XLR"
+  },
+  {
+    "ts": "2026-02-10T21:47:15.132Z",
+    "type": "action",
+    "step": 10,
+    "method": "keyboard_sequence",
+    "action": "submit",
+    "code": "GM3XLR",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:15.705Z",
+    "type": "state",
+    "step": 11,
+    "version": 3,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AudioClick to hear the hint"
+  },
+  {
+    "ts": "2026-02-10T21:47:19.469Z",
+    "type": "action",
+    "step": 11,
+    "action": "audio_patch"
+  },
+  {
+    "ts": "2026-02-10T21:47:19.470Z",
+    "type": "action",
+    "step": 11,
+    "action": "audio_play:Play Audio"
+  },
+  {
+    "ts": "2026-02-10T21:47:19.470Z",
+    "type": "action",
+    "step": 11,
+    "action": "audio_complete"
+  },
+  {
+    "ts": "2026-02-10T21:47:19.477Z",
+    "type": "state",
+    "step": 11,
+    "version": 3,
+    "expectedMethod": "audio",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step11?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "W9694K"
+    ],
+    "revealedCodes": [
+      "W9694K"
+    ],
+    "challenge": "Audio Challenge: Play the audio, listen to the hint, then click \"Complete\" to reveal the real code.Play AgainAudio played!Audio listened! The real code is:W9694K"
+  },
+  {
+    "ts": "2026-02-10T21:47:19.674Z",
+    "type": "action",
+    "step": 11,
+    "method": "audio",
+    "action": "submit",
+    "code": "W9694K",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:20.240Z",
+    "type": "state",
+    "step": 12,
+    "version": 3,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 42, then complete the challenge.-10-1Frame 42+1+10Seek operations: 0/3 requiredSeek 3 more times"
+  },
+  {
+    "ts": "2026-02-10T21:47:20.499Z",
+    "type": "action",
+    "step": 12,
+    "action": "video_seek:Frame 42"
+  },
+  {
+    "ts": "2026-02-10T21:47:20.499Z",
+    "type": "action",
+    "step": 12,
+    "action": "video_seek:Frame 42"
+  },
+  {
+    "ts": "2026-02-10T21:47:20.499Z",
+    "type": "action",
+    "step": 12,
+    "action": "video_seek:Frame 42"
+  },
+  {
+    "ts": "2026-02-10T21:47:20.499Z",
+    "type": "action",
+    "step": 12,
+    "action": "video_complete"
+  },
+  {
+    "ts": "2026-02-10T21:47:20.504Z",
+    "type": "state",
+    "step": 12,
+    "version": 3,
+    "expectedMethod": "video",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step12?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "VAMQJ6"
+    ],
+    "revealedCodes": [
+      "VAMQJ6"
+    ],
+    "challenge": "Video Challenge: Seek through the video frames. Find and navigate to frame 42, then complete the challenge.-10-1Frame 42+1+10Seek operations: 3/3 requiredCode RevealedVideo explored! The real code is:VAMQJ6"
+  },
+  {
+    "ts": "2026-02-10T21:47:20.698Z",
+    "type": "action",
+    "step": 12,
+    "method": "video",
+    "action": "submit",
+    "code": "VAMQJ6",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:21.266Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Split Parts Challenge: Find and click all 3 parts scattered on this page. (0/3 found)"
+  },
+  {
+    "ts": "2026-02-10T21:47:21.395Z",
+    "type": "action",
+    "step": 13,
+    "action": "split_parts:6"
+  },
+  {
+    "ts": "2026-02-10T21:47:21.401Z",
+    "type": "state",
+    "step": 13,
+    "version": 3,
+    "expectedMethod": "split_parts",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step13?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "LBH66Q"
+    ],
+    "revealedCodes": [
+      "LBH66Q"
+    ],
+    "challenge": "Split Parts Challenge: Find and click all 3 parts scattered on this page. (3/3 found)All parts found! The code is:LBH66Q"
+  },
+  {
+    "ts": "2026-02-10T21:47:21.618Z",
+    "type": "action",
+    "step": 13,
+    "method": "split_parts",
+    "action": "submit",
+    "code": "LBH66Q",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:22.181Z",
+    "type": "state",
+    "step": 14,
+    "version": 3,
+    "expectedMethod": "encoded_base64",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step14?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Encoded Code Challenge: Decode this Base64 string to find a hint, then enter a 6-character code:REVDT0RFX01FXzE0Hint: Use Base64 decoding. Then enter any 6-character code attempt.Reveal"
+  },
+  {
+    "ts": "2026-02-10T21:47:22.323Z",
+    "type": "action",
+    "step": 14,
+    "action": "encoded_fill"
+  },
+  {
+    "ts": "2026-02-10T21:47:22.323Z",
+    "type": "action",
+    "step": 14,
+    "action": "encoded_reveal"
+  },
+  {
+    "ts": "2026-02-10T21:47:22.334Z",
+    "type": "state",
+    "step": 14,
+    "version": 3,
+    "expectedMethod": "encoded_base64",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step14?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "9RW7KN"
+    ],
+    "revealedCodes": [
+      "9RW7KN"
+    ],
+    "challenge": "Encoded Code Challenge: Decode this Base64 string to find a hint, then enter a 6-character code:REVDT0RFX01FXzE0Hint: Use Base64 decoding. Then enter any 6-character code attempt.Challenge completed! The real code is:9RW7KN"
+  },
+  {
+    "ts": "2026-02-10T21:47:22.536Z",
+    "type": "action",
+    "step": 14,
+    "method": "encoded_base64",
+    "action": "submit",
+    "code": "9RW7KN",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:23.099Z",
+    "type": "state",
+    "step": 15,
+    "version": 3,
+    "expectedMethod": "rotating",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step15?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Rotating Code Challenge: The code changes every 3 seconds. Click \"Capture\" at least 3 times to complete the challenge.Current display (changes automatically):Z4ASJUCapture (0/3)"
+  },
+  {
+    "ts": "2026-02-10T21:47:23.235Z",
+    "type": "action",
+    "step": 15,
+    "action": "rotating_capture"
+  },
+  {
+    "ts": "2026-02-10T21:47:23.236Z",
+    "type": "action",
+    "step": 15,
+    "action": "rotating_capture"
+  },
+  {
+    "ts": "2026-02-10T21:47:23.236Z",
+    "type": "action",
+    "step": 15,
+    "action": "rotating_capture"
+  },
+  {
+    "ts": "2026-02-10T21:47:23.239Z",
+    "type": "state",
+    "step": 15,
+    "version": 3,
+    "expectedMethod": "rotating",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step15?version=3",
+    "submitEnabled": false,
+    "codes": [
+      "XDZ9GD"
+    ],
+    "revealedCodes": [
+      "XDZ9GD"
+    ],
+    "challenge": "Rotating Code Challenge: The code changes every 3 seconds. Click \"Capture\" at least 3 times to complete the challenge.Current display (changes automatically):Z4ASJUChallenge completed! The real code is:XDZ9GD"
+  },
+  {
+    "ts": "2026-02-10T21:47:23.433Z",
+    "type": "action",
+    "step": 15,
+    "method": "rotating",
+    "action": "submit",
+    "code": "XDZ9GD",
+    "submit": {
+      "ok": true
+    }
+  },
+  {
+    "ts": "2026-02-10T21:47:23.996Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 0/4click button hover area type text scroll box Click Me Hover over this area Scroll inside this boxKeep scrolling...Almost there!Complete (0/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.128Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:4"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.137Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.349Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.349Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.355Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.564Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.564Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.573Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.787Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Accept"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.787Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:24.791Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.001Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.001Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.004Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.215Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.215Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.220Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.437Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.437Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.440Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.656Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.656Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.662Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.794Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:25.797Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.008Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.008Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.013Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.142Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.145Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.356Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.356Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.359Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.485Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.490Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.616Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.621Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.747Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.755Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.969Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Dismiss"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.969Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:26.972Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.097Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.101Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.228Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.231Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.361Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.366Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.501Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.505Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.717Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.717Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.721Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.931Z",
+    "type": "action",
+    "step": 16,
+    "action": "dismiss_overlay:Close"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.931Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:27.934Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.062Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.065Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.199Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.202Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.332Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.337Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.468Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.471Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.598Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.601Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.730Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.733Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.862Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.868Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:28.997Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.000Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.127Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.130Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.256Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.259Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.385Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.389Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.516Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.520Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.649Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.653Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.779Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.783Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.912Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:29.916Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.045Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.048Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.176Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.179Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.305Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.309Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.435Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.438Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.580Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.584Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.712Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.715Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.843Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.846Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.972Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:30.975Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.111Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.114Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.242Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.246Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.373Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.377Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.506Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.509Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.635Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.640Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.766Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.770Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.900Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:31.905Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.031Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.034Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.161Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.164Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.300Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.303Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.432Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.436Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.563Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.566Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.702Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.707Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.836Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.840Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.967Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:32.971Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.102Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.106Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.234Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.238Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.365Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.369Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.496Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.502Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.636Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.640Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.768Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.772Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.900Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:33.904Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.031Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.035Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.161Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.164Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.292Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.295Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.431Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.434Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.562Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.572Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.701Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.704Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.830Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.834Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.962Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:34.965Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.091Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.097Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.223Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.226Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.353Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.356Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.484Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.488Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.615Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.618Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.746Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.749Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.877Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:35.887Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.016Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.020Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.145Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.149Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.275Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.278Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.409Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.414Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.541Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.545Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.672Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.675Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.801Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.805Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.934Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:36.937Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.065Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.068Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.195Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.199Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.327Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.330Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.456Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.459Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.585Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.596Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.724Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.727Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.854Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.858Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.984Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:37.988Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.114Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.117Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.243Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.246Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.384Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.387Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.517Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.520Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.647Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.652Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.779Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.782Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.909Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:38.913Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.041Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.050Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.177Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.180Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.307Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.311Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.439Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.444Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.571Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.574Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.700Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.704Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.831Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.834Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.961Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:39.964Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.097Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.101Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.235Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.239Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.365Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.369Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.497Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.501Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.629Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.633Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.761Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.764Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.896Z",
+    "type": "action",
+    "step": 16,
+    "action": "sequence_actions:3"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.900Z",
+    "type": "state",
+    "step": 16,
+    "version": 3,
+    "expectedMethod": "sequence",
+    "url": "https://serene-frangipane-7fd25b.netlify.app/step16?version=3",
+    "submitEnabled": false,
+    "codes": [],
+    "revealedCodes": [],
+    "challenge": "Sequence Challenge: Complete all 4 actions to reveal the code.Progress: 2/4click button ✓hover area type text ✓scroll box Click Me ✓Hover over this area ✓ TypedScroll inside this boxKeep scrolling...Almost there!Complete (2/4)"
+  },
+  {
+    "ts": "2026-02-10T21:47:40.900Z",
+    "type": "error",
+    "message": "stuck_on_step_16"
+  }
+]

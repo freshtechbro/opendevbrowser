@@ -1,0 +1,89 @@
+step 1: calls=5 errors=0
+actions: dismiss_overlay:Accept | hidden_dom_click:DIV | hidden_dom_click:DIV | hidden_dom_click:DIV | submit:2E5FTA
+
+step 2: calls=3 errors=0
+actions: dismiss_overlay:Close | reveal_click:Reveal Code | submit:LRTXN3
+
+step 3: calls=5 errors=0
+actions: dismiss_overlay:Accept | scroll:720 | dismiss_overlay:Dismiss | scroll:720 | submit:PA8ZJR
+
+step 4: calls=19 errors=0
+actions: passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | submit:VCAAC5
+
+step 5: calls=1 errors=0
+actions: submit:TH27BL
+
+step 6: calls=7 errors=0
+actions: drag_drop:6 | drag_drop:6 | dismiss_overlay:Dismiss | drag_drop:4 | dismiss_overlay:Dismiss | drag_drop:4 | submit:A2K7PM
+
+step 7: calls=2 errors=0
+actions: keyboard_sequence:3 | submit:7JWEHJ
+
+step 8: calls=14 errors=0
+actions: memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Dismiss | memory_wait | dismiss_overlay:Accept | memory_wait | dismiss_overlay:Dismiss | memory_wait | dismiss_overlay:Dismiss | memory_wait | dismiss_overlay:Close | memory_confirm | submit:N598RR
+
+step 9: calls=4 errors=0
+actions: hover_hold | dismiss_overlay:Dismiss | hover_hold | submit:EFRXW4
+
+step 10: calls=2 errors=0
+actions: reveal_click:Reveal Code | submit:TW4KL5
+
+step 11: calls=14 errors=0
+actions: timing_wait | dismiss_overlay:Dismiss | timing_wait | dismiss_overlay:Close | timing_wait | dismiss_overlay:Accept | timing_wait | dismiss_overlay:Dismiss | timing_wait | dismiss_overlay:Close | timing_wait | dismiss_overlay:Dismiss | timing_capture | submit:RULYBB
+
+step 12: calls=4 errors=0
+actions: canvas_draw:3 | canvas_draw:3 | canvas_reveal | submit:X8N8SE
+
+step 13: calls=4 errors=0
+actions: audio_patch | audio_play:Play Audio | audio_complete | submit:CTD7CY
+
+step 14: calls=5 errors=0
+actions: video_seek:Frame 44 | video_seek:Frame 44 | video_seek:Frame 44 | video_complete | submit:J88U6N
+
+step 15: calls=2 errors=0
+actions: split_parts:5 | submit:GLTY3R
+
+step 16: calls=3 errors=0
+actions: multi_tab_clicks:4 | multi_tab_reveal | submit:XQYA9C
+
+step 17: calls=6 errors=0
+actions: dismiss_overlay:Close | gesture_draw | dismiss_overlay:Close | gesture_draw | gesture_complete | submit:KMHKDF
+
+step 18: calls=4 errors=0
+actions: dismiss_overlay:Dismiss | sequence_actions:4 | sequence_complete | submit:EYG23D
+
+step 19: calls=4 errors=0
+actions: dismiss_overlay:Dismiss | puzzle_fill:38 | puzzle_solve_click | submit:CBZVK2
+
+step 20: calls=5 errors=0
+actions: dismiss_overlay:Dismiss | puzzle_state_reset | puzzle_fill:20 | puzzle_solve_click | submit:E8YF8P
+
+step 21: calls=7 errors=0
+actions: dismiss_overlay:Accept | shadow_level_1 | shadow_level_2 | dismiss_overlay:Dismiss | shadow_deep_sweep:2 | shadow_force_complete:onComplete | submit:5HK2N3
+
+step 22: calls=28 errors=0
+actions: websocket_connect | fallback_card_click | dismiss_overlay:Close | fallback_card_click | fallback_card_click | fallback_card_click | dismiss_overlay:Close | dismiss_overlay:Dismiss | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | dismiss_overlay:Close | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | dismiss_overlay:Dismiss | fallback_card_click | fallback_card_click | fallback_card_click | dismiss_overlay:Dismiss | fallback_card_click | fallback_card_click | fallback_card_click | dismiss_overlay:Close | websocket_reveal | submit:ZMX3XQ
+
+step 23: calls=3 errors=0
+actions: service_worker_register | service_worker_retrieve | submit:2MQT9F
+
+step 24: calls=7 errors=0
+actions: mutation_trigger | mutation_trigger | mutation_trigger | mutation_trigger | mutation_trigger | mutation_complete | submit:FV7BGA
+
+step 25: calls=4 errors=0
+actions: recursive_enter:1 | recursive_enter:2 | recursive_force_complete:onComplete | submit:YD7GCW
+
+step 26: calls=3 errors=0
+actions: sequence_actions:4 | sequence_complete | submit:TLUPJW
+
+step 27: calls=4 errors=0
+actions: dismiss_overlay:Dismiss | multi_tab_clicks:3 | multi_tab_reveal | submit:A2MBYJ
+
+step 28: calls=4 errors=0
+actions: dismiss_overlay:Dismiss | sequence_actions:4 | sequence_complete | submit:EQ652C
+
+step 29: calls=4 errors=0
+actions: dismiss_overlay:Close | puzzle_fill:38 | puzzle_solve_click | submit:PFFBFK
+
+step 30: calls=16 errors=0
+actions: shadow_level_1 | shadow_level_2 | shadow_deep_sweep:2 | dismiss_overlay:Dismiss | shadow_reveal | dismiss_overlay:Accept | shadow_wait | dismiss_overlay:Close | shadow_wait | dismiss_overlay:Close | shadow_wait | dismiss_overlay:Close | shadow_wait | dismiss_overlay:Dismiss | shadow_reveal | step30_finish_route:pushstate

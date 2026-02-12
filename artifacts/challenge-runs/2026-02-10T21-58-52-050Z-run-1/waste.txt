@@ -1,0 +1,47 @@
+step 1: calls=2 errors=0
+actions: reveal_click:Reveal Code | submit:GXJ5N5
+
+step 2: calls=1 errors=0
+actions: submit:T779XP
+
+step 3: calls=18 errors=0
+actions: passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | passive_wait:delayed_reveal | submit:H24QGC
+
+step 4: calls=1 errors=0
+actions: submit:XNPZF5
+
+step 5: calls=5 errors=0
+actions: dismiss_overlay:Dismiss | hidden_dom_click:DIV | hidden_dom_click:DIV | hidden_dom_click:DIV | submit:PV5YE3
+
+step 6: calls=2 errors=0
+actions: keyboard_sequence:3 | submit:GCD2YS
+
+step 7: calls=17 errors=0
+actions: dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Close | memory_wait | dismiss_overlay:Dismiss | memory_confirm | submit:2AWTFB
+
+step 8: calls=3 errors=0
+actions: dismiss_overlay:Dismiss | hover_hold | submit:YVYDAH
+
+step 9: calls=3 errors=0
+actions: dismiss_overlay:Dismiss | reveal_click:Reveal Code | submit:TP3NJF
+
+step 10: calls=7 errors=0
+actions: dismiss_overlay:Dismiss | drag_drop:6 | dismiss_overlay:Dismiss | drag_drop:6 | drag_drop:4 | drag_drop:4 | submit:3638MB
+
+step 11: calls=6 errors=0
+actions: dismiss_overlay:Dismiss | canvas_draw:3 | dismiss_overlay:Dismiss | canvas_draw:3 | canvas_reveal | submit:SZNW3K
+
+step 12: calls=4 errors=0
+actions: audio_patch | audio_play:Play Audio | audio_complete | submit:2H9CJ8
+
+step 13: calls=5 errors=0
+actions: video_seek:Frame 43 | video_seek:Frame 43 | video_seek:Frame 43 | video_complete | submit:M54M9R
+
+step 14: calls=2 errors=0
+actions: split_parts:7 | submit:G89V7Z
+
+step 15: calls=3 errors=0
+actions: encoded_fill | encoded_reveal | submit:YE64SG
+
+step 16: calls=135 errors=0
+actions: dismiss_overlay:Close | gesture_draw | dismiss_overlay:Close | gesture_draw | dismiss_overlay:Accept | gesture_draw | dismiss_overlay:Close | gesture_draw | dismiss_overlay:Dismiss | gesture_draw | dismiss_overlay:Dismiss | gesture_draw | dismiss_overlay:Dismiss | gesture_draw | dismiss_overlay:Close | gesture_draw | dismiss_overlay:Close | gesture_draw | dismiss_overlay:Dismiss | gesture_draw | dismiss_overlay:Close | gesture_draw | dismiss_overlay:Close | gesture_draw | dismiss_overlay:Close | gesture_draw | dismiss_overlay:Close | gesture_draw | dismiss_overlay:Close | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw | gesture_draw

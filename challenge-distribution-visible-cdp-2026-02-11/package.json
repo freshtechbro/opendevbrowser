@@ -1,0 +1,14 @@
+{
+  "name": "challenge-distribution-visible-cdp-2026-02-11",
+  "private": true,
+  "type": "module",
+  "description": "Runtime dependencies for the browser challenge distribution solver",
+  "dependencies": {
+    "@puppeteer/browsers": "^2.2.0",
+    "async-mutex": "^0.5.0",
+    "jsonc-parser": "^3.2.0",
+    "playwright-core": "^1.49.1",
+    "ws": "^8.17.1",
+    "zod": "^3.23.8"
+  }
+}

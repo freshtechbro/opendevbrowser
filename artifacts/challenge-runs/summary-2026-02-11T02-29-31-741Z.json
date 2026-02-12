@@ -1,0 +1,18 @@
+{
+  "runs": 1,
+  "completed": 1,
+  "under3m": 1,
+  "successRate": 1,
+  "under3Rate": 1,
+  "totalWallMs": 60959,
+  "results": [
+    {
+      "run": 1,
+      "completed": true,
+      "finalStep": null,
+      "wallMs": 60951,
+      "actions": 193,
+      "runDir": "/Users/bishopdotun/Documents/Dev Projects/opendevbrowser/artifacts/challenge-runs/2026-02-11T02-28-30-783Z-run-1"
+    }
+  ]
+}
