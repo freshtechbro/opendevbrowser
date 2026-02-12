@@ -17,6 +17,13 @@ Summary file:
 - Steps solved: `30`
 - Final URL: `https://serene-frangipane-7fd25b.netlify.app/finish`
 
+## OpenAI cost metrics
+
+- Billable OpenAI input tokens: `0`
+- Billable OpenAI output tokens: `0`
+- Estimated OpenAI API cost: `$0.00`
+- Source: `artifacts/successful-visible-cdp-run/session.json` (`local core mode`, no external model call usage logged)
+
 ## Strict tokenizer-based counts (`cl100k_base`)
 
 Method:

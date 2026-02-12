@@ -15,23 +15,27 @@ Branch: `feat/browser-automation-challenge`
 
 ## 2) Current measured runtime
 
-Latest successful runs:
-- Managed mode reliability batch
-  - Summary: `artifacts/challenge-runs/summary-2026-02-11T02-47-14-494Z.json`
-  - Result: `5/5` completed, `5/5` under 3 minutes
-  - Run times: `67.252s`, `67.837s`, `66.996s`, `67.981s`, `70.145s`
-- CDP visible mode (live browser-attached)
-  - `artifacts/challenge-runs/2026-02-11T02-34-22-593Z-run-1` → `77.222s`
-  - `artifacts/challenge-runs/2026-02-11T02-50-13-578Z-run-1` → `73.304s` (port `9333`, non-headless visible Chrome)
-  - `artifacts/challenge-runs/2026-02-11T03-00-51-400Z-run-1` → `69.171s` (port `9444`, non-headless visible Chrome)
-  - `artifacts/challenge-runs/2026-02-11T03-09-13-887Z-run-1` → `63.264s` (port `9666`, non-headless visible Chrome)
+Packaged successful visible CDP run (canonical in this folder):
+- Run folder: `artifacts/successful-visible-cdp-run`
+- Completed: `true`
+- Wall time: `63.264s` (`63264 ms`)
+- Agent time: `22.621s`
+- Tool time: `40.643s`
+- Actions: `193`
+- Final URL: `https://serene-frangipane-7fd25b.netlify.app/finish`
 
-All listed successful runs are below 3 minutes.
+Additional packaged validation runs:
+- `artifacts/challenge-runs/2026-02-11T04-34-19-406Z-run-1` → `59.732s`, `190` actions, completed `true`
+- `artifacts/challenge-runs/2026-02-11T04-35-37-184Z-run-1` → `67.224s`, `189` actions, completed `true`
+- Summaries:
+  - `artifacts/challenge-runs/summary-2026-02-11T04-35-19-150Z.json`
+  - `artifacts/challenge-runs/summary-2026-02-11T04-36-44-423Z.json`
 
-Token/cost notes for the latest visible run:
-- Session file: `artifacts/challenge-runs/2026-02-11T03-09-13-887Z-run-1/session.json`
-- Token accounting mode: local OpenDevBrowser core run (no remote model token accounting available in this run mode).
-- OpenAI cost metric result for this run: `$0.00` billed OpenAI tokens (no OpenAI API token usage recorded by the run).
+Token/cost notes:
+- Session file: `artifacts/successful-visible-cdp-run/session.json`
+- Token accounting mode: local OpenDevBrowser core run (no remote model token accounting in this mode)
+- OpenAI billed token usage for this solver run mode: `0` (cost `$0.00`)
+- Strict artifact tokenization (`cl100k_base`): `64,284` tokens (see `RUN_STATISTICS.md`)
 
 ## 3) Actual challenge-solving process (non-tooling)
 
