@@ -1,5 +1,0 @@
-step 1: calls=2 errors=0
-actions: reveal_click:Reveal Code | submit:RCL7RT
-
-step 2: calls=47 errors=0
-actions: scroll:720 | dismiss_overlay:Dismiss | scroll:720 | submit:PBBSGV | dismiss_overlay:Close | dismiss_overlay:Dismiss | dismiss_overlay:Dismiss | dismiss_overlay:Close | dismiss_overlay:Close | dismiss_overlay:Close | dismiss_overlay:Close | dismiss_overlay:Close | dismiss_overlay:Close | dismiss_overlay:Dismiss | dismiss_overlay:Close | dismiss_overlay:Dismiss | dismiss_overlay:Accept | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click | fallback_card_click

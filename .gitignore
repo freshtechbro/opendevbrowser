@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 dist/
 extension/dist/
+/artifacts/
 
 # Test coverage
 coverage/

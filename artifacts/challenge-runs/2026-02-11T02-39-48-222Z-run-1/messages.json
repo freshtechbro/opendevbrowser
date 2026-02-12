@@ -1,7 +1,0 @@
-[
-  {
-    "ts": "2026-02-11T02:39:48.310Z",
-    "type": "error",
-    "message": "Relay /cdp connectOverCDP failed after 55ms (mode=extension, endpoint=ws://127.0.0.1:8787/cdp): browserType.connectOverCDP: WebSocket error: ws://127.0.0.1:8787/cdp 429 Too Many Requests\nCall log:\n\u001b[2m  - <ws connecting> ws://127.0.0.1:8787/cdp\u001b[22m\n\u001b[2m  - <ws unexpected response> ws://127.0.0.1:8787/cdp 429 Too Many Requests\u001b[22m\n\u001b[2m  - <ws error> ws://127.0.0.1:8787/cdp error WebSocket was closed before the connection was established\u001b[22m\n\u001b[2m  - <ws connect error> ws://127.0.0.1:8787/cdp WebSocket was closed before the connection was established\u001b[22m\n\u001b[2m  - <ws disconnected> ws://127.0.0.1:8787/cdp code=1006 reason=\u001b[22m\n"
-  }
-]
