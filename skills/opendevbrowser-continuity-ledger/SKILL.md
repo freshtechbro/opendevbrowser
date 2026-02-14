@@ -8,6 +8,16 @@ version: 1.1.0
 
 Use this guide to maintain compaction-safe project state in `CONTINUITY.md`.
 
+## When to Use This Skill
+
+Use this skill when any of these are true:
+
+- Work is multi-step or long-running.
+- Context compaction or session handoff is likely.
+- Multiple agents are coordinating the same task.
+
+Start with `opendevbrowser-best-practices` quick start for execution. Switch here once continuity tracking is required.
+
 ## Ownership Rules
 
 Apply these rules exactly:

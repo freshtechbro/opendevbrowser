@@ -9,14 +9,15 @@ This document describes the architecture of OpenDevBrowser across plugin, CLI, a
 OpenDevBrowser provides three entry points that share a single runtime core:
 
 - **Plugin**: OpenCode runtime entry that exposes `opendevbrowser_*` tools.
-- **CLI**: Installer + automation commands (daemon or single-shot `run`).
+- **CLI**: Installer + automation commands (daemon or single-shot `run`), plus guarded internal `rpc` passthrough for power users (unsafe, use with caution).
 - **Extension**: Relay mode for attaching to existing logged-in tabs.
 - **Hub daemon**: `opendevbrowser serve` process that owns the relay and enforces FIFO leases when hub mode is enabled.
+- **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 The shared runtime core is in `src/core/` and wires `BrowserManager`, `AnnotationManager`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
 
-The CLI installer attempts to set up daemon auto-start on first successful install (macOS LaunchAgent, Windows Task Scheduler),
-so the relay is ready on user login without manual steps.
+The CLI installer attempts to set up daemon auto-start on first successful install
+(macOS LaunchAgent, Windows Task Scheduler). Unsupported platforms are skipped and continue without auto-start.
 
 ---
 
@@ -35,6 +36,9 @@ flowchart LR
     CoreBootstrap[Core Bootstrap]
     BrowserManager[BrowserManager]
     TargetManager[TargetManager]
+    ProviderRuntime[Provider Runtime]
+    MacroRegistry[Macro Registry]
+    Fingerprint[Fingerprint Tiers]
     AnnotationManager[AnnotationManager]
     ScriptRunner[ScriptRunner]
     Snapshotter[Snapshot Pipeline]
@@ -50,6 +54,9 @@ flowchart LR
 
   CoreBootstrap --> BrowserManager
   BrowserManager --> TargetManager
+  CoreBootstrap --> ProviderRuntime
+  CoreBootstrap --> MacroRegistry
+  BrowserManager --> Fingerprint
   CoreBootstrap --> AnnotationManager
   AnnotationManager --> BrowserManager
   AnnotationManager --> Relay
@@ -69,7 +76,8 @@ flowchart LR
 1. OpenCode calls a tool like `opendevbrowser_launch`.
 2. Tool validates inputs with Zod and delegates to `BrowserManager`.
 3. `BrowserManager` launches or connects to a Chrome instance.
-4. Tool returns structured response with session id and warnings.
+4. Optional automation flows route through provider runtime (`search`/`fetch`/`crawl`/`post`) and macro resolution.
+5. Tool returns structured response with session id, trace-aware diagnostics, and warnings.
 
 ### 2) CLI automation (daemon mode)
 
@@ -93,7 +101,12 @@ sequenceDiagram
   Core->>Browser: launch or connect
   Core-->>Daemon: session id
   Daemon-->>CLI: result
+  User->>CLI: opendevbrowser rpc --unsafe-internal --name <command>
+  CLI->>Daemon: POST /command (raw internal command name + params, bypasses stable CLI surface)
+  Daemon-->>CLI: raw command result
 ```
+
+`rpc` is intentionally CLI-only and internal. It can invoke unstable daemon command paths and should be treated as a last-resort power-user interface.
 
 ### 3) Extension relay mode
 
@@ -132,6 +145,18 @@ sequenceDiagram
 - Extension relay requires **Chrome 125+** and uses flat-session routing with DebuggerSession `sessionId`.
 - Hub mode supports multi-client access. `/ops` accepts multiple clients, while FIFO binding/lease coordination applies to legacy `/cdp` and protected extension-session command paths.
 
+### Automation platform surfaces
+
+- Provider runtime supports source policy routing (`auto|web|community|social|all`) with per-provider timeouts, retries, circuit-breaker state, and partial-success envelopes.
+- Macro engine resolves `@macro(...)` expressions into provider operations (`src/macros/*`) and is exposed through tool/CLI/daemon (`macro_resolve`, `macro-resolve`, `macro.resolve`) with resolve-only and execute modes.
+- Execute-mode macro responses keep existing shapes and add metadata fields: `meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, and `meta.provenance.retrievedAt`.
+- Diagnostics include console/network/exception trackers and a combined debug bundle endpoint (`debug_trace_snapshot`, `debug-trace-snapshot`, `devtools.debugTraceSnapshot`).
+- Session coherence includes cookie import validation and tiered fingerprint controls:
+  - Tier 1: coherence checks/warnings (default on)
+  - Tier 2: runtime hardening + rotation policy (default on, continuous signals)
+  - Tier 3: adaptive canary/fallback track (default on, continuous signals)
+- Structured JSON logging/audit provides request correlation (`requestId`) and redaction-safe audit entries for write paths.
+
 ---
 
 ## Configuration and state
@@ -148,7 +173,7 @@ Default extension values:
 - `autoPair`: `true`
 - `pairingEnabled`: `true`
 - `pairingToken`: `null` (fetched via `/pair`)
-- Background auto-retry/backoff uses `chrome.alarms` to reconnect when the relay is unreachable.
+- Background auto-retry/backoff uses `chrome.alarms` for extension auto-connect retries (`/config` + `/pair`) when the relay is unreachable.
 
 ---
 
@@ -188,6 +213,27 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 - **Unit/integration tests** via Vitest (`npm run test`), coverage >=97%.
 - **Extension build** via `npm run extension:build`.
 - **CLI build** via `npm run build`.
+- **Parity gate** via `tests/parity-matrix.test.ts` (CLI/tool/runtime surface checks + mode coverage).
+- **Provider performance gate** via `tests/providers-performance-gate.test.ts` (deterministic fixture SLO checks).
+- **Release checklist** in `docs/RELEASE_PARITY_CHECKLIST.md`.
+- **Benchmark fixture manifest** in `docs/benchmarks/provider-fixtures.md`.
+
+## Skill artifacts and operational gates
+
+`opendevbrowser-best-practices` includes codified operational artifacts under
+`skills/opendevbrowser-best-practices/artifacts/`:
+
+- `provider-workflows.md`
+- `parity-gates.md`
+- `debug-trace-playbook.md`
+- `fingerprint-tiers.md`
+- `macro-workflows.md`
+
+Validation script:
+
+```bash
+./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+```
 
 ---
 
@@ -195,6 +241,10 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 
 - `src/core/`: shared runtime bootstrap.
 - `src/browser/`: `BrowserManager`, `TargetManager`, session lifecycle.
+- `src/browser/fingerprint/`: Tier 1/2/3 fingerprint policy + adaptive controls.
+- `src/providers/`: provider contracts, registry, runtime policy, and first-party adapters.
+- `src/macros/`: macro parser/registry and pack definitions.
+- `src/devtools/`: console/network/exception trackers and debug bundle channels.
 - `src/tools/`: tool definitions and response shaping.
 - `src/relay/`: relay server and protocol types.
 - `src/cli/`: CLI commands, daemon, and installers.

@@ -2,7 +2,16 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 OpenDevBrowser exposes 41 `opendevbrowser_*` tools; see `README.md` for the full list.
+Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); use continuity guidance only for long-running handoff/compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
+CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
+
+Parity and skill-pack gates:
+
+```bash
+npm run test -- tests/parity-matrix.test.ts
+./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+```
 
 ## Installation
 
@@ -200,6 +209,7 @@ Behavior:
 - macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute CLI entrypoint.
 - Windows: per-user Task Scheduler logon task targeting an absolute CLI entrypoint.
 - `daemon status` reports `{ installed, running, status? }` and does not throw a usage error when missing.
+- `daemon status` returns exit code `10` when the daemon is not running.
 
 Exit codes align with the CLI:
 - `0`: success
@@ -220,7 +230,7 @@ npx opendevbrowser serve
 npx opendevbrowser serve --stop
 ```
 
-### Native messaging host (Phase 2)
+### Native messaging host
 
 Install the native messaging host for the extension to use as a fallback transport when the relay WebSocket is unavailable.
 
@@ -367,6 +377,62 @@ npx opendevbrowser status               # daemon status (default)
 npx opendevbrowser status --daemon      # daemon status (explicit)
 npx opendevbrowser status --session-id <session-id>
 ```
+
+### Cookie import
+
+```bash
+npx opendevbrowser cookie-import \
+  --session-id <session-id> \
+  --cookies '[{"name":"session","value":"abc123","url":"https://example.com"}]'
+
+npx opendevbrowser cookie-import \
+  --session-id <session-id> \
+  --cookies-file ./cookies.json \
+  --strict=false \
+  --request-id req-cookie-001
+```
+
+Notes:
+- Provide exactly one cookies source: `--cookies` or `--cookies-file`.
+- `--strict` defaults to `true`.
+
+### Macro resolve
+
+```bash
+npx opendevbrowser macro-resolve --expression '@web.search("openai")'
+npx opendevbrowser macro-resolve --expression '@social.post("x", "ship it")' --default-provider social/x --include-catalog
+npx opendevbrowser macro-resolve --expression '@web.search("opendevbrowser")' --execute --output-format json
+```
+
+Notes:
+- Default mode is resolve-only (returns the resolved action/provenance payload).
+- `--execute` runs the resolved provider action and returns additive execution metadata (`meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, `meta.provenance.retrievedAt`).
+
+### RPC (power-user, internal)
+
+Execute any daemon command directly. This bypasses the stable CLI command surface, is intentionally unsafe/internal, and requires `--unsafe-internal`.
+
+```bash
+# Minimal call (empty params object)
+npx opendevbrowser rpc --unsafe-internal --name relay.status --output-format json
+
+# With inline JSON params
+npx opendevbrowser rpc --unsafe-internal --name nav.goto \
+  --params '{"sessionId":"<session-id>","url":"https://example.com","waitUntil":"load","timeoutMs":30000}' \
+  --timeout-ms 45000 --output-format json
+
+# With params from file
+npx opendevbrowser rpc --unsafe-internal --name session.status --params-file ./rpc-params.json --output-format json
+```
+
+Notes:
+- Params must be a JSON object.
+- Use `--output-format json` for machine-readable responses.
+- `rpc` is CLI-only by design and is not part of the stable tool parity surface.
+- `rpc` command names/params are internal and may change without compatibility guarantees.
+- A bad `rpc` call can close sessions, navigate logged-in tabs, or trigger unintended side effects.
+- Prefer stable commands (`goto`, `snapshot`, `click`, `type`, and related tool equivalents) whenever possible.
+- Use `rpc` only when necessary, validate params carefully, and test in a disposable session first.
 
 ---
 
@@ -603,6 +669,19 @@ npx opendevbrowser console-poll --session-id <session-id> --since-seq 0 --max 50
 npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 ```
 
+### Debug trace snapshot
+
+```bash
+npx opendevbrowser debug-trace-snapshot --session-id <session-id>
+npx opendevbrowser debug-trace-snapshot \
+  --session-id <session-id> \
+  --since-console-seq 100 \
+  --since-network-seq 80 \
+  --since-exception-seq 10 \
+  --max 200 \
+  --request-id req-debug-001
+```
+
 ---
 
 ## Flags reference
@@ -651,6 +730,14 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 | `--extension-legacy` | `launch`, `connect` | Use legacy extension relay (`/cdp`) |
 | `--wait-for-extension` | `launch` | Wait for extension handshake |
 | `--wait-timeout-ms` | `launch` | Max wait for extension handshake |
+| `--cookies` | `cookie-import` | Inline JSON array of cookie objects |
+| `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects |
+| `--strict` | `cookie-import` | Reject on invalid cookie entries (`true`/`false`) |
+| `--request-id` | `cookie-import`, `debug-trace-snapshot` | Optional request correlation id |
+| `--expression` | `macro-resolve` | Macro expression to resolve |
+| `--default-provider` | `macro-resolve` | Provider fallback for shorthand macros |
+| `--include-catalog` | `macro-resolve` | Include macro catalog in response |
+| `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
 
 **Browser launch (launch/run)**
 
@@ -690,6 +777,16 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 | `--debug` | `annotate` | Include debug metadata in the payload |
 | `--timeout-ms` | `annotate` | Annotation timeout in ms |
 
+**RPC (internal)**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--unsafe-internal` | `rpc` | Required opt-in acknowledging unsafe/internal RPC execution (power-user only) |
+| `--name` | `rpc` | Daemon command name (for example `relay.status`) |
+| `--params` | `rpc` | Inline JSON object command params |
+| `--params-file` | `rpc` | Path to JSON object params file |
+| `--timeout-ms` | `rpc` | Client-side daemon call timeout in ms |
+
 **Interaction**
 
 | Flag | Used by | Description |
@@ -717,7 +814,10 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 | `--attr` | `dom-attr` | Attribute name to read |
 | `--path` | `screenshot` | Output file path |
 | `--since-seq` | `console-poll`, `network-poll` | Start sequence number |
-| `--max` | `console-poll`, `network-poll` | Max events to return |
+| `--since-console-seq` | `debug-trace-snapshot` | Resume cursor for console channel |
+| `--since-network-seq` | `debug-trace-snapshot` | Resume cursor for network channel |
+| `--since-exception-seq` | `debug-trace-snapshot` | Resume cursor for exception channel |
+| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot` | Max events to return per channel |
 
 ---
 
@@ -733,17 +833,37 @@ node scripts/cli-smoke-test.mjs
 The script uses temporary config/cache directories and exercises all CLI commands, including the new interaction and DOM state checks.
 Validate extension mode separately with `launch` + `disconnect` while the extension is connected.
 
-### Latest validation (2026-02-08)
+## Live regression matrix
 
-- Managed mode: PASS (`node scripts/cli-smoke-test.mjs`)
-- Connection modes: PASS (`node /tmp/connection_modes_real_test.mjs` => `22/22`)
-- Extension-only command matrix: PASS (`node /tmp/odb_ext_test_matrix.mjs` => `cli_common 10/10`, `cli_extension_surface 32/32`, `daemon_extension_lease_aware 31/31`)
-- Extension-only low-churn rerun: PASS (`node /tmp/odb_rerun_low_churn.mjs` => `23/23`)
-- Real tool-surface run: PASS (`bun /tmp/opendevbrowser_tools_real_matrix.mjs` => `59/59`)
-- Real admin/native command run: PASS (`node /tmp/opendevbrowser_admin_commands_real.mjs` => `10/10`)
+Run the full real-world matrix (managed + extension `/ops` + extension-legacy `/cdp` + `cdpConnect` + macro/research + annotate probes):
 
-OpenCode prompt-driven background run note:
-- If `opencode run --command` reports `command3.agent`, use explicit shell command routing (`--command shell "..."`), then re-run JSON probe checks.
+```bash
+npm run build
+node scripts/live-regression-matrix.mjs
+```
+
+Behavior:
+- Exits non-zero only for product regressions.
+- Classifies upstream reachability failures (for example social/community dependencies) as `env_limited`.
+- Classifies unattended annotation timeouts as `expected_timeout`.
+- Emits a JSON summary with per-step status for reproducible CI/manual verification.
+
+Run parity and skill-asset gates as part of release checks:
+
+```bash
+npm run test -- tests/parity-matrix.test.ts
+npm run test -- tests/providers-performance-gate.test.ts
+./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+```
+
+Release gate source of truth: `docs/RELEASE_PARITY_CHECKLIST.md`.
+Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
+
+### Latest validation (Pending refresh — 2026-02-13)
+
+- Full validation evidence will be refreshed after the final full test run.
+- Pending refresh command set: `npm run lint`, `npx tsc --noEmit`, `npm run build`, `npm run test`, `node scripts/cli-smoke-test.mjs`.
+- Prior dated pass-count snapshots were intentionally removed to avoid stale release signals.
 
 ---
 
@@ -799,7 +919,7 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
   "skills": {
     "nudge": {
       "enabled": true,
-      "keywords": ["login", "form", "extract"],
+      "keywords": ["quick start", "getting started", "launch", "connect", "setup"],
       "maxAgeMs": 60000
     }
   },
@@ -820,3 +940,4 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
 ```
 
 The optional `skills.nudge` section controls the small one-time prompt hint that encourages early `skill(...)` usage on skill-relevant tasks. The optional `continuity` section controls the long-running task nudge and the ledger file path.
+Fingerprint runtime defaults are Tier 1/2/3 enabled, with Tier 2 and Tier 3 driven by continuous signals (debug trace remains readout/reporting).
