@@ -408,6 +408,167 @@ Notes:
 - Default mode is resolve-only (returns the resolved action/provenance payload).
 - `--execute` runs the resolved provider action and returns additive execution metadata (`meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, `meta.provenance.retrievedAt`).
 
+### Blocker contract (v2)
+
+Compatibility rule (v2):
+- Blocker fields are additive-only and live under `meta.blocker` (or `execution.meta.blocker` for `macro-resolve --execute`).
+- Existing success/error fields and codes remain unchanged.
+- Consumers should treat missing blocker fields as backward-compatible `no blocker metadata`.
+
+Canonical placement:
+- `goto`: `data.meta.blockerState` + optional `data.meta.blocker`.
+- `wait`: `data.meta.blockerState` + optional `data.meta.blocker`.
+- `debug-trace-snapshot`: `data.meta.blockerState` + optional `data.meta.blocker` + optional `data.meta.blockerArtifacts`.
+- `macro-resolve --execute`: `data.execution.meta.ok` + optional `data.execution.meta.blocker`.
+
+Canonical examples:
+
+```json
+{
+  "command": "goto",
+  "success": true,
+  "data": {
+    "finalUrl": "https://example.com",
+    "status": 200,
+    "timingMs": 412,
+    "meta": {
+      "blockerState": "clear"
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "goto",
+  "success": true,
+  "data": {
+    "finalUrl": "https://x.com/i/flow/login",
+    "status": 200,
+    "timingMs": 588,
+    "meta": {
+      "blockerState": "active",
+      "blocker": {
+        "schemaVersion": "1.0",
+        "type": "auth_required",
+        "source": "navigation",
+        "confidence": 0.97,
+        "retryable": false
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "wait",
+  "success": true,
+  "data": {
+    "timingMs": 221,
+    "meta": {
+      "blockerState": "clear"
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "wait",
+  "success": true,
+  "data": {
+    "timingMs": 1470,
+    "meta": {
+      "blockerState": "active",
+      "blocker": {
+        "schemaVersion": "1.0",
+        "type": "anti_bot_challenge",
+        "source": "navigation",
+        "confidence": 0.96,
+        "retryable": false
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "debug-trace-snapshot",
+  "success": true,
+  "data": {
+    "requestId": "req-debug-001",
+    "meta": {
+      "blockerState": "clear"
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "debug-trace-snapshot",
+  "success": true,
+  "data": {
+    "requestId": "req-debug-002",
+    "meta": {
+      "blockerState": "active",
+      "blocker": {
+        "schemaVersion": "1.0",
+        "type": "anti_bot_challenge",
+        "source": "network",
+        "confidence": 0.96,
+        "retryable": false
+      },
+      "blockerArtifacts": {
+        "schemaVersion": "1.0",
+        "hosts": ["www.recaptcha.net", "challenges.cloudflare.com"]
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "macro-resolve --execute",
+  "success": true,
+  "data": {
+    "runtime": "macros",
+    "execution": {
+      "meta": {
+        "ok": true,
+        "partial": false
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "macro-resolve --execute",
+  "success": true,
+  "data": {
+    "runtime": "macros",
+    "execution": {
+      "meta": {
+        "ok": false,
+        "partial": true,
+        "blocker": {
+          "schemaVersion": "1.0",
+          "type": "env_limited",
+          "source": "macro_execution",
+          "confidence": 0.9,
+          "retryable": true
+        }
+      }
+    }
+  }
+}
+```
+
 ### RPC (power-user, internal)
 
 Execute any daemon command directly. This bypasses the stable CLI command surface, is intentionally unsafe/internal, and requires `--unsafe-internal`.
@@ -844,8 +1005,10 @@ node scripts/live-regression-matrix.mjs
 
 Behavior:
 - Exits non-zero only for product regressions.
+- Emits explicit extension readiness preflight diagnostics (`infra.extension.ready`) before extension-mode cases.
 - Classifies upstream reachability failures (for example social/community dependencies) as `env_limited`.
 - Classifies unattended annotation timeouts as `expected_timeout`.
+- Captures mode-specific blocker evidence (`goto`/`wait` + `debug-trace-snapshot`) for managed, extension, and cdpConnect comparisons.
 - Emits a JSON summary with per-step status for reproducible CI/manual verification.
 
 Run parity and skill-asset gates as part of release checks:
@@ -859,11 +1022,15 @@ npm run test -- tests/providers-performance-gate.test.ts
 Release gate source of truth: `docs/RELEASE_PARITY_CHECKLIST.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
-### Latest validation (Pending refresh — 2026-02-13)
+### Latest validation (2026-02-14)
 
-- Full validation evidence will be refreshed after the final full test run.
-- Pending refresh command set: `npm run lint`, `npx tsc --noEmit`, `npm run build`, `npm run test`, `node scripts/cli-smoke-test.mjs`.
-- Prior dated pass-count snapshots were intentionally removed to avoid stale release signals.
+- `npm run lint` ✅
+- `npx tsc --noEmit` ✅
+- `npm run build` ✅
+- `npm run test` ✅
+- `node scripts/live-regression-matrix.mjs` ✅ (`pass: 21`, `env_limited: 1`, `expected_timeout: 2`, `fail: 0`)
+- Remaining `env_limited`: `mode.extension_legacy_cdp` (legacy `/cdp` attach mismatch: `No tab with given id ...`).
+- Operator rollout, rollback triggers, and triage checklist are documented in `docs/AUTH_ANTI_BOT_BLOCKERS_REPORT.md`.
 
 ---
 

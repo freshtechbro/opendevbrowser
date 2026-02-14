@@ -30,19 +30,19 @@ node scripts/live-regression-matrix.mjs
 
 Observed on 2026-02-14:
 
-- `pass: 15`
-- `env_limited: 7`
-- `expected_timeout: 1`
+- `pass: 21`
+- `env_limited: 1`
+- `expected_timeout: 2`
 - `fail: 0`
 
 Key matrix observations:
 
-- `mode.extension_ops`: `env_limited` (extension not connected)
-- `mode.extension_legacy_cdp`: `env_limited` (extension not connected)
-- `macro.community.search.keyword`: `env_limited`, detail `Retrieval failed for https://www.redditstatic.com`
-- `macro.media.search.reddit`: `env_limited`, detail `Retrieval failed for https://www.redditstatic.com`
-- `macro.media.search.x`: `env_limited`, detail `Retrieval failed for https://abs.twimg.com`
-- `macro.media.trend.x`: `env_limited`, detail `Retrieval failed for https://abs.twimg.com`
+- `infra.extension.ready`: `pass` with extension relay healthy (`extensionConnected=true`, `extensionHandshakeComplete=true`, `opsConnected=true`)
+- `mode.extension_ops`: `pass`
+- `mode.extension_legacy_cdp`: `env_limited` (legacy `/cdp` attach mismatch: `No tab with given id ...`)
+- Upstream static-host env-limited failures previously seen on `redditstatic` and `abs.twimg.com` no longer reproduced.
+- `mode.managed`: blocker evidence captured (`goto`, `wait`, and `debug-trace-snapshot`) with `blockerState=clear`
+- `mode.cdp_connect`: blocker evidence captured (`goto`, `wait`, and `debug-trace-snapshot`) with `blockerState=clear`
 
 ### Focused Reddit/X probes
 
@@ -97,6 +97,100 @@ Existing building blocks are solid but not unified into an explicit blocker work
 3. Auth redirects (X login flow) are observable, but no explicit auth challenge state is surfaced with next-step affordances.
 4. Reddit challenge states are observable in trace/title/network, but no standardized “challenge artifact bundle” is emitted.
 5. Extension mode reliability can be environment-limited; this currently blocks assisted interactive resolution in those environments.
+
+## Quality Gate Evidence (2026-02-14)
+
+Command outcomes:
+
+- `npm run lint` ✅
+- `npx tsc --noEmit` ✅
+- `npm run build` ✅
+- `npm run test` ✅ (`85` files, `1104` tests)
+- Coverage: branch `97.08%` (meets required `>=97%`)
+- `node scripts/live-regression-matrix.mjs` ✅ (`pass: 21`, `env_limited: 1`, `expected_timeout: 2`, `fail: 0`)
+
+Blocker evidence deltas captured in second pass:
+
+- Added explicit extension preflight diagnostics (`infra.extension.ready`) with actionable setup hints.
+- Added mode-specific blocker evidence capture for managed, extension, and cdpConnect paths (`goto`/`wait`/`debug-trace-snapshot`).
+- Added blocker metadata assertions and non-blocker parity guards in runtime/tool/daemon/CLI tests.
+
+## Canonical Blocker Contract (v2)
+
+Compatibility rule:
+
+- Blocker metadata is additive-only in v2.
+- Placement is fixed to `meta.blocker` (or `execution.meta.blocker` for `macro-resolve --execute`).
+- Existing fields/codes remain unchanged when blocker metadata is absent.
+
+Canonical placement by surface:
+
+- `goto`: `data.meta.blockerState` + optional `data.meta.blocker`
+- `wait`: `data.meta.blockerState` + optional `data.meta.blocker`
+- `debug-trace-snapshot`: `data.meta.blockerState` + optional `data.meta.blocker` + optional `data.meta.blockerArtifacts`
+- `macro-resolve --execute`: `data.execution.meta.ok` + optional `data.execution.meta.blocker`
+
+Canonical examples:
+
+```json
+{
+  "command": "goto",
+  "data": {
+    "meta": { "blockerState": "clear" }
+  }
+}
+```
+
+```json
+{
+  "command": "goto",
+  "data": {
+    "meta": {
+      "blockerState": "active",
+      "blocker": { "type": "auth_required", "source": "navigation" }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "wait",
+  "data": {
+    "meta": {
+      "blockerState": "active",
+      "blocker": { "type": "anti_bot_challenge", "source": "navigation" }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "debug-trace-snapshot",
+  "data": {
+    "meta": {
+      "blockerState": "active",
+      "blocker": { "type": "anti_bot_challenge", "source": "network" },
+      "blockerArtifacts": { "hosts": ["www.recaptcha.net"] }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "macro-resolve --execute",
+  "data": {
+    "execution": {
+      "meta": {
+        "ok": false,
+        "blocker": { "type": "env_limited", "source": "macro_execution" }
+      }
+    }
+  }
+}
+```
 
 ## What Needs To Be Done
 
@@ -253,3 +347,31 @@ P2:
 
 - expanded live matrix scenarios for authenticated profiles and extension-connected runs
 
+## Rollout Sequence and Contingency (v2)
+
+Rollout sequence (owners):
+
+1. Dev validation (Owner: runtime maintainer)
+   - Run `npm run lint`, `npx tsc --noEmit`, `npm run build`, `npm run test`.
+   - Confirm blocker contract parity tests pass.
+2. Pre-release live run (Owner: release engineer)
+   - Run `node scripts/live-regression-matrix.mjs`.
+   - Confirm no `fail` results and review `infra.extension.ready` diagnostics.
+3. Release decision (Owner: maintainer)
+   - Approve when quality gate is green and env-limited outcomes are documented as environment issues (not product defects).
+
+Rollback triggers (testable):
+
+- Contract drift: blocker placement changes outside `meta.blocker` / `execution.meta.blocker`.
+- Parity regression: tool/CLI/daemon responses disagree for equivalent execute-mode failures.
+- Unexpected blocker inflation: baseline matrix scenario moves from `clear` to repeated active blockers without upstream/environment changes.
+
+Operator triage checklist (`resolved | unresolved | deferred`):
+
+1. Capture evidence (`goto`, `wait`, `debug-trace-snapshot`, `macro-resolve --execute`) and classify blocker type.
+2. Attempt deterministic recovery (manual login/challenge completion, then resume same session).
+3. Re-run verifier action and compare blocker delta:
+   - `resolved`: blocker clears and target action succeeds.
+   - `unresolved`: blocker remains active after documented recovery steps.
+   - `deferred`: blocked by environment/setup limits (for example extension disconnected).
+4. Record outcome with request/session id, blocker type, and next action owner.
