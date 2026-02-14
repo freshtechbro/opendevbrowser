@@ -91,14 +91,44 @@ export class CDPRouter {
       }
       await this.safeDetach(debuggee);
       if (allowRetry && this.isStaleTabError(error)) {
+        const attemptedTabIds = new Set<number>([tabId]);
+        let lastStaleError: unknown = error;
         const activeTabId = await this.tabManager.getActiveTabId();
-        if (activeTabId && activeTabId !== tabId) {
-          return await this.attachInternal(activeTabId, false);
+        if (activeTabId && !attemptedTabIds.has(activeTabId)) {
+          attemptedTabIds.add(activeTabId);
+          try {
+            return await this.attachInternal(activeTabId, false);
+          } catch (candidateError) {
+            if (!this.isStaleTabError(candidateError)) {
+              throw candidateError;
+            }
+            lastStaleError = candidateError;
+          }
         }
         const fallbackTabId = await this.tabManager.getFirstHttpTabId();
-        if (fallbackTabId && fallbackTabId !== tabId) {
-          return await this.attachInternal(fallbackTabId, false);
+        if (fallbackTabId && !attemptedTabIds.has(fallbackTabId)) {
+          attemptedTabIds.add(fallbackTabId);
+          try {
+            return await this.attachInternal(fallbackTabId, false);
+          } catch (candidateError) {
+            if (!this.isStaleTabError(candidateError)) {
+              throw candidateError;
+            }
+            lastStaleError = candidateError;
+          }
         }
+        try {
+          const createdTab = await this.tabManager.createTab("about:blank", true);
+          if (typeof createdTab.id === "number" && !attemptedTabIds.has(createdTab.id)) {
+            return await this.attachInternal(createdTab.id, false);
+          }
+        } catch (candidateError) {
+          if (!this.isStaleTabError(candidateError)) {
+            throw candidateError;
+          }
+          lastStaleError = candidateError;
+        }
+        throw lastStaleError;
       }
       throw error;
     }

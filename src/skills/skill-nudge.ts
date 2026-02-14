@@ -5,7 +5,7 @@ export type SkillNudgeState = {
 
 export const SKILL_NUDGE_MARKER = "[opendevbrowser:skill-nudge]";
 
-const SKILL_NUDGE_MESSAGE = `${SKILL_NUDGE_MARKER} If this task likely matches a skill, call the OpenCode skill tool early (skill("<skill-name>", topic?)) and load only the most relevant skill before using browser tools. If unsure which skill applies, check the available skills first.`;
+const SKILL_NUDGE_MESSAGE = `${SKILL_NUDGE_MARKER} If this task likely matches a skill, start with skill("opendevbrowser-best-practices", "quick start"). Use another skill only when it is more relevant.`;
 
 type TextPart = { type: "text"; text: string };
 type UnknownPart = { type: string; text?: string };

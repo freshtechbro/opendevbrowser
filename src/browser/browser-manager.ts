@@ -7,7 +7,9 @@ import type { OpenDevBrowserConfig } from "../config";
 import { resolveCachePaths } from "../cache/paths";
 import { findChromeExecutable } from "../cache/chrome-locator";
 import { downloadChromeForTesting } from "../cache/downloader";
+import { createLogger, createRequestId } from "../core/logging";
 import { ConsoleTracker } from "../devtools/console-tracker";
+import { ExceptionTracker } from "../devtools/exception-tracker";
 import { NetworkTracker } from "../devtools/network-tracker";
 import { captureDom } from "../export/dom-capture";
 import { extractCss } from "../export/css-extract";
@@ -16,6 +18,21 @@ import { RefStore } from "../snapshot/refs";
 import { Snapshotter } from "../snapshot/snapshotter";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
 import { ensureLocalEndpoint } from "../utils/endpoint-validation";
+import {
+  evaluateTier1Coherence,
+  formatTier1Warnings,
+  type Tier1CoherenceResult
+} from "./fingerprint/tier1-coherence";
+import {
+  applyTier2NetworkEvent,
+  createTier2RuntimeState,
+  type Tier2RuntimeState
+} from "./fingerprint/tier2-runtime";
+import {
+  createTier3RuntimeState,
+  evaluateTier3Adaptive,
+  type Tier3RuntimeState
+} from "./fingerprint/tier3-adaptive";
 import { SessionStore, type BrowserMode } from "./session-store";
 import { TargetManager, type TargetInfo } from "./target-manager";
 
@@ -47,16 +64,43 @@ export type ManagedSession = {
   refStore: RefStore;
   snapshotter: Snapshotter;
   consoleTracker: ConsoleTracker;
+  exceptionTracker: ExceptionTracker;
   networkTracker: NetworkTracker;
+  fingerprint: {
+    tier1: Tier1CoherenceResult;
+    tier2: Tier2RuntimeState;
+    tier3: Tier3RuntimeState;
+    lastAppliedNetworkSeq: number;
+  };
+};
+
+type FingerprintSignalApplyOptions = {
+  applyTier2?: boolean;
+  applyTier3?: boolean;
+  source?: "debug-trace" | "continuous";
+};
+
+type CookieImportRecord = {
+  name: string;
+  value: string;
+  url?: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
 };
 
 export class BrowserManager {
   private store = new SessionStore();
   private sessions = new Map<string, ManagedSession>();
   private sessionMutexes = new Map<string, Mutex>();
+  private networkSignalSubscriptions = new Map<string, () => void>();
   private worktree: string;
   private config: OpenDevBrowserConfig;
   private pageListeners = new WeakMap<Page, () => void>();
+  private logger = createLogger("browser-manager");
 
   constructor(worktree: string, config: OpenDevBrowserConfig) {
     this.worktree = worktree;
@@ -77,6 +121,10 @@ export class BrowserManager {
     for (const managed of this.sessions.values()) {
       managed.consoleTracker.setOptions({ showFullConsole: config.devtools.showFullConsole });
       managed.networkTracker.setOptions({ showFullUrls: config.devtools.showFullUrls });
+      managed.fingerprint.tier2.enabled = config.fingerprint.tier2.enabled;
+      managed.fingerprint.tier2.mode = config.fingerprint.tier2.mode;
+      managed.fingerprint.tier3.enabled = config.fingerprint.tier3.enabled;
+      managed.fingerprint.tier3.fallbackTier = config.fingerprint.tier3.fallbackTier;
     }
   }
 
@@ -136,7 +184,14 @@ export class BrowserManager {
       const refStore = new RefStore();
       const snapshotter = new Snapshotter(refStore);
       const consoleTracker = new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole });
+      const exceptionTracker = new ExceptionTracker(200);
       const networkTracker = new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls });
+      const fingerprint = this.initializeFingerprintState(
+        sessionId,
+        resolvedProfile,
+        options.flags ?? this.config.flags
+      );
+      warnings.push(...formatTier1Warnings(fingerprint.tier1));
 
       const managed: ManagedSession = {
         sessionId,
@@ -149,12 +204,15 @@ export class BrowserManager {
         refStore,
         snapshotter,
         consoleTracker,
-        networkTracker
+        exceptionTracker,
+        networkTracker,
+        fingerprint
       };
 
       this.store.add({ id: sessionId, mode: "managed", browser, context });
       this.sessions.set(sessionId, managed);
 
+      this.attachContinuousFingerprintSignals(managed);
       this.attachTrackers(managed);
       this.attachRefInvalidation(managed);
 
@@ -162,6 +220,13 @@ export class BrowserManager {
       const wsEndpoint = typeof wsEndpointProvider.wsEndpoint === "function"
         ? wsEndpointProvider.wsEndpoint()
         : undefined;
+
+      if (!fingerprint.tier1.ok) {
+        this.logger.warn("fingerprint.tier1.mismatch", {
+          sessionId,
+          data: { issues: fingerprint.tier1.issues }
+        });
+      }
 
       return { sessionId, mode: "managed", activeTargetId, warnings, wsEndpoint: wsEndpoint || undefined };
     } catch (error) {
@@ -229,6 +294,16 @@ export class BrowserManager {
       }
 
       try {
+        const unsubscribeSignals = this.networkSignalSubscriptions.get(sessionId);
+        if (unsubscribeSignals) {
+          unsubscribeSignals();
+          this.networkSignalSubscriptions.delete(sessionId);
+        }
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+
+      try {
         const shouldCloseBrowser = closeBrowser || managed.mode !== "managed";
         if (shouldCloseBrowser) {
           if (managed.mode !== "managed") {
@@ -253,6 +328,12 @@ export class BrowserManager {
 
       try {
         managed.consoleTracker.detach();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+
+      try {
+        managed.exceptionTracker.detach();
       } catch (error) {
         cleanupErrors.push(error);
       }
@@ -890,18 +971,652 @@ export class BrowserManager {
     return { base64: buffer.toString("base64") };
   }
 
-  async consolePoll(sessionId: string, sinceSeq?: number, max = 50): Promise<{ events: ReturnType<ConsoleTracker["poll"]>["events"]; nextSeq: number }> {
+  async consolePoll(
+    sessionId: string,
+    sinceSeq?: number,
+    max = 50
+  ): Promise<{ events: ReturnType<ConsoleTracker["poll"]>["events"]; nextSeq: number; truncated?: boolean }> {
     const managed = this.getManaged(sessionId);
     return managed.consoleTracker.poll(sinceSeq, max);
   }
 
-  async networkPoll(sessionId: string, sinceSeq?: number, max = 50): Promise<{ events: ReturnType<NetworkTracker["poll"]>["events"]; nextSeq: number }> {
+  async exceptionPoll(
+    sessionId: string,
+    sinceSeq?: number,
+    max = 50
+  ): Promise<{ events: ReturnType<ExceptionTracker["poll"]>["events"]; nextSeq: number; truncated?: boolean }> {
+    const managed = this.getManaged(sessionId);
+    return managed.exceptionTracker.poll(sinceSeq, max);
+  }
+
+  async networkPoll(
+    sessionId: string,
+    sinceSeq?: number,
+    max = 50
+  ): Promise<{ events: ReturnType<NetworkTracker["poll"]>["events"]; nextSeq: number; truncated?: boolean }> {
     const managed = this.getManaged(sessionId);
     return managed.networkTracker.poll(sinceSeq, max);
   }
 
+  async debugTraceSnapshot(
+    sessionId: string,
+    options: {
+      sinceConsoleSeq?: number;
+      sinceNetworkSeq?: number;
+      sinceExceptionSeq?: number;
+      max?: number;
+      requestId?: string;
+    } = {}
+  ): Promise<{
+    requestId: string;
+    generatedAt: string;
+    page: { mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string };
+    channels: {
+      console: {
+        events: Array<ReturnType<ConsoleTracker["poll"]>["events"][number] & { requestId: string; sessionId: string }>;
+        nextSeq: number;
+        truncated?: boolean;
+      };
+      network: {
+        events: Array<ReturnType<NetworkTracker["poll"]>["events"][number] & { requestId: string; sessionId: string }>;
+        nextSeq: number;
+        truncated?: boolean;
+      };
+      exception: {
+        events: Array<ReturnType<ExceptionTracker["poll"]>["events"][number] & { requestId: string; sessionId: string }>;
+        nextSeq: number;
+        truncated?: boolean;
+      };
+    };
+    fingerprint: ReturnType<BrowserManager["buildFingerprintSummary"]>;
+  }> {
+    const requestId = options.requestId ?? createRequestId();
+    const managed = this.getManaged(sessionId);
+    const max = options.max ?? 500;
+    const status = await this.status(sessionId);
+    const consoleChannel = managed.consoleTracker.poll(options.sinceConsoleSeq, max);
+    const networkChannel = managed.networkTracker.poll(options.sinceNetworkSeq, max);
+    const exceptionChannel = managed.exceptionTracker.poll(options.sinceExceptionSeq, max);
+
+    this.applyFingerprintSignals(managed, networkChannel.events, requestId, { source: "debug-trace" });
+
+    const annotateTraceContext = <T extends Record<string, unknown>>(events: T[]) => (
+      events.map((event) => ({
+        ...event,
+        requestId,
+        sessionId
+      }))
+    );
+
+    return {
+      requestId,
+      generatedAt: new Date().toISOString(),
+      page: status,
+      channels: {
+        console: {
+          nextSeq: consoleChannel.nextSeq,
+          truncated: consoleChannel.truncated,
+          events: annotateTraceContext(consoleChannel.events)
+        },
+        network: {
+          nextSeq: networkChannel.nextSeq,
+          truncated: networkChannel.truncated,
+          events: annotateTraceContext(networkChannel.events)
+        },
+        exception: {
+          nextSeq: exceptionChannel.nextSeq,
+          truncated: exceptionChannel.truncated,
+          events: annotateTraceContext(exceptionChannel.events)
+        }
+      },
+      fingerprint: this.buildFingerprintSummary(managed)
+    };
+  }
+
+  async cookieImport(
+    sessionId: string,
+    cookies: CookieImportRecord[],
+    strict = true,
+    requestId = createRequestId()
+  ): Promise<{ requestId: string; imported: number; rejected: Array<{ index: number; reason: string }> }> {
+    const managed = this.getManaged(sessionId);
+    const normalized: CookieImportRecord[] = [];
+    const rejected: Array<{ index: number; reason: string }> = [];
+
+    cookies.forEach((cookie, index) => {
+      const validation = this.validateCookieRecord(cookie);
+      if (!validation.valid) {
+        rejected.push({ index, reason: validation.reason });
+        return;
+      }
+      normalized.push(validation.cookie);
+    });
+
+    if (strict && rejected.length > 0) {
+      throw new Error(`Cookie import rejected ${rejected.length} entries.`);
+    }
+
+    if (normalized.length > 0) {
+      await managed.context.addCookies(normalized);
+    }
+
+    this.logger.audit("session.cookie_import", {
+      requestId,
+      sessionId,
+      data: {
+        imported: normalized.length,
+        rejected
+      }
+    });
+
+    return {
+      requestId,
+      imported: normalized.length,
+      rejected
+    };
+  }
+
+  private initializeFingerprintState(
+    sessionId: string,
+    profileName: string,
+    flags: string[]
+  ): ManagedSession["fingerprint"] {
+    const tier1Config = this.config.fingerprint.tier1;
+    const languageFlag = readFlagValue(flags, "--lang");
+    const timezoneFlag = readFlagValue(flags, "--timezone") ?? readFlagValue(flags, "--timezone-for-testing");
+    const proxyFlag = readFlagValue(flags, "--proxy-server");
+
+    const tier1 = evaluateTier1Coherence(
+      {
+        enabled: tier1Config.enabled,
+        warnOnly: tier1Config.warnOnly,
+        expectedLocale: tier1Config.locale,
+        expectedTimezone: tier1Config.timezone,
+        expectedLanguages: tier1Config.languages,
+        requireProxy: tier1Config.requireProxy,
+        geolocationRequired: tier1Config.geolocationRequired
+      },
+      {
+        locale: tier1Config.locale ?? languageFlag,
+        timezone: tier1Config.timezone ?? timezoneFlag,
+        languages: tier1Config.languages.length > 0
+          ? tier1Config.languages
+          : languageFlag
+            ? [languageFlag]
+            : [],
+        proxy: proxyFlag,
+        geolocation: tier1Config.geolocation
+          ? {
+            latitude: tier1Config.geolocation.latitude,
+            longitude: tier1Config.geolocation.longitude,
+            accuracy: tier1Config.geolocation.accuracy
+          }
+          : undefined
+      }
+    );
+
+    const tier2 = createTier2RuntimeState(
+      {
+        enabled: this.config.fingerprint.tier2.enabled,
+        mode: this.config.fingerprint.tier2.mode,
+        rotationIntervalMs: this.config.fingerprint.tier2.rotationIntervalMs,
+        challengePatterns: this.config.fingerprint.tier2.challengePatterns,
+        maxChallengeEvents: this.config.fingerprint.tier2.maxChallengeEvents,
+        scorePenalty: this.config.fingerprint.tier2.scorePenalty,
+        scoreRecovery: this.config.fingerprint.tier2.scoreRecovery,
+        rotationHealthThreshold: this.config.fingerprint.tier2.rotationHealthThreshold
+      },
+      sessionId,
+      profileName
+    );
+
+    const tier3 = createTier3RuntimeState({
+      enabled: this.config.fingerprint.tier3.enabled,
+      fallbackTier: this.config.fingerprint.tier3.fallbackTier,
+      canary: {
+        windowSize: this.config.fingerprint.tier3.canary.windowSize,
+        minSamples: this.config.fingerprint.tier3.canary.minSamples,
+        promoteThreshold: this.config.fingerprint.tier3.canary.promoteThreshold,
+        rollbackThreshold: this.config.fingerprint.tier3.canary.rollbackThreshold
+      }
+    });
+
+    return {
+      tier1,
+      tier2,
+      tier3,
+      lastAppliedNetworkSeq: 0
+    };
+  }
+
+  private applyFingerprintSignals(
+    managed: ManagedSession,
+    events: ReturnType<NetworkTracker["poll"]>["events"],
+    requestId: string,
+    options: FingerprintSignalApplyOptions = {}
+  ): void {
+    const applyTier2 = options.applyTier2 ?? true;
+    const applyTier3 = options.applyTier3 ?? true;
+    if (!applyTier2 && !applyTier3) {
+      return;
+    }
+
+    const pendingEvents = events.filter((event) => event.seq > managed.fingerprint.lastAppliedNetworkSeq);
+    if (pendingEvents.length === 0) {
+      return;
+    }
+
+    let tier2 = managed.fingerprint.tier2;
+    let tier3 = managed.fingerprint.tier3;
+    const tier2Config = this.config.fingerprint.tier2;
+    const tier3Config = this.config.fingerprint.tier3;
+    const signalSource = options.source ?? "debug-trace";
+
+    for (const event of pendingEvents) {
+      const evaluationTs = event.ts ?? Date.now();
+      let hasChallenge = false;
+
+      if (applyTier2) {
+        const tier2Result = applyTier2NetworkEvent(
+          tier2,
+          {
+            enabled: tier2Config.enabled,
+            mode: tier2Config.mode,
+            rotationIntervalMs: tier2Config.rotationIntervalMs,
+            challengePatterns: tier2Config.challengePatterns,
+            maxChallengeEvents: tier2Config.maxChallengeEvents,
+            scorePenalty: tier2Config.scorePenalty,
+            scoreRecovery: tier2Config.scoreRecovery,
+            rotationHealthThreshold: tier2Config.rotationHealthThreshold
+          },
+          {
+            url: event.url,
+            status: event.status,
+            ts: evaluationTs
+          },
+          evaluationTs
+        );
+        tier2 = tier2Result.state;
+        hasChallenge = Boolean(tier2Result.challenge);
+
+        if (tier2Result.challenge) {
+          this.logger.warn("fingerprint.tier2.challenge", {
+            requestId,
+            sessionId: managed.sessionId,
+            data: {
+              event: tier2Result.challenge,
+              score: tier2.profile.healthScore
+            }
+          });
+        }
+
+        if (tier2Result.rotated) {
+          this.logger.info("fingerprint.tier2.rotate", {
+            requestId,
+            sessionId: managed.sessionId,
+            data: {
+              reason: tier2Result.reason,
+              profileId: tier2.profile.id,
+              rotationCount: tier2.profile.rotationCount
+            }
+          });
+        }
+      }
+
+      if (!applyTier3) {
+        continue;
+      }
+
+      const tier3Result = evaluateTier3Adaptive(
+        tier3,
+        {
+          enabled: tier3Config.enabled,
+          fallbackTier: tier3Config.fallbackTier,
+          canary: {
+            windowSize: tier3Config.canary.windowSize,
+            minSamples: tier3Config.canary.minSamples,
+            promoteThreshold: tier3Config.canary.promoteThreshold,
+            rollbackThreshold: tier3Config.canary.rollbackThreshold
+          }
+        },
+        {
+          hasChallenge,
+          healthScore: tier2.profile.healthScore,
+          challengeCount: tier2.profile.challengeCount,
+          rotationCount: tier2.profile.rotationCount,
+          metadata: {
+            url: event.url,
+            status: event.status
+          }
+        },
+        undefined,
+        evaluationTs
+      );
+
+      tier3 = tier3Result.state;
+      const targetClass = this.resolveCanaryTargetClass(event.url, event.status);
+      const scoreWindow = this.buildCanaryScoreWindow(tier3.canary.samples);
+      const thresholdComparison = {
+        promoteDelta: tier3Result.decision.score - tier3Config.canary.promoteThreshold,
+        rollbackDelta: tier3Result.decision.score - tier3Config.canary.rollbackThreshold
+      };
+
+      if (tier3Result.action === "rollback") {
+        this.logger.warn("fingerprint.tier3.rollback", {
+          requestId,
+          sessionId: managed.sessionId,
+          data: {
+            action: tier3Result.action,
+            reason: tier3Result.decision.reason,
+            score: tier3Result.decision.score,
+            threshold: {
+              windowSize: tier3Config.canary.windowSize,
+              minSamples: tier3Config.canary.minSamples,
+              promoteThreshold: tier3Config.canary.promoteThreshold,
+              rollbackThreshold: tier3Config.canary.rollbackThreshold
+            },
+            canary: {
+              level: tier3.canary.level,
+              averageScore: tier3.canary.averageScore,
+              sampleCount: tier3.canary.samples.length
+            },
+            targetClass,
+            scoreWindow,
+            thresholdComparison,
+            fallbackTier: tier3.fallbackTier,
+            status: tier3.status,
+            source: signalSource
+          }
+        });
+      } else if (tier3Result.action === "promote") {
+        this.logger.info("fingerprint.tier3.promote", {
+          requestId,
+          sessionId: managed.sessionId,
+          data: {
+            action: tier3Result.action,
+            reason: tier3Result.decision.reason,
+            score: tier3Result.decision.score,
+            threshold: {
+              windowSize: tier3Config.canary.windowSize,
+              minSamples: tier3Config.canary.minSamples,
+              promoteThreshold: tier3Config.canary.promoteThreshold,
+              rollbackThreshold: tier3Config.canary.rollbackThreshold
+            },
+            canary: {
+              level: tier3.canary.level,
+              averageScore: tier3.canary.averageScore,
+              sampleCount: tier3.canary.samples.length
+            },
+            targetClass,
+            scoreWindow,
+            thresholdComparison,
+            source: signalSource
+          }
+        });
+      }
+    }
+
+    managed.fingerprint.tier2 = tier2;
+    managed.fingerprint.tier3 = tier3;
+    managed.fingerprint.lastAppliedNetworkSeq = pendingEvents[pendingEvents.length - 1]?.seq ?? managed.fingerprint.lastAppliedNetworkSeq;
+
+    if (tier3.enabled && tier3.status === "fallback") {
+      managed.fingerprint.tier2 = {
+        ...tier2,
+        enabled: resolveTier3FallbackTarget(tier3.fallbackTier) === "tier2"
+      };
+    }
+  }
+
+  private attachContinuousFingerprintSignals(managed: ManagedSession): void {
+    if (this.networkSignalSubscriptions.has(managed.sessionId)) {
+      return;
+    }
+
+    const unsubscribe = managed.networkTracker.subscribe((event) => {
+      const applyTier2 = this.isContinuousSignalsEnabled(this.config.fingerprint.tier2)
+        && this.config.fingerprint.tier2.enabled;
+      const applyTier3 = this.isContinuousSignalsEnabled(this.config.fingerprint.tier3)
+        && this.config.fingerprint.tier3.enabled
+        && applyTier2;
+      if (!applyTier2 && !applyTier3) {
+        return;
+      }
+
+      this.applyFingerprintSignals(managed, [event], createRequestId(), {
+        applyTier2,
+        applyTier3,
+        source: "continuous"
+      });
+    });
+
+    this.networkSignalSubscriptions.set(managed.sessionId, unsubscribe);
+  }
+
+  private isContinuousSignalsEnabled(config: { enabled: boolean }): boolean {
+    const runtimeConfig = config as { continuousSignals?: unknown };
+    if (typeof runtimeConfig.continuousSignals === "boolean") {
+      return runtimeConfig.continuousSignals;
+    }
+    return true;
+  }
+
+  private resolveCanaryTargetClass(url: string, status?: number): string {
+    if (!this.config.canary?.targets?.enabled) {
+      return "disabled";
+    }
+    if (typeof status === "number" && status >= 400) {
+      return "error_surface";
+    }
+
+    const lowered = url.toLowerCase();
+    if (/(captcha|challenge|auth|login|verify|cf_chl)/.test(lowered)) {
+      return "high_friction";
+    }
+    return "standard";
+  }
+
+  private buildCanaryScoreWindow(
+    samples: Tier3RuntimeState["canary"]["samples"]
+  ): {
+    sampleCount: number;
+    averageScore: number;
+    minScore: number;
+    maxScore: number;
+    latestScore: number | null;
+  } {
+    if (samples.length === 0) {
+      return {
+        sampleCount: 0,
+        averageScore: 0,
+        minScore: 0,
+        maxScore: 0,
+        latestScore: null
+      };
+    }
+
+    let minScore = Number.POSITIVE_INFINITY;
+    let maxScore = Number.NEGATIVE_INFINITY;
+    let totalScore = 0;
+    for (const sample of samples) {
+      totalScore += sample.score;
+      minScore = Math.min(minScore, sample.score);
+      maxScore = Math.max(maxScore, sample.score);
+    }
+
+    return {
+      sampleCount: samples.length,
+      averageScore: totalScore / samples.length,
+      minScore: Number.isFinite(minScore) ? minScore : 0,
+      maxScore: Number.isFinite(maxScore) ? maxScore : 0,
+      latestScore: samples[samples.length - 1]?.score ?? null
+    };
+  }
+
+  private buildFingerprintSummary(managed: ManagedSession): {
+    tier1: {
+      ok: boolean;
+      warnings: string[];
+      issues: Tier1CoherenceResult["issues"];
+    };
+    tier2: {
+      enabled: boolean;
+      mode: Tier2RuntimeState["mode"];
+      profileId: string;
+      healthScore: number;
+      challengeCount: number;
+      rotationCount: number;
+      lastRotationTs: number;
+      lastAppliedNetworkSeq: number;
+      recentChallenges: Tier2RuntimeState["challengeEvents"];
+    };
+    tier3: {
+      enabled: boolean;
+      status: Tier3RuntimeState["status"];
+      adapterName: string;
+      fallbackTier: Tier3RuntimeState["fallbackTier"];
+      fallbackReason?: string;
+      canary: {
+        level: number;
+        averageScore: number;
+        lastAction: string;
+        sampleCount: number;
+      };
+    };
+  } {
+    return {
+      tier1: {
+        ok: managed.fingerprint.tier1.ok,
+        warnings: managed.fingerprint.tier1.warnings,
+        issues: managed.fingerprint.tier1.issues
+      },
+      tier2: {
+        enabled: managed.fingerprint.tier2.enabled,
+        mode: managed.fingerprint.tier2.mode,
+        profileId: managed.fingerprint.tier2.profile.id,
+        healthScore: managed.fingerprint.tier2.profile.healthScore,
+        challengeCount: managed.fingerprint.tier2.profile.challengeCount,
+        rotationCount: managed.fingerprint.tier2.profile.rotationCount,
+        lastRotationTs: managed.fingerprint.tier2.lastRotationTs,
+        lastAppliedNetworkSeq: managed.fingerprint.lastAppliedNetworkSeq,
+        recentChallenges: managed.fingerprint.tier2.challengeEvents.slice(-5)
+      },
+      tier3: {
+        enabled: managed.fingerprint.tier3.enabled,
+        status: managed.fingerprint.tier3.status,
+        adapterName: managed.fingerprint.tier3.adapterName,
+        fallbackTier: managed.fingerprint.tier3.fallbackTier,
+        ...(managed.fingerprint.tier3.fallbackReason
+          ? { fallbackReason: managed.fingerprint.tier3.fallbackReason }
+          : {}),
+        canary: {
+          level: managed.fingerprint.tier3.canary.level,
+          averageScore: managed.fingerprint.tier3.canary.averageScore,
+          lastAction: managed.fingerprint.tier3.canary.lastAction,
+          sampleCount: managed.fingerprint.tier3.canary.samples.length
+        }
+      }
+    };
+  }
+
+  private validateCookieRecord(cookie: CookieImportRecord): {
+    valid: boolean;
+    reason: string;
+    cookie: CookieImportRecord;
+  } {
+    const name = cookie.name?.trim();
+    if (!name) {
+      return { valid: false, reason: "Cookie name is required.", cookie };
+    }
+    if (!/^[^\s;=]+$/.test(name)) {
+      return { valid: false, reason: `Invalid cookie name: ${cookie.name}.`, cookie };
+    }
+
+    if (typeof cookie.value !== "string") {
+      return { valid: false, reason: `Invalid cookie value for ${name}.`, cookie };
+    }
+
+    const value = cookie.value;
+    if (/\r|\n|;/.test(value)) {
+      return { valid: false, reason: `Invalid cookie value for ${name}.`, cookie };
+    }
+
+    const hasUrl = typeof cookie.url === "string" && cookie.url.trim().length > 0;
+    const hasDomain = typeof cookie.domain === "string" && cookie.domain.trim().length > 0;
+    if (!hasUrl && !hasDomain) {
+      return { valid: false, reason: `Cookie ${name} requires url or domain.`, cookie };
+    }
+
+    let normalizedUrl: string | undefined;
+    if (hasUrl) {
+      try {
+        const parsedUrl = new URL(cookie.url as string);
+        if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+          return { valid: false, reason: `Cookie ${name} url must be http(s).`, cookie };
+        }
+        normalizedUrl = parsedUrl.toString();
+      } catch {
+        return { valid: false, reason: `Cookie ${name} has invalid url.`, cookie };
+      }
+    }
+
+    let normalizedDomain: string | undefined;
+    if (hasDomain) {
+      normalizedDomain = String(cookie.domain).trim().toLowerCase();
+      if (!/^\.?[a-z0-9.-]+$/.test(normalizedDomain)) {
+        return { valid: false, reason: `Cookie ${name} has invalid domain.`, cookie };
+      }
+      if (normalizedDomain.includes("..")) {
+        return { valid: false, reason: `Cookie ${name} has invalid domain.`, cookie };
+      }
+    }
+
+    const normalizedPath = typeof cookie.path === "string" ? cookie.path.trim() : undefined;
+    if (typeof normalizedPath === "string" && !normalizedPath.startsWith("/")) {
+      return { valid: false, reason: `Cookie ${name} path must start with '/'.`, cookie };
+    }
+
+    if (typeof cookie.expires !== "undefined") {
+      if (!Number.isFinite(cookie.expires)) {
+        return { valid: false, reason: `Cookie ${name} has invalid expires.`, cookie };
+      }
+      if ((cookie.expires as number) < -1) {
+        return { valid: false, reason: `Cookie ${name} has invalid expires.`, cookie };
+      }
+    }
+
+    if (cookie.sameSite === "None" && cookie.secure !== true) {
+      return { valid: false, reason: `Cookie ${name} with SameSite=None must set secure=true.`, cookie };
+    }
+
+    // Playwright expects either URL-form cookies or domain+path cookies.
+    // For URL-form cookies, avoid forcing a synthetic path to preserve runtime compatibility.
+    const normalizedCookie: CookieImportRecord = {
+      name,
+      value,
+      ...(typeof cookie.expires === "number" ? { expires: cookie.expires } : {}),
+      ...(typeof cookie.httpOnly === "boolean" ? { httpOnly: cookie.httpOnly } : {}),
+      ...(typeof cookie.secure === "boolean" ? { secure: cookie.secure } : {}),
+      ...(cookie.sameSite ? { sameSite: cookie.sameSite } : {})
+    };
+
+    if (normalizedDomain) {
+      normalizedCookie.domain = normalizedDomain;
+      normalizedCookie.path = normalizedPath ?? "/";
+    } else if (normalizedUrl) {
+      normalizedCookie.url = normalizedUrl;
+    }
+
+    return {
+      valid: true,
+      reason: "",
+      cookie: normalizedCookie
+    };
+  }
+
   private buildOverrideSession(input: { browser: Browser; context: BrowserContext; targets: TargetManager }): ManagedSession {
     const refStore = new RefStore();
+    const fingerprint = this.initializeFingerprintState("override", this.config.profile, this.config.flags);
     return {
       sessionId: "override",
       mode: "managed",
@@ -913,7 +1628,9 @@ export class BrowserManager {
       refStore,
       snapshotter: new Snapshotter(refStore),
       consoleTracker: new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole }),
-      networkTracker: new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls })
+      exceptionTracker: new ExceptionTracker(200),
+      networkTracker: new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls }),
+      fingerprint
     };
   }
 
@@ -1046,6 +1763,7 @@ export class BrowserManager {
     if (!activeTargetId) return;
     const page = managed.targets.getActivePage();
     managed.consoleTracker.attach(page);
+    managed.exceptionTracker.attach(page);
     managed.networkTracker.attach(page);
   }
 
@@ -1170,7 +1888,14 @@ export class BrowserManager {
       const refStore = new RefStore();
       const snapshotter = new Snapshotter(refStore);
       const consoleTracker = new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole });
+      const exceptionTracker = new ExceptionTracker(200);
       const networkTracker = new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls });
+      const fingerprint = this.initializeFingerprintState(
+        sessionId,
+        this.config.profile,
+        this.config.flags
+      );
+      const warnings = formatTier1Warnings(fingerprint.tier1);
 
       const managed: ManagedSession = {
         sessionId,
@@ -1183,16 +1908,26 @@ export class BrowserManager {
         refStore,
         snapshotter,
         consoleTracker,
-        networkTracker
+        exceptionTracker,
+        networkTracker,
+        fingerprint
       };
 
       this.store.add({ id: sessionId, mode, browser, context });
       this.sessions.set(sessionId, managed);
+      this.attachContinuousFingerprintSignals(managed);
       this.attachTrackers(managed);
       this.attachRefInvalidation(managed);
 
+      if (!fingerprint.tier1.ok) {
+        this.logger.warn("fingerprint.tier1.mismatch", {
+          sessionId,
+          data: { issues: fingerprint.tier1.issues, mode }
+        });
+      }
+
       const wsEndpoint = reportedWsEndpoint ?? connectWsEndpoint;
-      return { sessionId, mode, activeTargetId: targets.getActiveTargetId(), warnings: [], wsEndpoint };
+      return { sessionId, mode, activeTargetId: targets.getActiveTargetId(), warnings, wsEndpoint };
     } catch (error) {
       try {
         await browser.close();
@@ -1228,6 +1963,29 @@ function truncateHtml(value: string, maxChars: number): { outerHTML: string; tru
     return { outerHTML: value, truncated: false };
   }
   return { outerHTML: value.slice(0, maxChars), truncated: true };
+}
+
+function readFlagValue(flags: string[], key: string): string | undefined {
+  for (let index = 0; index < flags.length; index += 1) {
+    const flag = flags[index];
+    if (!flag) continue;
+    if (flag === key) {
+      const next = flags[index + 1];
+      if (next && !next.startsWith("--")) {
+        return next;
+      }
+      continue;
+    }
+    if (flag.startsWith(`${key}=`)) {
+      const value = flag.slice(key.length + 1);
+      return value || undefined;
+    }
+  }
+  return undefined;
+}
+
+function resolveTier3FallbackTarget(tier: "tier1" | "tier2"): "tier1" | "tier2" {
+  return tier;
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

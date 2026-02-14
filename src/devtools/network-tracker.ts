@@ -46,6 +46,7 @@ export class NetworkTracker {
   private requestHandler?: (req: Request) => void;
   private responseHandler?: (res: Response) => void;
   private showFullUrls: boolean;
+  private listeners = new Set<(event: NetworkEvent) => void>();
 
   constructor(maxEvents = 300, options: NetworkTrackerOptions = {}) {
     this.maxEvents = maxEvents;
@@ -99,22 +100,43 @@ export class NetworkTracker {
     this.responseHandler = undefined;
   }
 
-  poll(sinceSeq = 0, max = 50): { events: NetworkEvent[]; nextSeq: number } {
-    const events = this.events.filter((event) => event.seq > sinceSeq).slice(0, max);
+  poll(sinceSeq = 0, max = 50): { events: NetworkEvent[]; nextSeq: number; truncated?: boolean } {
+    const pending = this.events.filter((event) => event.seq > sinceSeq);
+    const events = pending.slice(0, max);
     const last = events[events.length - 1];
     const nextSeq = last ? last.seq : sinceSeq;
-    return { events, nextSeq };
+    return {
+      events,
+      nextSeq,
+      truncated: pending.length > events.length
+    };
+  }
+
+  subscribe(listener: (event: NetworkEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private push(event: Omit<NetworkEvent, "seq">): void {
     this.seq += 1;
-    this.events.push({
+    const nextEvent: NetworkEvent = {
       seq: this.seq,
       ...event
-    });
+    };
+    this.events.push(nextEvent);
 
     if (this.events.length > this.maxEvents) {
       this.events.shift();
+    }
+
+    for (const listener of this.listeners) {
+      try {
+        listener(nextEvent);
+      } catch {
+        // Listeners must not break network tracking.
+      }
     }
   }
 }

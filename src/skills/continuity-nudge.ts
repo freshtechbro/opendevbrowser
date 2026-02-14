@@ -45,5 +45,5 @@ export function consumeContinuityNudge(
 
 export function buildContinuityNudgeMessage(filePath?: string): string {
   const target = filePath?.trim() || DEFAULT_FILE_PATH;
-  return `${CONTINUITY_NUDGE_MARKER} For long-running tasks, create or update ${target} at the repo root with Goal, Constraints/Assumptions, Key decisions, State (Done/Now/Next), Open questions, and Working set. Keep it brief.`;
+  return `${CONTINUITY_NUDGE_MARKER} For long-running tasks, load skill("opendevbrowser-continuity-ledger") and create or update ${target} at the repo root with Goal, Constraints/Assumptions, Key decisions, State (Done/Now/Next), Open questions, and Working set. Keep it brief.`;
 }
