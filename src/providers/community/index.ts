@@ -1,6 +1,7 @@
 import { ProviderRuntimeError } from "../errors";
 import { normalizeRecord, normalizeRecords } from "../normalize";
 import { assertPostPolicy, type PostPolicyHook } from "../shared/post-policy";
+import { isLikelyDocumentUrl } from "../shared/traversal-url";
 import { canonicalizeUrl } from "../web/crawler";
 import type {
   JsonValue,
@@ -35,7 +36,7 @@ interface TraversalNode {
   url: string;
   hop: number;
   page: number;
-  parent?: string;
+  parent: string;
 }
 
 export interface CommunityTraversalBudget {
@@ -127,7 +128,7 @@ const extractLinks = (
   const deduped = new Set<string>();
   for (const candidate of [...attributeLinks, ...contentLinks]) {
     const canonical = canonicalizeUrl(candidate);
-    if (!isHttpUrl(canonical) || canonical === fallbackUrl) continue;
+    if (!isHttpUrl(canonical) || canonical === fallbackUrl || !isLikelyDocumentUrl(canonical)) continue;
     deduped.add(canonical);
   }
   return [...deduped].sort((left, right) => left.localeCompare(right));
@@ -181,6 +182,16 @@ const unavailable = (id: string, message: string): ProviderRuntimeError => {
     provider: id,
     source: COMMUNITY_SOURCE
   });
+};
+
+const shouldSkipExpansionError = (error: unknown): boolean => {
+  if (!(error instanceof ProviderRuntimeError)) return false;
+  return error.code === "auth"
+    || error.code === "network"
+    || error.code === "rate_limited"
+    || error.code === "timeout"
+    || error.code === "unavailable"
+    || error.code === "upstream";
 };
 
 const sortRows = <T extends { url: string; title?: string }>(rows: T[]): T[] => {
@@ -265,14 +276,20 @@ export const createCommunityProvider = (options: CommunityProviderOptions = {}):
       const canonical = canonicalizeUrl(next.url);
       if (seen.has(canonical)) continue;
 
-      const fetched = await options.fetch({
-        url: canonical,
-        filters: {
-          ...(input.filters ?? {}),
-          hop: next.hop,
-          parent: next.parent ?? ""
-        }
-      }, context);
+      let fetched: CommunityFetchRow;
+      try {
+        fetched = await options.fetch({
+          url: canonical,
+          filters: {
+            ...(input.filters ?? {}),
+            hop: next.hop,
+            parent: next.parent
+          }
+        }, context);
+      } catch (error) {
+        if (shouldSkipExpansionError(error)) continue;
+        throw error;
+      }
       const resolvedUrl = canonicalizeUrl(fetched.url ?? canonical);
       if (!isHttpUrl(resolvedUrl) || seen.has(resolvedUrl)) continue;
       seen.add(resolvedUrl);
@@ -288,7 +305,7 @@ export const createCommunityProvider = (options: CommunityProviderOptions = {}):
           traversal: {
             page: next.page,
             hop: next.hop,
-            parent: next.parent ?? resolvedUrl
+            parent: next.parent
           },
           extractionQuality: qualityFlags({
             url: resolvedUrl,

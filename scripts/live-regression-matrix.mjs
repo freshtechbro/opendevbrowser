@@ -85,7 +85,7 @@ async function waitForDaemonReady(timeoutMs = 30000) {
     if (status.status === 0) {
       return status;
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(5000);
   }
   return null;
 }
@@ -149,11 +149,109 @@ function isTimeoutError(detail) {
   return message.includes("timed out");
 }
 
+function isRateLimitedError(detail) {
+  const message = String(detail || "").toLowerCase();
+  return message.includes("429") || message.includes("rate limit");
+}
+
+function isFilesystemPermissionError(detail) {
+  const message = String(detail || "").toLowerCase();
+  return message.includes("eperm") || message.includes("operation not permitted");
+}
+
 function isExtensionUnavailable(detail) {
   const message = String(detail || "").toLowerCase();
   return message.includes("extension not connected")
     || message.includes("connect the extension")
     || message.includes("extension handshake");
+}
+
+function parseRelayReadiness(relay) {
+  const extensionConnected = relay?.extensionConnected === true;
+  const extensionHandshakeComplete = relay?.extensionHandshakeComplete === true;
+  return {
+    extensionConnected,
+    extensionHandshakeComplete,
+    opsConnected: relay?.opsConnected === true,
+    cdpConnected: relay?.cdpConnected === true,
+    pairingRequired: relay?.pairingRequired === true,
+    ready: extensionConnected && extensionHandshakeComplete
+  };
+}
+
+function buildExtensionReadinessDetail(readiness) {
+  const checks = [
+    `extensionConnected=${String(readiness.extensionConnected)}`,
+    `extensionHandshakeComplete=${String(readiness.extensionHandshakeComplete)}`,
+    `opsConnected=${String(readiness.opsConnected)}`,
+    `cdpConnected=${String(readiness.cdpConnected)}`,
+    `pairingRequired=${String(readiness.pairingRequired)}`
+  ];
+  return [
+    "Extension readiness preflight failed.",
+    checks.join(", "),
+    "Action: open extension popup, click Connect, verify handshake complete, then rerun matrix."
+  ].join(" ");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForExtensionReady(timeoutMs = 30000) {
+  const startedAt = Date.now();
+  let latest = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    const status = runCli(["status", "--daemon"], { allowFailure: true });
+    if (status.status === 0) {
+      latest = parseRelayReadiness(status.json?.data?.relay ?? null);
+      if (latest.ready) {
+        return latest;
+      }
+    }
+    await sleep(5000);
+  }
+  return latest;
+}
+
+async function launchExtensionWithRecovery(launchArgs, fallbackReadiness) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return runCli(launchArgs);
+    } catch (error) {
+      lastError = error;
+      const detail = error instanceof Error ? error.message : String(error);
+      if (isRateLimitedError(detail)) {
+        if (attempt >= 2) break;
+        await sleep((attempt + 1) * 20000);
+        continue;
+      }
+      if (isExtensionUnavailable(detail)) {
+        const recovered = await waitForExtensionReady(30000);
+        if (!recovered?.ready) {
+          throw new Error(buildExtensionReadinessDetail(recovered ?? fallbackReadiness));
+        }
+        if (attempt >= 2) break;
+        await sleep(1000);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError ?? new Error(`Extension launch failed: ${launchArgs.join(" ")}`);
+}
+
+async function runGotoWithDetachedRetry(args, maxAttempts = 3) {
+  let result = runCli(args, { allowFailure: true });
+  for (let attempt = 1; attempt < maxAttempts; attempt += 1) {
+    if (result.status === 0) break;
+    if (!isDetachedFrameError(summarizeFailure(result))) break;
+    await sleep(attempt * 1000);
+    result = runCli(args, { allowFailure: true });
+  }
+  return result;
 }
 
 function addResult(results, entry) {
@@ -182,21 +280,38 @@ async function runMatrix() {
   const startedAt = Date.now();
   /** @type {StepResult[]} */
   const results = [];
+  let relayStatus = null;
+  const forceRecycle = process.env.LIVE_MATRIX_FORCE_RECYCLE === "1";
 
-  // Ensure the daemon process is using the current local build.
+  // Keep daemon reuse as default to preserve extension connectivity across runs.
   try {
-    runCli(["serve", "--stop"], { allowFailure: true });
-    startDaemonDetached();
-    const restart = await waitForDaemonReady(30000);
-    if (!restart) {
-      throw new Error("Timed out waiting for daemon to become ready after recycle.");
+    const existing = runCli(["status", "--daemon"], { allowFailure: true });
+    let daemonState = "reused";
+    let daemonResult = existing;
+
+    if (forceRecycle || existing.status !== 0) {
+      if (forceRecycle) {
+        runCli(["serve", "--stop"], { allowFailure: true });
+        daemonState = "recycled";
+      } else {
+        daemonState = "started";
+      }
+
+      startDaemonDetached();
+      const ready = await waitForDaemonReady(30000);
+      if (!ready) {
+        throw new Error("Timed out waiting for daemon to become ready.");
+      }
+      daemonResult = ready;
     }
+
     addResult(results, {
       id: "infra.daemon.recycle",
       status: "pass",
       data: {
-        durationMs: restart.durationMs,
-        message: typeof restart.json?.message === "string" ? restart.json.message : null
+        mode: daemonState,
+        durationMs: daemonResult.durationMs,
+        message: typeof daemonResult.json?.message === "string" ? daemonResult.json.message : null
       }
     });
   } catch (error) {
@@ -210,12 +325,13 @@ async function runMatrix() {
   // Infrastructure checks
   try {
     const daemonStatus = runCli(["status", "--daemon"]);
+    relayStatus = daemonStatus.json?.data?.relay ?? null;
     addResult(results, {
       id: "infra.status.daemon",
       status: "pass",
       data: {
         durationMs: daemonStatus.durationMs,
-        relay: daemonStatus.json?.data?.relay ?? null
+        relay: relayStatus
       }
     });
   } catch (error) {
@@ -249,6 +365,28 @@ async function runMatrix() {
     }
   }
 
+  let extensionReadiness = parseRelayReadiness(relayStatus);
+  if (!extensionReadiness.ready) {
+    const recovered = await waitForExtensionReady(45000);
+    if (recovered) {
+      extensionReadiness = recovered;
+    }
+  }
+  addResult(results, {
+    id: "infra.extension.ready",
+    status: extensionReadiness.ready ? "pass" : "env_limited",
+    detail: extensionReadiness.ready ? undefined : buildExtensionReadinessDetail(extensionReadiness),
+    data: {
+      extensionConnected: extensionReadiness.extensionConnected,
+      extensionHandshakeComplete: extensionReadiness.extensionHandshakeComplete,
+      opsConnected: extensionReadiness.opsConnected,
+      cdpConnected: extensionReadiness.cdpConnected,
+      pairingRequired: extensionReadiness.pairingRequired
+    }
+  });
+
+  const shouldRunExtensionModes = extensionReadiness.ready;
+
   // Managed mode + cookie URL-form import
   let managedSessionId = null;
   try {
@@ -257,14 +395,32 @@ async function runMatrix() {
     if (!managedSessionId) {
       throw new Error("Managed launch returned no sessionId.");
     }
-    runCli(["goto", "--session-id", managedSessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"]);
-    runCli(["wait", "--session-id", managedSessionId, "--until", "load", "--timeout-ms", "30000"]);
+    const goto = runCli(["goto", "--session-id", managedSessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"]);
+    const wait = runCli(["wait", "--session-id", managedSessionId, "--until", "load", "--timeout-ms", "30000"]);
+    const debug = runCli(["debug-trace-snapshot", "--session-id", managedSessionId, "--max", "80"]);
     runCli(["snapshot", "--session-id", managedSessionId, "--mode", "actionables", "--max-chars", "6000"]);
     runCli(["perf", "--session-id", managedSessionId]);
 
     const cookiesPayload = JSON.stringify([{ name: "matrix_cookie", value: "ok", url: "https://example.com" }]);
     runCli(["cookie-import", "--session-id", managedSessionId, "--cookies", cookiesPayload, "--request-id", "matrix-cookie-url"]);
-    addResult(results, { id: "mode.managed", status: "pass" });
+    const debugBlockerState = debug.json?.data?.meta?.blockerState;
+    if (
+      typeof goto.json?.data?.meta?.blockerState !== "string"
+      || typeof wait.json?.data?.meta?.blockerState !== "string"
+      || typeof debugBlockerState !== "string"
+    ) {
+      throw new Error("Managed navigation responses missing blockerState metadata.");
+    }
+    addResult(results, {
+      id: "mode.managed",
+      status: "pass",
+      data: {
+        gotoBlockerState: goto.json?.data?.meta?.blockerState,
+        waitBlockerState: wait.json?.data?.meta?.blockerState,
+        debugBlockerState,
+        debugBlockerType: debug.json?.data?.meta?.blocker?.type ?? null
+      }
+    });
     addResult(results, { id: "feature.cookie_import_url", status: "pass" });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -280,65 +436,115 @@ async function runMatrix() {
 
   // Extension ops mode
   let extensionSessionId = null;
-  try {
-    const launch = runCli(["launch", "--extension-only", "--wait-for-extension", "--wait-timeout-ms", "30000"]);
-    extensionSessionId = pickSessionId(launch);
-    if (!extensionSessionId) {
-      throw new Error("Extension launch returned no sessionId.");
-    }
-    runCli(["goto", "--session-id", extensionSessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"]);
-    runCli(["snapshot", "--session-id", extensionSessionId, "--mode", "actionables", "--max-chars", "6000"]);
-    runCli(["perf", "--session-id", extensionSessionId]);
-    addResult(results, { id: "mode.extension_ops", status: "pass" });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+  if (!shouldRunExtensionModes) {
     addResult(results, {
       id: "mode.extension_ops",
-      status: isExtensionUnavailable(detail) ? "env_limited" : "fail",
-      detail
+      status: "env_limited",
+      detail: buildExtensionReadinessDetail(extensionReadiness),
+      data: {
+        skippedByPreflight: true
+      }
     });
-  } finally {
-    if (extensionSessionId) {
-      runCli(["disconnect", "--session-id", extensionSessionId], { allowFailure: true });
+  } else {
+    try {
+      const launch = await launchExtensionWithRecovery(
+        ["launch", "--extension-only", "--wait-for-extension", "--wait-timeout-ms", "30000"],
+        extensionReadiness
+      );
+      extensionSessionId = pickSessionId(launch);
+      if (!extensionSessionId) {
+        throw new Error("Extension launch returned no sessionId.");
+      }
+      const goto = runCli(["goto", "--session-id", extensionSessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"]);
+      const debug = runCli(["debug-trace-snapshot", "--session-id", extensionSessionId, "--max", "80"]);
+      runCli(["snapshot", "--session-id", extensionSessionId, "--mode", "actionables", "--max-chars", "6000"]);
+      runCli(["perf", "--session-id", extensionSessionId]);
+      if (
+        typeof goto.json?.data?.meta?.blockerState !== "string"
+        || typeof debug.json?.data?.meta?.blockerState !== "string"
+      ) {
+        throw new Error("Extension /ops mode missing blockerState metadata in navigation/debug output.");
+      }
+      addResult(results, {
+        id: "mode.extension_ops",
+        status: "pass",
+        data: {
+          gotoBlockerState: goto.json?.data?.meta?.blockerState,
+          debugBlockerState: debug.json?.data?.meta?.blockerState,
+          debugBlockerType: debug.json?.data?.meta?.blocker?.type ?? null
+        }
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      addResult(results, {
+        id: "mode.extension_ops",
+        status: isExtensionUnavailable(detail) || isRateLimitedError(detail) ? "env_limited" : "fail",
+        detail
+      });
+    } finally {
+      if (extensionSessionId) {
+        runCli(["disconnect", "--session-id", extensionSessionId], { allowFailure: true });
+      }
     }
   }
 
   // Extension legacy (/cdp) mode
   let extensionLegacySessionId = null;
-  try {
-    const launch = runCli(["launch", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms", "30000"]);
-    extensionLegacySessionId = pickSessionId(launch);
-    if (!extensionLegacySessionId) {
-      throw new Error("Extension legacy launch returned no sessionId.");
-    }
-
-    let goto = runCli(
-      ["goto", "--session-id", extensionLegacySessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"],
-      { allowFailure: true }
-    );
-    if (goto.status !== 0 && isDetachedFrameError(summarizeFailure(goto))) {
-      goto = runCli(
-        ["goto", "--session-id", extensionLegacySessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"],
-        { allowFailure: true }
-      );
-    }
-    if (goto.status !== 0) {
-      throw new Error(summarizeFailure(goto));
-    }
-
-    runCli(["snapshot", "--session-id", extensionLegacySessionId, "--mode", "actionables", "--max-chars", "6000"]);
-    runCli(["perf", "--session-id", extensionLegacySessionId]);
-    addResult(results, { id: "mode.extension_legacy_cdp", status: "pass" });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+  if (!shouldRunExtensionModes) {
     addResult(results, {
       id: "mode.extension_legacy_cdp",
-      status: isExtensionUnavailable(detail) ? "env_limited" : "fail",
-      detail
+      status: "env_limited",
+      detail: buildExtensionReadinessDetail(extensionReadiness),
+      data: {
+        skippedByPreflight: true
+      }
     });
-  } finally {
-    if (extensionLegacySessionId) {
-      runCli(["disconnect", "--session-id", extensionLegacySessionId], { allowFailure: true });
+  } else {
+    try {
+      const launchArgs = ["launch", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms", "30000"];
+      const launch = await launchExtensionWithRecovery(launchArgs, extensionReadiness);
+      extensionLegacySessionId = pickSessionId(launch);
+      if (!extensionLegacySessionId) {
+        throw new Error("Extension legacy launch returned no sessionId.");
+      }
+
+      const goto = await runGotoWithDetachedRetry(
+        ["goto", "--session-id", extensionLegacySessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"],
+        3
+      );
+      if (goto.status !== 0) {
+        throw new Error(summarizeFailure(goto));
+      }
+
+      const debug = runCli(["debug-trace-snapshot", "--session-id", extensionLegacySessionId, "--max", "80"]);
+      runCli(["snapshot", "--session-id", extensionLegacySessionId, "--mode", "actionables", "--max-chars", "6000"]);
+      runCli(["perf", "--session-id", extensionLegacySessionId]);
+      if (
+        typeof goto.json?.data?.meta?.blockerState !== "string"
+        || typeof debug.json?.data?.meta?.blockerState !== "string"
+      ) {
+        throw new Error("Extension legacy mode missing blockerState metadata in navigation/debug output.");
+      }
+      addResult(results, {
+        id: "mode.extension_legacy_cdp",
+        status: "pass",
+        data: {
+          gotoBlockerState: goto.json?.data?.meta?.blockerState,
+          debugBlockerState: debug.json?.data?.meta?.blockerState,
+          debugBlockerType: debug.json?.data?.meta?.blocker?.type ?? null
+        }
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      addResult(results, {
+        id: "mode.extension_legacy_cdp",
+        status: isExtensionUnavailable(detail) || isRateLimitedError(detail) ? "env_limited" : "fail",
+        detail
+      });
+    } finally {
+      if (extensionLegacySessionId) {
+        runCli(["disconnect", "--session-id", extensionLegacySessionId], { allowFailure: true });
+      }
     }
   }
 
@@ -380,16 +586,34 @@ async function runMatrix() {
     if (!cdpSessionId) {
       throw new Error("cdpConnect returned no sessionId.");
     }
-    runCli(["goto", "--session-id", cdpSessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"]);
-    runCli(["wait", "--session-id", cdpSessionId, "--until", "load", "--timeout-ms", "30000"]);
+    const goto = runCli(["goto", "--session-id", cdpSessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"]);
+    const wait = runCli(["wait", "--session-id", cdpSessionId, "--until", "load", "--timeout-ms", "30000"]);
+    const debug = runCli(["debug-trace-snapshot", "--session-id", cdpSessionId, "--max", "80"]);
     runCli(["snapshot", "--session-id", cdpSessionId, "--mode", "actionables", "--max-chars", "6000"]);
     runCli(["perf", "--session-id", cdpSessionId]);
-    addResult(results, { id: "mode.cdp_connect", status: "pass" });
-  } catch (error) {
+    if (
+      typeof goto.json?.data?.meta?.blockerState !== "string"
+      || typeof wait.json?.data?.meta?.blockerState !== "string"
+      || typeof debug.json?.data?.meta?.blockerState !== "string"
+    ) {
+      throw new Error("cdpConnect mode missing blockerState metadata in navigation/debug output.");
+    }
     addResult(results, {
       id: "mode.cdp_connect",
-      status: "fail",
-      detail: error instanceof Error ? error.message : String(error)
+      status: "pass",
+      data: {
+        gotoBlockerState: goto.json?.data?.meta?.blockerState,
+        waitBlockerState: wait.json?.data?.meta?.blockerState,
+        debugBlockerState: debug.json?.data?.meta?.blockerState,
+        debugBlockerType: debug.json?.data?.meta?.blocker?.type ?? null
+      }
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    addResult(results, {
+      id: "mode.cdp_connect",
+      status: isFilesystemPermissionError(detail) ? "env_limited" : "fail",
+      detail
     });
   } finally {
     if (cdpSessionId) {
@@ -444,22 +668,34 @@ async function runMatrix() {
       const records = Array.isArray(execution?.records) ? execution.records.length : 0;
       const failures = Array.isArray(execution?.failures) ? execution.failures : [];
       const failureCodes = failures.map((item) => item?.error?.code).filter((value) => typeof value === "string");
+      const blockerType = typeof execution?.meta?.blocker?.type === "string"
+        ? execution.meta.blocker.type
+        : null;
 
       if (records > 0) {
         addResult(results, {
           id: macroCase.id,
           status: "pass",
-          data: { records, failures: failures.length }
+          data: { records, failures: failures.length, blockerType }
         });
         continue;
       }
 
       if (failures.length > 0 && failureCodes.length === failures.length && failureCodes.every((code) => code === "unavailable")) {
+        if (!blockerType) {
+          addResult(results, {
+            id: macroCase.id,
+            status: "fail",
+            detail: "Execution failure missing execution.meta.blocker metadata.",
+            data: { records, failures: failures.length, failureCodes }
+          });
+          continue;
+        }
         addResult(results, {
           id: macroCase.id,
           status: "env_limited",
           detail: failures[0]?.error?.message ?? "Upstream unavailable",
-          data: { records, failures: failures.length, failureCodes }
+          data: { records, failures: failures.length, failureCodes, blockerType }
         });
         continue;
       }
@@ -468,7 +704,7 @@ async function runMatrix() {
         id: macroCase.id,
         status: "fail",
         detail: failures[0]?.error?.message ?? "Execution returned no records.",
-        data: { records, failures: failures.length, failureCodes }
+        data: { records, failures: failures.length, failureCodes, blockerType }
       });
     } catch (error) {
       addResult(results, {
@@ -529,6 +765,14 @@ async function runMatrix() {
         });
         return;
       }
+      if (mode === "relay" && isRateLimitedError(detail)) {
+        addResult(results, {
+          id: `feature.annotate.${mode}`,
+          status: "env_limited",
+          detail
+        });
+        return;
+      }
       addResult(results, {
         id: `feature.annotate.${mode}`,
         status: "fail",
@@ -538,7 +782,7 @@ async function runMatrix() {
       const detail = error instanceof Error ? error.message : String(error);
       addResult(results, {
         id: `feature.annotate.${mode}`,
-        status: mode === "relay" && isExtensionUnavailable(detail) ? "env_limited" : "fail",
+        status: mode === "relay" && (isExtensionUnavailable(detail) || isRateLimitedError(detail)) ? "env_limited" : "fail",
         detail
       });
     } finally {
