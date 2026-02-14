@@ -3,7 +3,7 @@ import { EventEmitter } from "events";
 import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { resolveConfig } from "../src/config";
+import { resolveConfig as parseConfig } from "../src/config";
 
 const resolveCachePaths = vi.fn();
 const findChromeExecutable = vi.fn();
@@ -27,6 +27,29 @@ vi.mock("playwright-core", () => ({
   }
 }));
 vi.mock("../src/export/dom-capture", () => ({ captureDom }));
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function resolveConfig(overrides: Record<string, unknown>): ReturnType<typeof parseConfig> {
+  const fingerprintOverrides = isRecord(overrides.fingerprint)
+    ? overrides.fingerprint
+    : {};
+  const tier2Overrides = isRecord(fingerprintOverrides.tier2)
+    ? fingerprintOverrides.tier2
+    : {};
+  return parseConfig({
+    ...overrides,
+    fingerprint: {
+      ...fingerprintOverrides,
+      tier2: {
+        mode: "adaptive",
+        ...tier2Overrides
+      }
+    }
+  });
+}
 
 let originalFetch: typeof globalThis.fetch | undefined;
 let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
@@ -136,6 +159,7 @@ type BrowserContextLike = {
   pages: () => PageLike[];
   newPage: () => Promise<PageLike>;
   newCDPSession: (page: PageLike) => Promise<{ send: (method: string, params?: Record<string, unknown>) => Promise<unknown>; detach: () => Promise<void> }>;
+  addCookies: (cookies: unknown[]) => Promise<void>;
   browser: () => BrowserLike;
   close: () => Promise<void>;
 };
@@ -158,6 +182,7 @@ const createBrowserBundle = (
       pages.push(next);
       return next;
     }),
+    addCookies: vi.fn(async () => undefined),
     newCDPSession: vi.fn(async () => cdpSession),
     browser: () => browser,
     close: vi.fn().mockResolvedValue(undefined)
@@ -246,11 +271,44 @@ describe("BrowserManager", () => {
 
     manager.updateConfig({
       ...resolveConfig({}),
-      devtools: { showFullConsole: true, showFullUrls: true }
+      devtools: { showFullConsole: true, showFullUrls: true },
+      fingerprint: {
+        tier1: {
+          enabled: true,
+          warnOnly: true,
+          languages: [],
+          requireProxy: false,
+          geolocationRequired: false
+        },
+        tier2: {
+          enabled: true,
+          mode: "adaptive",
+          rotationIntervalMs: 1000,
+          challengePatterns: ["captcha"],
+          maxChallengeEvents: 5,
+          scorePenalty: 10,
+          scoreRecovery: 1,
+          rotationHealthThreshold: 40
+        },
+        tier3: {
+          enabled: true,
+          fallbackTier: "tier1",
+          canary: {
+            windowSize: 4,
+            minSamples: 2,
+            promoteThreshold: 90,
+            rollbackThreshold: 20
+          }
+        }
+      }
     });
 
     expect(consoleSpy).toHaveBeenCalledWith({ showFullConsole: true });
     expect(networkSpy).toHaveBeenCalledWith({ showFullUrls: true });
+    expect(managed.fingerprint.tier2.enabled).toBe(true);
+    expect(managed.fingerprint.tier2.mode).toBe("adaptive");
+    expect(managed.fingerprint.tier3.enabled).toBe(true);
+    expect(managed.fingerprint.tier3.fallbackTier).toBe("tier1");
   });
 
   it("downloads Chrome when missing", async () => {
@@ -2529,6 +2587,7 @@ describe("BrowserManager", () => {
     const managed = sessions.get(result.sessionId) as {
       targets: { listPageEntries: () => Array<{ page: unknown }> };
       consoleTracker: { detach: () => void };
+      exceptionTracker: { detach: () => void };
       networkTracker: { detach: () => void };
     };
     const entry = managed.targets.listPageEntries()[0];
@@ -2542,6 +2601,9 @@ describe("BrowserManager", () => {
 
     managed.consoleTracker.detach = vi.fn(() => {
       throw new Error("console fail");
+    });
+    managed.exceptionTracker.detach = vi.fn(() => {
+      throw new Error("exception fail");
     });
     managed.networkTracker.detach = vi.fn(() => {
       throw new Error("network fail");
@@ -2559,6 +2621,7 @@ describe("BrowserManager", () => {
       expect(cleanupSpy).toHaveBeenCalled();
     }
     expect(managed.consoleTracker.detach).toHaveBeenCalled();
+    expect(managed.exceptionTracker.detach).toHaveBeenCalled();
     expect(managed.networkTracker.detach).toHaveBeenCalled();
   });
 
@@ -2959,5 +3022,493 @@ describe("BrowserManager", () => {
 
     const perf = await manager.perfMetrics(launch.sessionId);
     expect(perf.metrics).toEqual([]);
+  });
+
+  it("captures exception/channel diagnostics via debug trace snapshot", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    page.emit("console", {
+      type: () => "error",
+      text: () => "error message"
+    });
+    page.emit("request", {
+      method: () => "GET",
+      url: () => "https://example.com/data",
+      resourceType: () => "xhr"
+    });
+
+    const pageError = new Error("Unhandled traceId=trace_abc12345");
+    pageError.name = "TypeError";
+    pageError.stack = "TypeError: Unhandled\\n    at run (https://example.com/app.js:12:4)";
+    page.emit("pageerror", pageError);
+
+    const trace = await manager.debugTraceSnapshot(launch.sessionId, { max: 10 });
+    expect(trace.requestId).toEqual(expect.any(String));
+    expect(trace.channels.console.events.length).toBe(1);
+    expect(trace.channels.network.events.length).toBe(1);
+    expect(trace.channels.exception.events.length).toBe(1);
+    expect(trace.channels.console.events[0]).toMatchObject({
+      requestId: trace.requestId,
+      sessionId: launch.sessionId,
+      category: "error"
+    });
+    expect(trace.channels.console.truncated).toBe(false);
+    expect(trace.fingerprint.tier1.ok).toBe(true);
+    expect(trace.fingerprint.tier2.profileId).toContain("fp-");
+  });
+
+  it("imports cookies with validation and strict-mode rejection", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const partial = await manager.cookieImport(
+      launch.sessionId,
+      [
+        { name: "session", value: "abc123", url: "https://example.com", sameSite: "Lax" },
+        { name: "bad", value: "abc123", sameSite: "None", secure: false }
+      ],
+      false
+    );
+
+    expect(partial.imported).toBe(1);
+    expect(partial.rejected.length).toBe(1);
+    expect(context.addCookies).toHaveBeenCalledWith([
+      expect.objectContaining({ name: "session", value: "abc123" })
+    ]);
+    const importedCookie = context.addCookies.mock.calls[0]?.[0]?.[0] as { url?: string; path?: string } | undefined;
+    expect(importedCookie?.url).toBe("https://example.com/");
+    expect(importedCookie?.path).toBeUndefined();
+
+    await expect(manager.cookieImport(
+      launch.sessionId,
+      [{ name: "bad", value: "abc123", sameSite: "None", secure: false }],
+      true
+    )).rejects.toThrow("Cookie import rejected 1 entries.");
+  });
+
+  it("waits for extension readiness in withPage and supports exception polling", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: false })
+      }) as never;
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const session = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    const viaTarget = await manager.withPage(session.sessionId, session.activeTargetId, async (activePage) => activePage.url());
+    const viaActive = await manager.withPage(session.sessionId, null, async (activePage) => activePage.url());
+    expect(viaTarget).toBe("about:blank");
+    expect(viaActive).toBe("about:blank");
+
+    const exception = new Error("Unhandled extension failure");
+    exception.name = "TypeError";
+    exception.stack = "TypeError: Unhandled extension failure";
+    page.emit("pageerror", exception);
+
+    const polled = await manager.exceptionPoll(session.sessionId, 0, 10);
+    expect(polled.events.length).toBe(1);
+    expect(polled.events[0]?.message).toContain("Unhandled extension failure");
+  });
+
+  it("applies fingerprint signal logging branches continuously with enriched canary payloads", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+
+    const promoteBundle = createBrowserBundle(nodes);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValueOnce(promoteBundle.context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const baseConfig = resolveConfig({});
+    const promoteConfig = {
+      ...baseConfig,
+      canary: {
+        targets: {
+          enabled: true
+        }
+      },
+      fingerprint: {
+        ...baseConfig.fingerprint,
+        tier2: {
+          ...baseConfig.fingerprint.tier2,
+          enabled: true,
+          mode: "adaptive",
+          rotationIntervalMs: 0,
+          scorePenalty: 5,
+          scoreRecovery: 1,
+          rotationHealthThreshold: 10,
+          continuousSignals: true
+        },
+        tier3: {
+          enabled: true,
+          fallbackTier: "tier2",
+          canary: {
+            windowSize: 2,
+            minSamples: 1,
+            promoteThreshold: 70,
+            rollbackThreshold: 20
+          },
+          continuousSignals: true
+        }
+      }
+    } as unknown as ReturnType<typeof resolveConfig>;
+    const promoteManager = new BrowserManager("/tmp/project", promoteConfig);
+
+    const promoteLogger = (promoteManager as unknown as { logger: { warn: (...args: unknown[]) => void; info: (...args: unknown[]) => void } }).logger;
+    const promoteWarnSpy = vi.spyOn(promoteLogger, "warn");
+    const promoteInfoSpy = vi.spyOn(promoteLogger, "info");
+
+    const promoteLaunch = await promoteManager.launch({ profile: "default" });
+    promoteBundle.page.emit("request", {
+      method: () => "GET",
+      url: () => "https://example.com/ok",
+      resourceType: () => "xhr"
+    });
+
+    const promoteSessions = (promoteManager as unknown as { sessions: Map<string, { fingerprint: { lastAppliedNetworkSeq: number } }> }).sessions;
+    const promoteManaged = promoteSessions.get(promoteLaunch.sessionId);
+    if (!promoteManaged) throw new Error("Missing managed promote session");
+    expect(promoteManaged.fingerprint.lastAppliedNetworkSeq).toBeGreaterThan(0);
+
+    const promoteTrace = await promoteManager.debugTraceSnapshot(promoteLaunch.sessionId, { max: 10 });
+    expect(promoteTrace.fingerprint.tier3.status).toBe("active");
+    expect(promoteInfoSpy).toHaveBeenCalledWith("fingerprint.tier3.promote", expect.any(Object));
+    const promoteEvent = promoteInfoSpy.mock.calls.find((call) => call[0] === "fingerprint.tier3.promote");
+    expect(promoteEvent?.[1]).toEqual(expect.objectContaining({
+      data: expect.objectContaining({
+        action: "promote",
+        reason: expect.any(String),
+        score: expect.any(Number),
+        threshold: expect.objectContaining({
+          windowSize: 2,
+          minSamples: 1,
+          promoteThreshold: 70,
+          rollbackThreshold: 20
+        }),
+        canary: expect.objectContaining({
+          level: expect.any(Number),
+          averageScore: expect.any(Number),
+          sampleCount: expect.any(Number)
+        }),
+        targetClass: "standard",
+        scoreWindow: expect.objectContaining({
+          sampleCount: expect.any(Number),
+          averageScore: expect.any(Number),
+          minScore: expect.any(Number),
+          maxScore: expect.any(Number),
+          latestScore: expect.any(Number)
+        }),
+        thresholdComparison: expect.objectContaining({
+          promoteDelta: expect.any(Number),
+          rollbackDelta: expect.any(Number)
+        }),
+        source: "continuous"
+      })
+    }));
+
+    const beforeWarnCalls = promoteWarnSpy.mock.calls.length;
+    const beforeInfoCalls = promoteInfoSpy.mock.calls.length;
+    await promoteManager.debugTraceSnapshot(promoteLaunch.sessionId, {
+      sinceNetworkSeq: promoteTrace.channels.network.nextSeq
+    });
+    expect(promoteWarnSpy.mock.calls.length).toBe(beforeWarnCalls);
+    expect(promoteInfoSpy.mock.calls.length).toBe(beforeInfoCalls);
+
+    const rollbackBundle = createBrowserBundle(nodes);
+    launchPersistentContext.mockResolvedValueOnce(rollbackBundle.context);
+    const rollbackConfig = {
+      ...baseConfig,
+      canary: {
+        targets: {
+          enabled: true
+        }
+      },
+      fingerprint: {
+        ...baseConfig.fingerprint,
+        tier2: {
+          ...baseConfig.fingerprint.tier2,
+          enabled: true,
+          mode: "adaptive",
+          rotationIntervalMs: 0,
+          challengePatterns: ["challenge"],
+          scorePenalty: 95,
+          scoreRecovery: 0,
+          rotationHealthThreshold: 100,
+          continuousSignals: true
+        },
+        tier3: {
+          enabled: true,
+          fallbackTier: "tier1",
+          canary: {
+            windowSize: 2,
+            minSamples: 1,
+            promoteThreshold: 95,
+            rollbackThreshold: 40
+          },
+          continuousSignals: true
+        }
+      }
+    } as unknown as ReturnType<typeof resolveConfig>;
+    const rollbackManager = new BrowserManager("/tmp/project", rollbackConfig);
+
+    const rollbackLogger = (rollbackManager as unknown as { logger: { warn: (...args: unknown[]) => void; info: (...args: unknown[]) => void } }).logger;
+    const rollbackWarnSpy = vi.spyOn(rollbackLogger, "warn");
+    const rollbackInfoSpy = vi.spyOn(rollbackLogger, "info");
+
+    const rollbackLaunch = await rollbackManager.launch({ profile: "default" });
+    rollbackBundle.page.emit("request", {
+      method: () => "GET",
+      url: () => "https://example.com/challenge",
+      resourceType: () => "xhr"
+    });
+
+    const rollbackTrace = await rollbackManager.debugTraceSnapshot(rollbackLaunch.sessionId, {
+      requestId: "req-debug",
+      max: 5
+    });
+    expect(rollbackTrace.requestId).toBe("req-debug");
+    expect(rollbackTrace.fingerprint.tier3.status).toBe("fallback");
+    expect(rollbackTrace.fingerprint.tier2.enabled).toBe(false);
+    expect(rollbackWarnSpy).toHaveBeenCalledWith("fingerprint.tier2.challenge", expect.any(Object));
+    expect(rollbackInfoSpy).toHaveBeenCalledWith("fingerprint.tier2.rotate", expect.any(Object));
+    expect(rollbackWarnSpy).toHaveBeenCalledWith("fingerprint.tier3.rollback", expect.any(Object));
+    const rollbackEvent = rollbackWarnSpy.mock.calls.find((call) => call[0] === "fingerprint.tier3.rollback");
+    expect(rollbackEvent?.[1]).toEqual(expect.objectContaining({
+      data: expect.objectContaining({
+        action: "rollback",
+        reason: expect.any(String),
+        score: expect.any(Number),
+        threshold: expect.objectContaining({
+          windowSize: 2,
+          minSamples: 1,
+          promoteThreshold: 95,
+          rollbackThreshold: 40
+        }),
+        canary: expect.objectContaining({
+          level: expect.any(Number),
+          averageScore: expect.any(Number),
+          sampleCount: expect.any(Number)
+        }),
+        targetClass: "high_friction",
+        scoreWindow: expect.objectContaining({
+          sampleCount: expect.any(Number),
+          averageScore: expect.any(Number),
+          minScore: expect.any(Number),
+          maxScore: expect.any(Number),
+          latestScore: expect.any(Number)
+        }),
+        thresholdComparison: expect.objectContaining({
+          promoteDelta: expect.any(Number),
+          rollbackDelta: expect.any(Number)
+        }),
+        source: "continuous"
+      })
+    }));
+  });
+
+  it("gates continuous fingerprint updates with continuousSignals and keeps debug-trace fallback", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const bundle = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValueOnce(bundle.context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const baseConfig = resolveConfig({});
+    const gatedConfig = {
+      ...baseConfig,
+      fingerprint: {
+        ...baseConfig.fingerprint,
+        tier2: {
+          ...baseConfig.fingerprint.tier2,
+          enabled: true,
+          mode: "adaptive",
+          rotationIntervalMs: 0,
+          challengePatterns: ["challenge"],
+          scorePenalty: 95,
+          scoreRecovery: 0,
+          rotationHealthThreshold: 100,
+          continuousSignals: false
+        },
+        tier3: {
+          enabled: true,
+          fallbackTier: "tier1",
+          canary: {
+            windowSize: 2,
+            minSamples: 1,
+            promoteThreshold: 95,
+            rollbackThreshold: 40
+          },
+          continuousSignals: false
+        }
+      }
+    } as unknown as ReturnType<typeof resolveConfig>;
+    const manager = new BrowserManager("/tmp/project", gatedConfig);
+    const launch = await manager.launch({ profile: "default" });
+
+    bundle.page.emit("response", {
+      url: () => "https://example.com/challenge",
+      status: () => 429,
+      request: () => ({
+        method: () => "GET",
+        url: () => "https://example.com/challenge",
+        resourceType: () => "xhr"
+      })
+    });
+
+    const sessions = (manager as unknown as {
+      sessions: Map<string, { fingerprint: { lastAppliedNetworkSeq: number; tier2: { profile: { challengeCount: number } } } }>;
+    }).sessions;
+    const managed = sessions.get(launch.sessionId);
+    if (!managed) throw new Error("Missing managed session");
+    expect(managed.fingerprint.lastAppliedNetworkSeq).toBe(0);
+    expect(managed.fingerprint.tier2.profile.challengeCount).toBe(0);
+
+    const trace = await manager.debugTraceSnapshot(launch.sessionId, { max: 10 });
+    expect(trace.fingerprint.tier3.status).toBe("fallback");
+    expect(trace.fingerprint.tier2.enabled).toBe(false);
+    expect(managed.fingerprint.lastAppliedNetworkSeq).toBeGreaterThan(0);
+    expect(managed.fingerprint.tier2.profile.challengeCount).toBeGreaterThan(0);
+  });
+
+  it("surfaces tier1 mismatch warnings for launch and connect", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const launchBundle = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValueOnce(launchBundle.context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const baseConfig = resolveConfig({});
+    const mismatchConfig = {
+      ...baseConfig,
+      flags: ["", "--lang", "fr-FR", "--timezone-for-testing", "--proxy-server=http://proxy.local"],
+      fingerprint: {
+        ...baseConfig.fingerprint,
+        tier1: {
+          ...baseConfig.fingerprint.tier1,
+          enabled: true,
+          warnOnly: true,
+          timezone: "America/New_York",
+          languages: [],
+          requireProxy: false,
+          geolocationRequired: false
+        }
+      }
+    };
+
+    const launchManager = new BrowserManager("/tmp/project", mismatchConfig);
+    const launchLogger = (launchManager as unknown as { logger: { warn: (...args: unknown[]) => void } }).logger;
+    const launchWarnSpy = vi.spyOn(launchLogger, "warn");
+    const launchResult = await launchManager.launch({ profile: "default" });
+    expect(launchResult.warnings.length).toBeGreaterThan(0);
+    expect(launchWarnSpy).toHaveBeenCalledWith("fingerprint.tier1.mismatch", expect.any(Object));
+
+    const connectBundle = createBrowserBundle(nodes);
+    connectOverCDP.mockResolvedValueOnce(connectBundle.browser);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
+    }) as never;
+
+    const connectManager = new BrowserManager("/tmp/project", mismatchConfig);
+    const connectLogger = (connectManager as unknown as { logger: { warn: (...args: unknown[]) => void } }).logger;
+    const connectWarnSpy = vi.spyOn(connectLogger, "warn");
+    await connectManager.connect({ host: "127.0.0.1", port: 9222 });
+    expect(connectWarnSpy).toHaveBeenCalledWith("fingerprint.tier1.mismatch", expect.any(Object));
+  });
+
+  it("validates manager cookie import across edge cases", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const report = await manager.cookieImport(
+      launch.sessionId,
+      [
+        { name: "", value: "x", url: "https://example.com" },
+        { name: "bad name", value: "x", url: "https://example.com" },
+        { name: "session", value: 123 as unknown as string, url: "https://example.com" },
+        { name: "session", value: "x;y", url: "https://example.com" },
+        { name: "session", value: "x" },
+        { name: "session", value: "x", url: "ftp://example.com" },
+        { name: "session", value: "x", url: "not-a-url" },
+        { name: "session", value: "x", domain: "exa$mple.com" },
+        { name: "session", value: "x", domain: "example..com" },
+        { name: "session", value: "x", domain: "example.com", path: "bad" },
+        { name: "session", value: "x", domain: "example.com", expires: Number.NaN },
+        { name: "session", value: "x", domain: "example.com", expires: -2 },
+        { name: "session", value: "x", url: "https://example.com", sameSite: "None", secure: false },
+        {
+          name: "session",
+          value: "ok",
+          url: "https://example.com/path",
+          domain: "EXAMPLE.COM",
+          path: "/app",
+          secure: true,
+          httpOnly: true,
+          expires: 123,
+          sameSite: "Lax"
+        }
+      ],
+      false,
+      "req-cookie"
+    );
+
+    expect(report.requestId).toBe("req-cookie");
+    expect(report.imported).toBe(1);
+    expect(report.rejected.length).toBe(13);
+    expect(context.addCookies).toHaveBeenCalledWith([
+      {
+        name: "session",
+        value: "ok",
+        domain: "example.com",
+        path: "/app",
+        secure: true,
+        httpOnly: true,
+        expires: 123,
+        sameSite: "Lax"
+      }
+    ]);
   });
 });

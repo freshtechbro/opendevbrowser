@@ -54,10 +54,20 @@ const makeCore = (overrides: {
 
   const manager = {
     status: vi.fn(),
+    consolePoll: vi.fn(),
+    networkPoll: vi.fn(),
+    withPage: vi.fn(async (_sessionId: string, _targetId: string | null, fn: (page: { context: () => { addCookies: (cookies: unknown[]) => Promise<void> } }) => Promise<unknown>) => {
+      const addCookies = vi.fn(async () => undefined);
+      return fn({
+        context: () => ({ addCookies })
+      });
+    }),
     listTargets: vi.fn(),
     disconnect: vi.fn(),
     connectRelay: vi.fn(),
-    connect: vi.fn()
+    connect: vi.fn(),
+    debugTraceSnapshot: vi.fn(),
+    cookieImport: vi.fn()
   };
 
   const relay = {
@@ -80,11 +90,21 @@ const makeCore = (overrides: {
 
 describe("daemon-commands integration", () => {
   beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      return {
+        status: 200,
+        url,
+        text: async () => `<html><body><main>daemon content ${url}</main><a href="https://example.com/result">result</a></body></html>`,
+        json: async () => ({})
+      };
+    }) as unknown as typeof fetch);
     clearBinding();
     clearSessionLeases();
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     clearBinding();
     clearSessionLeases();
     vi.restoreAllMocks();
@@ -349,5 +369,161 @@ describe("daemon-commands integration", () => {
       sessionId: "session-legacy",
       mode: "extension"
     }));
+  });
+
+  it("routes debug trace snapshot to manager capability when available", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1", url: "https://example.com", title: "Example" });
+    core.manager.debugTraceSnapshot.mockResolvedValue({
+      requestId: "req-debug",
+      generatedAt: "2026-02-01T00:00:00.000Z",
+      page: { mode: "managed", activeTargetId: "target-1", url: "https://example.com", title: "Example" },
+      channels: {
+        console: { events: [], nextSeq: 0 },
+        network: { events: [], nextSeq: 0 },
+        exception: { events: [], nextSeq: 0 }
+      }
+    });
+
+    const response = await handleDaemonCommand(core, {
+      name: "devtools.debugTraceSnapshot",
+      params: { sessionId: "session-1", clientId: "client-1", max: 10 }
+    });
+
+    expect(response).toEqual(expect.objectContaining({ requestId: "req-debug" }));
+    expect(core.manager.debugTraceSnapshot).toHaveBeenCalledWith("session-1", expect.objectContaining({ max: 10 }));
+  });
+
+  it("routes cookie import to manager capability when available", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1" });
+    core.manager.cookieImport.mockResolvedValue({
+      requestId: "req-cookie",
+      imported: 1,
+      rejected: []
+    });
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.cookieImport",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        cookies: [{ name: "session", value: "abc123", url: "https://example.com" }]
+      }
+    });
+
+    expect(response).toEqual({
+      requestId: "req-cookie",
+      imported: 1,
+      rejected: []
+    });
+    expect(core.manager.cookieImport).toHaveBeenCalled();
+  });
+
+  it("resolves macros through daemon command (resolve only)", async () => {
+    const core = makeCore();
+
+    const response = await handleDaemonCommand(core, {
+      name: "macro.resolve",
+      params: {
+        expression: "@web.search(\"openai\")",
+        defaultProvider: "web/default",
+        includeCatalog: true
+      }
+    }) as { runtime: string; resolution: unknown; catalog?: unknown[]; execution?: unknown };
+
+    expect(response.runtime === "macros" || response.runtime === "fallback").toBe(true);
+    expect(response.resolution).toBeDefined();
+    expect(response.execution).toBeUndefined();
+    if (response.runtime === "macros") {
+      expect(Array.isArray(response.catalog)).toBe(true);
+    }
+  });
+
+  it("resolves and executes macros through daemon command", async () => {
+    const core = makeCore();
+
+    const response = await handleDaemonCommand(core, {
+      name: "macro.resolve",
+      params: {
+        expression: "@community.search(\"openai\")",
+        execute: true
+      }
+    }) as {
+      runtime: string;
+      resolution: unknown;
+      execution?: {
+        records: unknown[];
+        failures: unknown[];
+        metrics: {
+          attempted: number;
+          succeeded: number;
+          failed: number;
+          retries: number;
+          latencyMs: number;
+        };
+        meta: {
+          ok: boolean;
+          partial: boolean;
+          sourceSelection: string;
+          providerOrder: string[];
+          trace: Record<string, unknown>;
+          tier?: {
+            selected: string;
+            reasonCode: string;
+          };
+          provenance?: {
+            provider: string;
+            retrievalPath: string;
+            retrievedAt: string;
+          };
+          error?: Record<string, unknown>;
+        };
+        diagnostics?: {
+          promptGuard?: {
+            enabled: boolean;
+            quarantinedSegments: number;
+            entries: number;
+          };
+        };
+      };
+    };
+
+    expect(response.runtime === "macros" || response.runtime === "fallback").toBe(true);
+    expect(response.resolution).toBeDefined();
+    expect(response.execution).toMatchObject({
+      records: expect.any(Array),
+      failures: expect.any(Array),
+      metrics: {
+        attempted: expect.any(Number),
+        succeeded: expect.any(Number),
+        failed: expect.any(Number),
+        retries: expect.any(Number),
+        latencyMs: expect.any(Number)
+      },
+      meta: {
+        ok: expect.any(Boolean),
+        partial: expect.any(Boolean),
+        sourceSelection: expect.any(String),
+        providerOrder: expect.any(Array),
+        trace: expect.any(Object),
+        tier: expect.objectContaining({
+          selected: expect.any(String),
+          reasonCode: expect.any(String)
+        }),
+        provenance: expect.objectContaining({
+          provider: expect.any(String),
+          retrievalPath: expect.any(String),
+          retrievedAt: expect.any(String)
+        })
+      }
+    });
+    expect(response.execution?.diagnostics?.promptGuard).toEqual(expect.objectContaining({
+      enabled: expect.any(Boolean),
+      quarantinedSegments: expect.any(Number),
+      entries: expect.any(Number)
+    }));
+    expect(response.execution?.meta.ok).toBe(true);
+    expect(response.execution?.records.length ?? 0).toBeGreaterThan(0);
   });
 });

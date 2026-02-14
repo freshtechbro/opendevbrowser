@@ -5,6 +5,7 @@ import type { OpenDevBrowserConfig } from "../src/config";
 const mocks = vi.hoisted(() => ({
   startDaemon: vi.fn(),
   readDaemonMetadata: vi.fn(),
+  fetchDaemonStatus: vi.fn(),
   loadGlobalConfig: vi.fn(),
   fetchWithTimeout: vi.fn(),
   discoverExtensionId: vi.fn(),
@@ -19,6 +20,10 @@ vi.mock("../src/cli/daemon", () => ({
 
 vi.mock("../src/config", () => ({
   loadGlobalConfig: mocks.loadGlobalConfig
+}));
+
+vi.mock("../src/cli/daemon-status", () => ({
+  fetchDaemonStatus: mocks.fetchDaemonStatus
 }));
 
 vi.mock("../src/cli/utils/http", () => ({
@@ -71,6 +76,7 @@ describe("serve command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.readDaemonMetadata.mockReturnValue(null);
+    mocks.fetchDaemonStatus.mockResolvedValue(null);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true });
     mocks.startDaemon.mockResolvedValue({
       state: { port: 8788, pid: 1234, relayPort: 8787 },
@@ -97,6 +103,48 @@ describe("serve command", () => {
     expect(mocks.discoverExtensionId).not.toHaveBeenCalled();
     expect(mocks.installNativeHost).not.toHaveBeenCalled();
     expect(mocks.startDaemon).toHaveBeenCalledWith({ port: undefined, token: undefined, config });
+  });
+
+  it("returns a graceful success when daemon is already running", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString()
+    });
+    mocks.fetchDaemonStatus.mockResolvedValue({
+      ok: true,
+      pid: 8080,
+      hub: { instanceId: "hub-1" },
+      relay: {
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        pairingRequired: false,
+        port: 8787,
+        tokenConfigured: true,
+        health: { status: "ok", reason: "ready" }
+      },
+      binding: null
+    });
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Daemon already running on 127.0.0.1:8788 (pid=8080, relay 8787).");
+    expect(result.data).toMatchObject({
+      port: 8788,
+      pid: 8080,
+      relayPort: 8787,
+      alreadyRunning: true
+    });
+    expect(mocks.startDaemon).not.toHaveBeenCalled();
+    expect(mocks.getNativeStatusSnapshot).not.toHaveBeenCalled();
   });
 
   it("installs using configured nativeExtensionId when host is missing", async () => {
@@ -224,5 +272,54 @@ describe("serve command", () => {
     expect(result.success).toBe(true);
     expect(result.message).toContain("Native host install skipped: Native install failed: boom");
     expect(mocks.startDaemon).toHaveBeenCalledWith({ port: undefined, token: undefined, config });
+  });
+
+  it("returns graceful daemon-running message when startup hits EADDRINUSE and daemon is reachable", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.startDaemon.mockRejectedValueOnce(new Error("listen EADDRINUSE: address already in use 127.0.0.1:8788"));
+    mocks.fetchDaemonStatus
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        ok: true,
+        pid: 9999,
+        hub: { instanceId: "hub-1" },
+        relay: {
+          extensionConnected: false,
+          extensionHandshakeComplete: false,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          pairingRequired: false,
+          port: 8787,
+          tokenConfigured: true,
+          health: { status: "ok", reason: "ready" }
+        },
+        binding: null
+      });
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Daemon already running on 127.0.0.1:8788 (pid=9999, relay 8787).");
+    expect(result.data).toMatchObject({
+      port: 8788,
+      pid: 9999,
+      relayPort: 8787,
+      alreadyRunning: true
+    });
+  });
+
+  it("returns clear guidance when port is busy but daemon cannot be verified", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.startDaemon.mockRejectedValueOnce(new Error("listen EADDRINUSE: address already in use 127.0.0.1:8788"));
+    mocks.fetchDaemonStatus.mockResolvedValue(null);
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Daemon port 8788 is already in use by another process.");
+    expect(result.message).toContain("opendevbrowser status --daemon");
   });
 });

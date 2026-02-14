@@ -11,9 +11,9 @@ import {
 
 describe("skill nudge", () => {
   it("triggers on keyword matches", () => {
-    const keywords = ["login", "form", "extract"];
-    expect(shouldTriggerSkillNudge("Help me login to the site", keywords)).toBe(true);
-    expect(shouldTriggerSkillNudge("Please extract table data", keywords)).toBe(true);
+    const keywords = ["quick start", "getting started", "launch", "connect", "setup"];
+    expect(shouldTriggerSkillNudge("Give me a quick start for this session", keywords)).toBe(true);
+    expect(shouldTriggerSkillNudge("Please connect to my existing browser", keywords)).toBe(true);
     expect(shouldTriggerSkillNudge("Just saying hello", keywords)).toBe(false);
   });
 
@@ -52,7 +52,9 @@ describe("skill nudge", () => {
     expect(text).toBe("First line\nSecond line");
   });
 
-  it("includes a marker in the nudge message", () => {
-    expect(buildSkillNudgeMessage()).toContain(SKILL_NUDGE_MARKER);
+  it("includes a marker and explicit quick start suggestion", () => {
+    const message = buildSkillNudgeMessage();
+    expect(message).toContain(SKILL_NUDGE_MARKER);
+    expect(message).toContain('skill("opendevbrowser-best-practices", "quick start")');
   });
 });

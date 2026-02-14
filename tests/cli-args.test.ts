@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseArgs } from "../src/cli/args";
 import { parseAnnotateArgs } from "../src/cli/commands/annotate";
+import { __test__ as macroResolveTest } from "../src/cli/commands/macro-resolve";
 import { parseNumberFlag } from "../src/cli/utils/parse";
 
 describe("parseNumberFlag", () => {
@@ -44,6 +45,75 @@ describe("parseArgs", () => {
     const parsed = parseArgs(["node", "cli", "annotate"]);
     expect(parsed.command).toBe("annotate");
     expect(parsed.rawArgs).toEqual([]);
+  });
+
+  it("accepts rpc command with internal flags", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "rpc",
+      "--unsafe-internal",
+      "--name",
+      "nav.snapshot",
+      "--params",
+      "{\"sessionId\":\"s1\"}",
+      "--timeout-ms",
+      "45000"
+    ]);
+    expect(parsed.command).toBe("rpc");
+    expect(parsed.rawArgs).toEqual([
+      "--unsafe-internal",
+      "--name",
+      "nav.snapshot",
+      "--params",
+      "{\"sessionId\":\"s1\"}",
+      "--timeout-ms",
+      "45000"
+    ]);
+  });
+
+  it("accepts debug-trace-snapshot command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "debug-trace-snapshot",
+      "--session-id",
+      "s1",
+      "--since-console-seq=1",
+      "--since-network-seq=2",
+      "--since-exception-seq=3",
+      "--max=20",
+      "--request-id=req-1"
+    ]);
+    expect(parsed.command).toBe("debug-trace-snapshot");
+  });
+
+  it("accepts cookie-import command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "cookie-import",
+      "--session-id",
+      "s1",
+      "--cookies",
+      "[]",
+      "--strict=false"
+    ]);
+    expect(parsed.command).toBe("cookie-import");
+  });
+
+  it("accepts macro-resolve command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "macro-resolve",
+      "--expression=@web.search(\"openai\")",
+      "--default-provider=web/default",
+      "--include-catalog",
+      "--execute"
+    ]);
+    expect(parsed.command).toBe("macro-resolve");
+    expect(parsed.rawArgs).toContain("--execute");
   });
 
   it("accepts --extension-legacy for launch/connect command parsing", () => {
@@ -214,5 +284,16 @@ describe("parseAnnotateArgs", () => {
   it("parses tab-id", () => {
     const parsed = parseAnnotateArgs(["--tab-id", "123"]);
     expect(parsed.tabId).toBe(123);
+  });
+});
+
+describe("parseMacroResolveArgs", () => {
+  it("parses execute flag", () => {
+    const parsed = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--execute"
+    ]);
+    expect(parsed.execute).toBe(true);
   });
 });

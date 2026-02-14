@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, chmod } from "fs/promises";
+import { mkdtemp, mkdir, writeFile, chmod, readFile, stat, access } from "fs/promises";
 import * as os from "os";
 import { join } from "path";
+import { spawnSync } from "child_process";
 import { SkillLoader } from "../src/skills/skill-loader";
 
 let tempRoot = "";
@@ -28,6 +29,9 @@ Do actions.
 
 ## Snapshots
 Do snapshots.
+
+## Quick Start
+Do quick start.
 `
   );
 });
@@ -53,6 +57,22 @@ describe("SkillLoader", () => {
     const content = await loader.loadBestPractices("snap");
     expect(content).toContain("## Snapshots");
     expect(content).toContain("Do snapshots.");
+    expect(content).not.toContain("## Actions");
+  });
+
+  it("filters headings with spaces using quick start topic", async () => {
+    const loader = new SkillLoader(tempRoot);
+    const content = await loader.loadBestPractices("quick start");
+    expect(content).toContain("## Quick Start");
+    expect(content).toContain("Do quick start.");
+    expect(content).not.toContain("## Actions");
+  });
+
+  it("filters quick start heading using short quick topic", async () => {
+    const loader = new SkillLoader(tempRoot);
+    const content = await loader.loadBestPractices("quick");
+    expect(content).toContain("## Quick Start");
+    expect(content).toContain("Do quick start.");
     expect(content).not.toContain("## Actions");
   });
 
@@ -437,5 +457,42 @@ More content.
     loader.clearCache();
     const content = await loader.loadSkill("opendevbrowser-best-practices", "valid");
     expect(content).toContain("## Valid Heading");
+  });
+});
+
+describe("bundled best-practices skill assets", () => {
+  const skillRoot = join(process.cwd(), "skills", "opendevbrowser-best-practices");
+  const requiredAssetRefs = [
+    "artifacts/provider-workflows.md",
+    "artifacts/parity-gates.md",
+    "artifacts/debug-trace-playbook.md",
+    "artifacts/fingerprint-tiers.md",
+    "artifacts/macro-workflows.md",
+    "scripts/odb-workflow.sh",
+    "scripts/validate-skill-assets.sh"
+  ];
+
+  it("references required artifacts and scripts from SKILL.md", async () => {
+    const skillDoc = await readFile(join(skillRoot, "SKILL.md"), "utf8");
+    for (const assetRef of requiredAssetRefs) {
+      expect(skillDoc).toContain(assetRef);
+      await expect(access(join(skillRoot, assetRef))).resolves.toBeUndefined();
+    }
+  });
+
+  it("marks workflow and validator scripts as executable", async () => {
+    for (const scriptRel of ["scripts/odb-workflow.sh", "scripts/validate-skill-assets.sh"]) {
+      const stats = await stat(join(skillRoot, scriptRel));
+      expect((stats.mode & 0o111) !== 0).toBe(true);
+    }
+  });
+
+  it("passes the asset validation script", () => {
+    if (process.platform === "win32") return;
+    const scriptPath = join(skillRoot, "scripts", "validate-skill-assets.sh");
+    const result = spawnSync("bash", [scriptPath], { cwd: process.cwd(), encoding: "utf8" });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Skill assets validated:");
   });
 });

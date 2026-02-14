@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { EventEmitter } from "events";
 import { ConsoleTracker, __test__ as consoleTest } from "../src/devtools/console-tracker";
+import { ExceptionTracker, __test__ as exceptionTest } from "../src/devtools/exception-tracker";
 import { NetworkTracker } from "../src/devtools/network-tracker";
 
 const createPage = () => {
@@ -25,8 +26,47 @@ describe("ConsoleTracker", () => {
     const poll = tracker.poll(0, 10);
     expect(poll.events.length).toBe(1);
     expect(poll.events[0]?.text).toBe("hello");
+    expect(poll.events[0]?.category).toBe("log");
+    expect(poll.events[0]?.argsPreview).toBe("hello");
     tracker.detach();
     tracker.detach();
+  });
+
+  it("captures structured console metadata when location is available", () => {
+    const page = createPage();
+    const tracker = new ConsoleTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("console", {
+      type: () => "warning",
+      text: () => "warn message",
+      location: () => ({
+        url: "https://example.com/app.js",
+        lineNumber: 42,
+        columnNumber: 13
+      })
+    });
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events[0]).toMatchObject({
+      category: "warning",
+      source: "https://example.com/app.js",
+      line: 42,
+      column: 13
+    });
+  });
+
+  it("marks console polling as truncated when max is lower than pending events", () => {
+    const page = createPage();
+    const tracker = new ConsoleTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("console", { type: () => "log", text: () => "one" });
+    page.emit("console", { type: () => "log", text: () => "two" });
+
+    const poll = tracker.poll(0, 1);
+    expect(poll.events).toHaveLength(1);
+    expect(poll.truncated).toBe(true);
   });
 
   it("drops oldest console events when max exceeded", () => {
@@ -278,6 +318,23 @@ describe("ConsoleTracker", () => {
     expect(poll.events[0]?.text).toContain("[REDACTED]");
     expect(poll.events[1]?.text).toContain("token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9");
   });
+
+  it("classifies unknown console levels as other", () => {
+    expect(consoleTest.classifyConsoleCategory("table")).toBe("other");
+  });
+
+  it("classifies debug, trace, and assert console levels", () => {
+    expect(consoleTest.classifyConsoleCategory("debug")).toBe("debug");
+    expect(consoleTest.classifyConsoleCategory("trace")).toBe("trace");
+    expect(consoleTest.classifyConsoleCategory("assert")).toBe("assert");
+  });
+
+  it("truncates long args previews", () => {
+    const long = "x".repeat(300);
+    const preview = consoleTest.buildArgsPreview(long);
+    expect(preview.length).toBe(240);
+    expect(preview.endsWith("...")).toBe(true);
+  });
 });
 
 describe("NetworkTracker", () => {
@@ -306,6 +363,77 @@ describe("NetworkTracker", () => {
     tracker.detach();
     const empty = tracker.poll(poll.nextSeq, 10);
     expect(empty.events.length).toBe(0);
+  });
+
+  it("streams events to subscribers and supports unsubscribe", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+    const received: number[] = [];
+
+    const unsubscribe = tracker.subscribe((event) => {
+      received.push(event.seq);
+    });
+    tracker.attach(page as never);
+
+    page.emit("request", {
+      method: () => "GET",
+      url: () => "https://example.com/one",
+      resourceType: () => "xhr"
+    });
+    expect(received).toEqual([1]);
+
+    unsubscribe();
+    page.emit("request", {
+      method: () => "GET",
+      url: () => "https://example.com/two",
+      resourceType: () => "xhr"
+    });
+    expect(received).toEqual([1]);
+  });
+
+  it("isolates subscriber failures from network tracking", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+    const received: number[] = [];
+
+    tracker.subscribe(() => {
+      throw new Error("listener failed");
+    });
+    tracker.subscribe((event) => {
+      received.push(event.seq);
+    });
+    tracker.attach(page as never);
+
+    page.emit("request", {
+      method: () => "GET",
+      url: () => "https://example.com/failure-safe",
+      resourceType: () => "xhr"
+    });
+
+    expect(received).toEqual([1]);
+    const poll = tracker.poll(0, 10);
+    expect(poll.events).toHaveLength(1);
+  });
+
+  it("marks network polling as truncated when max is lower than pending events", () => {
+    const page = createPage();
+    const tracker = new NetworkTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("request", {
+      method: () => "GET",
+      url: () => "https://example.com/one",
+      resourceType: () => "xhr"
+    });
+    page.emit("request", {
+      method: () => "GET",
+      url: () => "https://example.com/two",
+      resourceType: () => "xhr"
+    });
+
+    const poll = tracker.poll(0, 1);
+    expect(poll.events).toHaveLength(1);
+    expect(poll.truncated).toBe(true);
   });
 
   it("drops oldest network events when max exceeded", () => {
@@ -473,5 +601,102 @@ describe("NetworkTracker", () => {
 
     const poll = tracker.poll(0, 10);
     expect(poll.events[0]?.url).toContain("12345678901234567890");
+  });
+});
+
+describe("ExceptionTracker", () => {
+  it("collects page exceptions with parsed stack location", () => {
+    const page = createPage();
+    const tracker = new ExceptionTracker(10);
+
+    tracker.attach(page as never);
+    const error = new Error("Boom traceId=trace_abc12345");
+    error.name = "ReferenceError";
+    error.stack = "ReferenceError: Boom\\n    at run (https://example.com/app.js:42:13)";
+
+    page.emit("pageerror", error);
+    const poll = tracker.poll(0, 10);
+
+    expect(poll.events.length).toBe(1);
+    expect(poll.events[0]).toMatchObject({
+      name: "ReferenceError",
+      message: "Boom traceId=trace_abc12345",
+      sourceUrl: "https://example.com/app.js",
+      line: 42,
+      column: 13,
+      traceId: "trace_abc12345",
+      category: "pageerror"
+    });
+  });
+
+  it("drops oldest exception events when max exceeded", () => {
+    const page = createPage();
+    const tracker = new ExceptionTracker(1);
+
+    tracker.attach(page as never);
+    page.emit("pageerror", new Error("first"));
+    page.emit("pageerror", new Error("second"));
+
+    const poll = tracker.poll(0, 10);
+    expect(poll.events.length).toBe(1);
+    expect(poll.events[0]?.message).toBe("second");
+  });
+
+  it("marks exception polling as truncated when max is lower than pending events", () => {
+    const page = createPage();
+    const tracker = new ExceptionTracker(10);
+
+    tracker.attach(page as never);
+    page.emit("pageerror", new Error("first"));
+    page.emit("pageerror", new Error("second"));
+
+    const poll = tracker.poll(0, 1);
+    expect(poll.events).toHaveLength(1);
+    expect(poll.truncated).toBe(true);
+  });
+
+  it("normalizes empty exception name and message", () => {
+    const page = createPage();
+    const tracker = new ExceptionTracker(10);
+
+    tracker.attach(page as never);
+    const error = new Error("placeholder");
+    error.name = "";
+    error.message = "";
+    error.stack = undefined;
+
+    page.emit("pageerror", error);
+    const poll = tracker.poll(0, 10);
+
+    expect(poll.events[0]).toMatchObject({
+      name: "Error",
+      message: "Unknown page error"
+    });
+  });
+
+  it("exposes stack parsing helper behavior", () => {
+    const parsed = exceptionTest.parseStackLocation("Error\\n    at test (/tmp/file.ts:10:3)");
+    expect(parsed).toEqual({
+      sourceUrl: "/tmp/file.ts",
+      line: 10,
+      column: 3
+    });
+
+    expect(exceptionTest.parseStackLocation(undefined)).toEqual({});
+
+    const hugeNumber = "9".repeat(400);
+    const nonFiniteLocation = exceptionTest.parseStackLocation(
+      `Error\\n    at huge (/tmp/file.ts:${hugeNumber}:${hugeNumber})`
+    );
+    expect(nonFiniteLocation).toEqual({
+      sourceUrl: "/tmp/file.ts",
+      line: undefined,
+      column: undefined
+    });
+
+    const traceError = new Error("trace_id=abc123456");
+    traceError.stack = undefined;
+    const traceId = exceptionTest.deriveTraceId(traceError);
+    expect(traceId).toBe("abc123456");
   });
 });

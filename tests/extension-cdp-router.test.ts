@@ -45,6 +45,59 @@ describe("CDPRouter", () => {
     expect(chrome.debugger.attach).toHaveBeenCalledTimes(2);
   });
 
+  it("creates a fallback tab when stale attach has no active/http candidates", async () => {
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+    mock.setActiveTab(null);
+
+    const router = new CDPRouter();
+
+    vi.mocked(chrome.debugger.attach)
+      .mockImplementationOnce((_debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+        mock.setRuntimeError("No tab with given id 99");
+        callback();
+        mock.setRuntimeError(null);
+      })
+      .mockImplementationOnce((_debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+        mock.setRuntimeError(null);
+        callback();
+      });
+
+    await router.attach(99);
+
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: "about:blank", active: true }, expect.any(Function));
+    expect(chrome.debugger.attach).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls through to fresh-tab retry when active-tab stale retry also fails", async () => {
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+    mock.setActiveTab({ id: 100, url: "https://example.com", title: "Example", groupId: 1 });
+
+    const router = new CDPRouter();
+
+    vi.mocked(chrome.debugger.attach)
+      .mockImplementationOnce((_debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+        mock.setRuntimeError("No tab with given id 99");
+        callback();
+        mock.setRuntimeError(null);
+      })
+      .mockImplementationOnce((_debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+        mock.setRuntimeError("No tab with given id 100");
+        callback();
+        mock.setRuntimeError(null);
+      })
+      .mockImplementationOnce((_debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+        mock.setRuntimeError(null);
+        callback();
+      });
+
+    await router.attach(99);
+
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: "about:blank", active: true }, expect.any(Function));
+    expect(chrome.debugger.attach).toHaveBeenCalledTimes(3);
+  });
+
   it("routes commands and events with root session ids", async () => {
     const mock = createChromeMock();
     globalThis.chrome = mock.chrome;
