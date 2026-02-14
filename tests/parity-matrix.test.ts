@@ -69,9 +69,9 @@ const createDeps = () => {
     page: vi.fn().mockResolvedValue({ targetId: "t1", created: true, url: "https://example.com", title: "Example" }),
     listPages: vi.fn().mockResolvedValue({ pages: [] }),
     closePage: vi.fn().mockResolvedValue(undefined),
-    goto: vi.fn().mockResolvedValue({ finalUrl: "https://example.com", status: 200, timingMs: 1 }),
-    waitForRef: vi.fn().mockResolvedValue({ timingMs: 1 }),
-    waitForLoad: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    goto: vi.fn().mockResolvedValue({ finalUrl: "https://example.com", status: 200, timingMs: 1, meta: { blockerState: "clear" } }),
+    waitForRef: vi.fn().mockResolvedValue({ timingMs: 1, meta: { blockerState: "clear" } }),
+    waitForLoad: vi.fn().mockResolvedValue({ timingMs: 1, meta: { blockerState: "clear" } }),
     snapshot: vi.fn().mockResolvedValue({ snapshotId: "snap-1", content: "", truncated: false, refCount: 0, timingMs: 1 }),
     click: vi.fn().mockResolvedValue({ timingMs: 1, navigated: false }),
     hover: vi.fn().mockResolvedValue({ timingMs: 1 }),
@@ -95,7 +95,7 @@ const createDeps = () => {
     screenshot: vi.fn().mockResolvedValue({ base64: "image" }),
     consolePoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
     networkPoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
-    debugTraceSnapshot: vi.fn().mockResolvedValue({ requestId: "req-1", channels: {}, page: {} }),
+    debugTraceSnapshot: vi.fn().mockResolvedValue({ requestId: "req-1", channels: {}, page: {}, meta: { blockerState: "clear" } }),
     cookieImport: vi.fn().mockResolvedValue({ requestId: "req-1", imported: 0, rejected: [] })
   };
 
@@ -217,6 +217,45 @@ describe("parity matrix", () => {
     });
     expect((executeMode.execution as { meta: { ok: boolean } }).meta.ok).toBe(true);
     expect((executeMode.execution as { records: unknown[] }).records.length).toBeGreaterThan(0);
+  }, 15000);
+
+  it("keeps blocker metadata placement for execute-mode failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("x.com/i/flow/login")) {
+        return {
+          ok: true,
+          status: 403,
+          url,
+          text: async () => "<html><body>login</body></html>",
+          json: async () => ({})
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        url,
+        text: async () => "<html><body>ok</body></html>",
+        json: async () => ({})
+      };
+    }) as unknown as typeof fetch);
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(createDeps() as never);
+    const executeMode = parseToolResponse(await tools.opendevbrowser_macro_resolve.execute({
+      expression: "@web.fetch(\"https://x.com/i/flow/login\")",
+      execute: true
+    } as never));
+
+    expect(executeMode.ok).toBe(true);
+    expect(executeMode.execution).toMatchObject({
+      meta: {
+        ok: false,
+        blocker: {
+          type: "auth_required"
+        }
+      }
+    });
   }, 15000);
 
   it("keeps mode parity across managed, extension, and cdpConnect surfaces", async () => {

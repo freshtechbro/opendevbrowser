@@ -43,6 +43,11 @@ type ToolOutput = {
         retrievedAt: string;
       };
       error?: Record<string, unknown>;
+      blocker?: {
+        schemaVersion: string;
+        type: string;
+        confidence: number;
+      };
     };
     diagnostics?: Record<string, unknown>;
   };
@@ -249,6 +254,55 @@ describe("macro resolve tool", () => {
     expect(Array.isArray(result.execution?.failures)).toBe(true);
     expect(result.execution?.meta.ok).toBe(true);
     expect(result.execution?.records.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("surfaces blocker metadata in execution meta for blocked runtime fetch", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("x.com/i/flow/login")) {
+        return {
+          status: 403,
+          url,
+          text: async () => "<html><body>login</body></html>"
+        };
+      }
+      return {
+        status: 200,
+        url,
+        text: async () => "<html><body>ok</body></html>"
+      };
+    }) as unknown as typeof fetch);
+
+    vi.doMock("../src/macros", () => ({
+      createDefaultMacroRegistry: () => ({
+        resolve: async () => ({
+          action: {
+            source: "web",
+            operation: "fetch",
+            input: { url: "https://x.com/i/flow/login", providerId: "web/default" }
+          },
+          provenance: {
+            macro: "web.fetch",
+            provider: "web/default",
+            resolvedQuery: "https://x.com/i/flow/login",
+            pack: "core:web",
+            args: { positional: [], named: {} }
+          }
+        }),
+        list: () => []
+      })
+    }));
+
+    const { createMacroResolveTool } = await import("../src/tools/macro_resolve");
+    const tool = createMacroResolveTool({} as never);
+    const result = parse(await tool.execute({
+      expression: "@web.fetch(\"https://x.com/i/flow/login\")",
+      execute: true
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(result.execution?.meta.ok).toBe(false);
+    expect(result.execution?.meta.blocker?.type).toBe("auth_required");
   });
 
   it("falls back when runtime module cannot load", async () => {

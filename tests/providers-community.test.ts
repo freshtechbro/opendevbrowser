@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createCommunityProvider } from "../src/providers/community";
+import { ProviderRuntimeError } from "../src/providers/errors";
 import { createDefaultRuntime } from "../src/providers";
 
 const context = (requestId: string) => ({
@@ -30,6 +31,47 @@ describe("community provider", () => {
       expect(result.records.length).toBeGreaterThan(0);
       expect(result.failures).toHaveLength(0);
       expect(result.records[0]?.provider).toBe("community/default");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("filters static links from default runtime traversal metadata", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith("/thread/ok")) {
+        return {
+          status: 200,
+          url,
+          text: async () => "<html><body><main>thread ok</main></body></html>"
+        };
+      }
+      return {
+        status: 200,
+        url,
+        text: async () => [
+          "<html><body><main>community index</main>",
+          "<a href=\"https://www.redditstatic.com/challenge.js\">asset</a>",
+          "<a href=\"https://forums.local/thread/ok\">thread</a>",
+          "</body></html>"
+        ].join("")
+      };
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "release notes", limit: 3 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toHaveLength(0);
+      const firstLinks = Array.isArray(result.records[0]?.attributes.links)
+        ? result.records[0]?.attributes.links.filter((link): link is string => typeof link === "string")
+        : [];
+      expect(firstLinks).toContain("https://forums.local/thread/ok");
+      expect(firstLinks.some((link) => link.includes("redditstatic"))).toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -137,6 +179,95 @@ describe("community provider", () => {
     ]);
     expect(crawled?.[0]?.attributes.traversal).toMatchObject({ depth: 0 });
     expect(crawled?.[1]?.attributes.traversal).toMatchObject({ depth: 1 });
+  });
+
+  it("skips non-document expansion links and continues after recoverable expansion failures", async () => {
+    const expansionFetches: string[] = [];
+    const provider = createCommunityProvider({
+      search: async () => [{
+        url: "https://forums.local/thread/1",
+        title: "root",
+        content: "root content",
+        attributes: {
+          links: [
+            "https://www.redditstatic.com/challenge.js",
+            "https://forums.local/thread/2",
+            "https://forums.local/thread/3"
+          ]
+        }
+      }],
+      fetch: async (input) => {
+        expansionFetches.push(input.url);
+        if (input.url.endsWith("/thread/2")) {
+          throw new ProviderRuntimeError("unavailable", `Retrieval failed for ${input.url}`, {
+            provider: "community/default",
+            source: "community",
+            retryable: true
+          });
+        }
+        return {
+          url: input.url,
+          title: "expanded",
+          content: "expanded content"
+        };
+      }
+    });
+
+    const records = await provider.search?.({
+      query: "release notes",
+      limit: 5,
+      filters: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 5
+      }
+    }, context("r-expansion-skip"));
+
+    expect(expansionFetches).toEqual([
+      "https://forums.local/thread/2",
+      "https://forums.local/thread/3"
+    ]);
+    expect(records?.map((record) => record.url)).toEqual([
+      "https://forums.local/thread/1",
+      "https://forums.local/thread/3"
+    ]);
+  });
+
+  it("propagates non-recoverable expansion failures", async () => {
+    const provider = createCommunityProvider({
+      search: async () => [{
+        url: "https://forums.local/thread/1",
+        title: "root",
+        attributes: {
+          links: ["https://forums.local/thread/2"]
+        }
+      }],
+      fetch: async (input) => {
+        if (input.url.endsWith("/thread/2")) {
+          throw new ProviderRuntimeError("invalid_input", `Invalid expansion for ${input.url}`, {
+            provider: "community/default",
+            source: "community",
+            retryable: false
+          });
+        }
+        return {
+          url: input.url,
+          title: "ok",
+          content: "ok"
+        };
+      }
+    });
+
+    await expect(provider.search?.({
+      query: "release notes",
+      filters: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 1
+      }
+    }, context("r-expansion-fail"))).rejects.toMatchObject({
+      code: "invalid_input"
+    });
   });
 
   it("enforces posting policy gates and hook decisions", async () => {

@@ -60,7 +60,7 @@ describe("provider registry + runtime", () => {
     const runtime = new ProviderRuntime({
       budgets: {
         retries: { read: 0, write: 0 },
-        circuitBreaker: { failureThreshold: 1, cooldownMs: 50 }
+        circuitBreaker: { failureThreshold: 1, cooldownMs: 200 }
       }
     });
 
@@ -89,7 +89,7 @@ describe("provider registry + runtime", () => {
     expect(failingCalls).toBe(1);
     expect(healthyCalls).toBe(2);
 
-    await wait(60);
+    await wait(220);
     await runtime.search({ query: "z" }, { source: "all" });
     expect(failingCalls).toBe(2);
   });

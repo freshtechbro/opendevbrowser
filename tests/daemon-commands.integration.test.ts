@@ -21,6 +21,15 @@ const makeConfig = (overrides: Partial<OpenDevBrowserConfig> = {}): OpenDevBrows
   profile: "default",
   snapshot: { maxChars: 16000, maxNodes: 1000 },
   security: { allowRawCDP: false, allowNonLocalCdp: false, allowUnsafeExport: false },
+  blockerDetectionThreshold: 0.7,
+  blockerResolutionTimeoutMs: 600000,
+  blockerArtifactCaps: {
+    maxNetworkEvents: 20,
+    maxConsoleEvents: 20,
+    maxExceptionEvents: 10,
+    maxHosts: 10,
+    maxTextLength: 512
+  },
   devtools: { showFullUrls: false, showFullConsole: false },
   export: { maxNodes: 1000, inlineStyles: true },
   skills: { nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
@@ -54,6 +63,9 @@ const makeCore = (overrides: {
 
   const manager = {
     status: vi.fn(),
+    goto: vi.fn(),
+    waitForLoad: vi.fn(),
+    waitForRef: vi.fn(),
     consolePoll: vi.fn(),
     networkPoll: vi.fn(),
     withPage: vi.fn(async (_sessionId: string, _targetId: string | null, fn: (page: { context: () => { addCookies: (cookies: unknown[]) => Promise<void> } }) => Promise<unknown>) => {
@@ -394,6 +406,36 @@ describe("daemon-commands integration", () => {
     expect(core.manager.debugTraceSnapshot).toHaveBeenCalledWith("session-1", expect.objectContaining({ max: 10 }));
   });
 
+  it("adds blocker metadata on daemon nav.goto responses when manager response has no blocker meta", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({
+      mode: "managed",
+      activeTargetId: "target-1",
+      url: "https://x.com/i/flow/login",
+      title: "Log in to X / X"
+    });
+    core.manager.goto.mockResolvedValue({
+      finalUrl: "https://x.com/i/flow/login",
+      status: 200,
+      timingMs: 1
+    });
+    core.manager.networkPoll.mockResolvedValue({ events: [], nextSeq: 0 });
+
+    const response = await handleDaemonCommand(core, {
+      name: "nav.goto",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        url: "https://x.com/i/flow/login",
+        waitUntil: "load",
+        timeoutMs: 30000
+      }
+    }) as { meta?: { blockerState?: string; blocker?: { type?: string } } };
+
+    expect(response.meta?.blockerState).toBe("active");
+    expect(response.meta?.blocker?.type).toBe("auth_required");
+  });
+
   it("routes cookie import to manager capability when available", async () => {
     const core = makeCore();
     core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1" });
@@ -525,5 +567,6 @@ describe("daemon-commands integration", () => {
     }));
     expect(response.execution?.meta.ok).toBe(true);
     expect(response.execution?.records.length ?? 0).toBeGreaterThan(0);
+    expect(response.execution?.meta).not.toHaveProperty("blocker");
   });
 });

@@ -40,6 +40,13 @@ describe("loadGlobalConfig", () => {
     expect(config.security.allowNonLocalCdp).toBe(false);
     expect(config.security.allowUnsafeExport).toBe(false);
     expect(config.security.promptInjectionGuard?.enabled).toBe(true);
+    expect(config.blockerDetectionThreshold).toBe(0.7);
+    expect(config.blockerResolutionTimeoutMs).toBe(600000);
+    expect(config.blockerArtifactCaps.maxNetworkEvents).toBe(20);
+    expect(config.blockerArtifactCaps.maxConsoleEvents).toBe(20);
+    expect(config.blockerArtifactCaps.maxExceptionEvents).toBe(10);
+    expect(config.blockerArtifactCaps.maxHosts).toBe(10);
+    expect(config.blockerArtifactCaps.maxTextLength).toBe(512);
     expect(config.providers?.tiers.default).toBe("A");
     expect(config.providers?.tiers.enableHybrid).toBe(false);
     expect(config.providers?.tiers.enableRestrictedSafe).toBe(false);
@@ -94,6 +101,15 @@ describe("loadGlobalConfig", () => {
         allowUnsafeExport: true,
         promptInjectionGuard: { enabled: false }
       },
+      blockerDetectionThreshold: 0.82,
+      blockerResolutionTimeoutMs: 120000,
+      blockerArtifactCaps: {
+        maxNetworkEvents: 12,
+        maxConsoleEvents: 14,
+        maxExceptionEvents: 6,
+        maxHosts: 5,
+        maxTextLength: 300
+      },
       providers: {
         tiers: {
           default: "B",
@@ -129,6 +145,15 @@ describe("loadGlobalConfig", () => {
     expect(config.security.allowNonLocalCdp).toBe(true);
     expect(config.security.allowUnsafeExport).toBe(true);
     expect(config.security.promptInjectionGuard?.enabled).toBe(false);
+    expect(config.blockerDetectionThreshold).toBe(0.82);
+    expect(config.blockerResolutionTimeoutMs).toBe(120000);
+    expect(config.blockerArtifactCaps).toEqual({
+      maxNetworkEvents: 12,
+      maxConsoleEvents: 14,
+      maxExceptionEvents: 6,
+      maxHosts: 5,
+      maxTextLength: 300
+    });
     expect(config.providers?.tiers.default).toBe("B");
     expect(config.providers?.tiers.enableHybrid).toBe(true);
     expect(config.providers?.tiers.enableRestrictedSafe).toBe(true);

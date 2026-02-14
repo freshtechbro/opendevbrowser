@@ -57,9 +57,26 @@ const createDeps = () => {
     page: vi.fn().mockResolvedValue({ targetId: "t1", created: true, url: "https://", title: "Title" }),
     listPages: vi.fn().mockResolvedValue({ pages: [{ name: "main", targetId: "t1", url: "https://", title: "Title" }] }),
     closePage: vi.fn().mockResolvedValue(undefined),
-    goto: vi.fn().mockResolvedValue({ finalUrl: "https://", status: 200, timingMs: 1 }),
-    waitForRef: vi.fn().mockResolvedValue({ timingMs: 1 }),
-    waitForLoad: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    goto: vi.fn().mockResolvedValue({
+      finalUrl: "https://",
+      status: 200,
+      timingMs: 1,
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0",
+          type: "auth_required",
+          source: "navigation",
+          confidence: 0.95,
+          retryable: false,
+          detectedAt: "2026-02-14T00:00:00.000Z",
+          evidence: { matchedPatterns: ["redirect_login_flow"], networkHosts: [] },
+          actionHints: [{ id: "manual_login", reason: "login", priority: 1 }]
+        }
+      }
+    }),
+    waitForRef: vi.fn().mockResolvedValue({ timingMs: 1, meta: { blockerState: "clear" } }),
+    waitForLoad: vi.fn().mockResolvedValue({ timingMs: 1, meta: { blockerState: "clear" } }),
     snapshot: vi.fn().mockResolvedValue({ snapshotId: "snap", content: "", truncated: false, refCount: 0, timingMs: 1 }),
     click: vi.fn().mockResolvedValue({ timingMs: 1, navigated: false }),
     hover: vi.fn().mockResolvedValue({ timingMs: 1 }),
@@ -92,6 +109,9 @@ const createDeps = () => {
         console: { events: [], nextSeq: 0 },
         network: { events: [], nextSeq: 0 },
         exception: { events: [], nextSeq: 0 }
+      },
+      meta: {
+        blockerState: "clear"
       },
       fingerprint: {
         tier1: { ok: true, warnings: [], issues: [] },
@@ -133,9 +153,21 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_page.execute({ sessionId: "s1", name: "main" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_list.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_close.execute({ sessionId: "s1", name: "main" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_goto.execute({ sessionId: "s1", url: "https://" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", until: "load" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_goto.execute({ sessionId: "s1", url: "https://" } as never))).toMatchObject({
+      ok: true,
+      meta: {
+        blockerState: "active",
+        blocker: { type: "auth_required" }
+      }
+    });
+    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", until: "load" } as never))).toMatchObject({
+      ok: true,
+      meta: { blockerState: "clear" }
+    });
+    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({
+      ok: true,
+      meta: { blockerState: "clear" }
+    });
     expect(parse(await tools.opendevbrowser_snapshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_click.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_hover.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
@@ -157,7 +189,10 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_prompting_guide.execute({} as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_console_poll.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_network_poll.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never))).toMatchObject({
+      ok: true,
+      meta: { blockerState: "clear" }
+    });
     expect(parse(await tools.opendevbrowser_cookie_import.execute({
       sessionId: "s1",
       cookies: [{ name: "session", value: "abc123", url: "https://example.com" }]
@@ -263,6 +298,85 @@ describe("tools", () => {
     expect(resumedCursor.ok).toBe(true);
     expect(resumedCursor.channels).toMatchObject({
       exception: { events: [], nextSeq: 7 }
+    });
+  });
+
+  it("derives blocker fallback status and deduped hosts from mixed network events", async () => {
+    const deps = createDeps();
+    delete (deps.manager as { debugTraceSnapshot?: unknown }).debugTraceSnapshot;
+    deps.manager.status.mockResolvedValue({
+      mode: "managed",
+      activeTargetId: "t1",
+      url: "https://x.com/i/flow/login",
+      title: "Log in to X"
+    });
+    deps.manager.networkPoll.mockReturnValue({
+      events: [
+        { status: "bad", url: "not a url" },
+        { url: "https://x.com/a" },
+        { status: 403, url: "https://x.com/b" }
+      ],
+      nextSeq: 3,
+      truncated: false
+    });
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never));
+    expect(result.ok).toBe(true);
+    expect(result.meta).toMatchObject({
+      blockerState: "active",
+      blocker: {
+        type: "auth_required",
+        evidence: {
+          status: 403,
+          networkHosts: ["x.com"]
+        }
+      },
+      blockerArtifacts: {
+        hosts: ["x.com"]
+      }
+    });
+  });
+
+  it("uses fallback config defaults when prompt guard settings are unset", async () => {
+    const deps = createDeps();
+    delete (deps.manager as { debugTraceSnapshot?: unknown }).debugTraceSnapshot;
+    const baseConfig = resolveConfig({});
+    deps.config = {
+      get: () => ({
+        ...baseConfig,
+        security: {},
+        blockerDetectionThreshold: 0.7,
+        blockerArtifactCaps: baseConfig.blockerArtifactCaps
+      })
+    } as unknown as ConfigStore;
+    deps.manager.status.mockResolvedValue({
+      mode: "managed",
+      activeTargetId: "t1",
+      url: 101 as unknown as string,
+      title: null as unknown as string
+    });
+    deps.manager.networkPoll.mockReturnValue({
+      events: [
+        { status: "bad" },
+        { url: 42 },
+        { status: 403, url: "https://x.com/i/flow/login" }
+      ],
+      nextSeq: 3,
+      truncated: false
+    });
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never));
+    expect(result.ok).toBe(true);
+    expect(result.meta).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" },
+      blockerArtifacts: { hosts: ["x.com"] }
     });
   });
 

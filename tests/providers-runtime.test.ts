@@ -941,4 +941,197 @@ describe("provider runtime branches", () => {
     const after = runtime.getHealth("web/health");
     expect(after.status).toBe("healthy");
   });
+
+  it("classifies blocker metadata deterministically for auth/challenge/upstream/env-limited failures", async () => {
+    const makeFailureRuntime = (error: ProviderRuntimeError) => {
+      const runtime = new ProviderRuntime({
+        budgets: {
+          retries: { read: 0, write: 0 },
+          circuitBreaker: { failureThreshold: 99, cooldownMs: 1000 }
+        },
+        blockerDetectionThreshold: 0.7
+      });
+      runtime.register(makeProvider("web/blocker", "web", {
+        search: async () => {
+          throw error;
+        }
+      }));
+      return runtime;
+    };
+
+    const auth = await makeFailureRuntime(new ProviderRuntimeError(
+      "auth",
+      "Redirected to login",
+      {
+        retryable: false,
+        details: { url: "https://x.com/i/flow/login", status: 200 }
+      }
+    )).search({ query: "x" }, { source: "all" });
+    expect(auth.ok).toBe(false);
+    expect(auth.meta?.blocker?.type).toBe("auth_required");
+
+    const challenge = await makeFailureRuntime(new ProviderRuntimeError(
+      "upstream",
+      "Reddit - Prove your humanity",
+      {
+        retryable: false,
+        details: { url: "https://www.reddit.com/search/?q=opendevbrowser", status: 200 }
+      }
+    )).search({ query: "reddit" }, { source: "all" });
+    expect(challenge.ok).toBe(false);
+    expect(challenge.meta?.blocker?.type).toBe("anti_bot_challenge");
+
+    const challengeHost = await makeFailureRuntime(new ProviderRuntimeError(
+      "upstream",
+      "Challenge route returned a guarded response",
+      {
+        retryable: false,
+        details: { url: "https://www.recaptcha.net/anchor", status: 200 }
+      }
+    )).search({ query: "recaptcha" }, { source: "all" });
+    expect(challengeHost.ok).toBe(false);
+    expect(challengeHost.meta?.blocker?.type).toBe("anti_bot_challenge");
+
+    const upstream = await makeFailureRuntime(new ProviderRuntimeError(
+      "unavailable",
+      "Retrieval failed for https://www.redditstatic.com",
+      {
+        retryable: true,
+        details: { url: "https://www.redditstatic.com/challenge", status: 503 }
+      }
+    )).search({ query: "redditstatic" }, { source: "all" });
+    expect(upstream.ok).toBe(false);
+    expect(upstream.meta?.blocker?.type).toBe("upstream_block");
+
+    const envLimited = await makeFailureRuntime(new ProviderRuntimeError(
+      "unavailable",
+      "Extension not connected. Operation not available in this environment.",
+      { retryable: true }
+    )).search({ query: "extension" }, { source: "all" });
+    expect(envLimited.ok).toBe(false);
+    expect(envLimited.meta?.blocker?.type).toBe("env_limited");
+  });
+
+  it("covers string pagination parsing, threshold clamping, and web link normalization branches", async () => {
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("duckduckgo.com/html")) {
+        return {
+          status: 200,
+          url: "https://duckduckgo.com/html/?q=branch+coverage",
+          text: async () => [
+            "<html><body>",
+            "<a href=\"mailto:bad@example.com\">bad</a>",
+            "<a href=\"/result-one\">one</a>",
+            "<a href=\"https://duckduckgo.com/result-one\">dup</a>",
+            "<a href=\"https://duckduckgo.com/result-two\">two</a>",
+            "</body></html>"
+          ].join("")
+        };
+      }
+      if (url.includes("reddit.com/search")) {
+        return {
+          status: 200,
+          url,
+          text: async () => "<html><body><a href=\"https://www.reddit.com/r/opendevbrowser\">one</a></body></html>"
+        };
+      }
+      if (url.includes("x.com/search")) {
+        return {
+          status: 200,
+          url,
+          text: async () => "<html><body><a href=\"https://x.com/opendevbrowser/status/1\">one</a></body></html>"
+        };
+      }
+      return {
+        status: 200,
+        url,
+        text: async () => "<html><body>ok</body></html>"
+      };
+    });
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    try {
+      const runtimeLowThreshold = createDefaultRuntime({}, { blockerDetectionThreshold: -1 });
+      const runtimeHighThreshold = createDefaultRuntime({}, { blockerDetectionThreshold: 2 });
+
+      const webLimited = await runtimeLowThreshold.search({ query: "branch coverage", limit: 1 }, { source: "web" });
+      expect(webLimited.ok).toBe(true);
+      expect(webLimited.records).toHaveLength(1);
+
+      const webDefaultLimit = await runtimeHighThreshold.search({ query: "branch coverage" }, { source: "web" });
+      expect(webDefaultLimit.ok).toBe(true);
+      expect((webDefaultLimit.records[0]?.attributes?.retrievalPath as string | undefined)?.startsWith("web:search")).toBe(true);
+
+      const communityPage3 = await runtimeLowThreshold.search({
+        query: "opendevbrowser",
+        filters: { page: "3" }
+      }, { source: "community" });
+      expect(communityPage3.ok).toBe(true);
+      expect(communityPage3.records[0]?.attributes?.page).toBe(1);
+
+      const communityDefaultPage = await runtimeLowThreshold.search({
+        query: "opendevbrowser",
+        filters: { page: "not-a-number" }
+      }, { source: "community" });
+      expect(communityDefaultPage.ok).toBe(true);
+      expect(communityDefaultPage.records[0]?.attributes?.page).toBe(1);
+
+      const socialPage2 = await runtimeLowThreshold.search({
+        query: "opendevbrowser",
+        filters: { page: "2" }
+      }, {
+        source: "social",
+        providerIds: ["social/x"]
+      });
+      expect(socialPage2.ok).toBe(true);
+
+      const socialDefaultPage = await runtimeLowThreshold.search({
+        query: "opendevbrowser",
+        filters: { page: "not-a-number" }
+      }, {
+        source: "social",
+        providerIds: ["social/x"]
+      });
+      expect(socialDefaultPage.ok).toBe(true);
+
+      const adaptiveInternals = runtimeLowThreshold as unknown as {
+        applyAdaptiveOperationInput: (
+          provider: ProviderAdapter,
+          operation: "crawl",
+          input: ProviderCallResultByOperation["crawl"],
+          adaptive: AdaptiveConcurrencyDiagnostics
+        ) => ProviderCallResultByOperation["crawl"];
+      };
+      const adaptive: AdaptiveConcurrencyDiagnostics = {
+        enabled: true,
+        scope: "web/default",
+        global: { limit: 4, min: 1, max: 8 },
+        scoped: { limit: 2, min: 1, max: 4 }
+      };
+      const crawlProvider = makeProvider("web/default", "web", {});
+      const parsedString = adaptiveInternals.applyAdaptiveOperationInput(
+        crawlProvider,
+        "crawl",
+        {
+          seedUrls: ["https://example.com/start"],
+          filters: { fetchConcurrency: "3" }
+        },
+        adaptive
+      );
+      expect(parsedString.filters?.fetchConcurrency).toBe(2);
+      const fallbackString = adaptiveInternals.applyAdaptiveOperationInput(
+        crawlProvider,
+        "crawl",
+        {
+          seedUrls: ["https://example.com/start"],
+          filters: { fetchConcurrency: "not-a-number" }
+        },
+        adaptive
+      );
+      expect(fallbackString.filters?.fetchConcurrency).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

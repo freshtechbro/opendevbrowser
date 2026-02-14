@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSocialProvider, createSocialProviders, type SocialPlatform } from "../src/providers/social";
 import { createDefaultRuntime } from "../src/providers";
+import { ProviderRuntimeError } from "../src/providers/errors";
 import type { ProviderAdapter } from "../src/providers/types";
 
 const providers: ProviderAdapter[] = createSocialProviders();
@@ -128,6 +129,95 @@ describe("social platform adapters", () => {
       "https://threads.net/@acct/post/4"
     ]);
     expect(result?.every((record) => typeof record.attributes.extractionQuality === "object")).toBe(true);
+  });
+
+  it("skips non-document social expansion links and tolerates recoverable expansion failures", async () => {
+    const expansionFetches: string[] = [];
+    const provider = createSocialProvider("x", {
+      search: async () => [{
+        url: "https://x.com/acct/root",
+        title: "root",
+        attributes: {
+          links: [
+            "https://abs.twimg.com/responsive-web/client-web/main.js",
+            "https://x.com/acct/two",
+            "https://x.com/acct/three"
+          ]
+        }
+      }],
+      fetch: async (input) => {
+        expansionFetches.push(input.url);
+        if (input.url.endsWith("/two")) {
+          throw new ProviderRuntimeError("unavailable", `Retrieval failed for ${input.url}`, {
+            provider: "social/x",
+            source: "social",
+            retryable: true
+          });
+        }
+        return {
+          url: input.url,
+          title: "expanded",
+          content: "expanded content"
+        };
+      }
+    });
+
+    const records = await provider.search?.({
+      query: "openai",
+      limit: 5,
+      filters: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 5
+      }
+    }, context("social-expansion-skip"));
+
+    expect(expansionFetches).toHaveLength(2);
+    expect(expansionFetches).toEqual(expect.arrayContaining([
+      "https://x.com/acct/two",
+      "https://x.com/acct/three"
+    ]));
+    expect(records?.map((record) => record.url)).toEqual([
+      "https://x.com/acct/root",
+      "https://x.com/acct/three"
+    ]);
+  });
+
+  it("propagates non-recoverable social expansion failures", async () => {
+    const provider = createSocialProvider("x", {
+      search: async () => [{
+        url: "https://x.com/acct/root",
+        title: "root",
+        attributes: {
+          links: ["https://x.com/acct/two"]
+        }
+      }],
+      fetch: async (input) => {
+        if (input.url.endsWith("/two")) {
+          throw new ProviderRuntimeError("invalid_input", `Invalid expansion for ${input.url}`, {
+            provider: "social/x",
+            source: "social",
+            retryable: false
+          });
+        }
+        return {
+          url: input.url,
+          title: "ok",
+          content: "ok"
+        };
+      }
+    });
+
+    await expect(provider.search?.({
+      query: "openai",
+      filters: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 1
+      }
+    }, context("social-expansion-fail"))).rejects.toMatchObject({
+      code: "invalid_input"
+    });
   });
 
   it("maps platform names through createSocialProvider switch", () => {
