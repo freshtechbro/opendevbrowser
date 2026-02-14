@@ -20,6 +20,7 @@ src/cli/
 │   ├── nav/                # Navigation commands
 │   ├── pages/              # Page management
 │   ├── registry.ts         # Command registration
+│   ├── rpc.ts              # Power-user internal daemon RPC (unsafe)
 │   ├── run.ts              # Script execution
 │   ├── serve.ts            # Relay server commands
 │   ├── session/            # Session management
@@ -56,10 +57,12 @@ src/cli/
 | `nav` | goto, wait, snapshot | Navigation + page readiness |
 | `interact` | click, type, press, hover, check, select, scroll, etc. | Element interaction |
 | `dom` | dom-html, dom-text, dom-attr, dom-value, dom-visible, dom-enabled, dom-checked | DOM operations |
-| `session` | launch, connect, disconnect, status | Session management |
+| `session` | launch, connect, disconnect, status, cookie-import | Session management |
 | `targets` | targets-list, target-use, target-new, target-close | Target (tab) management |
-| `devtools` | console-poll, network-poll, perf, screenshot | DevTools integration |
+| `devtools` | console-poll, network-poll, debug-trace-snapshot, perf, screenshot | DevTools integration |
+| `automation` | macro-resolve | Provider macro planning utilities |
 | `annotate` | annotate | Visual annotations |
+| `power` | rpc | Internal daemon command passthrough (guarded, unsafe/power-user only) |
 | `export` | clone-page, clone-component | Page/component export |
 | `pages` | page, pages, page-close | Named page management |
 | `daemon` | serve, daemon (install/uninstall/status) | Daemon lifecycle |
@@ -92,6 +95,7 @@ src/cli/
 - **Hub-aware:** Check `isHubEnabled()` before local operations
 - **Thin handlers:** Delegate to managers in `src/browser/`
 - **JSON pipes:** Ensure valid JSON for piping
+- **Parity contract:** Keep CLI runtime commands aligned with tool/runtime parity gate in `tests/parity-matrix.test.ts` (`rpc` remains CLI-only by design)
 
 ## Anti-Patterns
 
@@ -106,3 +110,9 @@ src/cli/
 - `../relay/*` - Relay server control
 - `../tools/*` - Tool definitions (for hub proxying)
 - `../utils/hub-enabled` - Hub mode detection
+
+## Release Gates
+
+- Run `node scripts/cli-smoke-test.mjs` for managed CLI surface validation.
+- Run `npm run test -- tests/parity-matrix.test.ts tests/providers-performance-gate.test.ts` before release.
+- Follow `docs/RELEASE_PARITY_CHECKLIST.md` for final sign-off.

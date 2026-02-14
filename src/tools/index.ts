@@ -34,6 +34,9 @@ import { createRunTool } from "./run";
 import { createPromptingGuideTool } from "./prompting_guide";
 import { createConsolePollTool } from "./console_poll";
 import { createNetworkPollTool } from "./network_poll";
+import { createDebugTraceSnapshotTool } from "./debug_trace_snapshot";
+import { createCookieImportTool } from "./cookie_import";
+import { createMacroResolveTool } from "./macro_resolve";
 import { createClonePageTool } from "./clone_page";
 import { createCloneComponentTool } from "./clone_component";
 import { createPerfTool } from "./perf";
@@ -93,6 +96,9 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_prompting_guide: wrap(createPromptingGuideTool(deps)),
     opendevbrowser_console_poll: wrap(createConsolePollTool(deps)),
     opendevbrowser_network_poll: wrap(createNetworkPollTool(deps)),
+    opendevbrowser_debug_trace_snapshot: wrap(createDebugTraceSnapshotTool(deps)),
+    opendevbrowser_cookie_import: wrap(createCookieImportTool(deps)),
+    opendevbrowser_macro_resolve: wrap(createMacroResolveTool(deps)),
     opendevbrowser_clone_page: wrap(createClonePageTool(deps)),
     opendevbrowser_clone_component: wrap(createCloneComponentTool(deps)),
     opendevbrowser_perf: wrap(createPerfTool(deps)),

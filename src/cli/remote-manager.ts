@@ -6,7 +6,11 @@ import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
 import { DaemonClient } from "./daemon-client";
 
-type CallResult<K extends keyof BrowserManagerLike> = Awaited<ReturnType<BrowserManagerLike[K]>>;
+type BrowserManagerMethodKey = {
+  [K in keyof BrowserManagerLike]: BrowserManagerLike[K] extends (...args: never[]) => unknown ? K : never;
+}[keyof BrowserManagerLike];
+
+type CallResult<K extends BrowserManagerMethodKey> = Awaited<ReturnType<BrowserManagerLike[K]>>;
 
 function isLegacyRelayEndpoint(wsEndpoint: string): boolean {
   try {

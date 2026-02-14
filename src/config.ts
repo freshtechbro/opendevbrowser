@@ -24,6 +24,9 @@ export type SecurityConfig = {
   allowRawCDP: boolean;
   allowNonLocalCdp: boolean;
   allowUnsafeExport: boolean;
+  promptInjectionGuard?: {
+    enabled: boolean;
+  };
 };
 
 export type DevtoolsConfig = {
@@ -58,12 +61,93 @@ export type ContinuityConfig = {
   nudge: ContinuityNudgeConfig;
 };
 
+export type FingerprintTier1Config = {
+  enabled: boolean;
+  warnOnly: boolean;
+  locale?: string;
+  timezone?: string;
+  languages: string[];
+  requireProxy: boolean;
+  geolocation?: {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+  };
+  geolocationRequired: boolean;
+};
+
+export type FingerprintTier2Config = {
+  enabled: boolean;
+  mode: "deterministic" | "adaptive";
+  continuousSignals: boolean;
+  rotationIntervalMs: number;
+  challengePatterns: string[];
+  maxChallengeEvents: number;
+  scorePenalty: number;
+  scoreRecovery: number;
+  rotationHealthThreshold: number;
+};
+
+export type FingerprintTier3CanaryConfig = {
+  windowSize: number;
+  minSamples: number;
+  promoteThreshold: number;
+  rollbackThreshold: number;
+};
+
+export type FingerprintTier3Config = {
+  enabled: boolean;
+  continuousSignals: boolean;
+  fallbackTier: "tier1" | "tier2";
+  canary: FingerprintTier3CanaryConfig;
+};
+
+export type FingerprintConfig = {
+  tier1: FingerprintTier1Config;
+  tier2: FingerprintTier2Config;
+  tier3: FingerprintTier3Config;
+};
+
+export type ProvidersTierConfig = {
+  default: "A" | "B" | "C";
+  enableHybrid: boolean;
+  enableRestrictedSafe: boolean;
+  hybridRiskThreshold: number;
+  restrictedSafeRecoveryIntervalMs: number;
+};
+
+export type ProvidersAdaptiveConcurrencyConfig = {
+  enabled: boolean;
+  maxGlobal: number;
+  maxPerDomain: number;
+};
+
+export type ProvidersCrawlerConfig = {
+  workerThreads: number;
+  queueMax: number;
+};
+
+export type ProvidersConfig = {
+  tiers: ProvidersTierConfig;
+  adaptiveConcurrency: ProvidersAdaptiveConcurrencyConfig;
+  crawler: ProvidersCrawlerConfig;
+};
+
+export type CanaryConfig = {
+  targets: {
+    enabled: boolean;
+  };
+};
+
 export type OpenDevBrowserConfig = {
   headless: boolean;
   profile: string;
   snapshot: SnapshotConfig;
   security: SecurityConfig;
+  providers?: ProvidersConfig;
   devtools: DevtoolsConfig;
+  fingerprint: FingerprintConfig;
+  canary?: CanaryConfig;
   export: ExportConfig;
   skills: SkillsConfig;
   continuity: ContinuityConfig;
@@ -103,7 +187,35 @@ const snapshotSchema = z.object({
 const securitySchema = z.object({
   allowRawCDP: z.boolean().default(false),
   allowNonLocalCdp: z.boolean().default(false),
-  allowUnsafeExport: z.boolean().default(false)
+  allowUnsafeExport: z.boolean().default(false),
+  promptInjectionGuard: z.object({
+    enabled: z.boolean().default(true)
+  }).default({})
+});
+
+const providersSchema = z.object({
+  tiers: z.object({
+    default: z.enum(["A", "B", "C"]).default("A"),
+    enableHybrid: z.boolean().default(false),
+    enableRestrictedSafe: z.boolean().default(false),
+    hybridRiskThreshold: z.number().min(0).max(1).default(0.6),
+    restrictedSafeRecoveryIntervalMs: z.number().int().min(0).max(86_400_000).default(60000)
+  }).default({}),
+  adaptiveConcurrency: z.object({
+    enabled: z.boolean().default(false),
+    maxGlobal: z.number().int().min(1).max(512).default(8),
+    maxPerDomain: z.number().int().min(1).max(256).default(4)
+  }).default({}),
+  crawler: z.object({
+    workerThreads: z.number().int().min(1).max(64).default(4),
+    queueMax: z.number().int().min(1).max(100000).default(2000)
+  }).default({})
+}).default({});
+
+const canarySchema = z.object({
+  targets: z.object({
+    enabled: z.boolean().default(false)
+  }).default({})
 });
 
 const devtoolsSchema = z.object({
@@ -119,21 +231,11 @@ const exportSchema = z.object({
 const skillsNudgeSchema = z.object({
   enabled: z.boolean().default(true),
   keywords: z.array(z.string()).default([
-    "login",
-    "sign in",
-    "sign-in",
-    "auth",
-    "authentication",
-    "mfa",
-    "form",
-    "submit",
-    "validation",
-    "extract",
-    "scrape",
-    "scraping",
-    "table",
-    "pagination",
-    "crawl"
+    "quick start",
+    "getting started",
+    "launch",
+    "connect",
+    "setup"
   ]),
   maxAgeMs: z.number().int().min(1000).max(600000).default(60000)
 });
@@ -168,12 +270,74 @@ const continuitySchema = z.object({
   nudge: continuityNudgeSchema.default({})
 }).default({});
 
+const tier1GeolocationSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracy: z.number().min(1).max(10000).default(50)
+});
+
+const fingerprintTier1Schema = z.object({
+  enabled: z.boolean().default(true),
+  warnOnly: z.boolean().default(true),
+  locale: z.string().min(2).optional(),
+  timezone: z.string().min(2).optional(),
+  languages: z.array(z.string().min(2)).default([]),
+  requireProxy: z.boolean().default(false),
+  geolocation: tier1GeolocationSchema.optional(),
+  geolocationRequired: z.boolean().default(false)
+}).default({});
+
+const fingerprintTier2Schema = z.object({
+  enabled: z.boolean().default(true),
+  mode: z.union([z.enum(["deterministic", "adaptive"]), z.literal("off")])
+    .default("adaptive")
+    .transform((mode) => {
+      return mode === "off" ? "deterministic" : mode;
+    }),
+  continuousSignals: z.boolean().default(true),
+  rotationIntervalMs: z.number().int().min(0).max(86_400_000).default(900_000),
+  challengePatterns: z.array(z.string().min(1)).default([
+    "captcha",
+    "challenge",
+    "interstitial",
+    "cf_chl",
+    "bot"
+  ]),
+  maxChallengeEvents: z.number().int().min(1).max(100).default(20),
+  scorePenalty: z.number().int().min(1).max(100).default(20),
+  scoreRecovery: z.number().int().min(0).max(100).default(5),
+  rotationHealthThreshold: z.number().int().min(0).max(100).default(55)
+}).default({});
+
+const fingerprintTier3CanarySchema = z.object({
+  windowSize: z.number().int().min(1).max(100).default(10),
+  minSamples: z.number().int().min(1).max(100).default(3),
+  promoteThreshold: z.number().int().min(0).max(100).default(80),
+  rollbackThreshold: z.number().int().min(0).max(100).default(35)
+});
+
+const fingerprintTier3Schema = z.object({
+  enabled: z.boolean().default(true),
+  continuousSignals: z.boolean().default(true),
+  fallbackTier: z.enum(["tier1", "tier2"]).default("tier2"),
+  canary: fingerprintTier3CanarySchema.default({})
+}).default({});
+
+const fingerprintSchema = z.object({
+  tier1: fingerprintTier1Schema.default({}),
+  tier2: fingerprintTier2Schema.default({}),
+  tier3: fingerprintTier3Schema.default({})
+}).default({});
+
 const configSchema = z.object({
   headless: z.boolean().default(false),
   profile: z.string().min(1).default("default"),
   snapshot: snapshotSchema.default({}),
   security: securitySchema.default({}),
+  providers: providersSchema.default({}),
   devtools: devtoolsSchema.default({}),
+  fingerprint: fingerprintSchema.default({}),
+  canary: canarySchema.default({}),
   export: exportSchema.default({}),
   skills: skillsSchema.default({}),
   continuity: continuitySchema.default({}),

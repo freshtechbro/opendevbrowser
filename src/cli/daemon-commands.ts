@@ -1,4 +1,12 @@
+import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
+import { createDefaultRuntime } from "../providers";
+import {
+  executeMacroResolution,
+  shapeExecutionPayload,
+  type MacroExecutionPayload,
+  type MacroResolution
+} from "../macros/execute";
 import {
   bindRelay,
   waitForBinding,
@@ -319,6 +327,118 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         optionalNumber(params.sinceSeq, "sinceSeq"),
         optionalNumber(params.max, "max") ?? 50
       );
+    case "devtools.debugTraceSnapshot": {
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const sessionId = requireString(params.sessionId, "sessionId");
+      const manager = core.manager as OpenDevBrowserCore["manager"] & {
+        debugTraceSnapshot?: (
+          sessionId: string,
+          options?: {
+            sinceConsoleSeq?: number;
+            sinceNetworkSeq?: number;
+            sinceExceptionSeq?: number;
+            max?: number;
+            requestId?: string;
+          }
+        ) => Promise<unknown>;
+        exceptionPoll?: (
+          sessionId: string,
+          sinceSeq?: number,
+          max?: number
+        ) => Promise<{ events: unknown[]; nextSeq: number }>;
+      };
+
+      const max = optionalNumber(params.max, "max") ?? 50;
+      const requestId = optionalString(params.requestId);
+      const sinceConsoleSeq = optionalNumber(params.sinceConsoleSeq, "sinceConsoleSeq");
+      const sinceNetworkSeq = optionalNumber(params.sinceNetworkSeq, "sinceNetworkSeq");
+      const sinceExceptionSeq = optionalNumber(params.sinceExceptionSeq, "sinceExceptionSeq");
+
+      if (typeof manager.debugTraceSnapshot === "function") {
+        return manager.debugTraceSnapshot(sessionId, {
+          sinceConsoleSeq,
+          sinceNetworkSeq,
+          sinceExceptionSeq,
+          max,
+          requestId
+        });
+      }
+
+      const [page, consoleChannel, networkChannel] = await Promise.all([
+        core.manager.status(sessionId),
+        core.manager.consolePoll(sessionId, sinceConsoleSeq, max),
+        core.manager.networkPoll(sessionId, sinceNetworkSeq, max)
+      ]);
+      const exceptionChannel = typeof manager.exceptionPoll === "function"
+        ? await manager.exceptionPoll(sessionId, sinceExceptionSeq, max)
+        : { events: [], nextSeq: sinceExceptionSeq ?? 0 };
+
+      return {
+        requestId: requestId ?? randomUUID(),
+        generatedAt: new Date().toISOString(),
+        page,
+        channels: {
+          console: consoleChannel,
+          network: networkChannel,
+          exception: exceptionChannel
+        }
+      };
+    }
+    case "session.cookieImport": {
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const sessionId = requireString(params.sessionId, "sessionId");
+      const manager = core.manager as OpenDevBrowserCore["manager"] & {
+        cookieImport?: (
+          sessionId: string,
+          cookies: CookieImportRecord[],
+          strict?: boolean,
+          requestId?: string
+        ) => Promise<{ requestId: string; imported: number; rejected: Array<{ index: number; reason: string }> }>;
+      };
+
+      const cookies = requireCookieArray(params.cookies, "cookies");
+      const strict = optionalBoolean(params.strict) ?? true;
+      const requestId = optionalString(params.requestId) ?? randomUUID();
+
+      if (typeof manager.cookieImport === "function") {
+        return manager.cookieImport(sessionId, cookies, strict, requestId);
+      }
+
+      const normalized: CookieImportRecord[] = [];
+      const rejected: Array<{ index: number; reason: string }> = [];
+      cookies.forEach((cookie, index) => {
+        const validation = validateCookieRecord(cookie);
+        if (!validation.valid) {
+          rejected.push({ index, reason: validation.reason });
+          return;
+        }
+        normalized.push(validation.cookie);
+      });
+
+      if (strict && rejected.length > 0) {
+        throw new Error(`Cookie import rejected ${rejected.length} entries.`);
+      }
+
+      if (normalized.length > 0) {
+        await core.manager.withPage(sessionId, null, async (page) => {
+          await page.context().addCookies(normalized);
+          return undefined;
+        });
+      }
+
+      return {
+        requestId,
+        imported: normalized.length,
+        rejected
+      };
+    }
+    case "macro.resolve":
+      return resolveMacroExpression({
+        expression: requireString(params.expression, "expression"),
+        defaultProvider: optionalString(params.defaultProvider),
+        includeCatalog: optionalBoolean(params.includeCatalog) ?? false,
+        execute: optionalBoolean(params.execute) ?? false
+      });
     default:
       throw new Error(`Unknown daemon command: ${request.name}`);
   }
@@ -589,6 +709,126 @@ function requireStringArray(value: unknown, label: string): string[] {
   return value as string[];
 }
 
+type CookieImportRecord = {
+  name: string;
+  value: string;
+  url?: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+};
+
+function requireCookieArray(value: unknown, label: string): CookieImportRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid ${label}`);
+  }
+  const parsed: CookieImportRecord[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid ${label}`);
+    }
+    const cookie = entry as Record<string, unknown>;
+    if (typeof cookie.name !== "string" || typeof cookie.value !== "string") {
+      throw new Error(`Invalid ${label}`);
+    }
+    if (typeof cookie.sameSite !== "undefined" && cookie.sameSite !== "Strict" && cookie.sameSite !== "Lax" && cookie.sameSite !== "None") {
+      throw new Error(`Invalid ${label}`);
+    }
+    parsed.push({
+      name: cookie.name,
+      value: cookie.value,
+      ...(typeof cookie.url === "string" ? { url: cookie.url } : {}),
+      ...(typeof cookie.domain === "string" ? { domain: cookie.domain } : {}),
+      ...(typeof cookie.path === "string" ? { path: cookie.path } : {}),
+      ...(typeof cookie.expires === "number" ? { expires: cookie.expires } : {}),
+      ...(typeof cookie.httpOnly === "boolean" ? { httpOnly: cookie.httpOnly } : {}),
+      ...(typeof cookie.secure === "boolean" ? { secure: cookie.secure } : {}),
+      ...(cookie.sameSite ? { sameSite: cookie.sameSite as "Strict" | "Lax" | "None" } : {})
+    });
+  }
+  return parsed;
+}
+
+function validateCookieRecord(cookie: CookieImportRecord): { valid: boolean; reason: string; cookie: CookieImportRecord } {
+  const name = cookie.name?.trim();
+  if (!name) {
+    return { valid: false, reason: "Cookie name is required.", cookie };
+  }
+  if (!/^[^\s;=]+$/.test(name)) {
+    return { valid: false, reason: `Invalid cookie name: ${cookie.name}.`, cookie };
+  }
+  if (typeof cookie.value !== "string" || /\r|\n|;/.test(cookie.value)) {
+    return { valid: false, reason: `Invalid cookie value for ${name}.`, cookie };
+  }
+
+  const hasUrl = typeof cookie.url === "string" && cookie.url.trim().length > 0;
+  const hasDomain = typeof cookie.domain === "string" && cookie.domain.trim().length > 0;
+  if (!hasUrl && !hasDomain) {
+    return { valid: false, reason: `Cookie ${name} requires url or domain.`, cookie };
+  }
+
+  let normalizedUrl: string | undefined;
+  if (hasUrl) {
+    try {
+      const parsedUrl = new URL(cookie.url as string);
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        return { valid: false, reason: `Cookie ${name} url must be http(s).`, cookie };
+      }
+      normalizedUrl = parsedUrl.toString();
+    } catch {
+      return { valid: false, reason: `Cookie ${name} has invalid url.`, cookie };
+    }
+  }
+
+  let normalizedDomain: string | undefined;
+  if (hasDomain) {
+    normalizedDomain = String(cookie.domain).trim().toLowerCase();
+    if (!/^\.?[a-z0-9.-]+$/.test(normalizedDomain) || normalizedDomain.includes("..")) {
+      return { valid: false, reason: `Cookie ${name} has invalid domain.`, cookie };
+    }
+  }
+
+  const normalizedPath = typeof cookie.path === "string" ? cookie.path.trim() : undefined;
+  if (typeof normalizedPath === "string" && !normalizedPath.startsWith("/")) {
+    return { valid: false, reason: `Cookie ${name} path must start with '/'.`, cookie };
+  }
+
+  if (typeof cookie.expires !== "undefined") {
+    if (!Number.isFinite(cookie.expires) || cookie.expires < -1) {
+      return { valid: false, reason: `Cookie ${name} has invalid expires.`, cookie };
+    }
+  }
+
+  if (cookie.sameSite === "None" && cookie.secure !== true) {
+    return { valid: false, reason: `Cookie ${name} with SameSite=None must set secure=true.`, cookie };
+  }
+
+  const normalizedCookie: CookieImportRecord = {
+    name,
+    value: cookie.value,
+    ...(typeof cookie.expires === "number" ? { expires: cookie.expires } : {}),
+    ...(typeof cookie.httpOnly === "boolean" ? { httpOnly: cookie.httpOnly } : {}),
+    ...(typeof cookie.secure === "boolean" ? { secure: cookie.secure } : {}),
+    ...(cookie.sameSite ? { sameSite: cookie.sameSite } : {})
+  };
+
+  if (normalizedDomain) {
+    normalizedCookie.domain = normalizedDomain;
+    normalizedCookie.path = normalizedPath ?? "/";
+  } else if (normalizedUrl) {
+    normalizedCookie.url = normalizedUrl;
+  }
+
+  return {
+    valid: true,
+    reason: "",
+    cookie: normalizedCookie
+  };
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -656,6 +896,20 @@ type RelayObservedStatus = {
   cdpConnected: boolean;
   opsConnected: boolean;
   pairingRequired: boolean;
+};
+
+type MacroRuntimeModule = {
+  createDefaultMacroRegistry?: () => {
+    resolve: (expression: string, context?: { defaultProvider?: string }) => Promise<MacroResolution>;
+    list: () => Array<{ name: string; pack?: string; description?: string }>;
+  };
+};
+
+type MacroResolveOptions = {
+  expression: string;
+  defaultProvider?: string;
+  includeCatalog: boolean;
+  execute: boolean;
 };
 
 const MIN_WAIT_TIMEOUT_MS = 3000;
@@ -735,4 +989,119 @@ async function fetchRelayObservedStatus(port: number | null): Promise<RelayObser
   } catch {
     return null;
   }
+}
+
+async function loadMacroRuntime(): Promise<MacroRuntimeModule | null> {
+  try {
+    const module = await import("../macros");
+    return module as MacroRuntimeModule;
+  } catch {
+    return null;
+  }
+}
+
+function parseFallbackMacro(expression: string, defaultProvider?: string): {
+  action: {
+    source: "web";
+    operation: "search";
+    input: { query: string; limit: number; providerId: string };
+  };
+  provenance: {
+    macro: string;
+    provider: string;
+    resolvedQuery: string;
+    pack: string;
+    args: { positional: string[]; named: Record<string, string> };
+  };
+} {
+  const raw = expression.trim();
+  if (!raw.startsWith("@")) {
+    throw new Error("Macro expressions must start with '@'");
+  }
+
+  const body = raw.slice(1).trim();
+  if (!body) {
+    throw new Error("Macro name is required");
+  }
+
+  const openParen = body.indexOf("(");
+  const closeParen = body.endsWith(")") ? body.length - 1 : -1;
+  const macroName = openParen >= 0 ? body.slice(0, openParen).trim() : body;
+  const argsBody = openParen >= 0 && closeParen > openParen
+    ? body.slice(openParen + 1, closeParen).trim()
+    : "";
+  const positional = argsBody
+    ? argsBody.split(",").map((part) => part.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean)
+    : [];
+  const query = positional[0] ?? macroName;
+  const provider = defaultProvider ?? "web/default";
+
+  return {
+    action: {
+      source: "web",
+      operation: "search",
+      input: {
+        query,
+        limit: 10,
+        providerId: provider
+      }
+    },
+    provenance: {
+      macro: macroName,
+      provider,
+      resolvedQuery: query,
+      pack: "fallback",
+      args: {
+        positional,
+        named: {}
+      }
+    }
+  };
+}
+
+async function resolveMacroExpression(options: MacroResolveOptions): Promise<{
+  runtime: "macros" | "fallback";
+  resolution: MacroResolution;
+  catalog?: Array<{ name: string; pack?: string; description?: string }>;
+  execution?: MacroExecutionPayload;
+}> {
+  const runtime = await loadMacroRuntime();
+  const registry = runtime?.createDefaultMacroRegistry?.();
+  let resolvedRuntime: "macros" | "fallback" = "fallback";
+  let resolution: MacroResolution;
+  let catalog: Array<{ name: string; pack?: string; description?: string }> | undefined;
+
+  if (registry) {
+    resolvedRuntime = "macros";
+    resolution = await registry.resolve(options.expression, {
+      defaultProvider: options.defaultProvider
+    });
+    catalog = options.includeCatalog
+      ? registry.list().map((entry) => ({
+        name: entry.name,
+        pack: entry.pack,
+        description: entry.description
+      }))
+      : undefined;
+  } else {
+    resolution = parseFallbackMacro(options.expression, options.defaultProvider);
+  }
+
+  if (!options.execute) {
+    return {
+      runtime: resolvedRuntime,
+      resolution,
+      ...(catalog ? { catalog } : {})
+    };
+  }
+
+  const execution = shapeExecutionPayload(
+    await executeMacroResolution(resolution, createDefaultRuntime())
+  );
+  return {
+    runtime: resolvedRuntime,
+    resolution,
+    ...(catalog ? { catalog } : {}),
+    execution
+  };
 }

@@ -5,6 +5,8 @@ import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { fetchWithTimeout } from "../utils/http";
 import { discoverExtensionId, getNativeStatusSnapshot, installNativeHost } from "./native";
+import type { DaemonStatusPayload } from "../daemon-status";
+import { fetchDaemonStatus } from "../daemon-status";
 
 type ServeArgs = {
   port?: number;
@@ -17,6 +19,29 @@ type DaemonHandle = {
 };
 
 let daemonHandle: DaemonHandle | null = null;
+
+function resolveTokenCandidates(
+  requestedToken: string | undefined,
+  metadataToken: string | undefined,
+  configToken: string | undefined
+): string[] {
+  return Array.from(new Set([requestedToken, metadataToken, configToken].filter((token): token is string => (
+    typeof token === "string" && token.trim().length > 0
+  ))));
+}
+
+async function resolveExistingDaemon(
+  port: number,
+  tokens: string[]
+): Promise<{ token: string; status: DaemonStatusPayload } | null> {
+  for (const token of tokens) {
+    const status = await fetchDaemonStatus(port, token);
+    if (status?.ok) {
+      return { token, status };
+    }
+  }
+  return null;
+}
 
 function parseServeArgs(rawArgs: string[]): ServeArgs {
   const parsed: ServeArgs = { stop: false };
@@ -94,6 +119,28 @@ export async function runServe(args: ParsedArgs) {
   }
 
   const config = loadGlobalConfig();
+  const requestedPort = serveArgs.port ?? config.daemonPort;
+  const metadata = readDaemonMetadata();
+  const metadataToken = metadata?.port === requestedPort ? metadata.token : undefined;
+  const tokenCandidates = resolveTokenCandidates(serveArgs.token, metadataToken, config.daemonToken);
+
+  const existingDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
+  if (existingDaemon) {
+    const relayPort = existingDaemon.status.relay.port ?? config.relayPort;
+    return {
+      success: true,
+      message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${existingDaemon.status.pid}, relay ${relayPort}).`,
+      data: {
+        port: requestedPort,
+        pid: existingDaemon.status.pid,
+        relayPort,
+        alreadyRunning: true,
+        relay: existingDaemon.status.relay
+      },
+      exitCode: null
+    };
+  }
+
   let nativeStatus = getNativeStatusSnapshot();
   let nativeMessage: string | null = null;
   if (!nativeStatus.installed) {
@@ -114,11 +161,45 @@ export async function runServe(args: ParsedArgs) {
     }
   }
 
-  const handle = await startDaemon({
-    port: serveArgs.port,
-    token: serveArgs.token,
-    config
-  });
+  let handle: Awaited<ReturnType<typeof startDaemon>>;
+  try {
+    handle = await startDaemon({
+      port: serveArgs.port,
+      token: serveArgs.token,
+      config
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("EADDRINUSE") || message.includes("in use")) {
+      const runningDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
+      if (runningDaemon) {
+        const relayPort = runningDaemon.status.relay.port ?? config.relayPort;
+        return {
+          success: true,
+          message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${runningDaemon.status.pid}, relay ${relayPort}).`,
+          data: {
+            port: requestedPort,
+            pid: runningDaemon.status.pid,
+            relayPort,
+            alreadyRunning: true,
+            relay: runningDaemon.status.relay
+          },
+          exitCode: null
+        };
+      }
+      return {
+        success: false,
+        message: `Daemon port ${requestedPort} is already in use by another process. If this is an existing daemon, run \`opendevbrowser status --daemon\` or \`opendevbrowser serve --stop\`.`,
+        exitCode: EXIT_EXECUTION
+      };
+    }
+    return {
+      success: false,
+      message: `Failed to start daemon: ${message}`,
+      exitCode: EXIT_EXECUTION
+    };
+  }
+
   daemonHandle = handle;
   const { state } = handle;
 

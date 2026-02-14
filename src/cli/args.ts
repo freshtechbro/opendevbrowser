@@ -8,8 +8,9 @@ export type CliCommand = "install" | "update" | "uninstall" | "help" | "version"
   | "page" | "pages" | "page-close"
   | "dom-html" | "dom-text" | "dom-attr" | "dom-value" | "dom-visible" | "dom-enabled" | "dom-checked"
   | "clone-page" | "clone-component"
-  | "perf" | "screenshot" | "console-poll" | "network-poll"
-  | "annotate";
+  | "perf" | "screenshot" | "console-poll" | "network-poll" | "debug-trace-snapshot"
+  | "cookie-import" | "macro-resolve"
+  | "annotate" | "rpc";
 export type InstallMode = "global" | "local";
 export type SkillsMode = "global" | "local" | "none";
 export type OutputFormat = "text" | "json" | "stream-json";
@@ -119,7 +120,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       || candidate === "dom-visible" || candidate === "dom-enabled" || candidate === "dom-checked"
       || candidate === "clone-page" || candidate === "clone-component"
       || candidate === "perf" || candidate === "screenshot" || candidate === "console-poll" || candidate === "network-poll"
-      || candidate === "annotate") {
+      || candidate === "debug-trace-snapshot" || candidate === "cookie-import" || candidate === "macro-resolve"
+      || candidate === "annotate" || candidate === "rpc") {
       commandOverride = candidate;
       args = args.slice(1);
     } else {
@@ -227,6 +229,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
     "--url", "--wait-until", "--timeout-ms", "--ref", "--state", "--until", "--mode", "--max-chars", "--cursor",
     "--text", "--clear", "--submit", "--values", "--dy", "--key", "--attr",
     "--name", "--target-id", "--tab-id", "--include-urls", "--path", "--since-seq", "--max",
+    "--since-console-seq", "--since-network-seq", "--since-exception-seq", "--request-id",
+    "--cookies", "--cookies-file", "--strict",
+    "--expression", "--default-provider", "--include-catalog",
+    "--execute",
+    "--params", "--params-file", "--unsafe-internal",
     "--daemon",
     "--transport",
     "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms",
@@ -242,8 +249,22 @@ export function parseArgs(argv: string[]): ParsedArgs {
     "--screenshot-mode",
     "--context",
     "--timeout-ms",
+    "--since-seq",
+    "--since-console-seq",
+    "--since-network-seq",
+    "--since-exception-seq",
+    "--max",
     "--target-id",
-    "--tab-id"
+    "--tab-id",
+    "--name",
+    "--cookies",
+    "--cookies-file",
+    "--expression",
+    "--default-provider",
+    "--request-id",
+    "--strict",
+    "--params",
+    "--params-file"
   ]);
 
   for (const arg of args) {
@@ -327,7 +348,11 @@ COMMANDS:
   screenshot       Capture a screenshot
   console-poll     Poll console events
   network-poll     Poll network events
+  debug-trace-snapshot Capture page + console + network + exception diagnostics
+  cookie-import    Import validated cookies into a session
+  macro-resolve    Resolve a macro expression into provider action/provenance (optionally execute)
   annotate         Request interactive annotations (direct or relay)
+  rpc              Power-user internal daemon RPC command (unsafe, extreme caution)
   help             Show this help message
   version          Show version
 

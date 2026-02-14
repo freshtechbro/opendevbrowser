@@ -38,7 +38,7 @@ function buildConfigTemplate(relayToken: string, daemonToken: string): string {
   "skills": {
     "nudge": {
       "enabled": true,
-      "keywords": ["login", "form", "extract"],
+      "keywords": ["quick start", "getting started", "launch", "connect", "setup"],
       "maxAgeMs": 60000
     }
   },

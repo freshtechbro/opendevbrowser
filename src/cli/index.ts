@@ -22,6 +22,7 @@ import { runGoto } from "./commands/nav/goto";
 import { runWait } from "./commands/nav/wait";
 import { runSnapshot } from "./commands/nav/snapshot";
 import { runAnnotate } from "./commands/annotate";
+import { runRpc } from "./commands/rpc";
 import { runClick } from "./commands/interact/click";
 import { runHover } from "./commands/interact/hover";
 import { runPress } from "./commands/interact/press";
@@ -51,6 +52,9 @@ import { runPerf } from "./commands/devtools/perf";
 import { runScreenshot } from "./commands/devtools/screenshot";
 import { runConsolePoll } from "./commands/devtools/console-poll";
 import { runNetworkPoll } from "./commands/devtools/network-poll";
+import { runDebugTraceSnapshot } from "./commands/devtools/debug-trace-snapshot";
+import { runCookieImport } from "./commands/session/cookie-import";
+import { runMacroResolve } from "./commands/macro-resolve";
 import { extractExtension } from "../extension-extractor";
 import { writeOutput } from "./output";
 import type { InstallMode } from "./args";
@@ -437,6 +441,12 @@ async function main(): Promise<void> {
     });
 
     registerCommand({
+      name: "rpc",
+      description: "Execute an internal daemon RPC command (power-user)",
+      run: async () => runRpc(args)
+    });
+
+    registerCommand({
       name: "click",
       description: "Click an element by ref",
       run: async () => runClick(args)
@@ -608,6 +618,24 @@ async function main(): Promise<void> {
       name: "network-poll",
       description: "Poll network events",
       run: async () => runNetworkPoll(args)
+    });
+
+    registerCommand({
+      name: "debug-trace-snapshot",
+      description: "Capture page + console + network + exception diagnostics",
+      run: async () => runDebugTraceSnapshot(args)
+    });
+
+    registerCommand({
+      name: "cookie-import",
+      description: "Import validated cookies into a session",
+      run: async () => runCookieImport(args)
+    });
+
+    registerCommand({
+      name: "macro-resolve",
+      description: "Resolve a macro expression into a provider action",
+      run: async () => runMacroResolve(args)
     });
     const command = getCommand(args.command);
     if (!command) {
