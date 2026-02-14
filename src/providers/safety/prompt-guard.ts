@@ -30,6 +30,14 @@ export type PromptGuardResult = {
   audit: PromptGuardAudit;
 };
 
+export type PromptGuardTextSanitization = {
+  text: string;
+  diagnostics: {
+    entries: number;
+    quarantinedSegments: number;
+  };
+};
+
 const PATTERNS: PromptGuardPattern[] = [
   {
     code: "ignore_previous_instructions",
@@ -119,6 +127,31 @@ const sanitizeField = (
   }
 
   return output;
+};
+
+export const sanitizePromptGuardText = (
+  text: string,
+  enabled: boolean
+): PromptGuardTextSanitization => {
+  if (!enabled || !text) {
+    return {
+      text,
+      diagnostics: {
+        entries: 0,
+        quarantinedSegments: 0
+      }
+    };
+  }
+
+  const entries: PromptGuardEntry[] = [];
+  const sanitized = sanitizeField(text, "blocker", "blocker", "content", entries);
+  return {
+    text: sanitized,
+    diagnostics: {
+      entries: entries.length,
+      quarantinedSegments: entries.filter((entry) => entry.action === "quarantine").length
+    }
+  };
 };
 
 export const applyPromptGuard = (

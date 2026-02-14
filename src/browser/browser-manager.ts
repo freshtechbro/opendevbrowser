@@ -18,6 +18,8 @@ import { RefStore } from "../snapshot/refs";
 import { Snapshotter } from "../snapshot/snapshotter";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
 import { ensureLocalEndpoint } from "../utils/endpoint-validation";
+import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
+import type { BlockerSignalV1 } from "../providers/types";
 import {
   evaluateTier1Coherence,
   formatTier1Warnings,
@@ -585,7 +587,22 @@ export class BrowserManager {
     this.attachTrackers(managed);
   }
 
-  async goto(sessionId: string, url: string, waitUntil: "domcontentloaded" | "load" | "networkidle" = "load", timeoutMs = 30000, sessionOverride?: { browser: Browser; context: BrowserContext; targets: TargetManager }): Promise<{ finalUrl?: string; status?: number; timingMs: number }> {
+  async goto(
+    sessionId: string,
+    url: string,
+    waitUntil: "domcontentloaded" | "load" | "networkidle" = "load",
+    timeoutMs = 30000,
+    sessionOverride?: { browser: Browser; context: BrowserContext; targets: TargetManager }
+  ): Promise<{
+    finalUrl?: string;
+    status?: number;
+    timingMs: number;
+    meta?: {
+      blocker?: BlockerSignalV1;
+      blockerState: "clear" | "active" | "resolving";
+      blockerUpdatedAt?: string;
+    };
+  }> {
     const startTime = Date.now();
     const managed = sessionOverride ? this.buildOverrideSession(sessionOverride) : this.getManaged(sessionId);
     let page = managed.targets.getActivePage();
@@ -721,28 +738,84 @@ export class BrowserManager {
       response = await page.goto(url, { waitUntil, timeout: timeoutMs });
     }
 
+    const finalUrl = this.safePageUrl(page, "BrowserManager.goto");
+    const status = response?.status();
+    const title = await this.safePageTitle(page, "BrowserManager.goto");
+    const blockerMeta = sessionOverride
+      ? undefined
+      : this.reconcileSessionBlocker(sessionId, managed, {
+        source: "navigation",
+        url,
+        finalUrl,
+        title,
+        status,
+        verifier: true
+      });
+
     return {
-      finalUrl: page.url(),
-      status: response?.status(),
-      timingMs: Date.now() - startTime
+      finalUrl,
+      ...(typeof status === "number" ? { status } : {}),
+      timingMs: Date.now() - startTime,
+      ...(blockerMeta ? { meta: blockerMeta } : {})
     };
   }
 
-  async waitForLoad(sessionId: string, until: "domcontentloaded" | "load" | "networkidle", timeoutMs = 30000): Promise<{ timingMs: number }> {
+  async waitForLoad(
+    sessionId: string,
+    until: "domcontentloaded" | "load" | "networkidle",
+    timeoutMs = 30000
+  ): Promise<{
+    timingMs: number;
+    meta?: {
+      blocker?: BlockerSignalV1;
+      blockerState: "clear" | "active" | "resolving";
+      blockerUpdatedAt?: string;
+    };
+  }> {
     const startTime = Date.now();
     const managed = this.getManaged(sessionId);
     const page = managed.targets.getActivePage();
     await page.waitForLoadState(until, { timeout: timeoutMs });
-    return { timingMs: Date.now() - startTime };
+    const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
+      source: "navigation",
+      finalUrl: this.safePageUrl(page, "BrowserManager.waitForLoad"),
+      title: await this.safePageTitle(page, "BrowserManager.waitForLoad"),
+      verifier: true
+    });
+    return {
+      timingMs: Date.now() - startTime,
+      ...(blockerMeta ? { meta: blockerMeta } : {})
+    };
   }
 
-  async waitForRef(sessionId: string, ref: string, state: "attached" | "visible" | "hidden" = "attached", timeoutMs = 30000): Promise<{ timingMs: number }> {
+  async waitForRef(
+    sessionId: string,
+    ref: string,
+    state: "attached" | "visible" | "hidden" = "attached",
+    timeoutMs = 30000
+  ): Promise<{
+    timingMs: number;
+    meta?: {
+      blocker?: BlockerSignalV1;
+      blockerState: "clear" | "active" | "resolving";
+      blockerUpdatedAt?: string;
+    };
+  }> {
     const startTime = Date.now();
     const managed = this.getManaged(sessionId);
     const selector = this.resolveSelector(managed, ref);
     const page = managed.targets.getActivePage();
     await page.locator(selector).waitFor({ state, timeout: timeoutMs });
-    return { timingMs: Date.now() - startTime };
+    const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
+      source: "navigation",
+      finalUrl: this.safePageUrl(page, "BrowserManager.waitForRef"),
+      title: await this.safePageTitle(page, "BrowserManager.waitForRef"),
+      verifier: true
+    });
+    return {
+      timingMs: Date.now() - startTime,
+      ...(blockerMeta ? { meta: blockerMeta } : {})
+    };
   }
 
   async snapshot(sessionId: string, mode: "outline" | "actionables", maxChars: number, cursor?: string): ReturnType<Snapshotter["snapshot"]> {
@@ -1029,6 +1102,12 @@ export class BrowserManager {
       };
     };
     fingerprint: ReturnType<BrowserManager["buildFingerprintSummary"]>;
+    meta?: {
+      blocker?: BlockerSignalV1;
+      blockerState: "clear" | "active" | "resolving";
+      blockerUpdatedAt?: string;
+      blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
+    };
   }> {
     const requestId = options.requestId ?? createRequestId();
     const managed = this.getManaged(sessionId);
@@ -1047,6 +1126,20 @@ export class BrowserManager {
         sessionId
       }))
     );
+
+    const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
+      source: "network",
+      url: status.url,
+      finalUrl: status.url,
+      title: status.title,
+      status: this.latestStatus(networkChannel.events),
+      traceRequestId: requestId,
+      networkEvents: networkChannel.events,
+      consoleEvents: consoleChannel.events,
+      exceptionEvents: exceptionChannel.events,
+      verifier: true,
+      includeArtifacts: true
+    });
 
     return {
       requestId,
@@ -1069,7 +1162,8 @@ export class BrowserManager {
           events: annotateTraceContext(exceptionChannel.events)
         }
       },
-      fingerprint: this.buildFingerprintSummary(managed)
+      fingerprint: this.buildFingerprintSummary(managed),
+      ...(blockerMeta ? { meta: blockerMeta } : {})
     };
   }
 
@@ -1516,6 +1610,133 @@ export class BrowserManager {
           sampleCount: managed.fingerprint.tier3.canary.samples.length
         }
       }
+    };
+  }
+
+  private latestStatus(
+    events: Array<{ status?: number }>
+  ): number | undefined {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const status = events[index]?.status;
+      if (typeof status === "number") {
+        return status;
+      }
+    }
+    return undefined;
+  }
+
+  private recentNetworkEvents(managed: ManagedSession): ReturnType<NetworkTracker["poll"]>["events"] {
+    const max = this.config.blockerArtifactCaps.maxNetworkEvents;
+    return managed.networkTracker.poll(undefined, max).events;
+  }
+
+  private extractNetworkHosts(events: Array<{ url?: string }>): string[] {
+    const hosts: string[] = [];
+    const seen = new Set<string>();
+    for (const event of events) {
+      if (typeof event.url !== "string") continue;
+      try {
+        const host = new URL(event.url).hostname.toLowerCase();
+        if (!host || seen.has(host)) continue;
+        seen.add(host);
+        hosts.push(host);
+        if (hosts.length >= this.config.blockerArtifactCaps.maxHosts) break;
+      } catch {
+        // Ignore invalid/partial URLs in debug events.
+      }
+    }
+    return hosts;
+  }
+
+  private buildTargetKey(managed: ManagedSession, url?: string): string {
+    const targetId = managed.targets.getActiveTargetId() ?? "unknown";
+    const host = (() => {
+      if (!url) return "";
+      try {
+        return new URL(url).hostname.toLowerCase();
+      } catch {
+        return "";
+      }
+    })();
+    return `${targetId}:${host}`;
+  }
+
+  private reconcileSessionBlocker(
+    sessionId: string,
+    managed: ManagedSession,
+    input: {
+      source: "navigation" | "network";
+      url?: string;
+      finalUrl?: string;
+      title?: string;
+      status?: number;
+      message?: string;
+      providerErrorCode?: string;
+      traceRequestId?: string;
+      networkEvents?: Array<{ url?: string; status?: number }>;
+      consoleEvents?: unknown[];
+      exceptionEvents?: unknown[];
+      verifier?: boolean;
+      includeArtifacts?: boolean;
+      envLimited?: boolean;
+      restrictedTarget?: boolean;
+    }
+  ): {
+    blocker?: BlockerSignalV1;
+    blockerState: "clear" | "active" | "resolving";
+    blockerUpdatedAt?: string;
+    blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
+  } | undefined {
+    if (!this.store.has(sessionId)) {
+      return undefined;
+    }
+
+    const now = Date.now();
+    if (input.verifier) {
+      this.store.startResolving(sessionId, now);
+    }
+
+    const networkEvents = input.networkEvents ?? this.recentNetworkEvents(managed);
+    const blocker = classifyBlockerSignal({
+      source: input.source,
+      url: input.url,
+      finalUrl: input.finalUrl,
+      title: input.title,
+      status: input.status,
+      providerErrorCode: input.providerErrorCode,
+      message: input.message,
+      matchedPatterns: this.config.fingerprint.tier2.challengePatterns,
+      networkHosts: this.extractNetworkHosts(networkEvents),
+      traceRequestId: input.traceRequestId,
+      envLimited: input.envLimited,
+      restrictedTarget: input.restrictedTarget,
+      promptGuardEnabled: this.config.security.promptInjectionGuard?.enabled ?? true,
+      threshold: this.config.blockerDetectionThreshold
+    });
+
+    this.store.reconcileBlocker(sessionId, blocker, {
+      timeoutMs: this.config.blockerResolutionTimeoutMs,
+      verifier: input.verifier,
+      targetKey: this.buildTargetKey(managed, input.finalUrl ?? input.url),
+      nowMs: now
+    });
+
+    const summary = this.store.getBlockerSummary(sessionId);
+    const artifacts = input.includeArtifacts && summary.state !== "clear"
+      ? buildBlockerArtifacts({
+        networkEvents: networkEvents as unknown[],
+        consoleEvents: input.consoleEvents,
+        exceptionEvents: input.exceptionEvents,
+        promptGuardEnabled: this.config.security.promptInjectionGuard?.enabled ?? true,
+        caps: this.config.blockerArtifactCaps
+      })
+      : undefined;
+
+    return {
+      blockerState: summary.state,
+      ...(summary.blocker ? { blocker: summary.blocker } : {}),
+      ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
+      ...(artifacts ? { blockerArtifacts: artifacts } : {})
     };
   }
 

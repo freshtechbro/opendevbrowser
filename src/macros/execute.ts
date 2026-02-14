@@ -57,6 +57,7 @@ export type MacroExecutionPayload = {
     trace: ProviderAggregateResult["trace"];
     tier?: ProviderExecutionMetadata["tier"];
     provenance?: ProviderExecutionMetadata["provenance"];
+    blocker?: ProviderExecutionMetadata["blocker"];
     error?: ProviderAggregateResult["error"];
   };
   diagnostics?: ProviderAggregateResult["diagnostics"];
@@ -201,6 +202,7 @@ export const shapeExecutionPayload = (result: ProviderAggregateResult): MacroExe
       trace: result.trace,
       ...(result.meta?.tier ? { tier: result.meta.tier } : {}),
       ...(result.meta?.provenance ? { provenance: result.meta.provenance } : {}),
+      ...(result.meta?.blocker ? { blocker: result.meta.blocker } : {}),
       ...(result.error ? { error: result.error } : {})
     },
     ...(result.diagnostics ? { diagnostics: result.diagnostics } : {})

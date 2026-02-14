@@ -39,6 +39,14 @@ export type ExportConfig = {
   inlineStyles: boolean;
 };
 
+export type BlockerArtifactCapsConfig = {
+  maxNetworkEvents: number;
+  maxConsoleEvents: number;
+  maxExceptionEvents: number;
+  maxHosts: number;
+  maxTextLength: number;
+};
+
 export type SkillsNudgeConfig = {
   enabled: boolean;
   keywords: string[];
@@ -144,6 +152,9 @@ export type OpenDevBrowserConfig = {
   profile: string;
   snapshot: SnapshotConfig;
   security: SecurityConfig;
+  blockerDetectionThreshold: number;
+  blockerResolutionTimeoutMs: number;
+  blockerArtifactCaps: BlockerArtifactCapsConfig;
   providers?: ProvidersConfig;
   devtools: DevtoolsConfig;
   fingerprint: FingerprintConfig;
@@ -227,6 +238,14 @@ const exportSchema = z.object({
   maxNodes: z.number().int().min(1).max(5000).default(1000),
   inlineStyles: z.boolean().default(true)
 });
+
+const blockerArtifactCapsSchema = z.object({
+  maxNetworkEvents: z.number().int().min(1).max(500).default(20),
+  maxConsoleEvents: z.number().int().min(1).max(500).default(20),
+  maxExceptionEvents: z.number().int().min(1).max(200).default(10),
+  maxHosts: z.number().int().min(1).max(200).default(10),
+  maxTextLength: z.number().int().min(32).max(4096).default(512)
+}).default({});
 
 const skillsNudgeSchema = z.object({
   enabled: z.boolean().default(true),
@@ -334,6 +353,9 @@ const configSchema = z.object({
   profile: z.string().min(1).default("default"),
   snapshot: snapshotSchema.default({}),
   security: securitySchema.default({}),
+  blockerDetectionThreshold: z.number().min(0).max(1).default(0.7),
+  blockerResolutionTimeoutMs: z.number().int().min(1000).max(86_400_000).default(600_000),
+  blockerArtifactCaps: blockerArtifactCapsSchema,
   providers: providersSchema.default({}),
   devtools: devtoolsSchema.default({}),
   fingerprint: fingerprintSchema.default({}),

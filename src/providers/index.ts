@@ -8,11 +8,14 @@ import { fallbackTierMetadata, selectTierRoute, shouldFallbackToTierA } from "./
 import { createLogger } from "../core/logging";
 import { createCommunityProvider, type CommunityProviderOptions } from "./community";
 import { createSocialProviders, type SocialPlatform, type SocialProviderOptions, type SocialProvidersOptions } from "./social";
+import { isLikelyDocumentUrl } from "./shared/traversal-url";
 import { createWebProvider, type WebProviderOptions } from "./web";
+import { classifyBlockerSignal } from "./blocker";
 import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, toSnippet } from "./web/extract";
 import type {
   AdaptiveConcurrencyDiagnostics,
+  BlockerSignalV1,
   JsonValue,
   NormalizedRecord,
   ProviderAdapter,
@@ -182,6 +185,13 @@ const toPositiveInt = (value: unknown, fallback: number): number => {
   return fallback;
 };
 
+const clampBlockerThreshold = (value: number | undefined): number => {
+  if (typeof value !== "number" || Number.isNaN(value)) return 0.7;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+};
+
 const stripUrls = (value: string): string => {
   return value.replace(/https?:\/\/[^\s]+/gi, " ").replace(/\s+/g, " ").trim();
 };
@@ -201,7 +211,7 @@ const dedupeLinks = (links: string[], baseUrl: string, limit: number): string[] 
   const deduped: string[] = [];
   for (const candidate of links) {
     const normalized = normalizeHttpLink(candidate, baseUrl);
-    if (!normalized || seen.has(normalized)) continue;
+    if (!normalized || !isLikelyDocumentUrl(normalized) || seen.has(normalized)) continue;
     seen.add(normalized);
     deduped.push(normalized);
     if (deduped.length >= limit) break;
@@ -299,6 +309,7 @@ export interface RuntimeInit {
     maxGlobal?: number;
     maxPerDomain?: number;
   };
+  blockerDetectionThreshold?: number;
   promptInjectionGuard?: {
     enabled?: boolean;
   };
@@ -318,6 +329,7 @@ export class ProviderRuntime {
   private readonly scopedSemaphores = new Map<string, Semaphore>();
   private readonly tierConfig: RuntimeTierConfig;
   private readonly promptGuardEnabled: boolean;
+  private readonly blockerDetectionThreshold: number;
   private readonly adaptiveConfig: Required<NonNullable<RuntimeInit["adaptiveConcurrency"]>>;
   private adaptiveConcurrency: AdaptiveConcurrencyController;
 
@@ -330,6 +342,7 @@ export class ProviderRuntime {
       ...(init.tiers ?? {})
     };
     this.promptGuardEnabled = init.promptInjectionGuard?.enabled ?? true;
+    this.blockerDetectionThreshold = clampBlockerThreshold(init.blockerDetectionThreshold);
     this.adaptiveConfig = {
       enabled: init.adaptiveConcurrency?.enabled ?? false,
       maxGlobal: Math.max(this.budgets.concurrency.global, init.adaptiveConcurrency?.maxGlobal ?? this.budgets.concurrency.global),
@@ -499,12 +512,14 @@ export class ProviderRuntime {
     let retries = 0;
     const attemptedOrder: string[] = [];
     let diagnostics: ProviderRuntimeDiagnostics | undefined;
+    let blocker: BlockerSignalV1 | undefined;
 
     for (const provider of providers) {
       attemptedOrder.push(provider.id);
       const result = await this.invokeProvider(provider, operation, input, trace, timeoutMs, tierMetadata);
       retries += result.retries;
       diagnostics = result.diagnostics ?? diagnostics;
+      blocker = result.meta?.blocker ?? blocker;
       if (result.ok) {
         return {
           ok: true,
@@ -552,6 +567,7 @@ export class ProviderRuntime {
         const fallback = await this.invokeProvider(provider, operation, input, trace, timeoutMs, fallbackTier);
         retries += fallback.retries;
         diagnostics = fallback.diagnostics ?? diagnostics;
+        blocker = fallback.meta?.blocker ?? blocker;
         if (fallback.ok) {
           return {
             ok: true,
@@ -588,6 +604,9 @@ export class ProviderRuntime {
         retrievalPath: `${operation}:${selection}:failure`
       })
       : undefined;
+    if (meta && blocker) {
+      meta.blocker = blocker;
+    }
     return {
       ok: false,
       records: [],
@@ -631,12 +650,14 @@ export class ProviderRuntime {
     let meta: ProviderExecutionMetadata | undefined;
     let diagnostics: ProviderRuntimeDiagnostics | undefined;
     let fallbackProviderIds: string[] = [];
+    let blocker: BlockerSignalV1 | undefined;
 
     for (const result of results) {
       retries += result.retries;
       if (result.ok) {
         records.push(...result.records);
         meta = result.meta ?? meta;
+        blocker = result.meta?.blocker ?? blocker;
         diagnostics = result.diagnostics ?? diagnostics;
         continue;
       }
@@ -647,6 +668,7 @@ export class ProviderRuntime {
       });
       diagnostics = result.diagnostics ?? diagnostics;
       meta = result.meta ?? meta;
+      blocker = result.meta?.blocker ?? blocker;
     }
 
     if (records.length === 0 && shouldFallbackToTierA(tierMetadata.selected)) {
@@ -674,6 +696,7 @@ export class ProviderRuntime {
         retries += result.retries;
         diagnostics = result.diagnostics ?? diagnostics;
         meta = result.meta ?? meta;
+        blocker = result.meta?.blocker ?? blocker;
         if (result.ok) {
           records.push(...result.records);
           continue;
@@ -691,6 +714,9 @@ export class ProviderRuntime {
       ...providers.map((provider) => provider.id),
       ...fallbackProviderIds
     ];
+    if (meta && blocker) {
+      meta.blocker = blocker;
+    }
     return {
       ok,
       records,
@@ -861,6 +887,17 @@ export class ProviderRuntime {
           provider: provider.id,
           retrievalPath: `${operation}:${scopeKey}:failure`
         });
+        const blocker = this.detectRuntimeBlocker({
+          operation,
+          code: normalizedError.code,
+          message: normalizedError.message,
+          details: normalizedError.details,
+          retryable: normalizedError.retryable,
+          trace
+        });
+        if (blocker) {
+          meta.blocker = blocker;
+        }
         const failure = normalizeFailure(provider.id, provider.source, normalizedError, {
           trace,
           startedAtMs: startedAt,
@@ -1168,6 +1205,45 @@ export class ProviderRuntime {
     };
   }
 
+  private detectRuntimeBlocker(params: {
+    operation: ProviderOperation;
+    code: string;
+    message: string;
+    details?: Record<string, JsonValue>;
+    retryable: boolean;
+    trace: TraceContext;
+  }): BlockerSignalV1 | undefined {
+    const details = params.details;
+    const url = typeof details?.url === "string"
+      ? details.url
+      : undefined;
+    const hostFromUrl = (() => {
+      if (!url) return null;
+      try {
+        return new URL(url).hostname.toLowerCase();
+      } catch {
+        return null;
+      }
+    })();
+    const status = typeof details?.status === "number" ? details.status : undefined;
+    const envLimited = params.code === "unavailable"
+      && /extension not connected|not available in this environment|manual interaction/i.test(params.message);
+    const blocker = classifyBlockerSignal({
+      source: params.operation === "post" ? "macro_execution" : "runtime_fetch",
+      ...(url ? { url } : {}),
+      ...(status !== undefined ? { status } : {}),
+      providerErrorCode: params.code,
+      message: params.message,
+      networkHosts: hostFromUrl ? [hostFromUrl] : undefined,
+      traceRequestId: params.trace.requestId,
+      retryable: params.retryable,
+      envLimited,
+      promptGuardEnabled: this.promptGuardEnabled,
+      threshold: this.blockerDetectionThreshold
+    });
+    return blocker ?? undefined;
+  }
+
   private async withTimeout<T>(
     timeoutMs: number,
     task: (signal: AbortSignal) => Promise<T>
@@ -1385,8 +1461,11 @@ const withDefaultSocialOptions = (options: SocialProvidersOptions | undefined): 
   threads: withDefaultSocialPlatformOptions("threads", options?.threads)
 });
 
-export const createDefaultRuntime = (defaults: RuntimeDefaults = {}): ProviderRuntime => {
-  const runtime = new ProviderRuntime();
+export const createDefaultRuntime = (
+  defaults: RuntimeDefaults = {},
+  init: Omit<RuntimeInit, "providers"> = {}
+): ProviderRuntime => {
+  const runtime = new ProviderRuntime(init);
   runtime.register(createWebProvider(withDefaultWebOptions(defaults.web)));
   runtime.register(createCommunityProvider(withDefaultCommunityOptions(defaults.community)));
   for (const provider of createSocialProviders(withDefaultSocialOptions(defaults.social))) {
@@ -1431,3 +1510,4 @@ export * from "./errors";
 export * from "./normalize";
 export * from "./tier-router";
 export * from "./adaptive-concurrency";
+export * from "./blocker";

@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
 import { createDefaultRuntime } from "../providers";
+import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import {
   executeMacroResolution,
   shapeExecutionPayload,
@@ -161,26 +162,38 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return { ok: true };
     case "nav.goto":
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      return core.manager.goto(
+      return attachBlockerMetaForNavigation(
+        core,
         requireString(params.sessionId, "sessionId"),
-        requireString(params.url, "url"),
-        requireWaitUntil(params.waitUntil),
-        optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+        await core.manager.goto(
+          requireString(params.sessionId, "sessionId"),
+          requireString(params.url, "url"),
+          requireWaitUntil(params.waitUntil),
+          optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+        )
       );
     case "nav.wait":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       if (typeof params.ref === "string") {
-        return core.manager.waitForRef(
+        return attachBlockerMetaForNavigation(
+          core,
           requireString(params.sessionId, "sessionId"),
-          requireString(params.ref, "ref"),
-          requireState(params.state),
-          optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+          await core.manager.waitForRef(
+            requireString(params.sessionId, "sessionId"),
+            requireString(params.ref, "ref"),
+            requireState(params.state),
+            optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+          )
         );
       }
-      return core.manager.waitForLoad(
+      return attachBlockerMetaForNavigation(
+        core,
         requireString(params.sessionId, "sessionId"),
-        requireWaitUntil(params.until),
-        optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+        await core.manager.waitForLoad(
+          requireString(params.sessionId, "sessionId"),
+          requireWaitUntil(params.until),
+          optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+        )
       );
     case "nav.snapshot":
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -373,7 +386,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         ? await manager.exceptionPoll(sessionId, sinceExceptionSeq, max)
         : { events: [], nextSeq: sinceExceptionSeq ?? 0 };
 
-      return {
+      const fallbackResult = {
         requestId: requestId ?? randomUUID(),
         generatedAt: new Date().toISOString(),
         page,
@@ -383,6 +396,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           exception: exceptionChannel
         }
       };
+      return attachBlockerMetaForTrace(core, fallbackResult);
     }
     case "session.cookieImport": {
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -433,12 +447,15 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       };
     }
     case "macro.resolve":
-      return resolveMacroExpression({
-        expression: requireString(params.expression, "expression"),
-        defaultProvider: optionalString(params.defaultProvider),
-        includeCatalog: optionalBoolean(params.includeCatalog) ?? false,
-        execute: optionalBoolean(params.execute) ?? false
-      });
+      return resolveMacroExpression(
+        {
+          expression: requireString(params.expression, "expression"),
+          defaultProvider: optionalString(params.defaultProvider),
+          includeCatalog: optionalBoolean(params.includeCatalog) ?? false,
+          execute: optionalBoolean(params.execute) ?? false
+        },
+        core.config
+      );
     default:
       throw new Error(`Unknown daemon command: ${request.name}`);
   }
@@ -689,6 +706,127 @@ function buildManagedFailureMessage(error: unknown): string {
     "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
     "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>"
   ].join("\n");
+}
+
+async function attachBlockerMetaForNavigation(
+  core: OpenDevBrowserCore,
+  sessionId: string,
+  result: unknown
+): Promise<unknown> {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+
+  const record = result as Record<string, unknown>;
+  const existingMeta = (!Array.isArray(record.meta) && typeof record.meta === "object" && record.meta !== null)
+    ? record.meta as Record<string, unknown>
+    : undefined;
+  if (existingMeta && typeof existingMeta.blockerState === "string") {
+    return result;
+  }
+
+  const fallbackStatus = await core.manager.status(sessionId);
+  let networkEvents: { events: Array<{ url?: string; status?: number }> } = { events: [] };
+  try {
+    const polled = await core.manager.networkPoll(
+      sessionId,
+      undefined,
+      core.config.blockerArtifactCaps.maxNetworkEvents
+    );
+    if (polled && Array.isArray(polled.events)) {
+      networkEvents = { events: polled.events as Array<{ url?: string; status?: number }> };
+    }
+  } catch {
+    // Ignore polling failures for fallback blocker enrichment.
+  }
+
+  const blocker = classifyBlockerSignal({
+    source: "navigation",
+    url: typeof record.url === "string" ? record.url : fallbackStatus.url,
+    finalUrl: typeof record.finalUrl === "string" ? record.finalUrl : fallbackStatus.url,
+    title: fallbackStatus.title,
+    status: typeof record.status === "number" ? record.status : findLatestStatus(networkEvents.events),
+    networkHosts: extractHosts(networkEvents.events),
+    threshold: core.config.blockerDetectionThreshold,
+    promptGuardEnabled: core.config.security.promptInjectionGuard?.enabled ?? true
+  });
+
+  return {
+    ...record,
+    meta: {
+      ...(existingMeta ?? {}),
+      blockerState: blocker ? "active" : "clear",
+      ...(blocker ? { blocker } : {})
+    }
+  };
+}
+
+function attachBlockerMetaForTrace(
+  core: OpenDevBrowserCore,
+  result: {
+    requestId: string;
+    generatedAt: string;
+    page: { url?: string; title?: string };
+    channels: {
+      network: { events: Array<{ url?: string; status?: number }> };
+      console: { events: unknown[] };
+      exception: { events: unknown[] };
+    };
+  }
+): unknown {
+  const blocker = classifyBlockerSignal({
+    source: "network",
+    url: result.page.url,
+    finalUrl: result.page.url,
+    title: result.page.title,
+    status: findLatestStatus(result.channels.network.events),
+    networkHosts: extractHosts(result.channels.network.events),
+    traceRequestId: result.requestId,
+    threshold: core.config.blockerDetectionThreshold,
+    promptGuardEnabled: core.config.security.promptInjectionGuard?.enabled ?? true
+  });
+  const blockerArtifacts = blocker
+    ? buildBlockerArtifacts({
+      networkEvents: result.channels.network.events,
+      consoleEvents: result.channels.console.events,
+      exceptionEvents: result.channels.exception.events,
+      promptGuardEnabled: core.config.security.promptInjectionGuard?.enabled ?? true,
+      caps: core.config.blockerArtifactCaps
+    })
+    : undefined;
+  return {
+    ...result,
+    meta: {
+      blockerState: blocker ? "active" : "clear",
+      ...(blocker ? { blocker } : {}),
+      ...(blockerArtifacts ? { blockerArtifacts } : {})
+    }
+  };
+}
+
+function findLatestStatus(events: Array<{ status?: number }>): number | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const status = events[index]?.status;
+    if (typeof status === "number") return status;
+  }
+  return undefined;
+}
+
+function extractHosts(events: Array<{ url?: string }>): string[] {
+  const hosts: string[] = [];
+  const seen = new Set<string>();
+  for (const event of events) {
+    if (typeof event.url !== "string") continue;
+    try {
+      const host = new URL(event.url).hostname.toLowerCase();
+      if (!host || seen.has(host)) continue;
+      seen.add(host);
+      hosts.push(host);
+    } catch {
+      // Ignore invalid URLs.
+    }
+  }
+  return hosts;
 }
 
 function requireString(value: unknown, label: string): string {
@@ -1059,7 +1197,10 @@ function parseFallbackMacro(expression: string, defaultProvider?: string): {
   };
 }
 
-async function resolveMacroExpression(options: MacroResolveOptions): Promise<{
+async function resolveMacroExpression(
+  options: MacroResolveOptions,
+  config: Pick<OpenDevBrowserCore["config"], "blockerDetectionThreshold" | "security">
+): Promise<{
   runtime: "macros" | "fallback";
   resolution: MacroResolution;
   catalog?: Array<{ name: string; pack?: string; description?: string }>;
@@ -1096,7 +1237,15 @@ async function resolveMacroExpression(options: MacroResolveOptions): Promise<{
   }
 
   const execution = shapeExecutionPayload(
-    await executeMacroResolution(resolution, createDefaultRuntime())
+    await executeMacroResolution(
+      resolution,
+      createDefaultRuntime({}, {
+        blockerDetectionThreshold: config.blockerDetectionThreshold,
+        promptInjectionGuard: {
+          enabled: config.security.promptInjectionGuard?.enabled ?? true
+        }
+      })
+    )
   );
   return {
     runtime: resolvedRuntime,

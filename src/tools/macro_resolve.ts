@@ -118,7 +118,15 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
           });
         }
 
-        const providerRuntime = deps.providerRuntime ?? createDefaultRuntime();
+        const runtimeConfig = deps.config?.get?.();
+        const providerRuntime = deps.providerRuntime ?? createDefaultRuntime({}, {
+          ...(typeof runtimeConfig?.blockerDetectionThreshold === "number"
+            ? { blockerDetectionThreshold: runtimeConfig.blockerDetectionThreshold }
+            : {}),
+          promptInjectionGuard: {
+            enabled: runtimeConfig?.security.promptInjectionGuard?.enabled ?? true
+          }
+        });
         const execution = shapeExecutionPayload(
           await executeMacroResolution(resolution, providerRuntime)
         );

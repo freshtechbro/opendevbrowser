@@ -1,6 +1,7 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
 import { createRequestId } from "../core/logging";
+import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 
@@ -77,6 +78,27 @@ export function createDebugTraceSnapshotTool(deps: ToolDeps): ToolDefinition {
           }))
         );
 
+        const blocker = classifyBlockerSignal({
+          source: "network",
+          url: typeof page.url === "string" ? page.url : undefined,
+          finalUrl: typeof page.url === "string" ? page.url : undefined,
+          title: typeof page.title === "string" ? page.title : undefined,
+          status: findLatestStatus(networkChannel.events as Array<{ status?: number }>),
+          traceRequestId: requestId,
+          networkHosts: extractHosts(networkChannel.events as Array<{ url?: string }>),
+          threshold: deps.config.get().blockerDetectionThreshold,
+          promptGuardEnabled: deps.config.get().security.promptInjectionGuard?.enabled ?? true
+        });
+        const blockerArtifacts = blocker
+          ? buildBlockerArtifacts({
+            networkEvents: networkChannel.events as unknown[],
+            consoleEvents: consoleChannel.events as unknown[],
+            exceptionEvents: exceptionChannel.events as unknown[],
+            promptGuardEnabled: deps.config.get().security.promptInjectionGuard?.enabled ?? true,
+            caps: deps.config.get().blockerArtifactCaps
+          })
+          : undefined;
+
         return ok({
           requestId,
           generatedAt: new Date().toISOString(),
@@ -97,6 +119,11 @@ export function createDebugTraceSnapshotTool(deps: ToolDeps): ToolDefinition {
               truncated: exceptionChannel.truncated,
               events: annotateTraceContext(exceptionChannel.events as Array<Record<string, unknown>>)
             }
+          },
+          meta: {
+            blockerState: blocker ? "active" : "clear",
+            ...(blocker ? { blocker } : {}),
+            ...(blockerArtifacts ? { blockerArtifacts } : {})
           }
         });
       } catch (error) {
@@ -104,4 +131,31 @@ export function createDebugTraceSnapshotTool(deps: ToolDeps): ToolDefinition {
       }
     }
   });
+}
+
+function findLatestStatus(events: Array<{ status?: number }>): number | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const status = events[index]?.status;
+    if (typeof status === "number") {
+      return status;
+    }
+  }
+  return undefined;
+}
+
+function extractHosts(events: Array<{ url?: string }>): string[] {
+  const hosts: string[] = [];
+  const seen = new Set<string>();
+  for (const event of events) {
+    if (typeof event.url !== "string") continue;
+    try {
+      const host = new URL(event.url).hostname.toLowerCase();
+      if (!host || seen.has(host)) continue;
+      seen.add(host);
+      hosts.push(host);
+    } catch {
+      // ignore invalid url values
+    }
+  }
+  return hosts;
 }

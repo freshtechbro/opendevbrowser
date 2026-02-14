@@ -23,6 +23,81 @@ export type ProviderTierReasonCode =
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
+export type BlockerType =
+  | "auth_required"
+  | "anti_bot_challenge"
+  | "rate_limited"
+  | "upstream_block"
+  | "restricted_target"
+  | "env_limited"
+  | "unknown";
+
+export type BlockerSource =
+  | "navigation"
+  | "network"
+  | "console"
+  | "runtime_fetch"
+  | "macro_execution";
+
+export type BlockerActionHintId =
+  | "manual_login"
+  | "manual_challenge"
+  | "retry_after_backoff"
+  | "switch_managed_headed"
+  | "switch_extension_mode"
+  | "collect_debug_trace";
+
+export interface BlockerEvidence {
+  url?: string;
+  finalUrl?: string;
+  title?: string;
+  status?: number;
+  providerErrorCode?: string;
+  matchedPatterns: string[];
+  networkHosts: string[];
+  traceRequestId?: string;
+}
+
+export interface BlockerActionHint {
+  id: BlockerActionHintId;
+  reason: string;
+  priority: 1 | 2 | 3;
+}
+
+export interface BlockerSanitationDiagnostics {
+  entries: number;
+  quarantinedSegments: number;
+}
+
+export interface BlockerSignalV1 {
+  schemaVersion: "1.0";
+  type: BlockerType;
+  source: BlockerSource;
+  confidence: number;
+  retryable: boolean;
+  detectedAt: string;
+  evidence: BlockerEvidence;
+  actionHints: BlockerActionHint[];
+  sanitation?: BlockerSanitationDiagnostics;
+}
+
+export interface BlockerArtifactCaps {
+  maxNetworkEvents: number;
+  maxConsoleEvents: number;
+  maxExceptionEvents: number;
+  maxHosts: number;
+  maxTextLength: number;
+}
+
+export interface BlockerArtifactsV1 {
+  schemaVersion: "1.0";
+  network: Array<Record<string, JsonValue>>;
+  console: Array<Record<string, JsonValue>>;
+  exception: Array<Record<string, JsonValue>>;
+  hosts: string[];
+  sanitation: BlockerSanitationDiagnostics;
+}
+
 export type ProviderErrorCode =
   | "invalid_input"
   | "timeout"
@@ -149,6 +224,7 @@ export interface ProviderProvenanceMetadata {
 export interface ProviderExecutionMetadata {
   tier: ProviderTierMetadata;
   provenance: ProviderProvenanceMetadata;
+  blocker?: BlockerSignalV1;
 }
 
 export interface AdaptiveConcurrencyDiagnostics {
