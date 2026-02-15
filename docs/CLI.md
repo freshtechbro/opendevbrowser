@@ -420,6 +420,7 @@ Canonical placement:
 - `wait`: `data.meta.blockerState` + optional `data.meta.blocker`.
 - `debug-trace-snapshot`: `data.meta.blockerState` + optional `data.meta.blocker` + optional `data.meta.blockerArtifacts`.
 - `macro-resolve --execute`: `data.execution.meta.ok` + optional `data.execution.meta.blocker`.
+- `status`: `data.meta.blockerState` + optional `data.meta.blockerResolution` (`resolved | unresolved | deferred`).
 
 Canonical examples:
 
@@ -468,6 +469,27 @@ Canonical examples:
     "timingMs": 221,
     "meta": {
       "blockerState": "clear"
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "status",
+  "success": true,
+  "data": {
+    "mode": "managed",
+    "activeTargetId": "target-1",
+    "url": "https://x.com/i/flow/login",
+    "title": "Log in to X / X",
+    "meta": {
+      "blockerState": "active",
+      "blockerResolution": {
+        "status": "unresolved",
+        "reason": "verification_timeout",
+        "updatedAt": "2026-02-15T14:18:28.000Z"
+      }
     }
   }
 }
@@ -1022,14 +1044,18 @@ npm run test -- tests/providers-performance-gate.test.ts
 Release gate source of truth: `docs/RELEASE_PARITY_CHECKLIST.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
-### Latest validation (2026-02-14)
+### Latest validation (2026-02-15)
 
 - `npm run lint` ✅
 - `npx tsc --noEmit` ✅
 - `npm run build` ✅
 - `npm run test` ✅
 - `node scripts/live-regression-matrix.mjs` ✅ (`pass: 21`, `env_limited: 1`, `expected_timeout: 2`, `fail: 0`)
-- Remaining `env_limited`: `mode.extension_legacy_cdp` (legacy `/cdp` attach mismatch: `No tab with given id ...`).
+- Current `env_limited` outcomes are setup/environment-related:
+  - `mode.extension_legacy_cdp` (relay `/cdp` tab/session drift: `No tab with given id`)
+- Current `expected_timeout` outcomes are interaction-related:
+  - `feature.annotate.relay`
+  - `feature.annotate.direct`
 - Operator rollout, rollback triggers, and triage checklist are documented in `docs/AUTH_ANTI_BOT_BLOCKERS_REPORT.md`.
 
 ---

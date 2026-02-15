@@ -1,11 +1,11 @@
 # Auth and Anti-Bot Blocker Investigation Report
 
-Date: 2026-02-14  
+Date: 2026-02-15  
 Scope: live validation of OpenDevBrowser mode behavior, research/macro execute surfaces, and blocker handling for Reddit/X plus generalized anti-bot/auth flows.
 
 ## Executive Summary
 
-OpenDevBrowser currently detects and exposes meaningful challenge signals, but blocker handling is still mostly implicit and fragmented across channels (navigation status, trace channels, macro error codes).  
+OpenDevBrowser now exposes blocker handling as a first-class additive contract across browser/runtime/tool/CLI/daemon surfaces.  
 In live runs, Reddit and X blockers are reproducible and mode-dependent:
 
 - Reddit:
@@ -14,9 +14,9 @@ In live runs, Reddit and X blockers are reproducible and mode-dependent:
   - cdpConnect headless: challenge page (`Reddit - Prove your humanity`) with reCAPTCHA signals
 - X:
   - all validated modes redirect search flows to login (`/i/flow/login?...`) with `Log in to X / X` title
-- Macro execute for Reddit/X community/social routes still returns structured `unavailable` failures when upstream static assets are blocked (`redditstatic`, `abs.twimg.com`), even though default runtime transports are wired.
+- Macro execute surfaces carry structured blocker metadata in `execution.meta.blocker` for blocked/unavailable paths.
 
-Core recommendation: add a first-class blocker contract and resolver orchestration pipeline, rather than hardcoding site-specific heuristics in tool code.
+Current focus is operational validation quality (especially extension-connected preflight readiness), not core blocker-contract implementation.
 
 ## Reproducible Live Validation
 
@@ -28,7 +28,7 @@ Command:
 node scripts/live-regression-matrix.mjs
 ```
 
-Observed on 2026-02-14:
+Observed on 2026-02-15:
 
 - `pass: 21`
 - `env_limited: 1`
@@ -37,10 +37,10 @@ Observed on 2026-02-14:
 
 Key matrix observations:
 
-- `infra.extension.ready`: `pass` with extension relay healthy (`extensionConnected=true`, `extensionHandshakeComplete=true`, `opsConnected=true`)
-- `mode.extension_ops`: `pass`
-- `mode.extension_legacy_cdp`: `env_limited` (legacy `/cdp` attach mismatch: `No tab with given id ...`)
-- Upstream static-host env-limited failures previously seen on `redditstatic` and `abs.twimg.com` no longer reproduced.
+- `infra.extension.ready`: `pass` with extension connected and handshake complete.
+- `mode.extension_ops`: `pass` with blocker metadata assertions exercised.
+- `mode.extension_legacy_cdp`: `env_limited` in this run due relay `/cdp` auto-attach/tab-id mismatch (`No tab with given id`), with explicit operator guidance.
+- Managed and cdpConnect mode blocker evidence remained available and contract-compliant.
 - `mode.managed`: blocker evidence captured (`goto`, `wait`, and `debug-trace-snapshot`) with `blockerState=clear`
 - `mode.cdp_connect`: blocker evidence captured (`goto`, `wait`, and `debug-trace-snapshot`) with `blockerState=clear`
 
@@ -79,41 +79,40 @@ cdpConnect (headless Chrome with `--remote-debugging-port`):
   - status: `200`
   - title: `Log in to X / X`
 
-## Current Handling (Code-Level)
+## Implementation Status (Code-Level)
 
-Existing building blocks are solid but not unified into an explicit blocker workflow:
+Blocker handling is implemented end-to-end as a first-class additive contract:
 
-- Challenge pattern defaults exist in config (`src/config.ts:299`).
-- Tier2 challenge detection exists (status + URL pattern) (`src/browser/fingerprint/tier2-runtime.ts:70`).
-- Canary labels high-friction targets from URL/status (`src/browser/browser-manager.ts:1404`).
-- Trace tooling already exposes page + console + network + exceptions (`src/tools/debug_trace_snapshot.ts:31`).
-- Runtime fetch taxonomy maps 401/403 to `auth`, 429 to `rate_limited`, 5xx to `upstream`, other 4xx to `unavailable` (`src/providers/index.ts:252`).
-- Adaptive runtime shaping pushes crawl `fetchConcurrency` filters for web crawl calls (`src/providers/index.ts:1104`, `src/providers/web/index.ts:225`).
+- Classifier and precedence are centralized in `src/providers/blocker.ts` (auth/challenge/rate-limit/upstream/restricted/env-limited/unknown).
+- Runtime failures carry blocker metadata additively via `meta.blocker` (`src/providers/index.ts`).
+- Browser navigation/verification surfaces emit blocker state and optional artifacts (`src/browser/browser-manager.ts`, `src/tools/debug_trace_snapshot.ts`).
+- Macro execute-mode carries blocker metadata in `execution.meta.blocker` (`src/macros/execute.ts`, `src/tools/macro_resolve.ts`, `src/cli/daemon-commands.ts`).
+- Resolver state transitions now emit explicit unresolved/deferred outcomes when verification cannot complete (`src/browser/session-store.ts`, `src/browser/browser-manager.ts`).
+- Cross-surface parity is covered by dedicated tests (`tests/providers-blocker.test.ts`, `tests/session-store.test.ts`, `tests/parity-matrix.test.ts`, `tests/macro-resolve.test.ts`, `tests/daemon-commands.integration.test.ts`).
 
-## Gap Analysis
+## Remaining Operational Limits
 
-1. Blockers are detectable but not promoted to a first-class cross-surface object.
-2. `macro-resolve --execute` returns structured failures, but blockers are not differentiated enough for guided recovery actions.
-3. Auth redirects (X login flow) are observable, but no explicit auth challenge state is surfaced with next-step affordances.
-4. Reddit challenge states are observable in trace/title/network, but no standardized “challenge artifact bundle” is emitted.
-5. Extension mode reliability can be environment-limited; this currently blocks assisted interactive resolution in those environments.
+1. Extension-connected validation is environment-dependent; legacy `/cdp` checks can still classify `env_limited` when relay tab/session state drifts.
+2. Annotation probes are intentionally `expected_timeout` unless manual annotation interaction is completed during the run.
+3. Live matrix evidence should always be interpreted with preflight context (`infra.extension.ready`) before judging extension-mode regressions.
 
-## Quality Gate Evidence (2026-02-14)
+## Quality Gate Evidence (2026-02-15)
 
 Command outcomes:
 
 - `npm run lint` ✅
 - `npx tsc --noEmit` ✅
 - `npm run build` ✅
-- `npm run test` ✅ (`85` files, `1104` tests)
-- Coverage: branch `97.08%` (meets required `>=97%`)
+- `npm run test` ✅ (`85` files, `1106` tests)
+- Coverage: branch `97.01%` (meets required `>=97%`)
 - `node scripts/live-regression-matrix.mjs` ✅ (`pass: 21`, `env_limited: 1`, `expected_timeout: 2`, `fail: 0`)
 
-Blocker evidence deltas captured in second pass:
+Blocker evidence deltas captured in the latest pass:
 
 - Added explicit extension preflight diagnostics (`infra.extension.ready`) with actionable setup hints.
 - Added mode-specific blocker evidence capture for managed, extension, and cdpConnect paths (`goto`/`wait`/`debug-trace-snapshot`).
 - Added blocker metadata assertions and non-blocker parity guards in runtime/tool/daemon/CLI tests.
+- Added explicit unresolved/deferred resolver outcomes for verification failures/timeouts and exposed resolution metadata on status surfaces.
 
 ## Canonical Blocker Contract (v2)
 
@@ -129,6 +128,7 @@ Canonical placement by surface:
 - `wait`: `data.meta.blockerState` + optional `data.meta.blocker`
 - `debug-trace-snapshot`: `data.meta.blockerState` + optional `data.meta.blocker` + optional `data.meta.blockerArtifacts`
 - `macro-resolve --execute`: `data.execution.meta.ok` + optional `data.execution.meta.blocker`
+- `status`: `data.meta.blockerState` + optional `data.meta.blockerResolution` (`resolved | unresolved | deferred`)
 
 Canonical examples:
 
@@ -192,62 +192,40 @@ Canonical examples:
 }
 ```
 
-## What Needs To Be Done
+```json
+{
+  "command": "status",
+  "data": {
+    "meta": {
+      "blockerState": "active",
+      "blockerResolution": {
+        "status": "deferred",
+        "reason": "env_limited"
+      }
+    }
+  }
+}
+```
 
-### 1) Introduce a first-class blocker model
+## Implemented Deliverables
 
-Add a shared `BlockerSignal` schema emitted by browser/runtime layers:
-
-- `type`: `auth_required | anti_bot_challenge | rate_limited | upstream_block | restricted_target | unknown`
-- `confidence`: `0..1`
-- `source`: `navigation | network | console | runtime_fetch | macro_execution`
-- `evidence`: URL/title/status/error code + matched patterns + key network hosts
-- `actionHints`: ordered suggestions for resolver flow
-
-Primary implementation touchpoints:
-
-- `src/browser/browser-manager.ts`
-- `src/providers/index.ts`
-- `src/tools/debug_trace_snapshot.ts`
-- `src/tools/macro_resolve.ts`
-- `src/cli/daemon-commands.ts`
-
-### 2) Emit blocker artifact bundles
-
-When blocker confidence crosses threshold, produce a standardized bundle:
-
-- active URL/title/status
-- screenshot path (if available)
-- compact trace excerpt (network/console/exception)
-- suggested mode fallback (`managed-headed`, `extension`, `cdpConnect`)
-
-This gives the agent enough context to reason without hardcoding domain-specific behavior.
-
-### 3) Expose blocker state on CLI/tool/daemon surfaces
-
-Add additive fields to avoid breaking compatibility:
-
-- `goto` result: optional `blocker`
-- `wait` result: optional `blocker`
-- `macro-resolve --execute`: `execution.meta.blocker` when detected
-- daemon RPC payloads: same schema
-
-### 4) Add interactive blocker resolution loop
-
-Provide explicit “pause for human, then resume” primitives:
-
-- pause session with blocker payload
-- user resolves challenge/login in browser
-- resume from same session/context/cookies
-- verify unblock with re-check action
-
-### 5) Improve taxonomy mapping for real-world auth/challenge
-
-Keep existing error taxonomy, but enrich with blocker classification:
-
-- 401/403 + login redirect patterns => `auth_required`
-- 200 + challenge-title/URL + recaptcha requests => `anti_bot_challenge`
-- asset host fetch failures (`redditstatic`, `abs.twimg.com`) => `upstream_block` or `unavailable` with blocker hints
+1. First-class blocker schema and classifier
+   - Implemented `BlockerSignalV1` with deterministic precedence and confidence thresholds.
+   - Sources: `navigation | network | runtime_fetch | macro_execution`.
+2. Artifact bundle emission
+   - Added bounded/sanitized `blockerArtifacts` (network/console/exception + host summary).
+   - Prompt-guard + redaction enforced before serialization.
+3. Cross-surface additive placement
+   - `goto` / `wait` / `debug-trace-snapshot`: `data.meta.blockerState` + optional `data.meta.blocker`.
+   - `macro-resolve --execute`: `data.execution.meta.blocker`.
+   - Daemon fallback enrichers preserve the same additive semantics.
+4. Resolver reliability updates
+   - Session blocker FSM supports explicit resolver outcomes when verification cannot complete:
+     - `unresolved` (`verification_timeout` / `verifier_failed`)
+     - `deferred` (`env_limited`)
+   - Status surfaces expose `meta.blockerResolution` for operator triage.
+5. Taxonomy coverage
+   - Auth/login redirect, anti-bot challenge, upstream blocked assets, and environment limits are mapped consistently.
 
 ## Reddit-Specific Recommendations
 

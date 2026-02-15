@@ -41,9 +41,9 @@ Lock the v2 blocker payload contract and publish canonical examples per surface.
 Every caller path has an unambiguous blocker contract reference.
 
 ### Acceptance criteria
-- [ ] Canonical field placement is defined per surface.
-- [ ] Examples cover `auth_required`, `anti_bot_challenge`, and `env_limited`.
-- [ ] Additive-only compatibility rule is explicit.
+- [x] Canonical field placement is defined per surface.
+- [x] Examples cover `auth_required`, `anti_bot_challenge`, and `env_limited`.
+- [x] Additive-only compatibility rule is explicit.
 
 ---
 
@@ -72,9 +72,9 @@ Calibrate classifier precedence/confidence so mode differences do not change blo
 Classifier output is repeatable across runtime modes and call surfaces.
 
 ### Acceptance criteria
-- [ ] Same evidence yields same blocker `type` and `retryable` result.
-- [ ] Redirect to `/i/flow/login` resolves to `auth_required`.
-- [ ] Challenge-title + recaptcha evidence resolves to `anti_bot_challenge`.
+- [x] Same evidence yields same blocker `type` and `retryable` result.
+- [x] Redirect to `/i/flow/login` resolves to `auth_required`.
+- [x] Challenge-title + recaptcha evidence resolves to `anti_bot_challenge`.
 
 ---
 
@@ -103,9 +103,9 @@ Harden resolver state transitions for pause, verify, resume, and timeout.
 Manual login/challenge flows resume reliably from the same session context.
 
 ### Acceptance criteria
-- [ ] FSM transition coverage includes timeout and verifier-fail branches.
-- [ ] Session resume path preserves context and emits updated blocker state.
-- [ ] No unresolved blocker is silently marked as cleared.
+- [x] FSM transition coverage includes timeout and verifier-fail branches.
+- [x] Session resume path preserves context and emits updated blocker state.
+- [x] No unresolved blocker is silently marked as cleared.
 
 ---
 
@@ -131,9 +131,9 @@ Add deterministic extension-connected validation steps and assertions in the liv
 Extension-path blocker behavior is validated with the same rigor as managed/cdp paths.
 
 ### Acceptance criteria
-- [ ] Matrix produces explicit extension readiness diagnostics.
-- [ ] Extension-mode blocker assertions are exercised in at least one connected run.
-- [ ] Mode comparison evidence is documented in report output.
+- [x] Matrix produces explicit extension readiness diagnostics.
+- [x] Extension-mode blocker assertions are exercised in at least one connected run.
+- [x] Mode comparison evidence is documented in report output.
 
 ---
 
@@ -161,9 +161,9 @@ Ensure blocker artifact bundles are bounded, redacted, and diagnostically useful
 Artifacts are safe by default and still sufficient for unblock decisions.
 
 ### Acceptance criteria
-- [ ] No secret-bearing fields are emitted in blocker artifacts.
-- [ ] Artifact/event limits are enforced deterministically.
-- [ ] Sanitized evidence remains actionable in blocker hints.
+- [x] No secret-bearing fields are emitted in blocker artifacts.
+- [x] Artifact/event limits are enforced deterministically.
+- [x] Sanitized evidence remains actionable in blocker hints.
 
 ---
 
@@ -192,9 +192,9 @@ Verify blocker parity across tool, CLI, and daemon responses and preserve failur
 Tool/CLI/daemon users get equivalent blocker semantics for equivalent runs.
 
 ### Acceptance criteria
-- [ ] Field shape parity checks pass across all invoke paths.
-- [ ] Existing non-blocker outputs are unchanged.
-- [ ] Macro failure outputs remain structured and additive.
+- [x] Field shape parity checks pass across all invoke paths.
+- [x] Existing non-blocker outputs are unchanged.
+- [x] Macro failure outputs remain structured and additive.
 
 ---
 
@@ -220,9 +220,9 @@ Run and document full quality gates plus live blocker evidence required for rele
 Release decision has objective quality and live-behavior evidence.
 
 ### Acceptance criteria
-- [ ] Quality gates are green.
-- [ ] Live matrix results are documented with blocker evidence deltas.
-- [ ] Remaining environment limitations are clearly separated from product defects.
+- [x] Quality gates are green.
+- [x] Live matrix results are documented with blocker evidence deltas.
+- [x] Remaining environment limitations are clearly separated from product defects.
 
 ---
 
@@ -248,9 +248,9 @@ Define rollout sequencing, ownership handoff, and rollback triggers for blocker 
 Blocker features ship with clear execution order and safe fallback path.
 
 ### Acceptance criteria
-- [ ] Rollout stages and owners are explicit.
-- [ ] Rollback triggers are concrete and testable.
-- [ ] Triage checklist is usable without code-level knowledge.
+- [x] Rollout stages and owners are explicit.
+- [x] Rollback triggers are concrete and testable.
+- [x] Triage checklist is usable without code-level knowledge.
 
 ---
 
