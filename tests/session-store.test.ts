@@ -63,7 +63,7 @@ describe("SessionStore blocker FSM", () => {
     expect(store.getBlockerSummary("s1").blocker).toBeUndefined();
   });
 
-  it("clears active blockers on timeout when no fresh blocker is observed", () => {
+  it("marks timeout verification gaps as unresolved instead of silently clearing", () => {
     const store = new SessionStore();
     store.add({
       id: "s1",
@@ -90,7 +90,15 @@ describe("SessionStore blocker FSM", () => {
       verifier: false,
       nowMs: 170
     });
-    expect(cleared.state).toBe("clear");
+    expect(cleared.state).toBe("active");
+    expect(cleared.resolution).toMatchObject({
+      status: "unresolved",
+      reason: "verification_timeout"
+    });
+    expect(store.getBlockerSummary("s1").resolution).toMatchObject({
+      status: "unresolved",
+      reason: "verification_timeout"
+    });
   });
 
   it("keeps blocker active on verifier-fail branch before timeout and preserves target context", () => {
@@ -141,7 +149,15 @@ describe("SessionStore blocker FSM", () => {
     expect(noopResolving.state).toBe("clear");
 
     const cleared = store.clearBlocker("s1", 22);
-    expect(cleared).toMatchObject({ state: "clear", updatedAtMs: 22 });
+    expect(cleared).toMatchObject({
+      state: "clear",
+      updatedAtMs: 22,
+      resolution: {
+        status: "resolved",
+        reason: "manual_clear",
+        updatedAtMs: 22
+      }
+    });
     expect(store.getBlockerSummary("s1").updatedAt).toBe("1970-01-01T00:00:00.022Z");
 
     store.delete("s1");
@@ -176,5 +192,45 @@ describe("SessionStore blocker FSM", () => {
     });
     expect(next.state).toBe("active");
     expect(typeof next.updatedAtMs).toBe("number");
+  });
+
+  it("marks verifier failures as unresolved/deferred and preserves active blocker context", () => {
+    const store = new SessionStore();
+    store.add({
+      id: "s1",
+      mode: "managed",
+      browser: {} as never,
+      context: {} as never
+    });
+
+    store.reconcileBlocker("s1", makeBlocker("auth_required"), {
+      timeoutMs: 60_000,
+      verifier: false,
+      nowMs: 10
+    });
+
+    const unresolved = store.markVerificationFailure("s1", { nowMs: 20 });
+    expect(unresolved).toMatchObject({
+      state: "active",
+      resolution: {
+        status: "unresolved",
+        reason: "verifier_failed",
+        updatedAtMs: 20
+      }
+    });
+
+    const deferred = store.markVerificationFailure("s1", { envLimited: true, nowMs: 30 });
+    expect(deferred).toMatchObject({
+      state: "active",
+      resolution: {
+        status: "deferred",
+        reason: "env_limited",
+        updatedAtMs: 30
+      }
+    });
+
+    store.clearBlocker("s1", 40);
+    const noop = store.markVerificationFailure("s1", { nowMs: 50 });
+    expect(noop.state).toBe("clear");
   });
 });

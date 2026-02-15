@@ -3576,4 +3576,45 @@ describe("BrowserManager", () => {
     expect(trace.meta?.blockerArtifacts?.exception.length).toBeLessThanOrEqual(10);
     expect(trace.meta?.blockerArtifacts?.sanitation.entries).toBeGreaterThan(0);
   });
+
+  it("marks verifier failures as unresolved and env-limited in session status metadata", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    page.title.mockResolvedValue("Log in to X / X");
+    page.waitForLoadState.mockRejectedValueOnce(new Error("Navigation wait timed out after 5000ms"));
+    page.waitForLoadState.mockRejectedValueOnce(new Error("Extension not connected. Operation not available in this environment."));
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const blocked = await manager.goto(launch.sessionId, "https://x.com/i/flow/login");
+    expect(blocked.meta?.blockerState).toBe("active");
+
+    await expect(manager.waitForLoad(launch.sessionId, "load", 5000)).rejects.toThrow("timed out");
+    const unresolvedStatus = await manager.status(launch.sessionId);
+    expect(unresolvedStatus.meta).toMatchObject({
+      blockerState: "active",
+      blockerResolution: {
+        status: "unresolved",
+        reason: "verification_timeout"
+      }
+    });
+
+    await expect(manager.waitForLoad(launch.sessionId, "load", 5000)).rejects.toThrow("Extension not connected");
+    const deferredStatus = await manager.status(launch.sessionId);
+    expect(deferredStatus.meta).toMatchObject({
+      blockerState: "active",
+      blockerResolution: {
+        status: "deferred",
+        reason: "env_limited"
+      }
+    });
+  });
 });
