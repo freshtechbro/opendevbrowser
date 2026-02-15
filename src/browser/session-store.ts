@@ -11,6 +11,20 @@ export type BrowserSession = {
   context: BrowserContext;
 };
 
+export type SessionBlockerResolutionStatus = "resolved" | "unresolved" | "deferred";
+export type SessionBlockerResolutionReason =
+  | "verifier_passed"
+  | "verification_timeout"
+  | "verifier_failed"
+  | "env_limited"
+  | "manual_clear";
+
+export type SessionBlockerResolution = {
+  status: SessionBlockerResolutionStatus;
+  reason: SessionBlockerResolutionReason;
+  updatedAtMs: number;
+};
+
 export type SessionBlockerState = {
   state: SessionBlockerStateValue;
   blocker?: BlockerSignalV1;
@@ -18,6 +32,7 @@ export type SessionBlockerState = {
   activatedAtMs?: number;
   lastDetectedAtMs?: number;
   updatedAtMs?: number;
+  resolution?: SessionBlockerResolution;
 };
 
 export type SessionBlockerSummary = {
@@ -25,6 +40,11 @@ export type SessionBlockerSummary = {
   blocker?: BlockerSignalV1;
   targetKey?: string;
   updatedAt?: string;
+  resolution?: {
+    status: SessionBlockerResolutionStatus;
+    reason: SessionBlockerResolutionReason;
+    updatedAt: string;
+  };
 };
 
 const CLEAR_STATE: SessionBlockerState = { state: "clear" };
@@ -70,7 +90,16 @@ export class SessionStore {
       state: state.state,
       ...(state.blocker ? { blocker: state.blocker } : {}),
       ...(state.targetKey ? { targetKey: state.targetKey } : {}),
-      ...(typeof state.updatedAtMs === "number" ? { updatedAt: new Date(state.updatedAtMs).toISOString() } : {})
+      ...(typeof state.updatedAtMs === "number" ? { updatedAt: new Date(state.updatedAtMs).toISOString() } : {}),
+      ...(state.resolution
+        ? {
+          resolution: {
+            status: state.resolution.status,
+            reason: state.resolution.reason,
+            updatedAt: new Date(state.resolution.updatedAtMs).toISOString()
+          }
+        }
+        : {})
     };
   }
 
@@ -82,7 +111,8 @@ export class SessionStore {
     const next: SessionBlockerState = {
       ...state,
       state: "resolving",
-      updatedAtMs: nowMs
+      updatedAtMs: nowMs,
+      resolution: undefined
     };
     this.blockerStates.set(sessionId, next);
     return next;
@@ -109,7 +139,8 @@ export class SessionStore {
         targetKey: options.targetKey ?? current.targetKey,
         activatedAtMs: current.activatedAtMs ?? nowMs,
         lastDetectedAtMs: nowMs,
-        updatedAtMs: nowMs
+        updatedAtMs: nowMs,
+        resolution: undefined
       };
       this.blockerStates.set(sessionId, next);
       return next;
@@ -121,7 +152,22 @@ export class SessionStore {
 
     const lastDetectedAtMs = current.lastDetectedAtMs ?? current.updatedAtMs ?? nowMs;
     const timedOut = nowMs - lastDetectedAtMs >= timeoutMs;
-    const shouldClear = timedOut || options.verifier === true || current.state === "resolving";
+    if (timedOut) {
+      const unresolved: SessionBlockerState = {
+        ...current,
+        state: "active",
+        updatedAtMs: nowMs,
+        resolution: {
+          status: "unresolved",
+          reason: "verification_timeout",
+          updatedAtMs: nowMs
+        }
+      };
+      this.blockerStates.set(sessionId, unresolved);
+      return unresolved;
+    }
+
+    const shouldClear = options.verifier === true || current.state === "resolving";
 
     if (!shouldClear) {
       const next = {
@@ -135,17 +181,59 @@ export class SessionStore {
     const cleared: SessionBlockerState = {
       state: "clear",
       targetKey: current.targetKey,
-      updatedAtMs: nowMs
+      updatedAtMs: nowMs,
+      resolution: {
+        status: "resolved",
+        reason: "verifier_passed",
+        updatedAtMs: nowMs
+      }
     };
     this.blockerStates.set(sessionId, cleared);
     return cleared;
+  }
+
+  markVerificationFailure(
+    sessionId: string,
+    options: {
+      envLimited?: boolean;
+      timedOut?: boolean;
+      nowMs?: number;
+    } = {}
+  ): SessionBlockerState {
+    const nowMs = options.nowMs ?? Date.now();
+    const current = this.getBlockerState(sessionId);
+    if (current.state === "clear") {
+      return current;
+    }
+
+    const next: SessionBlockerState = {
+      ...current,
+      state: "active",
+      updatedAtMs: nowMs,
+      resolution: {
+        status: options.envLimited ? "deferred" : "unresolved",
+        reason: options.envLimited
+          ? "env_limited"
+          : options.timedOut
+            ? "verification_timeout"
+            : "verifier_failed",
+        updatedAtMs: nowMs
+      }
+    };
+    this.blockerStates.set(sessionId, next);
+    return next;
   }
 
   clearBlocker(sessionId: string, nowMs = Date.now()): SessionBlockerState {
     this.ensureSession(sessionId);
     const cleared: SessionBlockerState = {
       state: "clear",
-      updatedAtMs: nowMs
+      updatedAtMs: nowMs,
+      resolution: {
+        status: "resolved",
+        reason: "manual_clear",
+        updatedAtMs: nowMs
+      }
     };
     this.blockerStates.set(sessionId, cleared);
     return cleared;

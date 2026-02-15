@@ -367,18 +367,40 @@ export class BrowserManager {
     }
   }
 
-  async status(sessionId: string): Promise<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string }> {
+  async status(sessionId: string): Promise<{
+    mode: BrowserMode;
+    activeTargetId: string | null;
+    url?: string;
+    title?: string;
+    meta?: {
+      blocker?: BlockerSignalV1;
+      blockerState: "clear" | "active" | "resolving";
+      blockerUpdatedAt?: string;
+      blockerResolution?: {
+        status: "resolved" | "unresolved" | "deferred";
+        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
+        updatedAt: string;
+      };
+    };
+  }> {
     const managed = this.getManaged(sessionId);
     const activeTargetId = managed.targets.getActiveTargetId();
     const page = activeTargetId ? managed.targets.getPage(activeTargetId) : null;
     const title = await this.safePageTitle(page, "BrowserManager.status");
     const url = this.safePageUrl(page, "BrowserManager.status");
+    const summary = this.store.getBlockerSummary(sessionId);
 
     return {
       mode: managed.mode,
       activeTargetId,
       url,
-      title
+      title,
+      meta: {
+        blockerState: summary.state,
+        ...(summary.blocker ? { blocker: summary.blocker } : {}),
+        ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
+        ...(summary.resolution ? { blockerResolution: summary.resolution } : {})
+      }
     };
   }
 
@@ -601,163 +623,175 @@ export class BrowserManager {
       blocker?: BlockerSignalV1;
       blockerState: "clear" | "active" | "resolving";
       blockerUpdatedAt?: string;
+      blockerResolution?: {
+        status: "resolved" | "unresolved" | "deferred";
+        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
+        updatedAt: string;
+      };
     };
   }> {
     const startTime = Date.now();
-    const managed = sessionOverride ? this.buildOverrideSession(sessionOverride) : this.getManaged(sessionId);
-    let page = managed.targets.getActivePage();
-    const syncExtensionTargets = (): void => {
-      try {
-        managed.targets.syncPages(managed.context.pages());
-      } catch {
-        // Best-effort sync only.
-      }
-    };
-    const pickStableExtensionEntry = (): { targetId: string; page: Page } | null => {
-      syncExtensionTargets();
-      for (const entry of managed.targets.listPageEntries()) {
+    try {
+      const managed = sessionOverride ? this.buildOverrideSession(sessionOverride) : this.getManaged(sessionId);
+      let page = managed.targets.getActivePage();
+      const syncExtensionTargets = (): void => {
         try {
-          const candidateUrl = entry.page.url();
-          if (candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://")) {
-            return entry;
+          managed.targets.syncPages(managed.context.pages());
+        } catch {
+          // Best-effort sync only.
+        }
+      };
+      const pickStableExtensionEntry = (): { targetId: string; page: Page } | null => {
+        syncExtensionTargets();
+        for (const entry of managed.targets.listPageEntries()) {
+          try {
+            const candidateUrl = entry.page.url();
+            if (candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://")) {
+              return entry;
+            }
+          } catch {
+            // Ignore pages that cannot report a URL.
           }
-        } catch {
-          // Ignore pages that cannot report a URL.
         }
-      }
-      return null;
-    };
-    const selectFallbackExtensionPage = (): Page | null => {
-      syncExtensionTargets();
-      const entries = managed.targets.listPageEntries().filter((entry) => !entry.page.isClosed());
-      if (entries.length === 0) {
         return null;
-      }
-      const stable = entries.find((entry) => {
+      };
+      const selectFallbackExtensionPage = (): Page | null => {
+        syncExtensionTargets();
+        const entries = managed.targets.listPageEntries().filter((entry) => !entry.page.isClosed());
+        if (entries.length === 0) {
+          return null;
+        }
+        const stable = entries.find((entry) => {
+          try {
+            const candidateUrl = entry.page.url();
+            return candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://");
+          } catch {
+            return false;
+          }
+        }) ?? entries[0]!;
+        managed.targets.setActiveTarget(stable.targetId);
+        return stable.page;
+      };
+      const ensureActiveExtensionPage = async (): Promise<Page> => {
+        const newPage = await this.createExtensionPage(managed, "goto");
+        const targetId = managed.targets.registerPage(newPage);
+        managed.targets.setActiveTarget(targetId);
+        this.attachRefInvalidationForPage(managed, targetId, newPage);
+        this.attachTrackers(managed);
         try {
-          const candidateUrl = entry.page.url();
-          return candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://");
-        } catch {
-          return false;
+          await this.waitForExtensionTargetReady(newPage, "goto", Math.min(timeoutMs, 5000));
+        } catch (error) {
+          if (!this.isExtensionTargetReadyTimeout(error)) {
+            throw error;
+          }
+          console.warn("BrowserManager.goto: extension target readiness timed out; continuing.");
         }
-      }) ?? entries[0]!;
-      managed.targets.setActiveTarget(stable.targetId);
-      return stable.page;
-    };
-    const ensureActiveExtensionPage = async (): Promise<Page> => {
-      const newPage = await this.createExtensionPage(managed, "goto");
-      const targetId = managed.targets.registerPage(newPage);
-      managed.targets.setActiveTarget(targetId);
-      this.attachRefInvalidationForPage(managed, targetId, newPage);
-      this.attachTrackers(managed);
-      try {
-        await this.waitForExtensionTargetReady(newPage, "goto", Math.min(timeoutMs, 5000));
-      } catch (error) {
-        if (!this.isExtensionTargetReadyTimeout(error)) {
-          throw error;
-        }
-        console.warn("BrowserManager.goto: extension target readiness timed out; continuing.");
-      }
-      return newPage;
-    };
+        return newPage;
+      };
 
-    if (managed.mode === "extension") {
-      try {
-        const currentUrl = page.url();
-        if (!currentUrl || currentUrl === "about:blank" || currentUrl.startsWith("chrome://") || currentUrl.startsWith("chrome-extension://")) {
-          const stable = pickStableExtensionEntry();
-          if (stable) {
-            managed.targets.setActiveTarget(stable.targetId);
-            page = stable.page;
-          } else {
-            try {
-              page = await ensureActiveExtensionPage();
-            } catch (error) {
-              if (!this.isTargetNotAllowedError(error)) {
-                throw error;
+      if (managed.mode === "extension") {
+        try {
+          const currentUrl = page.url();
+          if (!currentUrl || currentUrl === "about:blank" || currentUrl.startsWith("chrome://") || currentUrl.startsWith("chrome-extension://")) {
+            const stable = pickStableExtensionEntry();
+            if (stable) {
+              managed.targets.setActiveTarget(stable.targetId);
+              page = stable.page;
+            } else {
+              try {
+                page = await ensureActiveExtensionPage();
+              } catch (error) {
+                if (!this.isTargetNotAllowedError(error)) {
+                  throw error;
+                }
               }
             }
           }
+        } catch {
+          try {
+            page = await ensureActiveExtensionPage();
+          } catch (error) {
+            if (!this.isTargetNotAllowedError(error)) {
+              throw error;
+            }
+          }
         }
-      } catch {
         try {
-          page = await ensureActiveExtensionPage();
+          await this.waitForExtensionTargetReady(page, "goto", Math.min(timeoutMs, 5000));
         } catch (error) {
-          if (!this.isTargetNotAllowedError(error)) {
+          if (this.isDetachedFrameError(error)) {
+            try {
+              page = await ensureActiveExtensionPage();
+            } catch (retryError) {
+              if (!this.isTargetNotAllowedError(retryError)) {
+                throw retryError;
+              }
+              page = selectFallbackExtensionPage() ?? page;
+            }
+          } else if (this.isExtensionTargetReadyTimeout(error)) {
+            page = selectFallbackExtensionPage() ?? page;
+          } else {
             throw error;
           }
         }
       }
-      try {
-        await this.waitForExtensionTargetReady(page, "goto", Math.min(timeoutMs, 5000));
-      } catch (error) {
-        if (this.isDetachedFrameError(error)) {
-          try {
-            page = await ensureActiveExtensionPage();
-          } catch (retryError) {
-            if (!this.isTargetNotAllowedError(retryError)) {
-              throw retryError;
-            }
-            page = selectFallbackExtensionPage() ?? page;
-          }
-        } else if (this.isExtensionTargetReadyTimeout(error)) {
-          page = selectFallbackExtensionPage() ?? page;
-        } else {
-          throw error;
-        }
-      }
-    }
 
-    let response;
-    if (managed.mode === "extension") {
-      let lastError: unknown = null;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          response = await page.goto(url, { waitUntil, timeout: timeoutMs });
-          lastError = null;
-          break;
-        } catch (error) {
-          if (!this.isDetachedFrameError(error)) {
-            throw error;
-          }
-          lastError = error;
+      let response;
+      if (managed.mode === "extension") {
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
           try {
-            page = await ensureActiveExtensionPage();
-          } catch (retryError) {
-            if (!this.isTargetNotAllowedError(retryError)) {
-              throw retryError;
+            response = await page.goto(url, { waitUntil, timeout: timeoutMs });
+            lastError = null;
+            break;
+          } catch (error) {
+            if (!this.isDetachedFrameError(error)) {
+              throw error;
             }
-            page = selectFallbackExtensionPage() ?? page;
+            lastError = error;
+            try {
+              page = await ensureActiveExtensionPage();
+            } catch (retryError) {
+              if (!this.isTargetNotAllowedError(retryError)) {
+                throw retryError;
+              }
+              page = selectFallbackExtensionPage() ?? page;
+            }
           }
         }
+        if (lastError) {
+          throw lastError;
+        }
+      } else {
+        response = await page.goto(url, { waitUntil, timeout: timeoutMs });
       }
-      if (lastError) {
-        throw lastError;
-      }
-    } else {
-      response = await page.goto(url, { waitUntil, timeout: timeoutMs });
-    }
 
-    const finalUrl = this.safePageUrl(page, "BrowserManager.goto");
-    const status = response?.status();
-    const title = await this.safePageTitle(page, "BrowserManager.goto");
-    const blockerMeta = sessionOverride
-      ? undefined
-      : this.reconcileSessionBlocker(sessionId, managed, {
-        source: "navigation",
-        url,
+      const finalUrl = this.safePageUrl(page, "BrowserManager.goto");
+      const status = response?.status();
+      const title = await this.safePageTitle(page, "BrowserManager.goto");
+      const blockerMeta = sessionOverride
+        ? undefined
+        : this.reconcileSessionBlocker(sessionId, managed, {
+          source: "navigation",
+          url,
+          finalUrl,
+          title,
+          status,
+          verifier: true
+        });
+
+      return {
         finalUrl,
-        title,
-        status,
-        verifier: true
-      });
-
-    return {
-      finalUrl,
-      ...(typeof status === "number" ? { status } : {}),
-      timingMs: Date.now() - startTime,
-      ...(blockerMeta ? { meta: blockerMeta } : {})
-    };
+        ...(typeof status === "number" ? { status } : {}),
+        timingMs: Date.now() - startTime,
+        ...(blockerMeta ? { meta: blockerMeta } : {})
+      };
+    } catch (error) {
+      if (!sessionOverride) {
+        this.markVerifierFailure(sessionId, error);
+      }
+      throw error;
+    }
   }
 
   async waitForLoad(
@@ -770,22 +804,32 @@ export class BrowserManager {
       blocker?: BlockerSignalV1;
       blockerState: "clear" | "active" | "resolving";
       blockerUpdatedAt?: string;
+      blockerResolution?: {
+        status: "resolved" | "unresolved" | "deferred";
+        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
+        updatedAt: string;
+      };
     };
   }> {
     const startTime = Date.now();
-    const managed = this.getManaged(sessionId);
-    const page = managed.targets.getActivePage();
-    await page.waitForLoadState(until, { timeout: timeoutMs });
-    const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
-      source: "navigation",
-      finalUrl: this.safePageUrl(page, "BrowserManager.waitForLoad"),
-      title: await this.safePageTitle(page, "BrowserManager.waitForLoad"),
-      verifier: true
-    });
-    return {
-      timingMs: Date.now() - startTime,
-      ...(blockerMeta ? { meta: blockerMeta } : {})
-    };
+    try {
+      const managed = this.getManaged(sessionId);
+      const page = managed.targets.getActivePage();
+      await page.waitForLoadState(until, { timeout: timeoutMs });
+      const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
+        source: "navigation",
+        finalUrl: this.safePageUrl(page, "BrowserManager.waitForLoad"),
+        title: await this.safePageTitle(page, "BrowserManager.waitForLoad"),
+        verifier: true
+      });
+      return {
+        timingMs: Date.now() - startTime,
+        ...(blockerMeta ? { meta: blockerMeta } : {})
+      };
+    } catch (error) {
+      this.markVerifierFailure(sessionId, error);
+      throw error;
+    }
   }
 
   async waitForRef(
@@ -799,23 +843,33 @@ export class BrowserManager {
       blocker?: BlockerSignalV1;
       blockerState: "clear" | "active" | "resolving";
       blockerUpdatedAt?: string;
+      blockerResolution?: {
+        status: "resolved" | "unresolved" | "deferred";
+        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
+        updatedAt: string;
+      };
     };
   }> {
     const startTime = Date.now();
-    const managed = this.getManaged(sessionId);
-    const selector = this.resolveSelector(managed, ref);
-    const page = managed.targets.getActivePage();
-    await page.locator(selector).waitFor({ state, timeout: timeoutMs });
-    const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
-      source: "navigation",
-      finalUrl: this.safePageUrl(page, "BrowserManager.waitForRef"),
-      title: await this.safePageTitle(page, "BrowserManager.waitForRef"),
-      verifier: true
-    });
-    return {
-      timingMs: Date.now() - startTime,
-      ...(blockerMeta ? { meta: blockerMeta } : {})
-    };
+    try {
+      const managed = this.getManaged(sessionId);
+      const selector = this.resolveSelector(managed, ref);
+      const page = managed.targets.getActivePage();
+      await page.locator(selector).waitFor({ state, timeout: timeoutMs });
+      const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
+        source: "navigation",
+        finalUrl: this.safePageUrl(page, "BrowserManager.waitForRef"),
+        title: await this.safePageTitle(page, "BrowserManager.waitForRef"),
+        verifier: true
+      });
+      return {
+        timingMs: Date.now() - startTime,
+        ...(blockerMeta ? { meta: blockerMeta } : {})
+      };
+    } catch (error) {
+      this.markVerifierFailure(sessionId, error);
+      throw error;
+    }
   }
 
   async snapshot(sessionId: string, mode: "outline" | "actionables", maxChars: number, cursor?: string): ReturnType<Snapshotter["snapshot"]> {
@@ -1106,65 +1160,75 @@ export class BrowserManager {
       blocker?: BlockerSignalV1;
       blockerState: "clear" | "active" | "resolving";
       blockerUpdatedAt?: string;
+      blockerResolution?: {
+        status: "resolved" | "unresolved" | "deferred";
+        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
+        updatedAt: string;
+      };
       blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
     };
   }> {
     const requestId = options.requestId ?? createRequestId();
-    const managed = this.getManaged(sessionId);
-    const max = options.max ?? 500;
-    const status = await this.status(sessionId);
-    const consoleChannel = managed.consoleTracker.poll(options.sinceConsoleSeq, max);
-    const networkChannel = managed.networkTracker.poll(options.sinceNetworkSeq, max);
-    const exceptionChannel = managed.exceptionTracker.poll(options.sinceExceptionSeq, max);
+    try {
+      const managed = this.getManaged(sessionId);
+      const max = options.max ?? 500;
+      const status = await this.status(sessionId);
+      const consoleChannel = managed.consoleTracker.poll(options.sinceConsoleSeq, max);
+      const networkChannel = managed.networkTracker.poll(options.sinceNetworkSeq, max);
+      const exceptionChannel = managed.exceptionTracker.poll(options.sinceExceptionSeq, max);
 
-    this.applyFingerprintSignals(managed, networkChannel.events, requestId, { source: "debug-trace" });
+      this.applyFingerprintSignals(managed, networkChannel.events, requestId, { source: "debug-trace" });
 
-    const annotateTraceContext = <T extends Record<string, unknown>>(events: T[]) => (
-      events.map((event) => ({
-        ...event,
+      const annotateTraceContext = <T extends Record<string, unknown>>(events: T[]) => (
+        events.map((event) => ({
+          ...event,
+          requestId,
+          sessionId
+        }))
+      );
+
+      const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
+        source: "network",
+        url: status.url,
+        finalUrl: status.url,
+        title: status.title,
+        status: this.latestStatus(networkChannel.events),
+        traceRequestId: requestId,
+        networkEvents: networkChannel.events,
+        consoleEvents: consoleChannel.events,
+        exceptionEvents: exceptionChannel.events,
+        verifier: true,
+        includeArtifacts: true
+      });
+
+      return {
         requestId,
-        sessionId
-      }))
-    );
-
-    const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
-      source: "network",
-      url: status.url,
-      finalUrl: status.url,
-      title: status.title,
-      status: this.latestStatus(networkChannel.events),
-      traceRequestId: requestId,
-      networkEvents: networkChannel.events,
-      consoleEvents: consoleChannel.events,
-      exceptionEvents: exceptionChannel.events,
-      verifier: true,
-      includeArtifacts: true
-    });
-
-    return {
-      requestId,
-      generatedAt: new Date().toISOString(),
-      page: status,
-      channels: {
-        console: {
-          nextSeq: consoleChannel.nextSeq,
-          truncated: consoleChannel.truncated,
-          events: annotateTraceContext(consoleChannel.events)
+        generatedAt: new Date().toISOString(),
+        page: status,
+        channels: {
+          console: {
+            nextSeq: consoleChannel.nextSeq,
+            truncated: consoleChannel.truncated,
+            events: annotateTraceContext(consoleChannel.events)
+          },
+          network: {
+            nextSeq: networkChannel.nextSeq,
+            truncated: networkChannel.truncated,
+            events: annotateTraceContext(networkChannel.events)
+          },
+          exception: {
+            nextSeq: exceptionChannel.nextSeq,
+            truncated: exceptionChannel.truncated,
+            events: annotateTraceContext(exceptionChannel.events)
+          }
         },
-        network: {
-          nextSeq: networkChannel.nextSeq,
-          truncated: networkChannel.truncated,
-          events: annotateTraceContext(networkChannel.events)
-        },
-        exception: {
-          nextSeq: exceptionChannel.nextSeq,
-          truncated: exceptionChannel.truncated,
-          events: annotateTraceContext(exceptionChannel.events)
-        }
-      },
-      fingerprint: this.buildFingerprintSummary(managed),
-      ...(blockerMeta ? { meta: blockerMeta } : {})
-    };
+        fingerprint: this.buildFingerprintSummary(managed),
+        ...(blockerMeta ? { meta: blockerMeta } : {})
+      };
+    } catch (error) {
+      this.markVerifierFailure(sessionId, error);
+      throw error;
+    }
   }
 
   async cookieImport(
@@ -1661,6 +1725,26 @@ export class BrowserManager {
     return `${targetId}:${host}`;
   }
 
+  private isEnvLimitedVerifierError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /extension not connected|connect the extension|not available in this environment|operation not permitted|eperm/i.test(message);
+  }
+
+  private isTimeoutVerifierError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /timed out|timeout/i.test(message);
+  }
+
+  private markVerifierFailure(sessionId: string, error: unknown): void {
+    if (!this.store.has(sessionId)) {
+      return;
+    }
+    this.store.markVerificationFailure(sessionId, {
+      envLimited: this.isEnvLimitedVerifierError(error),
+      timedOut: this.isTimeoutVerifierError(error)
+    });
+  }
+
   private reconcileSessionBlocker(
     sessionId: string,
     managed: ManagedSession,
@@ -1685,6 +1769,11 @@ export class BrowserManager {
     blocker?: BlockerSignalV1;
     blockerState: "clear" | "active" | "resolving";
     blockerUpdatedAt?: string;
+    blockerResolution?: {
+      status: "resolved" | "unresolved" | "deferred";
+      reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
+      updatedAt: string;
+    };
     blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
   } | undefined {
     if (!this.store.has(sessionId)) {
@@ -1736,6 +1825,7 @@ export class BrowserManager {
       blockerState: summary.state,
       ...(summary.blocker ? { blocker: summary.blocker } : {}),
       ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
+      ...(summary.resolution ? { blockerResolution: summary.resolution } : {}),
       ...(artifacts ? { blockerArtifacts: artifacts } : {})
     };
   }
