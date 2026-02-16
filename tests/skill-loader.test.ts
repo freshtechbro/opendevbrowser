@@ -7,11 +7,29 @@ import { SkillLoader } from "../src/skills/skill-loader";
 
 let tempRoot = "";
 let originalConfigDir: string | undefined;
+let originalCodexHome: string | undefined;
+let originalClaudeCodeHome: string | undefined;
+let originalClaudeHome: string | undefined;
+let originalAmpCliAliasHome: string | undefined;
+let originalAmpCliHome: string | undefined;
+let originalAmpHome: string | undefined;
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-"));
   originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
+  originalCodexHome = process.env.CODEX_HOME;
+  originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
+  originalClaudeHome = process.env.CLAUDE_HOME;
+  originalAmpCliAliasHome = process.env.AMPCLI_HOME;
+  originalAmpCliHome = process.env.AMP_CLI_HOME;
+  originalAmpHome = process.env.AMP_HOME;
   process.env.OPENCODE_CONFIG_DIR = tempRoot;
+  process.env.CODEX_HOME = join(tempRoot, "codex-home");
+  delete process.env.CLAUDECODE_HOME;
+  delete process.env.CLAUDE_HOME;
+  delete process.env.AMPCLI_HOME;
+  process.env.AMP_CLI_HOME = join(tempRoot, "amp-home");
+  delete process.env.AMP_HOME;
   const skillDir = join(tempRoot, ".opencode", "skill", "opendevbrowser-best-practices");
   await mkdir(skillDir, { recursive: true });
   await writeFile(
@@ -41,6 +59,42 @@ afterEach(() => {
     delete process.env.OPENCODE_CONFIG_DIR;
   } else {
     process.env.OPENCODE_CONFIG_DIR = originalConfigDir;
+  }
+
+  if (originalCodexHome === undefined) {
+    delete process.env.CODEX_HOME;
+  } else {
+    process.env.CODEX_HOME = originalCodexHome;
+  }
+
+  if (originalClaudeCodeHome === undefined) {
+    delete process.env.CLAUDECODE_HOME;
+  } else {
+    process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
+  }
+
+  if (originalClaudeHome === undefined) {
+    delete process.env.CLAUDE_HOME;
+  } else {
+    process.env.CLAUDE_HOME = originalClaudeHome;
+  }
+
+  if (originalAmpCliAliasHome === undefined) {
+    delete process.env.AMPCLI_HOME;
+  } else {
+    process.env.AMPCLI_HOME = originalAmpCliAliasHome;
+  }
+
+  if (originalAmpCliHome === undefined) {
+    delete process.env.AMP_CLI_HOME;
+  } else {
+    process.env.AMP_CLI_HOME = originalAmpCliHome;
+  }
+
+  if (originalAmpHome === undefined) {
+    delete process.env.AMP_HOME;
+  } else {
+    process.env.AMP_HOME = originalAmpHome;
   }
 });
 
@@ -253,6 +307,292 @@ description: A custom skill
     const loader = new SkillLoader(tempRoot, ["/nonexistent/path/12345"]);
     const skills = await loader.listSkills();
     expect(skills.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("discovers skills from codex and amp compatibility directories", async () => {
+    const codexHome = await mkdtemp(join(os.tmpdir(), "odb-skill-codex-"));
+    const ampHome = await mkdtemp(join(os.tmpdir(), "odb-skill-amp-"));
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalAmpCliHome = process.env.AMP_CLI_HOME;
+
+    process.env.CODEX_HOME = codexHome;
+    process.env.AMP_CLI_HOME = ampHome;
+
+    await mkdir(join(codexHome, "skills", "codex-compat"), { recursive: true });
+    await writeFile(
+      join(codexHome, "skills", "codex-compat", "SKILL.md"),
+      `---
+name: codex-compat
+description: Codex compatibility skill
+---
+# Codex
+`
+    );
+
+    await mkdir(join(ampHome, "skills", "amp-compat"), { recursive: true });
+    await writeFile(
+      join(ampHome, "skills", "amp-compat", "SKILL.md"),
+      `---
+name: amp-compat
+description: Amp compatibility skill
+---
+# Amp
+`
+    );
+
+    try {
+      const loader = new SkillLoader(tempRoot);
+      const skills = await loader.listSkills();
+      expect(skills.some((skill) => skill.name === "codex-compat")).toBe(true);
+      expect(skills.some((skill) => skill.name === "amp-compat")).toBe(true);
+    } finally {
+      if (originalCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = originalCodexHome;
+      }
+      if (originalAmpCliHome === undefined) {
+        delete process.env.AMP_CLI_HOME;
+      } else {
+        process.env.AMP_CLI_HOME = originalAmpCliHome;
+      }
+    }
+  });
+
+  it("discovers skills from CLAUDECODE_HOME/skills when set", async () => {
+    const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const claudeCodeHome = await mkdtemp(join(os.tmpdir(), "odb-skill-claudecode-home-"));
+
+    process.env.CLAUDECODE_HOME = claudeCodeHome;
+    delete process.env.CLAUDE_HOME;
+
+    await mkdir(join(claudeCodeHome, "skills", "claudecode-compat"), { recursive: true });
+    await writeFile(
+      join(claudeCodeHome, "skills", "claudecode-compat", "SKILL.md"),
+      `---
+name: claudecode-compat
+description: ClaudeCode compatibility skill
+---
+# ClaudeCode
+`
+    );
+
+    try {
+      const loader = new SkillLoader(tempRoot);
+      const skills = await loader.listSkills();
+      expect(skills.some((skill) => skill.name === "claudecode-compat")).toBe(true);
+    } finally {
+      if (originalClaudeCodeHome === undefined) {
+        delete process.env.CLAUDECODE_HOME;
+      } else {
+        process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
+      }
+      if (originalClaudeHome === undefined) {
+        delete process.env.CLAUDE_HOME;
+      } else {
+        process.env.CLAUDE_HOME = originalClaudeHome;
+      }
+    }
+  });
+
+  it("falls back to CLAUDE_HOME/skills when CLAUDECODE_HOME is unset", async () => {
+    const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const claudeHome = await mkdtemp(join(os.tmpdir(), "odb-skill-claude-home-"));
+
+    delete process.env.CLAUDECODE_HOME;
+    process.env.CLAUDE_HOME = claudeHome;
+
+    await mkdir(join(claudeHome, "skills", "claude-home-fallback"), { recursive: true });
+    await writeFile(
+      join(claudeHome, "skills", "claude-home-fallback", "SKILL.md"),
+      `---
+name: claude-home-fallback
+description: CLAUDE_HOME fallback path
+---
+# Claude fallback
+`
+    );
+
+    try {
+      const loader = new SkillLoader(tempRoot);
+      const skills = await loader.listSkills();
+      expect(skills.some((skill) => skill.name === "claude-home-fallback")).toBe(true);
+    } finally {
+      if (originalClaudeCodeHome === undefined) {
+        delete process.env.CLAUDECODE_HOME;
+      } else {
+        process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
+      }
+      if (originalClaudeHome === undefined) {
+        delete process.env.CLAUDE_HOME;
+      } else {
+        process.env.CLAUDE_HOME = originalClaudeHome;
+      }
+    }
+  });
+
+  it("prefers AMPCLI_HOME/skills when AMPCLI_HOME is set", async () => {
+    const originalAmpCliAliasHome = process.env.AMPCLI_HOME;
+    const originalAmpCliHome = process.env.AMP_CLI_HOME;
+    const originalAmpHome = process.env.AMP_HOME;
+    const ampCliHome = await mkdtemp(join(os.tmpdir(), "odb-skill-ampcli-home-"));
+
+    process.env.AMPCLI_HOME = ampCliHome;
+    delete process.env.AMP_CLI_HOME;
+    delete process.env.AMP_HOME;
+
+    await mkdir(join(ampCliHome, "skills", "ampcli-compat"), { recursive: true });
+    await writeFile(
+      join(ampCliHome, "skills", "ampcli-compat", "SKILL.md"),
+      `---
+name: ampcli-compat
+description: AMPCLI compatibility skill
+---
+# AmpCLI
+`
+    );
+
+    try {
+      const loader = new SkillLoader(tempRoot);
+      const skills = await loader.listSkills();
+      expect(skills.some((skill) => skill.name === "ampcli-compat")).toBe(true);
+    } finally {
+      if (originalAmpCliAliasHome === undefined) {
+        delete process.env.AMPCLI_HOME;
+      } else {
+        process.env.AMPCLI_HOME = originalAmpCliAliasHome;
+      }
+      if (originalAmpCliHome === undefined) {
+        delete process.env.AMP_CLI_HOME;
+      } else {
+        process.env.AMP_CLI_HOME = originalAmpCliHome;
+      }
+      if (originalAmpHome === undefined) {
+        delete process.env.AMP_HOME;
+      } else {
+        process.env.AMP_HOME = originalAmpHome;
+      }
+    }
+  });
+
+  it("falls back to ~/.codex/skills when CODEX_HOME is unset", async () => {
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalHome = process.env.HOME;
+    const fallbackHome = await mkdtemp(join(os.tmpdir(), "odb-skill-codex-fallback-home-"));
+
+    delete process.env.CODEX_HOME;
+    process.env.HOME = fallbackHome;
+
+    await mkdir(join(fallbackHome, ".codex", "skills", "codex-fallback"), { recursive: true });
+    await writeFile(
+      join(fallbackHome, ".codex", "skills", "codex-fallback", "SKILL.md"),
+      `---
+name: codex-fallback
+description: Codex fallback path
+---
+# Codex fallback
+`
+    );
+
+    try {
+      const loader = new SkillLoader(tempRoot);
+      const skills = await loader.listSkills();
+      expect(skills.some((skill) => skill.name === "codex-fallback")).toBe(true);
+    } finally {
+      if (originalCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = originalCodexHome;
+      }
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+    }
+  });
+
+  it("falls back to AMP_HOME/skills when AMP_CLI_HOME is unset", async () => {
+    const originalAmpCliHome = process.env.AMP_CLI_HOME;
+    const originalAmpHome = process.env.AMP_HOME;
+    const ampHome = await mkdtemp(join(os.tmpdir(), "odb-skill-amp-home-"));
+
+    delete process.env.AMP_CLI_HOME;
+    process.env.AMP_HOME = ampHome;
+
+    await mkdir(join(ampHome, "skills", "amp-home-fallback"), { recursive: true });
+    await writeFile(
+      join(ampHome, "skills", "amp-home-fallback", "SKILL.md"),
+      `---
+name: amp-home-fallback
+description: AMP_HOME fallback path
+---
+# Amp fallback
+`
+    );
+
+    try {
+      const loader = new SkillLoader(tempRoot);
+      const skills = await loader.listSkills();
+      expect(skills.some((skill) => skill.name === "amp-home-fallback")).toBe(true);
+    } finally {
+      if (originalAmpCliHome === undefined) {
+        delete process.env.AMP_CLI_HOME;
+      } else {
+        process.env.AMP_CLI_HOME = originalAmpCliHome;
+      }
+      if (originalAmpHome === undefined) {
+        delete process.env.AMP_HOME;
+      } else {
+        process.env.AMP_HOME = originalAmpHome;
+      }
+    }
+  });
+
+  it("falls back to ~/.amp/skills when AMP_CLI_HOME and AMP_HOME are unset", async () => {
+    const originalAmpCliHome = process.env.AMP_CLI_HOME;
+    const originalAmpHome = process.env.AMP_HOME;
+    const originalHome = process.env.HOME;
+    const fallbackHome = await mkdtemp(join(os.tmpdir(), "odb-skill-amp-default-home-"));
+
+    delete process.env.AMP_CLI_HOME;
+    delete process.env.AMP_HOME;
+    process.env.HOME = fallbackHome;
+
+    await mkdir(join(fallbackHome, ".amp", "skills", "amp-default-fallback"), { recursive: true });
+    await writeFile(
+      join(fallbackHome, ".amp", "skills", "amp-default-fallback", "SKILL.md"),
+      `---
+name: amp-default-fallback
+description: AMP default home fallback path
+---
+# Amp default fallback
+`
+    );
+
+    try {
+      const loader = new SkillLoader(tempRoot);
+      const skills = await loader.listSkills();
+      expect(skills.some((skill) => skill.name === "amp-default-fallback")).toBe(true);
+    } finally {
+      if (originalAmpCliHome === undefined) {
+        delete process.env.AMP_CLI_HOME;
+      } else {
+        process.env.AMP_CLI_HOME = originalAmpCliHome;
+      }
+      if (originalAmpHome === undefined) {
+        delete process.env.AMP_HOME;
+      } else {
+        process.env.AMP_HOME = originalAmpHome;
+      }
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+    }
   });
 
   it("filters sections when skill content starts with a heading", async () => {

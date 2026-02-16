@@ -5,7 +5,7 @@ import { ProviderRuntimeError } from "../src/providers/errors";
 import type { ProviderAdapter } from "../src/providers/types";
 
 const providers: ProviderAdapter[] = createSocialProviders();
-const platforms: SocialPlatform[] = ["x", "reddit", "bluesky", "linkedin", "instagram", "tiktok", "threads"];
+const platforms: SocialPlatform[] = ["x", "reddit", "bluesky", "linkedin", "instagram", "tiktok", "threads", "youtube"];
 
 const context = (requestId: string) => ({
   trace: { requestId, ts: new Date().toISOString() },
@@ -40,8 +40,8 @@ describe("social platform adapters", () => {
     }
   });
 
-  it("exposes normalized capability metadata for all seven platforms", () => {
-    expect(providers).toHaveLength(7);
+  it("exposes normalized capability metadata for all configured platforms", () => {
+    expect(providers).toHaveLength(8);
 
     for (const provider of providers) {
       const caps = provider.capabilities();

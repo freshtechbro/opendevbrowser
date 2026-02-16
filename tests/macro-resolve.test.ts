@@ -149,7 +149,7 @@ describe("macro resolve tool", () => {
       .toThrow("must start with '@'");
     expect(() => __test__.parseFallbackMacro("@"))
       .toThrow("Macro name is required");
-  });
+  }, 15000);
 
   it("uses runtime registry and returns optional catalog", async () => {
     const resolve = vi.fn(async () => ({

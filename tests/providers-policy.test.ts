@@ -42,6 +42,7 @@ describe("provider policy + registry branches", () => {
     registry.register(makeProvider("web/b", "web", { search: true, fetch: true }));
     registry.register(makeProvider("community/a", "community", { search: true, crawl: true, post: true }));
     registry.register(makeProvider("social/a", "social", { search: true, post: true }));
+    registry.register(makeProvider("shopping/a", "shopping", { search: true }));
 
     registry.setHealth("web/b", { status: "degraded", updatedAt: new Date().toISOString() });
     registry.setHealth("social/a", { status: "unhealthy", updatedAt: new Date().toISOString() });
@@ -65,6 +66,10 @@ describe("provider policy + registry branches", () => {
     expect(selectProviders(registry, "post", "community").map((provider) => provider.id)).toEqual([
       "community/a"
     ]);
+
+    expect(selectProviders(registry, "search", "shopping").map((provider) => provider.id)).toEqual([
+      "shopping/a"
+    ]);
   });
 
   it("maps fallback policy by selection mode", () => {
@@ -73,6 +78,7 @@ describe("provider policy + registry branches", () => {
     expect(shouldFallbackToNextProvider("web")).toBe(false);
     expect(shouldFallbackToNextProvider("community")).toBe(false);
     expect(shouldFallbackToNextProvider("social")).toBe(false);
+    expect(shouldFallbackToNextProvider("shopping")).toBe(false);
   });
 
   it("selects tiers deterministically with reason codes and deterministic fallback target", () => {
@@ -153,10 +159,12 @@ describe("provider policy + registry branches", () => {
     const registry = new ProviderRegistry();
     registry.register(makeProvider("web/one", "web", { search: true }));
     registry.register(makeProvider("community/one", "community", { search: true }));
+    registry.register(makeProvider("shopping/one", "shopping", { search: true }));
 
     expect(registry.get("web/one").id).toBe("web/one");
     expect(registry.listBySource("web").map((provider) => provider.id)).toEqual(["web/one"]);
     expect(registry.listBySource("community").map((provider) => provider.id)).toEqual(["community/one"]);
+    expect(registry.listBySource("shopping").map((provider) => provider.id)).toEqual(["shopping/one"]);
 
     expect(() => registry.get("missing/provider")).toThrow("Unknown provider");
     expect(() => registry.getHealth("missing/provider")).toThrow("Unknown provider state");

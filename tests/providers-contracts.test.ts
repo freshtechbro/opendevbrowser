@@ -183,6 +183,9 @@ describe("provider contracts + normalization", () => {
     const timeout = toProviderError(new Error("request timeout"));
     expect(timeout.code).toBe("timeout");
 
+    const rateLimited = toProviderError(new Error("too many requests from upstream"));
+    expect(rateLimited.code).toBe("rate_limited");
+
     const network = toProviderError(new Error("ECONNRESET"));
     expect(network.code).toBe("network");
 

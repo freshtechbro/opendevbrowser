@@ -416,8 +416,8 @@ describe("provider runtime branches", () => {
     expect(ids).toContain("web/custom");
     expect(ids).toContain("community/custom");
     expect(ids).toContain("social/custom-x");
-    expect(ids).toHaveLength(9);
-    expect(defaults.listCapabilities()).toHaveLength(9);
+    expect(ids).toHaveLength(21);
+    expect(defaults.listCapabilities()).toHaveLength(21);
     expect(DEFAULT_PROVIDER_BUDGETS.timeoutMs.search).toBe(12000);
   });
 

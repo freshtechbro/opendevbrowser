@@ -23,6 +23,10 @@ describe("provider blocker classifier + artifacts", () => {
     expect(boundedUniqueList([" A ", "a", "B", "", "B", "C"], 2)).toEqual(["A", "B"]);
     expect(boundedUniqueList(([1, " ", "x"] as unknown[] as string[]), 4)).toEqual(["x"]);
     expect(__test__.extractHost(undefined)).toBeNull();
+    expect(__test__.isLoopbackHost("localhost")).toBe(true);
+    expect(__test__.isLoopbackHost("127.0.0.1")).toBe(true);
+    expect(__test__.isLoopbackHost("[::1]")).toBe(true);
+    expect(__test__.isLoopbackHost("example.com")).toBe(false);
   });
 
   it("classifies deterministic blocker types by precedence-compatible signals", () => {
@@ -68,6 +72,32 @@ describe("provider blocker classifier + artifacts", () => {
       status: 200
     });
     expect(challengeFromTitleAndRecaptchaHost?.type).toBe("anti_bot_challenge");
+
+    const localhostChallengeBypass = classifyBlockerSignal({
+      source: "navigation",
+      url: "http://127.0.0.1:41731/",
+      title: "Please complete challenge to continue",
+      status: 200
+    });
+    expect(localhostChallengeBypass).toBeNull();
+
+    const localhostChallengeBypassWithLowerThreshold = classifyBlockerSignal({
+      source: "network",
+      finalUrl: "http://localhost:3000/",
+      title: "Please complete captcha challenge",
+      networkHosts: ["www.recaptcha.net"],
+      status: 200,
+      threshold: 0.4
+    });
+    expect(localhostChallengeBypassWithLowerThreshold?.type).toBe("unknown");
+
+    const localhostChallengeBypassIpv6 = classifyBlockerSignal({
+      source: "network",
+      finalUrl: "http://[::1]:3000/",
+      title: "Please complete captcha challenge",
+      status: 200
+    });
+    expect(localhostChallengeBypassIpv6).toBeNull();
 
     const rateLimited = classifyBlockerSignal({
       source: "runtime_fetch",

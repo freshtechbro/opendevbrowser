@@ -358,4 +358,65 @@ describe("macro parser + registry", () => {
       }
     })).rejects.toThrow("Macro action missing crawl.seedUrls");
   });
+
+  it("passes object filters through search macro execution input", async () => {
+    const runtime = {
+      search: async (input: { query: string; filters?: Record<string, unknown> }) => ({
+        ok: true,
+        records: [],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "web" as const,
+        providerOrder: ["web/default"],
+        diagnostics: {
+          filters: input.filters ?? null
+        }
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    const result = await executeMacroResolution({
+      action: {
+        source: "web",
+        operation: "search",
+        input: {
+          query: "macro filters",
+          filters: {
+            locale: "en-US",
+            includeImages: true
+          }
+        }
+      },
+      provenance: {
+        macro: "web.search",
+        provider: "web/default",
+        resolvedQuery: "macro filters",
+        pack: "core:web",
+        args: { positional: [], named: {} }
+      }
+    }, runtime);
+
+    expect(result.diagnostics).toEqual({
+      filters: {
+        locale: "en-US",
+        includeImages: true
+      }
+    });
+  });
+
+  it("rejects numeric boolean arguments in core macros", async () => {
+    const registry = createDefaultMacroRegistry();
+    await expect(registry.resolve("@community.post('timeline','ship',confirm=1)"))
+      .rejects.toThrow("expects boolean argument");
+  });
 });

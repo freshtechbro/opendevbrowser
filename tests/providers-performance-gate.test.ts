@@ -142,7 +142,9 @@ describe("provider performance release gate", () => {
     ]);
 
     const delayedFetcher = async (url: string): Promise<{ html: string; status: number }> => {
-      await wait(20);
+      // Slightly longer synthetic I/O delay reduces scheduler noise and keeps the
+      // parallel-vs-sequential throughput assertion stable across CI runners.
+      await wait(30);
       const row = fanoutGraph.get(url);
       if (!row) {
         throw new Error(`fixture_not_found:${url}`);

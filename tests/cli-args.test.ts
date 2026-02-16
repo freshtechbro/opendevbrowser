@@ -116,6 +116,24 @@ describe("parseArgs", () => {
     expect(parsed.rawArgs).toContain("--execute");
   });
 
+  it("accepts research/shopping/product-video commands", () => {
+    const research = parseArgs(["node", "cli", "research", "run", "--topic=agent workflows", "--days=30", "--mode=context"]);
+    expect(research.command).toBe("research");
+    expect(research.rawArgs).toEqual(["run", "--topic=agent workflows", "--days=30", "--mode=context"]);
+
+    const shopping = parseArgs(["node", "cli", "shopping", "run", "--query=usb hub", "--providers=shopping/amazon,shopping/others"]);
+    expect(shopping.command).toBe("shopping");
+    expect(shopping.rawArgs).toEqual(["run", "--query=usb hub", "--providers=shopping/amazon,shopping/others"]);
+
+    const productVideo = parseArgs(["node", "cli", "product-video", "run", "--product-url=https://example.com/p/1"]);
+    expect(productVideo.command).toBe("product-video");
+    expect(productVideo.rawArgs).toEqual(["run", "--product-url=https://example.com/p/1"]);
+
+    const artifacts = parseArgs(["node", "cli", "artifacts", "cleanup", "--expired-only", "--output-dir=/tmp/odb"]);
+    expect(artifacts.command).toBe("artifacts");
+    expect(artifacts.rawArgs).toEqual(["cleanup", "--expired-only", "--output-dir=/tmp/odb"]);
+  });
+
   it("accepts --extension-legacy for launch/connect command parsing", () => {
     const launchParsed = parseArgs(["node", "cli", "launch", "--extension-only", "--extension-legacy"]);
     expect(launchParsed.command).toBe("launch");

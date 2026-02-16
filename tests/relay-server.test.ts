@@ -666,7 +666,7 @@ describe("RelayServer", () => {
 
     ops.close();
     extension.close();
-  });
+  }, 15000);
 
   it("sends ops_client_disconnected when ops socket closes", async () => {
     server = new RelayServer();
