@@ -1,0 +1,9 @@
+{
+  "type": "ops_request",
+  "requestId": "req-session-status-001",
+  "clientId": "ops-client-1",
+  "opsSessionId": "ops-session-123",
+  "leaseId": "lease-123",
+  "command": "session.status",
+  "payload": {}
+}

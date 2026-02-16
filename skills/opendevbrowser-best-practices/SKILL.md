@@ -1,7 +1,7 @@
 ---
 name: opendevbrowser-best-practices
 description: This skill should be used when the user asks to design or run OpenDevBrowser provider workflows, scraping pipelines, QA/debug automation, parity checks across modes, or resilient browser operations with codified scripts and artifacts.
-version: 2.1.0
+version: 2.2.0
 ---
 
 # OpenDevBrowser Best Practices
@@ -22,7 +22,11 @@ Use this skill when you need:
 - `artifacts/debug-trace-playbook.md` — diagnostics workflow and trace bundle model.
 - `artifacts/fingerprint-tiers.md` — hardening tiers and when to use each.
 - `artifacts/macro-workflows.md` — macro design and expansion standards.
-- `assets/templates/*.json` — reusable input templates.
+- `artifacts/command-channel-reference.md` — CLI/tool/`/ops`/`/cdp` surface map plus cross-agent skill-sync targets.
+- `assets/templates/mode-flag-matrix.json` — mode + flag verification template.
+- `assets/templates/ops-request-envelope.json` — `/ops` request envelope template.
+- `assets/templates/cdp-forward-envelope.json` — `/cdp` relay envelope template.
+- `assets/templates/surface-audit-checklist.json` — docs/surface audit checklist template.
 - `scripts/odb-workflow.sh` — prints codified command sequences by workflow.
 - `scripts/validate-skill-assets.sh` — validates required artifacts/templates.
 
@@ -41,6 +45,22 @@ Use this skill when you need:
 ```
 
 3. Execute the printed sequence with session-specific values.
+
+4. Surface full controls directly from CLI help when auditing runtime accessibility:
+
+```bash
+npx opendevbrowser --help
+```
+
+## Agent Sync Targets
+
+Skill-pack installation and discovery are synchronized for:
+- `opencode` (`~/.config/opencode/skill`, project `./.opencode/skill`)
+- `codex` (`$CODEX_HOME/skills` fallback `~/.codex/skills`, project `./.codex/skills`)
+- `claudecode` (`$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` fallback `~/.claude/skills`, project `./.claude/skills`)
+- `ampcli` (`$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` fallback `~/.amp/skills`, project `./.amp/skills`)
+
+Legacy compatibility aliases `claude` and `amp` are preserved in installer target metadata.
 
 ## Required Operating Rules
 
@@ -109,6 +129,10 @@ Use the router script to avoid retyping flows:
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh qa-debug
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh safe-post
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh parity-check
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh surface-audit
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh ops-channel-check
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh cdp-channel-check
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh mode-flag-matrix
 ```
 
 ## Modes and Surface Parity
@@ -124,6 +148,10 @@ Parity gate test:
 ```bash
 npm run test -- tests/parity-matrix.test.ts
 ```
+
+Surface inventory source of truth:
+- `docs/SURFACE_REFERENCE.md` (50 CLI commands, 44 tools, 36 `/ops` commands, `/cdp` envelope contracts)
+- `artifacts/command-channel-reference.md` (skill-pack operational digest)
 
 ## Diagnostics and Traceability
 

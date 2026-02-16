@@ -1,49 +1,91 @@
 import * as fs from "fs";
 import * as path from "path";
 import { ensureDir } from "../utils/config";
-import { getBundledSkillsDir, getGlobalSkillDir, getLocalSkillDir } from "../utils/skills";
+import { getBundledSkillsDir, getGlobalSkillTargets, getLocalSkillTargets } from "../utils/skills";
 
 export type SkillInstallMode = "global" | "local";
+
+export interface SkillTargetInstallResult {
+  agents: string[];
+  targetDir: string;
+  installed: string[];
+  skipped: string[];
+  success: boolean;
+  error?: string;
+}
 
 export interface SkillInstallResult {
   success: boolean;
   message: string;
-  targetDir: string;
+  mode: SkillInstallMode;
+  targets: SkillTargetInstallResult[];
   installed: string[];
   skipped: string[];
 }
 
 export function installSkills(mode: SkillInstallMode): SkillInstallResult {
-  const targetDir = mode === "global" ? getGlobalSkillDir() : getLocalSkillDir();
-  const installed: string[] = [];
-  const skipped: string[] = [];
+  const targets = mode === "global" ? getGlobalSkillTargets() : getLocalSkillTargets();
+  const targetResults: SkillTargetInstallResult[] = [];
 
   try {
     const sourceDir = getBundledSkillsDir();
     const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
 
-    ensureDir(targetDir);
+    for (const target of targets) {
+      const installed: string[] = [];
+      const skipped: string[] = [];
 
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const skillName = entry.name;
-      const sourcePath = path.join(sourceDir, skillName);
-      const targetPath = path.join(targetDir, skillName);
+      try {
+        ensureDir(target.dir);
 
-      if (fs.existsSync(targetPath)) {
-        skipped.push(skillName);
-        continue;
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const skillName = entry.name;
+          const sourcePath = path.join(sourceDir, skillName);
+          const targetPath = path.join(target.dir, skillName);
+
+          if (fs.existsSync(targetPath)) {
+            skipped.push(skillName);
+            continue;
+          }
+
+          fs.cpSync(sourcePath, targetPath, { recursive: true });
+          installed.push(skillName);
+        }
+
+        targetResults.push({
+          agents: target.agents,
+          targetDir: target.dir,
+          installed,
+          skipped,
+          success: true
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        targetResults.push({
+          agents: target.agents,
+          targetDir: target.dir,
+          installed,
+          skipped,
+          success: false,
+          error: message
+        });
       }
-
-      fs.cpSync(sourcePath, targetPath, { recursive: true });
-      installed.push(skillName);
     }
 
-    const summary = `Skills ${mode} install: ${installed.length} installed${skipped.length ? `, ${skipped.length} skipped` : ""} (${targetDir})`;
+    const installed = targetResults.flatMap((result) => result.installed);
+    const skipped = targetResults.flatMap((result) => result.skipped);
+    const failures = targetResults.filter((result) => !result.success);
+    const failedSummary = failures.length > 0
+      ? `, ${failures.length} failed`
+      : "";
+    const summary = `Skills ${mode} install: ${installed.length} installed${skipped.length ? `, ${skipped.length} skipped` : ""}${failedSummary} across ${targetResults.length} targets`;
+
     return {
-      success: true,
+      success: failures.length === 0,
       message: summary,
-      targetDir,
+      mode,
+      targets: targetResults,
       installed,
       skipped
     };
@@ -52,9 +94,10 @@ export function installSkills(mode: SkillInstallMode): SkillInstallResult {
     return {
       success: false,
       message: `Failed to install skills (${mode}): ${message}`,
-      targetDir,
-      installed,
-      skipped
+      mode,
+      targets: targetResults,
+      installed: targetResults.flatMap((result) => result.installed),
+      skipped: targetResults.flatMap((result) => result.skipped)
     };
   }
 }

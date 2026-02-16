@@ -20,6 +20,18 @@ export class SkillLoader {
     return p;
   }
 
+  private getCodexHome(): string {
+    return process.env.CODEX_HOME || join(os.homedir(), ".codex");
+  }
+
+  private getClaudeCodeHome(): string {
+    return process.env.CLAUDECODE_HOME || process.env.CLAUDE_HOME || join(os.homedir(), ".claude");
+  }
+
+  private getAmpHome(): string {
+    return process.env.AMPCLI_HOME || process.env.AMP_CLI_HOME || process.env.AMP_HOME || join(os.homedir(), ".amp");
+  }
+
   async loadBestPractices(topic?: string): Promise<string> {
     return this.loadSkill("opendevbrowser-best-practices", topic);
   }
@@ -72,8 +84,12 @@ export class SkillLoader {
     const searchPaths = [
       join(this.rootDir, ".opencode", "skill"),
       join(configDir, "skill"),
+      join(this.rootDir, ".codex", "skills"),
+      join(this.getCodexHome(), "skills"),
       join(this.rootDir, ".claude", "skills"),
-      join(os.homedir(), ".claude", "skills"),
+      join(this.getClaudeCodeHome(), "skills"),
+      join(this.rootDir, ".amp", "skills"),
+      join(this.getAmpHome(), "skills"),
       ...this.additionalPaths
     ];
 

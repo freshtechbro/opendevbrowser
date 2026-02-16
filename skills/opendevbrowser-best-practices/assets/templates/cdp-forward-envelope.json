@@ -1,0 +1,11 @@
+{
+  "id": 1,
+  "method": "forwardCDPCommand",
+  "params": {
+    "method": "Runtime.evaluate",
+    "params": {
+      "expression": "document.title"
+    },
+    "sessionId": "optional-flat-session-id"
+  }
+}

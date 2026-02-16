@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProductAssetManifest",
+  "type": "object",
+  "required": ["run_id", "created_at", "source_url", "provider", "product", "assets"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "source_url": { "type": "string" },
+    "provider": { "type": "string" },
+    "product": { "type": "object" },
+    "assets": { "type": "object" }
+  }
+}

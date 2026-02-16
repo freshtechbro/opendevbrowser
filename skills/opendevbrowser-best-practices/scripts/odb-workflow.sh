@@ -14,6 +14,10 @@ Workflows:
   qa-debug
   safe-post
   parity-check
+  surface-audit
+  ops-channel-check
+  cdp-channel-check
+  mode-flag-matrix
   list
 EOF
 }
@@ -65,6 +69,40 @@ EOF
 npm run test -- tests/parity-matrix.test.ts
 npm run test -- tests/tools.test.ts tests/daemon-command.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+EOF
+    ;;
+  surface-audit)
+    cat <<'EOF'
+cat docs/SURFACE_REFERENCE.md
+cat skills/opendevbrowser-best-practices/artifacts/command-channel-reference.md
+cat skills/opendevbrowser-best-practices/assets/templates/surface-audit-checklist.json
+./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+EOF
+    ;;
+  ops-channel-check)
+    cat <<'EOF'
+npx opendevbrowser serve
+npx opendevbrowser launch --extension-only --wait-for-extension --output-format json
+npx opendevbrowser status --daemon --output-format json
+# Verify opsConnected=true and extensionHandshakeComplete=true
+cat skills/opendevbrowser-best-practices/assets/templates/ops-request-envelope.json
+EOF
+    ;;
+  cdp-channel-check)
+    cat <<'EOF'
+npx opendevbrowser serve
+npx opendevbrowser launch --extension-only --extension-legacy --wait-for-extension --output-format json
+npx opendevbrowser status --daemon --output-format json
+# Verify cdpConnected=true while legacy session is active
+cat skills/opendevbrowser-best-practices/assets/templates/cdp-forward-envelope.json
+EOF
+    ;;
+  mode-flag-matrix)
+    cat <<'EOF'
+cat skills/opendevbrowser-best-practices/assets/templates/mode-flag-matrix.json
+npx opendevbrowser launch --no-extension --output-format json
+npx opendevbrowser launch --extension-only --wait-for-extension --output-format json
+npx opendevbrowser launch --extension-only --extension-legacy --wait-for-extension --output-format json
 EOF
     ;;
   *)

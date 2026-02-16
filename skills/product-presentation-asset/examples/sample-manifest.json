@@ -1,0 +1,18 @@
+{
+  "run_id": "example-run-id",
+  "created_at": "2026-02-16T00:00:00.000Z",
+  "source_url": "https://example.com/product/123",
+  "provider": "shopping/others",
+  "product": {
+    "title": "Example Product",
+    "brand": "Example",
+    "price": { "amount": 29.99, "currency": "USD", "retrieved_at": "2026-02-16T00:00:00.000Z" },
+    "features": ["Feature 1", "Feature 2"],
+    "copy": "Example copy"
+  },
+  "assets": {
+    "images": ["images/image-01.jpg"],
+    "screenshots": ["screenshots/screenshot-01.png"],
+    "raw": ["raw/source-record.json"]
+  }
+}

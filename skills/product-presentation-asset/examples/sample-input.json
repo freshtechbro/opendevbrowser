@@ -1,0 +1,6 @@
+{
+  "product_url": "https://example.com/product/123",
+  "include_screenshots": true,
+  "include_all_images": true,
+  "include_copy": true
+}
