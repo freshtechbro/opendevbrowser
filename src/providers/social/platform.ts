@@ -55,7 +55,7 @@ export interface SocialProviderOptions {
 }
 
 export interface SocialPlatformProfile {
-  platform: "x" | "reddit" | "bluesky" | "linkedin" | "instagram" | "tiktok" | "threads";
+  platform: "x" | "reddit" | "bluesky" | "linkedin" | "instagram" | "tiktok" | "threads" | "youtube";
   displayName: string;
   baseUrl: string;
   maxPostLength: number;

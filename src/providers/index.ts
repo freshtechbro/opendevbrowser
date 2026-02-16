@@ -7,7 +7,14 @@ import { applyPromptGuard } from "./safety/prompt-guard";
 import { fallbackTierMetadata, selectTierRoute, shouldFallbackToTierA } from "./tier-router";
 import { createLogger } from "../core/logging";
 import { createCommunityProvider, type CommunityProviderOptions } from "./community";
-import { createSocialProviders, type SocialPlatform, type SocialProviderOptions, type SocialProvidersOptions } from "./social";
+import {
+  createSocialProviders,
+  withDefaultYouTubeOptions,
+  type SocialPlatform,
+  type SocialProviderOptions,
+  type SocialProvidersOptions
+} from "./social";
+import { createShoppingProviders, type ShoppingProvidersOptions } from "./shopping";
 import { isLikelyDocumentUrl } from "./shared/traversal-url";
 import { createWebProvider, type WebProviderOptions } from "./web";
 import { classifyBlockerSignal } from "./blocker";
@@ -29,6 +36,7 @@ import type {
   ProviderRuntimeBudgets,
   ProviderRuntimeDiagnostics,
   ProviderSelection,
+  ProviderSource,
   ProviderTierMetadata,
   TraceContext
 } from "./types";
@@ -150,10 +158,11 @@ const SOCIAL_SEARCH_ENDPOINTS: Record<SocialPlatform, (query: string, page: numb
   linkedin: (query, page) => `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(query)}&page=${page}`,
   instagram: (query, page) => `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(query)}&page=${page}`,
   tiktok: (query, page) => `https://www.tiktok.com/search?q=${encodeURIComponent(query)}&page=${page}`,
-  threads: (query, page) => `https://www.threads.net/search?q=${encodeURIComponent(query)}&page=${page}`
+  threads: (query, page) => `https://www.threads.net/search?q=${encodeURIComponent(query)}&page=${page}`,
+  youtube: (query, page) => `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&page=${page}`
 };
 
-type RuntimeFetchSource = "web" | "community" | "social";
+type RuntimeFetchSource = ProviderSource;
 
 type RuntimeFetchedDocument = {
   url: string;
@@ -319,6 +328,7 @@ export interface RuntimeDefaults {
   web?: WebProviderOptions;
   community?: CommunityProviderOptions;
   social?: SocialProvidersOptions;
+  shopping?: ShoppingProvidersOptions;
 }
 
 export class ProviderRuntime {
@@ -1458,7 +1468,8 @@ const withDefaultSocialOptions = (options: SocialProvidersOptions | undefined): 
   linkedin: withDefaultSocialPlatformOptions("linkedin", options?.linkedin),
   instagram: withDefaultSocialPlatformOptions("instagram", options?.instagram),
   tiktok: withDefaultSocialPlatformOptions("tiktok", options?.tiktok),
-  threads: withDefaultSocialPlatformOptions("threads", options?.threads)
+  threads: withDefaultSocialPlatformOptions("threads", options?.threads),
+  youtube: withDefaultYouTubeOptions(options?.youtube)
 });
 
 export const createDefaultRuntime = (
@@ -1469,6 +1480,9 @@ export const createDefaultRuntime = (
   runtime.register(createWebProvider(withDefaultWebOptions(defaults.web)));
   runtime.register(createCommunityProvider(withDefaultCommunityOptions(defaults.community)));
   for (const provider of createSocialProviders(withDefaultSocialOptions(defaults.social))) {
+    runtime.register(provider);
+  }
+  for (const provider of createShoppingProviders(defaults.shopping)) {
     runtime.register(provider);
   }
   return runtime;
@@ -1505,6 +1519,12 @@ export { selectProviders } from "./policy";
 export { createWebProvider } from "./web";
 export { createCommunityProvider } from "./community";
 export { createSocialProvider, createSocialProviders } from "./social";
+export { createShoppingProvider, createShoppingProviders, createShoppingProviderById, SHOPPING_PROVIDER_IDS } from "./shopping";
+export * from "./timebox";
+export * from "./enrichment";
+export * from "./renderer";
+export * from "./artifacts";
+export * from "./workflows";
 export * from "./types";
 export * from "./errors";
 export * from "./normalize";

@@ -12,6 +12,7 @@ import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
 import { runServe } from "./commands/serve";
 import { runDaemonCommand } from "./commands/daemon";
 import { runNativeCommand } from "./commands/native";
+import { runArtifactsCommand } from "./commands/artifacts";
 import { getAutostartStatus, installAutostart } from "./daemon-autostart";
 import { runScriptCommand } from "./commands/run";
 import { runSessionLaunch } from "./commands/session/launch";
@@ -55,6 +56,9 @@ import { runNetworkPoll } from "./commands/devtools/network-poll";
 import { runDebugTraceSnapshot } from "./commands/devtools/debug-trace-snapshot";
 import { runCookieImport } from "./commands/session/cookie-import";
 import { runMacroResolve } from "./commands/macro-resolve";
+import { runResearchCommand } from "./commands/research";
+import { runShoppingCommand } from "./commands/shopping";
+import { runProductVideoCommand } from "./commands/product-video";
 import { extractExtension } from "../extension-extractor";
 import { writeOutput } from "./output";
 import type { InstallMode } from "./args";
@@ -636,6 +640,30 @@ async function main(): Promise<void> {
       name: "macro-resolve",
       description: "Resolve a macro expression into a provider action",
       run: async () => runMacroResolve(args)
+    });
+
+    registerCommand({
+      name: "research",
+      description: "Run research workflows",
+      run: async () => runResearchCommand(args)
+    });
+
+    registerCommand({
+      name: "shopping",
+      description: "Run shopping workflows",
+      run: async () => runShoppingCommand(args)
+    });
+
+    registerCommand({
+      name: "product-video",
+      description: "Run product presentation asset workflows",
+      run: async () => runProductVideoCommand(args)
+    });
+
+    registerCommand({
+      name: "artifacts",
+      description: "Manage workflow artifact lifecycle",
+      run: async () => runArtifactsCommand(args)
     });
     const command = getCommand(args.command);
     if (!command) {

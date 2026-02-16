@@ -143,6 +143,14 @@ const hasAnyPattern = (value: string, patterns: RegExp[]): boolean => {
   return patterns.some((pattern) => pattern.test(value));
 };
 
+const isLoopbackHost = (value: string): boolean => {
+  const normalized = toLower(value).replace(/^\[|\]$/g, "");
+  if (!normalized) return false;
+  if (normalized === "localhost" || normalized === "::1") return true;
+  if (normalized === "127.0.0.1" || normalized.startsWith("127.")) return true;
+  return /^::ffff:127\.\d+\.\d+\.\d+$/.test(normalized);
+};
+
 const buildHints = (type: BlockerType): BlockerActionHint[] => {
   switch (type) {
     case "auth_required":
@@ -199,6 +207,11 @@ const classifyFromInputs = (
   const urlSignals = `${url} ${finalUrl}`;
   const isUpstreamCode = code === "upstream" || code === "network" || code === "unavailable";
   const hasStaticBlockHost = normalizedHosts.some((host) => hasAnyPattern(host, STATIC_BLOCK_HOST_PATTERNS));
+  const isLoopbackContext = [
+    extractHost(url),
+    extractHost(finalUrl),
+    ...normalizedHosts
+  ].some((host): host is string => typeof host === "string" && isLoopbackHost(host));
 
   const authMatches: string[] = [];
   let authConfidence = 0;
@@ -225,30 +238,32 @@ const classifyFromInputs = (
     };
   }
 
-  const challengeMatches: string[] = [];
-  let challengeConfidence = 0;
-  const challengePatternMatches = scorePatternMatches(challengeText, CHALLENGE_PATTERNS);
-  challengeMatches.push(...challengePatternMatches.matched);
-  challengeConfidence = Math.max(challengeConfidence, challengePatternMatches.confidence);
-  if (/(captcha|cf_chl|hcaptcha|recaptcha|interstitial)/i.test(urlSignals)) {
-    challengeMatches.push("url:challenge_token");
-    challengeConfidence = Math.max(challengeConfidence, 0.9);
-  }
-  if (hasAnyPattern(title, CHALLENGE_PATTERNS.map((entry) => entry.regex)) && status === 200) {
-    challengeMatches.push("status:200_challenge_title");
-    challengeConfidence = Math.max(challengeConfidence, 0.92);
-  }
-  if (normalizedHosts.some((host) => hasAnyPattern(host, RECAPTCHA_HOST_PATTERNS))) {
-    challengeMatches.push("network:challenge_host");
-    challengeConfidence = Math.max(challengeConfidence, 0.96);
-  }
-  if (challengeConfidence > 0) {
-    return {
-      type: "anti_bot_challenge",
-      confidence: challengeConfidence,
-      retryable: false,
-      matches: boundedUniqueList([...matchedPatterns, ...challengeMatches], 16)
-    };
+  if (!isLoopbackContext) {
+    const challengeMatches: string[] = [];
+    let challengeConfidence = 0;
+    const challengePatternMatches = scorePatternMatches(challengeText, CHALLENGE_PATTERNS);
+    challengeMatches.push(...challengePatternMatches.matched);
+    challengeConfidence = Math.max(challengeConfidence, challengePatternMatches.confidence);
+    if (/(captcha|cf_chl|hcaptcha|recaptcha|interstitial)/i.test(urlSignals)) {
+      challengeMatches.push("url:challenge_token");
+      challengeConfidence = Math.max(challengeConfidence, 0.9);
+    }
+    if (hasAnyPattern(title, CHALLENGE_PATTERNS.map((entry) => entry.regex)) && status === 200) {
+      challengeMatches.push("status:200_challenge_title");
+      challengeConfidence = Math.max(challengeConfidence, 0.92);
+    }
+    if (normalizedHosts.some((host) => hasAnyPattern(host, RECAPTCHA_HOST_PATTERNS))) {
+      challengeMatches.push("network:challenge_host");
+      challengeConfidence = Math.max(challengeConfidence, 0.96);
+    }
+    if (challengeConfidence > 0) {
+      return {
+        type: "anti_bot_challenge",
+        confidence: challengeConfidence,
+        retryable: false,
+        matches: boundedUniqueList([...matchedPatterns, ...challengeMatches], 16)
+      };
+    }
   }
 
   if (status === 429 || code === "rate_limited") {
@@ -496,5 +511,6 @@ export const __test__ = {
   classifyFromInputs,
   extractHost,
   hasAnyPattern,
-  clampThreshold
+  clampThreshold,
+  isLoopbackHost
 };

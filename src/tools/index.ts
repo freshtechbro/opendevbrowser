@@ -42,6 +42,9 @@ import { createCloneComponentTool } from "./clone_component";
 import { createPerfTool } from "./perf";
 import { createScreenshotTool } from "./screenshot";
 import { createAnnotateTool } from "./annotate";
+import { createResearchRunTool } from "./research_run";
+import { createShoppingRunTool } from "./shopping_run";
+import { createProductVideoRunTool } from "./product_video_run";
 import { createSkillListTool } from "./skill_list";
 import { createSkillLoadTool } from "./skill_load";
 
@@ -99,6 +102,9 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_debug_trace_snapshot: wrap(createDebugTraceSnapshotTool(deps)),
     opendevbrowser_cookie_import: wrap(createCookieImportTool(deps)),
     opendevbrowser_macro_resolve: wrap(createMacroResolveTool(deps)),
+    opendevbrowser_research_run: wrap(createResearchRunTool(deps)),
+    opendevbrowser_shopping_run: wrap(createShoppingRunTool(deps)),
+    opendevbrowser_product_video_run: wrap(createProductVideoRunTool(deps)),
     opendevbrowser_clone_page: wrap(createClonePageTool(deps)),
     opendevbrowser_clone_component: wrap(createCloneComponentTool(deps)),
     opendevbrowser_perf: wrap(createPerfTool(deps)),

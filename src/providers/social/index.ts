@@ -5,6 +5,7 @@ import { createRedditProvider } from "./reddit";
 import { createThreadsProvider } from "./threads";
 import { createTikTokProvider } from "./tiktok";
 import { createXProvider } from "./x";
+import { createYouTubeProvider } from "./youtube";
 import type { ProviderAdapter } from "../types";
 import type { SocialProviderOptions } from "./platform";
 
@@ -15,9 +16,12 @@ export { createLinkedInProvider } from "./linkedin";
 export { createInstagramProvider } from "./instagram";
 export { createTikTokProvider } from "./tiktok";
 export { createThreadsProvider } from "./threads";
+export { createYouTubeProvider } from "./youtube";
+export { withDefaultYouTubeOptions } from "./youtube";
+export { validateYouTubeLegalReviewChecklist, YOUTUBE_LEGAL_REVIEW_CHECKLIST } from "./youtube";
 export type { SocialProviderOptions, SocialPlatformProfile } from "./platform";
 
-export type SocialPlatform = "x" | "reddit" | "bluesky" | "linkedin" | "instagram" | "tiktok" | "threads";
+export type SocialPlatform = "x" | "reddit" | "bluesky" | "linkedin" | "instagram" | "tiktok" | "threads" | "youtube";
 
 export interface SocialProvidersOptions {
   x?: SocialProviderOptions;
@@ -27,6 +31,7 @@ export interface SocialProvidersOptions {
   instagram?: SocialProviderOptions;
   tiktok?: SocialProviderOptions;
   threads?: SocialProviderOptions;
+  youtube?: SocialProviderOptions;
 }
 
 export const createSocialProviders = (options: SocialProvidersOptions = {}): ProviderAdapter[] => {
@@ -37,7 +42,8 @@ export const createSocialProviders = (options: SocialProvidersOptions = {}): Pro
     createLinkedInProvider(options.linkedin),
     createInstagramProvider(options.instagram),
     createTikTokProvider(options.tiktok),
-    createThreadsProvider(options.threads)
+    createThreadsProvider(options.threads),
+    createYouTubeProvider(options.youtube)
   ];
 };
 
@@ -60,5 +66,7 @@ export const createSocialProvider = (
       return createTikTokProvider(options);
     case "threads":
       return createThreadsProvider(options);
+    case "youtube":
+      return createYouTubeProvider(options);
   }
 };

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
 import { createDefaultRuntime } from "../providers";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
+import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
 import {
   executeMacroResolution,
   shapeExecutionPayload,
@@ -455,6 +456,80 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           execute: optionalBoolean(params.execute) ?? false
         },
         core.config
+      );
+    case "research.run":
+      return runResearchWorkflow(
+        createDefaultRuntime({}, {
+          blockerDetectionThreshold: core.config.blockerDetectionThreshold,
+          promptInjectionGuard: {
+            enabled: core.config.security.promptInjectionGuard?.enabled ?? true
+          }
+        }),
+        {
+          topic: requireString(params.topic, "topic"),
+          days: optionalNumber(params.days, "days"),
+          from: optionalString(params.from),
+          to: optionalString(params.to),
+          sourceSelection: optionalProviderSelection(params.sourceSelection),
+          sources: optionalProviderSources(params.sources),
+          mode: optionalRenderMode(params.mode) ?? "compact",
+          includeEngagement: optionalBoolean(params.includeEngagement),
+          limitPerSource: optionalNumber(params.limitPerSource, "limitPerSource"),
+          outputDir: optionalString(params.outputDir),
+          ttlHours: optionalNumber(params.ttlHours, "ttlHours")
+        }
+      );
+    case "shopping.run":
+      return runShoppingWorkflow(
+        createDefaultRuntime({}, {
+          blockerDetectionThreshold: core.config.blockerDetectionThreshold,
+          promptInjectionGuard: {
+            enabled: core.config.security.promptInjectionGuard?.enabled ?? true
+          }
+        }),
+        {
+          query: requireString(params.query, "query"),
+          providers: optionalStringArray(params.providers),
+          budget: optionalNumber(params.budget, "budget"),
+          region: optionalString(params.region),
+          sort: optionalShoppingSort(params.sort),
+          mode: optionalRenderMode(params.mode) ?? "compact",
+          outputDir: optionalString(params.outputDir),
+          ttlHours: optionalNumber(params.ttlHours, "ttlHours")
+        }
+      );
+    case "product.video.run":
+      return runProductVideoWorkflow(
+        createDefaultRuntime({}, {
+          blockerDetectionThreshold: core.config.blockerDetectionThreshold,
+          promptInjectionGuard: {
+            enabled: core.config.security.promptInjectionGuard?.enabled ?? true
+          }
+        }),
+        {
+          product_url: optionalString(params.product_url),
+          product_name: optionalString(params.product_name),
+          provider_hint: optionalString(params.provider_hint),
+          include_screenshots: optionalBoolean(params.include_screenshots),
+          include_all_images: optionalBoolean(params.include_all_images),
+          include_copy: optionalBoolean(params.include_copy),
+          output_dir: optionalString(params.output_dir),
+          ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours")
+        },
+        {
+          captureScreenshot: async (url: string) => {
+            const session = await core.manager.launch({ headless: true, startUrl: url });
+            try {
+              const screenshot = await core.manager.screenshot(session.sessionId);
+              if (typeof screenshot.base64 !== "string" || screenshot.base64.length === 0) return null;
+              return Buffer.from(screenshot.base64, "base64");
+            } finally {
+              await core.manager.disconnect(session.sessionId, true).catch(() => {
+                // Best effort cleanup.
+              });
+            }
+          }
+        }
       );
     default:
       throw new Error(`Unknown daemon command: ${request.name}`);
@@ -989,6 +1064,42 @@ function optionalNumber(value: unknown, label: string): number | undefined {
 
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function optionalRenderMode(value: unknown): "compact" | "json" | "md" | "context" | "path" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "compact" || value === "json" || value === "md" || value === "context" || value === "path") {
+    return value;
+  }
+  throw new Error("Invalid mode");
+}
+
+function optionalProviderSelection(value: unknown): "auto" | "web" | "community" | "social" | "shopping" | "all" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "auto" || value === "web" || value === "community" || value === "social" || value === "shopping" || value === "all") {
+    return value;
+  }
+  throw new Error("Invalid sourceSelection");
+}
+
+function optionalProviderSources(value: unknown): Array<"web" | "community" | "social" | "shopping"> | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid sources");
+  }
+  const valid = value.every((entry) => entry === "web" || entry === "community" || entry === "social" || entry === "shopping");
+  if (!valid) {
+    throw new Error("Invalid sources");
+  }
+  return value as Array<"web" | "community" | "social" | "shopping">;
+}
+
+function optionalShoppingSort(value: unknown): "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "best_deal" || value === "lowest_price" || value === "highest_rating" || value === "fastest_shipping") {
+    return value;
+  }
+  throw new Error("Invalid shopping sort");
 }
 
 function requireWaitUntil(value: unknown): "domcontentloaded" | "load" | "networkidle" {

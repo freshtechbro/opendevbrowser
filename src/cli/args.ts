@@ -2,6 +2,7 @@ import { createUsageError } from "./errors";
 
 export type CliCommand = "install" | "update" | "uninstall" | "help" | "version" | "serve" | "daemon" | "native" | "run"
   | "launch" | "connect" | "disconnect" | "status"
+  | "research" | "shopping" | "product-video" | "artifacts"
   | "goto" | "wait" | "snapshot"
   | "click" | "hover" | "press" | "check" | "uncheck" | "type" | "select" | "scroll" | "scroll-into-view"
   | "targets-list" | "target-use" | "target-new" | "target-close"
@@ -111,6 +112,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     const candidate = args[0];
     if (candidate === "install" || candidate === "update" || candidate === "uninstall" || candidate === "help" || candidate === "version" || candidate === "serve" || candidate === "daemon" || candidate === "native" || candidate === "run"
       || candidate === "launch" || candidate === "connect" || candidate === "disconnect" || candidate === "status"
+      || candidate === "research" || candidate === "shopping" || candidate === "product-video" || candidate === "artifacts"
       || candidate === "goto" || candidate === "wait" || candidate === "snapshot"
       || candidate === "click" || candidate === "hover" || candidate === "press" || candidate === "check" || candidate === "uncheck"
       || candidate === "type" || candidate === "select" || candidate === "scroll" || candidate === "scroll-into-view"
@@ -238,7 +240,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
     "--transport",
     "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms",
     "--skills-global", "--skills-local", "--no-skills",
-    "--screenshot-mode", "--debug", "--context"
+    "--screenshot-mode", "--debug", "--context",
+    "--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source",
+    "--query", "--providers", "--budget", "--region", "--sort",
+    "--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy",
+    "--output-dir", "--ttl-hours", "--expired-only"
   ]);
 
   const validEqualsFlags = new Set([
@@ -264,7 +270,28 @@ export function parseArgs(argv: string[]): ParsedArgs {
     "--request-id",
     "--strict",
     "--params",
-    "--params-file"
+    "--params-file",
+    "--topic",
+    "--days",
+    "--from",
+    "--to",
+    "--source-selection",
+    "--sources",
+    "--mode",
+    "--limit-per-source",
+    "--query",
+    "--providers",
+    "--budget",
+    "--region",
+    "--sort",
+    "--product-url",
+    "--product-name",
+    "--provider-hint",
+    "--include-screenshots",
+    "--include-all-images",
+    "--include-copy",
+    "--output-dir",
+    "--ttl-hours"
   ]);
 
   for (const arg of args) {
@@ -298,6 +325,97 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 export function getHelpText(): string {
+  const toolCommands = [
+    "opendevbrowser_launch",
+    "opendevbrowser_connect",
+    "opendevbrowser_disconnect",
+    "opendevbrowser_status",
+    "opendevbrowser_targets_list",
+    "opendevbrowser_target_use",
+    "opendevbrowser_target_new",
+    "opendevbrowser_target_close",
+    "opendevbrowser_page",
+    "opendevbrowser_list",
+    "opendevbrowser_close",
+    "opendevbrowser_goto",
+    "opendevbrowser_wait",
+    "opendevbrowser_snapshot",
+    "opendevbrowser_click",
+    "opendevbrowser_hover",
+    "opendevbrowser_press",
+    "opendevbrowser_check",
+    "opendevbrowser_uncheck",
+    "opendevbrowser_type",
+    "opendevbrowser_select",
+    "opendevbrowser_scroll",
+    "opendevbrowser_scroll_into_view",
+    "opendevbrowser_dom_get_html",
+    "opendevbrowser_dom_get_text",
+    "opendevbrowser_get_attr",
+    "opendevbrowser_get_value",
+    "opendevbrowser_is_visible",
+    "opendevbrowser_is_enabled",
+    "opendevbrowser_is_checked",
+    "opendevbrowser_run",
+    "opendevbrowser_prompting_guide",
+    "opendevbrowser_console_poll",
+    "opendevbrowser_network_poll",
+    "opendevbrowser_debug_trace_snapshot",
+    "opendevbrowser_cookie_import",
+    "opendevbrowser_macro_resolve",
+    "opendevbrowser_research_run",
+    "opendevbrowser_shopping_run",
+    "opendevbrowser_product_video_run",
+    "opendevbrowser_clone_page",
+    "opendevbrowser_clone_component",
+    "opendevbrowser_perf",
+    "opendevbrowser_screenshot",
+    "opendevbrowser_annotate",
+    "opendevbrowser_skill_list",
+    "opendevbrowser_skill_load"
+  ];
+
+  const opsCommands = [
+    "session.launch",
+    "session.connect",
+    "session.disconnect",
+    "session.status",
+    "targets.list",
+    "targets.use",
+    "targets.new",
+    "targets.close",
+    "page.open",
+    "page.list",
+    "page.close",
+    "page.screenshot",
+    "nav.goto",
+    "nav.wait",
+    "nav.snapshot",
+    "interact.click",
+    "interact.hover",
+    "interact.press",
+    "interact.check",
+    "interact.uncheck",
+    "interact.type",
+    "interact.select",
+    "interact.scroll",
+    "interact.scrollIntoView",
+    "dom.getHtml",
+    "dom.getText",
+    "dom.getAttr",
+    "dom.getValue",
+    "dom.isVisible",
+    "dom.isEnabled",
+    "dom.isChecked",
+    "export.clonePage",
+    "export.cloneComponent",
+    "devtools.perf",
+    "devtools.consolePoll",
+    "devtools.networkPoll"
+  ];
+
+  const formatList = (values: string[]) => values.map((value) => `  ${value}`).join("\n");
+
   return `
 OpenDevBrowser CLI - Install and manage the OpenDevBrowser plugin
 
@@ -342,6 +460,10 @@ COMMANDS:
   dom-visible      Check visibility for a ref
   dom-enabled      Check enabled state for a ref
   dom-checked      Check checked state for a ref
+  research         Research workflow commands
+  shopping         Shopping workflow commands
+  product-video    Product presentation asset workflow commands
+  artifacts        Artifact lifecycle commands
   clone-page       Clone the active page to React
   clone-component  Clone a component by ref
   perf             Capture performance metrics
@@ -372,8 +494,8 @@ INSTALL OPTIONS:
   --quiet          Suppress non-error output
   --output-format  Output format: text (default), json, stream-json
   --transport      Transport: relay (default) or native
-  --skills-global  Install bundled skills to ~/.config/opencode/skill (default)
-  --skills-local   Install bundled skills to ./.opencode/skill
+  --skills-global  Install bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy Claude/Amp aliases also synced)
+  --skills-local   Install bundled skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy Claude/Amp aliases also synced)
   --no-skills      Skip installing bundled skills
 
 EXAMPLES:
@@ -387,6 +509,23 @@ EXAMPLES:
   npx opendevbrowser --update     # Update plugin
   npx opendevbrowser --uninstall --global  # Remove from global config
   npx opendevbrowser native install <extension-id>  # Install native host
+
+TOOL SURFACE (OpenCode plugin tools, 47):
+${formatList(toolCommands)}
+
+/OPS SURFACE (default extension relay channel, 36 commands):
+${formatList(opsCommands)}
+
+/CDP SURFACE (legacy extension relay channel):
+  forwardCDPCommand    Request envelope ('id', 'method', 'params', optional 'sessionId')
+  forwardCDPEvent      Event envelope ('method', 'params', optional 'sessionId')
+  response envelope    Result/error with 'id' and optional 'sessionId'
+  CDP method support   All Chrome DevTools Protocol methods are relayed in legacy mode
+
+SURFACE NOTES:
+  - CLI-only controls: install/update/uninstall/help/version/serve/daemon/native/artifacts/rpc
+  - Tool-only controls: opendevbrowser_prompting_guide/opendevbrowser_skill_list/opendevbrowser_skill_load
+  - /ops is the default extension channel; use --extension-legacy to route via /cdp
 `.trim();
 }
 

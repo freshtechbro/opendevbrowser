@@ -1,4 +1,4 @@
-export type ProviderSource = "web" | "community" | "social";
+export type ProviderSource = "web" | "community" | "social" | "shopping";
 export type ProviderSelection = "auto" | ProviderSource | "all";
 export type ProviderOperation = "search" | "fetch" | "crawl" | "post";
 export type ProviderTier = "A" | "B" | "C";

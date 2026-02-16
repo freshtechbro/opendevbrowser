@@ -1,7 +1,7 @@
 import type { ProviderAdapter, ProviderOperation, ProviderSelection } from "./types";
 import type { ProviderRegistry } from "./registry";
 
-const SOURCE_ORDER = ["web", "community", "social"] as const;
+const SOURCE_ORDER = ["web", "community", "social", "shopping"] as const;
 
 type HealthStatus = ReturnType<ProviderRegistry["getHealth"]>["status"];
 
@@ -32,7 +32,8 @@ export const selectProviders = (
   const providers = registry.list().filter((provider) => hasOperation(provider, operation));
 
   const bySelection = providers.filter((provider) => {
-    if (selection === "all" || selection === "auto") return true;
+    if (selection === "all") return true;
+    if (selection === "auto") return provider.source !== "shopping";
     return provider.source === selection;
   });
 
