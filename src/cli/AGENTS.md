@@ -4,7 +4,7 @@
 
 ## Overview
 
-CLI layer implementing script-first UX with 20+ commands across 10 categories. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
+CLI layer implementing script-first UX with 50 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, export, diagnostics, macro, annotate, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
 
 ## Structure
 
@@ -116,3 +116,4 @@ src/cli/
 - Run `node scripts/cli-smoke-test.mjs` for managed CLI surface validation.
 - Run `npm run test -- tests/parity-matrix.test.ts tests/providers-performance-gate.test.ts` before release.
 - Follow `docs/RELEASE_PARITY_CHECKLIST.md` for final sign-off.
+- Keep command/flag/channel inventories synchronized with `docs/CLI.md` and `docs/SURFACE_REFERENCE.md`.

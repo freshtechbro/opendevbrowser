@@ -32,9 +32,13 @@ Content organized by topic for filtering.
 
 1. `.opencode/skill/` (project-local)
 2. `~/.config/opencode/skill/` (global)
-3. `.claude/skills/` (compatibility)
-4. `~/.claude/skills/` (compatibility)
-5. `skillPaths` config (custom)
+3. `.codex/skills/` (project compatibility)
+4. `$CODEX_HOME/skills` (global compatibility; fallback `~/.codex/skills`)
+5. `.claude/skills/` (ClaudeCode project compatibility)
+6. `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (ClaudeCode global compatibility; fallback `~/.claude/skills`)
+7. `.amp/skills/` (AmpCLI project compatibility)
+8. `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (AmpCLI global compatibility; fallback `~/.amp/skills`)
+9. `skillPaths` config (custom)
 
 ## Constraints
 

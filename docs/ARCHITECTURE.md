@@ -14,7 +14,13 @@ OpenDevBrowser provides three entry points that share a single runtime core:
 - **Hub daemon**: `opendevbrowser serve` process that owns the relay and enforces FIFO leases when hub mode is enabled.
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
+Current surface sizes:
+- CLI commands: `54`
+- Plugin tools: `47`
+- `/ops` command names: `36`
+
 The shared runtime core is in `src/core/` and wires `BrowserManager`, `AnnotationManager`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
+Canonical inventory and channel contracts: `docs/SURFACE_REFERENCE.md`.
 
 The CLI installer attempts to set up daemon auto-start on first successful install
 (macOS LaunchAgent, Windows Task Scheduler). Unsupported platforms are skipped and continue without auto-start.
@@ -145,12 +151,31 @@ sequenceDiagram
 - Extension relay requires **Chrome 125+** and uses flat-session routing with DebuggerSession `sessionId`.
 - Hub mode supports multi-client access. `/ops` accepts multiple clients, while FIFO binding/lease coordination applies to legacy `/cdp` and protected extension-session command paths.
 
+### Relay channel contracts
+
+- `/ops` is the default high-level extension channel with explicit commands (`session.*`, `targets.*`, `page.*`, `nav.*`, `interact.*`, `dom.*`, `export.*`, `devtools.*`).
+- `/ops` envelopes: `ops_hello`, `ops_request`, `ops_response`, `ops_error`, `ops_event`, `ops_chunk`, `ops_ping`, `ops_pong`.
+- `/cdp` is legacy and forwards raw CDP commands via `forwardCDPCommand` envelopes (`id`, `method`, `params`, optional `sessionId`) and relays events/responses back.
+- `/annotation` remains a dedicated channel for annotation command/event/response flow.
+- Full command names and payload examples are documented in `docs/SURFACE_REFERENCE.md`.
+
 ### Automation platform surfaces
 
-- Provider runtime supports source policy routing (`auto|web|community|social|all`) with per-provider timeouts, retries, circuit-breaker state, and partial-success envelopes.
+- Provider runtime supports source policy routing (`auto|web|community|social|shopping|all`) with per-provider timeouts, retries, circuit-breaker state, and partial-success envelopes.
+- Workflow wrappers expose finalized skill-aligned entrypoints:
+  - `research.run` / `opendevbrowser_research_run` / `opendevbrowser research run`
+  - `shopping.run` / `opendevbrowser_shopping_run` / `opendevbrowser shopping run`
+  - `product.video.run` / `opendevbrowser_product_video_run` / `opendevbrowser product-video run`
+- Workflow runtime primitives are layered as:
+  - `timebox` (strict `days|from|to` resolution)
+  - `orchestrator` (source/provider fanout + partial-failure accumulation)
+  - `enrichment` (engagement/recency/date-confidence)
+  - `renderer` (`compact|json|md|context|path`)
+  - `artifact writer` (owner-only paths, TTL metadata, cleanup support)
 - Macro engine resolves `@macro(...)` expressions into provider operations (`src/macros/*`) and is exposed through tool/CLI/daemon (`macro_resolve`, `macro-resolve`, `macro.resolve`) with resolve-only and execute modes.
 - Execute-mode macro responses keep existing shapes and add metadata fields: `meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, and `meta.provenance.retrievedAt`.
 - Diagnostics include console/network/exception trackers and a combined debug bundle endpoint (`debug_trace_snapshot`, `debug-trace-snapshot`, `devtools.debugTraceSnapshot`).
+- Legal/compliance gating for scrape-first adapters is enforced with per-provider review checklists (review date, allowed surfaces, prohibited flows, reviewer, expiry, signed-off status) and blocks expired/invalid enablement.
 - Session coherence includes cookie import validation and tiered fingerprint controls:
   - Tier 1: coherence checks/warnings (default on)
   - Tier 2: runtime hardening + rotation policy (default on, continuous signals)
@@ -228,6 +253,14 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 - `debug-trace-playbook.md`
 - `fingerprint-tiers.md`
 - `macro-workflows.md`
+- `command-channel-reference.md`
+
+Template assets for parity and channel checks live under
+`skills/opendevbrowser-best-practices/assets/templates/`.
+
+Skill install/discovery sync covers `opencode`, `codex`, `claudecode`, and `ampcli`
+ecosystems (with legacy `claude`/`amp` aliases preserved), and path discovery is documented
+in `README.md` and `docs/CLI.md`.
 
 Validation script:
 
@@ -243,10 +276,14 @@ Validation script:
 - `src/browser/`: `BrowserManager`, `TargetManager`, session lifecycle.
 - `src/browser/fingerprint/`: Tier 1/2/3 fingerprint policy + adaptive controls.
 - `src/providers/`: provider contracts, registry, runtime policy, and first-party adapters.
+- `src/providers/workflows.ts`: research/shopping/product-video orchestrators and compliance/alert gates.
+- `src/providers/timebox.ts`: strict timebox resolver and filtering primitives.
+- `src/providers/{renderer.ts,artifacts.ts,enrichment.ts}`: render modes, artifact lifecycle, and enrichment scores.
 - `src/macros/`: macro parser/registry and pack definitions.
 - `src/devtools/`: console/network/exception trackers and debug bundle channels.
 - `src/tools/`: tool definitions and response shaping.
 - `src/relay/`: relay server and protocol types.
 - `src/cli/`: CLI commands, daemon, and installers.
+- `src/cli/commands/artifacts.ts`: artifact lifecycle cleanup (`artifacts cleanup --expired-only`).
 - `extension/`: Chrome extension UI and background logic.
 - `docs/`: plans, architecture, and operational guidance.

@@ -94,7 +94,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 41 opendevbrowser_* tool definitions
+│   ├── tools/        # 44 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
@@ -119,6 +119,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Add skill pack | `skills/*/SKILL.md` | Follow naming conventions |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
+| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 50 CLI + 44 tools + `/ops` + `/cdp` map |
 
 ## Commands
 
@@ -204,7 +205,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   return {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 41 tools
+    // ... 44 tools
   };
 }
 ```
@@ -227,9 +228,10 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Source of truth: `docs/`
 - Architecture: `docs/ARCHITECTURE.md`
 - CLI reference: `docs/CLI.md`
+- Surface inventory: `docs/SURFACE_REFERENCE.md`
 - Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
-- If tool list or outputs change, update `docs/CLI.md` and this file together.
+- If tool list or outputs change, update `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, and this file together.
 
 ## AGENTS.md Governance
 

@@ -1,7 +1,7 @@
 # OpenDevBrowser CLI
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
-OpenDevBrowser exposes 41 `opendevbrowser_*` tools; see `README.md` for the full list.
+OpenDevBrowser exposes 47 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); use continuity guidance only for long-running handoff/compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
@@ -30,17 +30,21 @@ npm install -g opendevbrowser
 opendevbrowser --version
 ```
 
-By default, the CLI installs bundled skills to `~/.config/opencode/skill`. Use `--skills-local` for project-local skills or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations (legacy `claude`/`amp` labels are still synchronized for compatibility). Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
-### Skill discovery order (OpenCode-native)
+### Skill discovery order
 
-OpenCode discovers skills in this order (first match wins):
+The skill loader discovers skills in this order (first match wins):
 
 1. Project-local: `./.opencode/skill`
 2. Global: `~/.config/opencode/skill` (or `$OPENCODE_CONFIG_DIR/skill`)
-3. Compatibility: `./.claude/skills`
-4. Compatibility: `~/.claude/skills`
-5. Extra paths from `skillPaths` (advanced)
+3. Compatibility (project): `./.codex/skills`
+4. Compatibility (global): `$CODEX_HOME/skills` (fallback `~/.codex/skills`)
+5. Compatibility (project): `./.claude/skills`
+6. Compatibility (global): `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (fallback `~/.claude/skills`)
+7. Compatibility (project): `./.amp/skills`
+8. Compatibility (global): `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
+9. Extra paths from `skillPaths` (advanced)
 
 ---
 
@@ -79,6 +83,28 @@ The CLI validates common flags early and returns a usage error (`exitCode: 1`) w
 - Numeric flags must be positive integers:
   - `--port`, `--cdp-port`
   - `--wait-timeout-ms`, `--timeout-ms`
+
+---
+
+## Surface inventory (source-accurate)
+
+Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
+
+### CLI command surface
+
+- Total commands: `54`.
+- Categories: install/runtime management, session/connection, navigation, interaction, targets/pages, DOM inspection, export/diagnostics/macro/annotation, and internal power (`rpc`).
+
+### Tool surface
+
+- Total tools: `47` (`opendevbrowser_*`).
+- Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
+- CLI-only surface (no tool equivalent): `artifacts`, `rpc`.
+
+### Relay channel surface
+
+- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `36` command names.
+- `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
 
 ---
 
@@ -156,6 +182,12 @@ npx opendevbrowser -h
 npx opendevbrowser --version
 npx opendevbrowser -v
 ```
+
+`--help` now surfaces the full control inventory directly in terminal output:
+- CLI command surface
+- OpenCode tool surface (`opendevbrowser_*`)
+- `/ops` command names
+- `/cdp` relay control contract
 
 ---
 
@@ -253,6 +285,94 @@ Notes:
 - `serve` also attempts auto-detection from Chrome, Brave, or Chromium profiles, but explicit config is more reliable.
 - `native status` reports installed state + extension ID from the manifest.
 - Use `--transport native` with `status` to check native host status without requiring the daemon.
+
+### Workflow wrappers
+
+The workflow wrappers expose the finalized research/shopping/product-video surfaces from
+`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md`.
+
+#### Research (`research run`)
+
+```bash
+npx opendevbrowser research run --topic "browser automation" --days 30 --mode compact
+npx opendevbrowser research run --topic "market map" --from 2026-02-01 --to 2026-02-16 --source-selection all --mode json
+npx opendevbrowser research run --topic "creator tools" --sources web,shopping --include-engagement --limit-per-source 5 --mode context
+```
+
+Flags:
+- `--topic` (required)
+- `--days`
+- `--from`
+- `--to`
+- `--source-selection` (`auto|web|community|social|shopping|all`)
+- `--sources` (comma-separated concrete sources)
+- `--mode` (`compact|json|md|context|path`)
+- `--include-engagement`
+- `--limit-per-source`
+- `--output-dir`
+- `--ttl-hours`
+
+#### Shopping (`shopping run`)
+
+```bash
+npx opendevbrowser shopping run --query "usb microphone" --mode compact
+npx opendevbrowser shopping run --query "portable monitor" --providers shopping/amazon,shopping/newegg --sort lowest_price --mode md
+npx opendevbrowser shopping run --query "desk chair" --budget 250 --region us --mode path
+```
+
+Flags:
+- `--query` (required)
+- `--providers` (comma-separated; defaults to all v1 adapters)
+- `--budget`
+- `--region`
+- `--sort` (`best_deal|lowest_price|highest_rating|fastest_shipping`)
+- `--mode` (`compact|json|md|context|path`)
+- `--output-dir`
+- `--ttl-hours`
+
+#### Product presentation asset (`product-video run`)
+
+```bash
+npx opendevbrowser product-video run --product-url "https://example.com/p/1" --include-screenshots
+npx opendevbrowser product-video run --product-name "Sample Product" --provider-hint shopping/amazon --output-dir /tmp/product-assets
+```
+
+Flags:
+- `--product-url` (required unless `--product-name` is provided)
+- `--product-name` (required unless `--product-url` is provided)
+- `--provider-hint`
+- `--include-screenshots` (`true|false`; bare flag means `true`)
+- `--include-all-images` (`true|false`; bare flag means `true`)
+- `--include-copy` (`true|false`; bare flag means `true`)
+- `--output-dir`
+- `--ttl-hours`
+
+Wrapper behavior:
+- Timebox semantics are strict (`--days` is mutually exclusive with `--from/--to`).
+- Render modes for `research` and `shopping` are shared: `compact|json|md|context|path`.
+- `product-video run` always returns a path-based local asset pack.
+- Path-bearing modes persist artifacts under the configured output directory (or default tmp namespace) and include TTL metadata in manifest files.
+
+### Artifact lifecycle cleanup
+
+Use the artifact cleanup command to remove expired bundles generated by workflow runs:
+
+```bash
+npx opendevbrowser artifacts cleanup --expired-only
+npx opendevbrowser artifacts cleanup --expired-only --output-dir /tmp/opendevbrowser
+```
+
+Script helper:
+
+```bash
+./scripts/artifacts-cleanup.sh
+./scripts/artifacts-cleanup.sh /tmp/opendevbrowser
+```
+
+Notes:
+- `--expired-only` is required.
+- Default cleanup root is `${TMPDIR:-/tmp}/opendevbrowser`.
+- Output includes `removed` and `skipped` run paths.
 
 ### Run (single-shot script)
 
@@ -376,6 +496,7 @@ npx opendevbrowser disconnect --session-id <session-id> --close-browser
 npx opendevbrowser status               # daemon status (default)
 npx opendevbrowser status --daemon      # daemon status (explicit)
 npx opendevbrowser status --session-id <session-id>
+npx opendevbrowser status --transport native
 ```
 
 ### Cookie import
@@ -883,8 +1004,10 @@ npx opendevbrowser debug-trace-snapshot \
 | `--no-interactive` | | Alias of `--no-prompt` |
 | `--quiet` | | Suppress output |
 | `--output-format` | | `text`, `json`, or `stream-json` |
-| `--skills-global` | | Install skills to `~/.config/opencode/skill` (default) |
-| `--skills-local` | | Install skills to `./.opencode/skill` |
+| `--transport` | | Transport selector (`relay` or `native`) for transport-aware commands |
+| `--daemon` | | Daemon status selector for `status` |
+| `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
+| `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
 | `--no-skills` | | Skip installing bundled skills |
 | `--help` | `-h` | Show usage information |
 | `--version` | `-v` | Show version number |
@@ -908,6 +1031,7 @@ npx opendevbrowser debug-trace-snapshot \
 | `--ws-endpoint` | `connect` | Remote debugging websocket URL |
 | `--host` | `connect` | Host for CDP connection (`--cdp-port` required) |
 | `--cdp-port` | `connect` | CDP port for host-based connect |
+| `--daemon` | `status` | Force daemon status mode (mutually exclusive with `--session-id`) |
 | `--no-extension` | `launch` | Force managed mode (ignore extension) |
 | `--extension-only` | `launch` | Fail if extension not connected |
 | `--extension-legacy` | `launch`, `connect` | Use legacy extension relay (`/cdp`) |
