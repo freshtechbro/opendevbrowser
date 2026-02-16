@@ -45,6 +45,7 @@ playwright/.cache/
 opendevbrowser-extension.zip
 
 # Continuity ledger (local-only)
+CONTINUITY*.md
 
 # Auto Claude data directory
 .auto-claude/
