@@ -1,0 +1,10 @@
+{
+  "max_required_null_rate": 0.05,
+  "max_duplicate_rate": 0.02,
+  "require_positive_page_delta": true,
+  "max_consecutive_empty_pages": 2,
+  "max_consecutive_challenge_loops": 2,
+  "max_retries_per_page": 2,
+  "respect_retry_after": true,
+  "stop_on_repeated_anti_bot_signals": true
+}

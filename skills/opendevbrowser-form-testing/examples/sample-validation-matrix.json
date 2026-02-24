@@ -1,0 +1,29 @@
+{
+  "form": "checkout",
+  "fields": [
+    {
+      "name": "email",
+      "type": "email",
+      "required": true,
+      "cases": [
+        "empty",
+        "invalid_format",
+        "valid"
+      ]
+    },
+    {
+      "name": "postal_code",
+      "type": "text",
+      "required": true,
+      "cases": [
+        "too_short",
+        "invalid_charset",
+        "valid"
+      ]
+    }
+  ],
+  "submit_cases": [
+    "invalid_blocked",
+    "valid_success"
+  ]
+}

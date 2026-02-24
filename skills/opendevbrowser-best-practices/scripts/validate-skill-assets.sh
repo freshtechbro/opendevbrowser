@@ -10,12 +10,15 @@ required_paths=(
   "artifacts/debug-trace-playbook.md"
   "artifacts/fingerprint-tiers.md"
   "artifacts/macro-workflows.md"
+  "artifacts/browser-agent-known-issues-matrix.md"
   "artifacts/command-channel-reference.md"
   "assets/templates/mode-flag-matrix.json"
   "assets/templates/ops-request-envelope.json"
   "assets/templates/cdp-forward-envelope.json"
+  "assets/templates/robustness-checklist.json"
   "assets/templates/surface-audit-checklist.json"
   "scripts/odb-workflow.sh"
+  "scripts/run-robustness-audit.sh"
   "scripts/validate-skill-assets.sh"
 )
 
@@ -23,13 +26,14 @@ json_templates=(
   "assets/templates/mode-flag-matrix.json"
   "assets/templates/ops-request-envelope.json"
   "assets/templates/cdp-forward-envelope.json"
+  "assets/templates/robustness-checklist.json"
   "assets/templates/surface-audit-checklist.json"
 )
 
 command_ref_markers=(
-  'CLI commands: `50`'
-  'Plugin tools: `44`'
-  '`/ops` command names: `36`'
+  'CLI commands: `55`'
+  'Plugin tools: `48`'
+  '`/ops` command names: `38`'
   'docs/SURFACE_REFERENCE.md'
   'opencode'
   'codex'
@@ -47,7 +51,7 @@ for rel_path in "${required_paths[@]}"; do
   fi
 done
 
-for rel_path in "scripts/odb-workflow.sh" "scripts/validate-skill-assets.sh"; do
+for rel_path in "scripts/odb-workflow.sh" "scripts/run-robustness-audit.sh" "scripts/validate-skill-assets.sh"; do
   full_path="$skill_root/$rel_path"
   if [[ -f "$full_path" && ! -x "$full_path" ]]; then
     echo "Script is not executable: $rel_path" >&2

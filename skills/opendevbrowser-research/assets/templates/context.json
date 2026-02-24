@@ -1,0 +1,18 @@
+{
+  "topic": "",
+  "timebox": {
+    "days": 30
+  },
+  "issue_ids": [
+    "ISSUE-06",
+    "ISSUE-09",
+    "ISSUE-10",
+    "ISSUE-12"
+  ],
+  "highlights": [],
+  "records": [],
+  "meta": {
+    "source_count": 0,
+    "warnings": []
+  }
+}

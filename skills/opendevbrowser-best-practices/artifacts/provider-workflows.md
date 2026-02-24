@@ -9,7 +9,7 @@ Codify minimal, repeatable workflows for provider-native automation.
 - `sessionMode`: `managed|extension|cdpConnect`
 - `provider`: `web|community|social`
 - `requestId`: unique per workflow run
-- `policyMode`: `read|write`
+- `policyMode`: `read` (default) or `write` (explicit/manual opt-in only)
 
 ## Workflow A: Provider Search
 
@@ -53,17 +53,34 @@ Expected output:
 - `visited[]`
 - `frontierStats`
 
-## Workflow D: Safe Post (Write Enabled)
+## Workflow D: Social Read-Only Validation (Default)
 
-1. Display policy notice.
-2. Render payload preview.
-3. Confirm action explicitly.
-4. Execute one write action.
-5. Poll network for status confirmation.
-6. Record audit entry (`requestId`, payload hash, status).
+1. Display read-only policy notice.
+2. Navigate to social target and execute search/read probes only.
+3. Capture `debug-trace-snapshot` + `network-poll`.
+4. Record auth/blocker diagnostics and provider health.
 
 Expected output:
-- `writeResult` + `auditRecord`
+- `readResult` + `authBlockerDiagnostics`
+
+## Workflow E: Parallel Multipage (Reliable As-Is)
+
+1. Build a bounded frontier/queue in host logic.
+2. Allocate one session per worker (`session-1`, `session-2`, ...).
+3. In each worker session, process URLs serially:
+- goto
+- wait
+- snapshot
+- extract
+- emit records with `sessionId` + page provenance
+4. Never interleave competing `target-use` streams inside a single session.
+5. For managed persistent profiles, assign a unique profile path per worker session.
+6. Merge worker outputs deterministically (stable sort + dedupe key).
+
+Expected output:
+- `records[]` merged across workers
+- `workerStats[]` with `{ sessionId, processed, failures }`
+- `frontierStats` and checkpoint state
 
 ## Failure Policy
 

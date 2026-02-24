@@ -6,9 +6,9 @@ Provide a compact, operationally useful map of OpenDevBrowser command surfaces a
 
 ## Current coverage snapshot
 
-- CLI commands: `50`
-- Plugin tools: `44`
-- `/ops` command names: `36`
+- CLI commands: `55`
+- Plugin tools: `48`
+- `/ops` command names: `38`
 - Legacy `/cdp` relay: generic CDP forwarding (method-level)
 
 Canonical exhaustive reference: `docs/SURFACE_REFERENCE.md`.
@@ -27,7 +27,7 @@ Legacy aliases `claude` and `amp` remain present in installer target metadata fo
 ## CLI surface categories
 
 - Install/runtime: install, update, uninstall, help, version, serve, daemon, native, run
-- Session/connection: launch, connect, disconnect, status, cookie-import
+- Session/connection: launch, connect, disconnect, status, cookie-import, cookie-list
 - Navigation: goto, wait, snapshot
 - Interaction: click, hover, press, check, uncheck, type, select, scroll, scroll-into-view
 - Targets/pages: targets-list, target-use, target-new, target-close, page, pages, page-close
@@ -46,6 +46,7 @@ Legacy aliases `claude` and `amp` remain present in installer target metadata fo
 
 Namespace groups:
 - `session.*`
+- `storage.*`
 - `targets.*`
 - `page.*`
 - `nav.*`
@@ -60,11 +61,17 @@ Handshake/liveness envelope types:
 - `ops_request`, `ops_response`, `ops_error`
 - `ops_event`, `ops_chunk`
 
+Concurrency policy:
+- `/ops` supports multiple clients and multiple sessions.
+- Reliable parallel execution is session-scoped (`session-per-worker`).
+- Avoid concurrent independent streams that switch targets inside one session (`targets.use` races can cross-wire active target state).
+
 ### `/cdp` (legacy)
 
 - Opt-in via `--extension-legacy`.
 - Forwards raw CDP commands through relay command envelopes (`id`, `method`, `params`, optional `sessionId`).
 - Use for compatibility-specific paths only.
+- Treat as a legacy/single-writer path; do not use as the primary route for concurrent automation.
 
 ## Mode and flag checkpoints
 

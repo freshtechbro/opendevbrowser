@@ -1,0 +1,19 @@
+{
+  "dataset": "shopping_offers",
+  "required_fields": [
+    "title",
+    "url",
+    "price"
+  ],
+  "optional_fields": [
+    "rating",
+    "reviews_count",
+    "availability"
+  ],
+  "field_types": {
+    "title": "string",
+    "url": "string",
+    "price": "number",
+    "rating": "number"
+  }
+}

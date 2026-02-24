@@ -1,0 +1,30 @@
+{
+  "generated_at": "",
+  "offers_count": 0,
+  "currency_summaries": [
+    {
+      "currency": "USD",
+      "offer_count": 0,
+      "market_average_total": 0,
+      "market_median_total": 0,
+      "best_offer": {
+        "provider": "",
+        "title": "",
+        "total": 0
+      },
+      "confidence": {
+        "score": 0,
+        "tier": "low",
+        "sample_size": 0,
+        "anchor_coverage": 0,
+        "fresh_price_coverage": 0,
+        "warnings": []
+      },
+      "savings_vs_market_average": {
+        "absolute": 0,
+        "percent": 0
+      },
+      "top_discounts": []
+    }
+  ]
+}

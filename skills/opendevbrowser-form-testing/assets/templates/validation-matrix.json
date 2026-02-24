@@ -1,0 +1,24 @@
+{
+  "form": "",
+  "fields": [
+    {
+      "name": "",
+      "type": "text",
+      "required": true,
+      "cases": [
+        "empty",
+        "whitespace",
+        "out_of_range",
+        "valid"
+      ]
+    }
+  ],
+  "conditional_cases": [
+    "becomes_required_after_toggle",
+    "hidden_field_not_submitted"
+  ],
+  "submit_cases": [
+    "invalid_blocked",
+    "valid_success"
+  ]
+}

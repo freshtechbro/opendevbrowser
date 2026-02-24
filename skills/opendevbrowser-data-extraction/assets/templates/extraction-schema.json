@@ -1,0 +1,17 @@
+{
+  "dataset": "",
+  "required_fields": [
+    "title",
+    "url"
+  ],
+  "optional_fields": [
+    "price",
+    "rating",
+    "availability"
+  ],
+  "field_types": {
+    "title": "string",
+    "url": "string",
+    "price": "number"
+  }
+}
