@@ -58,12 +58,20 @@ src/relay/
 
 ```typescript
 type RelayStatus = {
-  extensionConnected: boolean;        // WebSocket connected
-  extensionHandshakeComplete: boolean; // Handshake finished
-  cdpConnected: boolean;              // CDP client connected
-  annotationConnected: boolean;       // Annotation client connected
-  opsConnected: boolean;              // Ops client connected
-  pairingRequired: boolean;           // Pairing token needed
+  running: boolean;                    // Relay process state
+  url?: string;                        // Bound WS base URL
+  port?: number;                       // Bound relay port
+  extensionConnected: boolean;         // Extension WebSocket connected
+  extensionHandshakeComplete: boolean; // Extension handshake finished
+  cdpConnected: boolean;               // CDP client connected
+  annotationConnected: boolean;        // Annotation client connected
+  opsConnected: boolean;               // Ops client(s) connected
+  pairingRequired: boolean;            // Pairing token required
+  instanceId: string;                  // Relay instance identity
+  extension?: { tabId: number; url?: string; title?: string; groupId?: number };
+  epoch: number;                       // Relay start epoch
+  lastHandshakeError?: RelayHandshakeError;
+  health: RelayHealthStatus;           // Health reason + connection booleans
 }
 ```
 

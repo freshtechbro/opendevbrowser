@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { parseArgs, getHelpText, detectOutputFormat } from "./args";
+import { parseArgs, detectOutputFormat } from "./args";
 import type { OutputFormat } from "./args";
+import { getHelpText } from "./help";
 import { registerCommand, getCommand } from "./commands/registry";
 import type { CommandResult } from "./commands/types";
 import { installGlobal } from "./installers/global";
@@ -55,6 +56,7 @@ import { runConsolePoll } from "./commands/devtools/console-poll";
 import { runNetworkPoll } from "./commands/devtools/network-poll";
 import { runDebugTraceSnapshot } from "./commands/devtools/debug-trace-snapshot";
 import { runCookieImport } from "./commands/session/cookie-import";
+import { runCookieList } from "./commands/session/cookie-list";
 import { runMacroResolve } from "./commands/macro-resolve";
 import { runResearchCommand } from "./commands/research";
 import { runShoppingCommand } from "./commands/shopping";
@@ -637,8 +639,14 @@ async function main(): Promise<void> {
     });
 
     registerCommand({
+      name: "cookie-list",
+      description: "List cookies for a session (optionally filtered by URL)",
+      run: async () => runCookieList(args)
+    });
+
+    registerCommand({
       name: "macro-resolve",
-      description: "Resolve a macro expression into a provider action",
+      description: "Resolve or execute a macro expression via provider actions",
       run: async () => runMacroResolve(args)
     });
 

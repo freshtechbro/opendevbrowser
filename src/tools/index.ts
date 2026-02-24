@@ -36,6 +36,7 @@ import { createConsolePollTool } from "./console_poll";
 import { createNetworkPollTool } from "./network_poll";
 import { createDebugTraceSnapshotTool } from "./debug_trace_snapshot";
 import { createCookieImportTool } from "./cookie_import";
+import { createCookieListTool } from "./cookie_list";
 import { createMacroResolveTool } from "./macro_resolve";
 import { createClonePageTool } from "./clone_page";
 import { createCloneComponentTool } from "./clone_component";
@@ -101,6 +102,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_network_poll: wrap(createNetworkPollTool(deps)),
     opendevbrowser_debug_trace_snapshot: wrap(createDebugTraceSnapshotTool(deps)),
     opendevbrowser_cookie_import: wrap(createCookieImportTool(deps)),
+    opendevbrowser_cookie_list: wrap(createCookieListTool(deps)),
     opendevbrowser_macro_resolve: wrap(createMacroResolveTool(deps)),
     opendevbrowser_research_run: wrap(createResearchRunTool(deps)),
     opendevbrowser_shopping_run: wrap(createShoppingRunTool(deps)),

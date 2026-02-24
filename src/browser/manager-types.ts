@@ -8,6 +8,8 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "disconnect"
   | "status"
   | "withPage"
+  | "cookieImport"
+  | "cookieList"
   | "goto"
   | "waitForLoad"
   | "waitForRef"

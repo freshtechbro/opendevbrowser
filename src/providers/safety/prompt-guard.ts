@@ -1,206 +1,209 @@
 import type { JsonValue, NormalizedRecord } from "../types";
 
-type GuardSeverity = "medium" | "high";
-type GuardAction = "strip" | "quarantine";
+type PromptGuardSeverity = "low" | "medium" | "high";
+type PromptGuardAction = "strip" | "quarantine";
+type PromptGuardField = "title" | "content";
 
-type PromptGuardPattern = {
-  code: string;
-  severity: GuardSeverity;
+type PromptGuardRule = {
+  id: string;
   regex: RegExp;
+  severity: PromptGuardSeverity;
+  action: PromptGuardAction;
 };
 
-export type PromptGuardEntry = {
-  recordId: string;
-  provider: string;
-  field: "title" | "content";
+export interface PromptGuardEntry {
   pattern: string;
-  severity: GuardSeverity;
-  action: GuardAction;
+  action: PromptGuardAction;
+  severity: PromptGuardSeverity;
   excerpt: string;
-};
+}
 
-export type PromptGuardAudit = {
-  enabled: boolean;
-  quarantinedSegments: number;
-  entries: PromptGuardEntry[];
-};
+export interface PromptGuardRecordEntry extends PromptGuardEntry {
+  recordId: string;
+  field: PromptGuardField;
+}
 
-export type PromptGuardResult = {
-  records: NormalizedRecord[];
-  audit: PromptGuardAudit;
-};
-
-export type PromptGuardTextSanitization = {
+export interface PromptGuardTextResult {
   text: string;
   diagnostics: {
     entries: number;
     quarantinedSegments: number;
   };
-};
+  entries: PromptGuardEntry[];
+}
 
-const PATTERNS: PromptGuardPattern[] = [
+export interface PromptGuardResult {
+  records: NormalizedRecord[];
+  audit: {
+    enabled: boolean;
+    quarantinedSegments: number;
+    entries: PromptGuardRecordEntry[];
+  };
+}
+
+const MAX_EXCERPT_LENGTH = 120;
+
+const RULES: PromptGuardRule[] = [
   {
-    code: "ignore_previous_instructions",
+    id: "reveal_system_prompt",
+    regex: /\b(reveal|show|print|dump|expose|leak)\b[^.!?\n]{0,80}\b(system prompt|hidden prompt|internal prompt)\b/gi,
     severity: "high",
-    regex: /\bignore\s+(all\s+)?(previous|prior)\s+instructions?\b/gi
+    action: "quarantine"
   },
   {
-    code: "reveal_system_prompt",
+    id: "tool_abuse_directive",
+    regex: /\buse (?:the )?tool(?:ing)?\b[^.!?\n]{0,120}\b(delete|remove|drop|wipe|exfiltrat|override|bypass)\w*/gi,
     severity: "high",
-    regex: /\b(reveal|print|show)\s+(the\s+)?(system|developer)\s+prompt\b/gi
+    action: "quarantine"
   },
   {
-    code: "prompt_injection_marker",
-    severity: "high",
-    regex: /\b(prompt|instruction)\s*injection\b/gi
-  },
-  {
-    code: "credential_exfiltration",
-    severity: "high",
-    regex: /\b(api\s*key|token|password|secret)\b.{0,40}\b(send|share|return|exfiltrate)\b/gi
-  },
-  {
-    code: "tool_abuse_directive",
+    id: "ignore_previous_instructions",
+    regex: /\bignore (?:all )?previous instructions?\b/gi,
     severity: "medium",
-    regex: /\b(use|call|invoke)\s+(the\s+)?(tool|function)\b.{0,60}\b(delete|rm\s+-rf|drop|shutdown)\b/gi
+    action: "strip"
+  },
+  {
+    id: "reveal_hidden_data",
+    regex: /\breveal (?:hidden|secret|confidential) (?:data|information)\b/gi,
+    severity: "high",
+    action: "quarantine"
   }
 ];
 
-const excerpt = (value: string): string => value.slice(0, 120);
-
-const asJsonRecord = (value: JsonValue | undefined): Record<string, JsonValue> => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, JsonValue>;
+const sanitizeExcerpt = (value: string): string => {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= MAX_EXCERPT_LENGTH) return compact;
+  return `${compact.slice(0, MAX_EXCERPT_LENGTH - 3)}...`;
 };
 
-const withSecurityTag = (
+const isJsonObject = (value: JsonValue | undefined): value is Record<string, JsonValue> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const withSecurityAttributes = (
   record: NormalizedRecord,
-  options: { enabled: boolean; quarantinedSegments: number; entries: number }
-): NormalizedRecord => {
-  const security = asJsonRecord(record.attributes.security as JsonValue | undefined);
+  enabled: boolean,
+  guardEntries: number,
+  quarantinedSegments: number
+): Record<string, JsonValue> => {
+  const existingSecurity = isJsonObject(record.attributes.security)
+    ? record.attributes.security
+    : {};
+
   return {
-    ...record,
-    attributes: {
-      ...record.attributes,
-      security: {
-        ...security,
-        untrustedContent: true,
-        dataOnlyContext: true,
-        promptGuardEnabled: options.enabled,
-        quarantinedSegments: options.quarantinedSegments,
-        guardEntries: options.entries
-      }
+    ...record.attributes,
+    security: {
+      ...existingSecurity,
+      untrustedContent: true,
+      dataOnlyContext: true,
+      promptGuardEnabled: enabled,
+      guardEntries,
+      quarantinedSegments
     }
   };
 };
 
-const sanitizeField = (
-  input: string,
-  provider: string,
-  recordId: string,
-  field: "title" | "content",
-  entries: PromptGuardEntry[]
-): string => {
-  let output = input;
-
-  for (const pattern of PATTERNS) {
-    let matched = false;
-    output = output.replace(pattern.regex, (segment) => {
-      matched = true;
-      entries.push({
-        recordId,
-        provider,
-        field,
-        pattern: pattern.code,
-        severity: pattern.severity,
-        action: pattern.severity === "high" ? "quarantine" : "strip",
-        excerpt: excerpt(segment)
-      });
-      return pattern.severity === "high" ? " [QUARANTINED] " : " ";
-    });
-
-    if (matched) {
-      output = output.replace(/\s{2,}/g, " ").trim();
-    }
-  }
-
-  return output;
-};
-
-export const sanitizePromptGuardText = (
-  text: string,
-  enabled: boolean
-): PromptGuardTextSanitization => {
+export function sanitizePromptGuardText(text: string, enabled: boolean): PromptGuardTextResult {
   if (!enabled || !text) {
     return {
       text,
-      diagnostics: {
-        entries: 0,
-        quarantinedSegments: 0
-      }
+      diagnostics: { entries: 0, quarantinedSegments: 0 },
+      entries: []
     };
   }
 
+  let output = text;
   const entries: PromptGuardEntry[] = [];
-  const sanitized = sanitizeField(text, "blocker", "blocker", "content", entries);
+
+  for (const rule of RULES) {
+    rule.regex.lastIndex = 0;
+    output = output.replace(rule.regex, (match) => {
+      entries.push({
+        pattern: rule.id,
+        action: rule.action,
+        severity: rule.severity,
+        excerpt: sanitizeExcerpt(match)
+      });
+      return rule.action === "quarantine" ? "[QUARANTINED]" : " ";
+    });
+  }
+
+  const normalized = output.replace(/\s{2,}/g, " ").trim();
+  const quarantinedSegments = entries.reduce((count, entry) => {
+    return entry.action === "quarantine" ? count + 1 : count;
+  }, 0);
+
   return {
-    text: sanitized,
+    text: normalized,
     diagnostics: {
       entries: entries.length,
-      quarantinedSegments: entries.filter((entry) => entry.action === "quarantine").length
-    }
+      quarantinedSegments
+    },
+    entries
   };
-};
+}
 
-export const applyPromptGuard = (
-  records: NormalizedRecord[],
-  enabled: boolean
-): PromptGuardResult => {
-  if (!enabled) {
-    return {
-      records: records.map((record) => withSecurityTag(record, {
-        enabled: false,
-        quarantinedSegments: 0,
-        entries: 0
-      })),
-      audit: {
-        enabled: false,
-        quarantinedSegments: 0,
-        entries: []
+export function applyPromptGuard(records: NormalizedRecord[], enabled: boolean): PromptGuardResult {
+  const auditEntries: PromptGuardRecordEntry[] = [];
+  let totalQuarantinedSegments = 0;
+
+  const guardedRecords = records.map((record) => {
+    if (!enabled) {
+      return {
+        ...record,
+        attributes: withSecurityAttributes(record, false, 0, 0)
+      };
+    }
+
+    let title = record.title;
+    let content = record.content;
+    let recordEntries = 0;
+    let recordQuarantinedSegments = 0;
+
+    if (typeof record.title === "string") {
+      const sanitizedTitle = sanitizePromptGuardText(record.title, true);
+      title = sanitizedTitle.text;
+      recordEntries += sanitizedTitle.diagnostics.entries;
+      recordQuarantinedSegments += sanitizedTitle.diagnostics.quarantinedSegments;
+      for (const entry of sanitizedTitle.entries) {
+        auditEntries.push({
+          ...entry,
+          recordId: record.id,
+          field: "title"
+        });
       }
-    };
-  }
+    }
 
-  const entries: PromptGuardEntry[] = [];
-  const sanitized = records.map((record) => {
-    const beforeEntries = entries.length;
-    const title = typeof record.title === "string"
-      ? sanitizeField(record.title, record.provider, record.id, "title", entries)
-      : undefined;
-    const content = typeof record.content === "string"
-      ? sanitizeField(record.content, record.provider, record.id, "content", entries)
-      : undefined;
-    const recordEntries = entries.slice(beforeEntries);
+    if (typeof record.content === "string") {
+      const sanitizedContent = sanitizePromptGuardText(record.content, true);
+      content = sanitizedContent.text;
+      recordEntries += sanitizedContent.diagnostics.entries;
+      recordQuarantinedSegments += sanitizedContent.diagnostics.quarantinedSegments;
+      for (const entry of sanitizedContent.entries) {
+        auditEntries.push({
+          ...entry,
+          recordId: record.id,
+          field: "content"
+        });
+      }
+    }
 
-    return withSecurityTag({
+    totalQuarantinedSegments += recordQuarantinedSegments;
+
+    return {
       ...record,
-      ...(title === undefined ? {} : { title }),
-      ...(content === undefined ? {} : { content })
-    }, {
-      enabled: true,
-      quarantinedSegments: recordEntries.filter((entry) => entry.action === "quarantine").length,
-      entries: recordEntries.length
-    });
+      ...(typeof title === "string" ? { title } : {}),
+      ...(typeof content === "string" ? { content } : {}),
+      attributes: withSecurityAttributes(record, true, recordEntries, recordQuarantinedSegments)
+    };
   });
 
   return {
-    records: sanitized,
+    records: guardedRecords,
     audit: {
-      enabled: true,
-      quarantinedSegments: entries.filter((entry) => entry.action === "quarantine").length,
-      entries
+      enabled,
+      quarantinedSegments: enabled ? totalQuarantinedSegments : 0,
+      entries: enabled ? auditEntries : []
     }
   };
-};
+}

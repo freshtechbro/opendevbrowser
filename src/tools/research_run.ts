@@ -9,6 +9,7 @@ const z = tool.schema;
 const sourceSelectionSchema = z.enum(["auto", "web", "community", "social", "shopping", "all"]);
 const sourceSchema = z.enum(["web", "community", "social", "shopping"]);
 const modeSchema = z.enum(["compact", "json", "md", "context", "path"]);
+const cookiePolicySchema = z.enum(["off", "auto", "required"]);
 
 export function createResearchRunTool(deps: ToolDeps): ToolDefinition {
   return tool({
@@ -24,7 +25,9 @@ export function createResearchRunTool(deps: ToolDeps): ToolDefinition {
       includeEngagement: z.boolean().optional().describe("Include engagement enrichment"),
       limitPerSource: z.number().int().positive().optional().describe("Result limit per source"),
       outputDir: z.string().optional().describe("Optional artifact output directory"),
-      ttlHours: z.number().int().positive().optional().describe("Artifact retention TTL in hours")
+      ttlHours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
+      useCookies: z.boolean().optional().describe("Enable/disable provider cookie injection for this run"),
+      cookiePolicyOverride: cookiePolicySchema.optional().describe("Override cookie policy: off|auto|required")
     },
     async execute(args) {
       try {
@@ -40,7 +43,9 @@ export function createResearchRunTool(deps: ToolDeps): ToolDefinition {
           includeEngagement: args.includeEngagement,
           limitPerSource: args.limitPerSource,
           outputDir: args.outputDir,
-          ttlHours: args.ttlHours
+          ttlHours: args.ttlHours,
+          useCookies: args.useCookies,
+          cookiePolicyOverride: args.cookiePolicyOverride
         });
         return ok(result);
       } catch (error) {

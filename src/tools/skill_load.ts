@@ -9,7 +9,7 @@ export function createSkillLoadTool(deps: ToolDeps): ToolDefinition {
   return tool({
     description: "Load a specific skill by name from OpenCode skill directories (compatibility wrapper)",
     args: {
-      name: z.string().describe("Name of the skill to load (e.g., 'login-automation', 'form-testing')"),
+      name: z.string().describe("Name of the skill to load (e.g., 'opendevbrowser-login-automation', 'opendevbrowser-form-testing')"),
       topic: z.string().optional().describe("Optional topic to filter the skill content")
     },
     async execute(args) {

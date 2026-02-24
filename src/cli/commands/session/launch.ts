@@ -17,6 +17,13 @@ type LaunchArgs = {
   extensionLegacy?: boolean;
 };
 
+const parseBooleanFlag = (value: string, flag: string): boolean => {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") return true;
+  if (normalized === "false" || normalized === "0") return false;
+  throw createUsageError(`Invalid ${flag}: ${value}`);
+};
+
 function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
   const parsed: LaunchArgs = { flags: [] };
   for (let i = 0; i < rawArgs.length; i += 1) {
@@ -59,7 +66,19 @@ function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
       continue;
     }
     if (arg === "--persist-profile") {
-      parsed.persistProfile = true;
+      const value = rawArgs[i + 1];
+      if (value && !value.startsWith("--")) {
+        parsed.persistProfile = parseBooleanFlag(value, "--persist-profile");
+        i += 1;
+      } else {
+        parsed.persistProfile = true;
+      }
+      continue;
+    }
+    if (arg?.startsWith("--persist-profile=")) {
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --persist-profile");
+      parsed.persistProfile = parseBooleanFlag(value, "--persist-profile");
       continue;
     }
     if (arg === "--no-extension") {
@@ -107,6 +126,8 @@ function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
   }
   return parsed;
 }
+
+export const __test__ = { parseLaunchArgs };
 
 export async function runSessionLaunch(args: ParsedArgs) {
   const launchArgs = parseLaunchArgs(args.rawArgs);

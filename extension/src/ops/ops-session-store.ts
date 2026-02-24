@@ -1,3 +1,10 @@
+import {
+  DEFAULT_OPS_PARALLELISM_POLICY,
+  createOpsGovernorState,
+  type OpsParallelismGovernorPolicy,
+  type OpsParallelismGovernorState
+} from "./parallelism-governor.js";
+
 export type OpsTargetInfo = {
   targetId: string;
   tabId: number;
@@ -43,6 +50,15 @@ export type OpsSession = {
   consoleSeq: number;
   networkSeq: number;
   queue: Promise<unknown>;
+  targetQueues: Map<string, Promise<void>>;
+  targetQueueDepth: Map<string, number>;
+  targetQueueOldestAt: Map<string, number>;
+  parallelInFlight: number;
+  pendingParallel: number;
+  discardedSignals: number;
+  frozenSignals: number;
+  parallelismPolicy: OpsParallelismGovernorPolicy;
+  parallelismState: OpsParallelismGovernorState;
 };
 
 export class OpsRefStore {
@@ -85,9 +101,18 @@ export class OpsSessionStore {
   private sessions = new Map<string, OpsSession>();
   private tabToSession = new Map<number, string>();
 
-  createSession(ownerClientId: string, tabId: number, leaseId: string, info?: { url?: string; title?: string }): OpsSession {
+  createSession(
+    ownerClientId: string,
+    tabId: number,
+    leaseId: string,
+    info?: { url?: string; title?: string },
+    options?: {
+      parallelismPolicy?: OpsParallelismGovernorPolicy;
+    }
+  ): OpsSession {
     const id = createId();
     const targetId = `tab-${tabId}`;
+    const parallelismPolicy = options?.parallelismPolicy ?? DEFAULT_OPS_PARALLELISM_POLICY;
     const target: OpsTargetInfo = {
       targetId,
       tabId,
@@ -113,7 +138,16 @@ export class OpsSessionStore {
       networkRequests: new Map(),
       consoleSeq: 0,
       networkSeq: 0,
-      queue: Promise.resolve()
+      queue: Promise.resolve(),
+      targetQueues: new Map(),
+      targetQueueDepth: new Map(),
+      targetQueueOldestAt: new Map(),
+      parallelInFlight: 0,
+      pendingParallel: 0,
+      discardedSignals: 0,
+      frozenSignals: 0,
+      parallelismPolicy,
+      parallelismState: createOpsGovernorState(parallelismPolicy, "extensionOpsHeaded")
     };
     this.sessions.set(id, session);
     this.tabToSession.set(tabId, id);
@@ -176,6 +210,9 @@ export class OpsSessionStore {
       const [first] = session.targets.keys();
       session.activeTargetId = first ?? "";
     }
+    session.targetQueues.delete(targetId);
+    session.targetQueueDepth.delete(targetId);
+    session.targetQueueOldestAt.delete(targetId);
     session.refStore.clearTarget(targetId);
     return target;
   }

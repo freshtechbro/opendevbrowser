@@ -1,4 +1,9 @@
-import { ProviderRuntimeError, toProviderError } from "./errors";
+import {
+  ProviderRuntimeError,
+  normalizeProviderReasonCode,
+  providerErrorCodeFromReasonCode,
+  toProviderError
+} from "./errors";
 import { createExecutionMetadata, normalizeFailure, normalizeSuccess, createTraceContext } from "./normalize";
 import { selectProviders } from "./policy";
 import { ProviderRegistry } from "./registry";
@@ -6,6 +11,10 @@ import { AdaptiveConcurrencyController } from "./adaptive-concurrency";
 import { applyPromptGuard } from "./safety/prompt-guard";
 import { fallbackTierMetadata, selectTierRoute, shouldFallbackToTierA } from "./tier-router";
 import { createLogger } from "../core/logging";
+import {
+  AntiBotPolicyEngine,
+  type AntiBotPolicyConfig
+} from "./shared/anti-bot-policy";
 import { createCommunityProvider, type CommunityProviderOptions } from "./community";
 import {
   createSocialProviders,
@@ -15,6 +24,7 @@ import {
   type SocialProvidersOptions
 } from "./social";
 import { createShoppingProviders, type ShoppingProvidersOptions } from "./shopping";
+import { providerRequestHeaders } from "./shared/request-headers";
 import { isLikelyDocumentUrl } from "./shared/traversal-url";
 import { createWebProvider, type WebProviderOptions } from "./web";
 import { classifyBlockerSignal } from "./blocker";
@@ -22,16 +32,21 @@ import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, toSnippet } from "./web/extract";
 import type {
   AdaptiveConcurrencyDiagnostics,
+  BrowserFallbackPort,
   BlockerSignalV1,
   JsonValue,
   NormalizedRecord,
   ProviderAdapter,
   ProviderAggregateResult,
   ProviderCallResultByOperation,
+  ProviderCookiePolicy,
+  ProviderCookieSourceConfig,
   ProviderContext,
   ProviderExecutionMetadata,
+  ProviderErrorCode,
   ProviderOperation,
   ProviderOperationResult,
+  ProviderReasonCode,
   ProviderRunOptions,
   ProviderRuntimeBudgets,
   ProviderRuntimeDiagnostics,
@@ -148,13 +163,14 @@ const PLACEHOLDER_PATTERNS: Array<{ code: string; regex: RegExp }> = [
 
 const RUNTIME_FETCH_HEADERS = {
   accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "user-agent": "opendevbrowser/1.0"
+  ...providerRequestHeaders
 } as const;
 
 const SOCIAL_SEARCH_ENDPOINTS: Record<SocialPlatform, (query: string, page: number) => string> = {
   x: (query, page) => `https://x.com/search?q=${encodeURIComponent(query)}&f=live&page=${page}`,
   reddit: (query, page) => `https://www.reddit.com/search/?q=${encodeURIComponent(query)}&sort=relevance&t=all&page=${page}`,
   bluesky: (query, page) => `https://bsky.app/search?q=${encodeURIComponent(query)}&page=${page}`,
+  facebook: (query, page) => `https://www.facebook.com/search/top?q=${encodeURIComponent(query)}&page=${page}`,
   linkedin: (query, page) => `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(query)}&page=${page}`,
   instagram: (query, page) => `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(query)}&page=${page}`,
   tiktok: (query, page) => `https://www.tiktok.com/search?q=${encodeURIComponent(query)}&page=${page}`,
@@ -226,6 +242,40 @@ const dedupeLinks = (links: string[], baseUrl: string, limit: number): string[] 
     if (deduped.length >= limit) break;
   }
   return deduped;
+};
+
+const RUNTIME_FALLBACK_ERROR_CODES = new Set<ProviderErrorCode>([
+  "auth",
+  "rate_limited",
+  "timeout",
+  "network",
+  "upstream",
+  "unavailable"
+]);
+
+const fallbackReasonCodeForError = (error: {
+  code: ProviderErrorCode;
+  message: string;
+  details?: Record<string, JsonValue>;
+  reasonCode?: ProviderReasonCode;
+}): ProviderReasonCode | undefined => {
+  if (error.reasonCode) return error.reasonCode;
+  const normalized = normalizeProviderReasonCode({
+    code: error.code,
+    message: error.message,
+    details: error.details
+  });
+  if (normalized) return normalized;
+  if (error.code === "auth") return "token_required";
+  if (error.code === "rate_limited") return "rate_limited";
+  if (error.code === "upstream") return "ip_blocked";
+  if (error.code === "timeout" || error.code === "network" || error.code === "unavailable") return "env_limited";
+  return undefined;
+};
+
+const readFallbackString = (output: Record<string, JsonValue> | undefined, key: "html" | "url"): string | undefined => {
+  const value = output?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 };
 
 const fetchRuntimeDocument = async (args: {
@@ -309,6 +359,72 @@ const fetchRuntimeDocument = async (args: {
   };
 };
 
+const fetchRuntimeDocumentWithFallback = async (args: {
+  url: string;
+  provider: string;
+  source: RuntimeFetchSource;
+  operation: "search" | "fetch";
+  signal?: AbortSignal;
+  context?: ProviderContext;
+  browserFallbackPort?: BrowserFallbackPort;
+}): Promise<RuntimeFetchedDocument> => {
+  try {
+    return await fetchRuntimeDocument({
+      url: args.url,
+      provider: args.provider,
+      source: args.source,
+      signal: args.signal
+    });
+  } catch (error) {
+    const normalized = toProviderError(error, {
+      provider: args.provider,
+      source: args.source
+    });
+    const fallbackPort = args.context?.browserFallbackPort ?? args.browserFallbackPort;
+    if (!fallbackPort) {
+      throw error;
+    }
+    if (!RUNTIME_FALLBACK_ERROR_CODES.has(normalized.code)) {
+      throw error;
+    }
+    const reasonCode = fallbackReasonCodeForError(normalized) ?? "env_limited";
+
+    const fallback = await fallbackPort.resolve({
+      provider: args.provider,
+      source: args.source,
+      operation: args.operation,
+      reasonCode,
+      trace: args.context?.trace ?? {
+        requestId: `runtime-fallback-${Date.now()}`,
+        provider: args.provider,
+        ts: new Date().toISOString()
+      },
+      url: args.url,
+      details: {
+        errorCode: normalized.code,
+        message: normalized.message,
+        ...(normalized.details ?? {})
+      },
+      ...(typeof args.context?.useCookies === "boolean" ? { useCookies: args.context.useCookies } : {}),
+      ...(args.context?.cookiePolicyOverride ? { cookiePolicyOverride: args.context.cookiePolicyOverride } : {})
+    });
+    if (!fallback.ok) {
+      throw error;
+    }
+
+    const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? args.url);
+    const html = readFallbackString(fallback.output, "html") ?? "";
+    const extracted = extractStructuredContent(html, resolvedUrl);
+    return {
+      url: resolvedUrl,
+      status: 200,
+      html,
+      text: extracted.text,
+      links: extracted.links
+    };
+  }
+};
+
 export interface RuntimeInit {
   budgets?: Partial<ProviderRuntimeBudgets>;
   providers?: ProviderAdapter[];
@@ -322,6 +438,30 @@ export interface RuntimeInit {
   promptInjectionGuard?: {
     enabled?: boolean;
   };
+  antiBotPolicy?: Partial<AntiBotPolicyConfig>;
+  transcript?: {
+    modeDefault?: "auto" | "web" | "no-auto" | "yt-dlp" | "apify";
+    strategyOrder?: Array<
+      "youtubei"
+      | "native_caption_parse"
+      | "ytdlp_audio_asr"
+      | "apify"
+      | "ytdlp_subtitle"
+      | "optional_asr"
+    >;
+    enableYtdlp?: boolean;
+    enableAsr?: boolean;
+    enableYtdlpAudioAsr?: boolean;
+    enableApify?: boolean;
+    apifyActorId?: string;
+    enableBrowserFallback?: boolean;
+    ytdlpTimeoutMs?: number;
+  };
+  cookies?: {
+    policy?: ProviderCookiePolicy;
+    source?: ProviderCookieSourceConfig;
+  };
+  browserFallbackPort?: BrowserFallbackPort;
 }
 
 export interface RuntimeDefaults {
@@ -340,8 +480,10 @@ export class ProviderRuntime {
   private readonly tierConfig: RuntimeTierConfig;
   private readonly promptGuardEnabled: boolean;
   private readonly blockerDetectionThreshold: number;
+  private readonly antiBotPolicy: AntiBotPolicyEngine;
   private readonly adaptiveConfig: Required<NonNullable<RuntimeInit["adaptiveConcurrency"]>>;
   private adaptiveConcurrency: AdaptiveConcurrencyController;
+  private readonly browserFallbackPort?: BrowserFallbackPort;
 
   constructor(init: RuntimeInit = {}) {
     this.registry = new ProviderRegistry();
@@ -353,6 +495,8 @@ export class ProviderRuntime {
     };
     this.promptGuardEnabled = init.promptInjectionGuard?.enabled ?? true;
     this.blockerDetectionThreshold = clampBlockerThreshold(init.blockerDetectionThreshold);
+    this.antiBotPolicy = new AntiBotPolicyEngine(init.antiBotPolicy);
+    this.browserFallbackPort = init.browserFallbackPort;
     this.adaptiveConfig = {
       enabled: init.adaptiveConcurrency?.enabled ?? false,
       maxGlobal: Math.max(this.budgets.concurrency.global, init.adaptiveConcurrency?.maxGlobal ?? this.budgets.concurrency.global),
@@ -501,10 +645,32 @@ export class ProviderRuntime {
 
     const timeout = options.timeoutMs ?? this.budgets.timeoutMs[operation];
     if (selection === "all") {
-      return this.executeAll(selectedProviders, operation, input, trace, timeout, selection, startedAt, tierMetadata, options.providerIds);
+      return this.executeAll(
+        selectedProviders,
+        operation,
+        input,
+        trace,
+        timeout,
+        selection,
+        startedAt,
+        tierMetadata,
+        options.providerIds,
+        options
+      );
     }
 
-    return this.executeSequential(selectedProviders, operation, input, trace, timeout, selection, startedAt, tierMetadata, options.providerIds);
+    return this.executeSequential(
+      selectedProviders,
+      operation,
+      input,
+      trace,
+      timeout,
+      selection,
+      startedAt,
+      tierMetadata,
+      options.providerIds,
+      options
+    );
   }
 
   private async executeSequential<Operation extends ProviderOperation>(
@@ -516,7 +682,8 @@ export class ProviderRuntime {
     selection: ProviderSelection,
     startedAt: number,
     tierMetadata: ProviderTierMetadata,
-    providerIds?: string[]
+    providerIds?: string[],
+    runOptions: ProviderRunOptions = {}
   ): Promise<ProviderAggregateResult> {
     const failures: ProviderAggregateResult["failures"] = [];
     let retries = 0;
@@ -526,7 +693,7 @@ export class ProviderRuntime {
 
     for (const provider of providers) {
       attemptedOrder.push(provider.id);
-      const result = await this.invokeProvider(provider, operation, input, trace, timeoutMs, tierMetadata);
+      const result = await this.invokeProvider(provider, operation, input, trace, timeoutMs, tierMetadata, runOptions);
       retries += result.retries;
       diagnostics = result.diagnostics ?? diagnostics;
       blocker = result.meta?.blocker ?? blocker;
@@ -574,7 +741,7 @@ export class ProviderRuntime {
       const fallbackTier = fallbackTierMetadata();
       for (const provider of fallbackProviders) {
         attemptedOrder.push(provider.id);
-        const fallback = await this.invokeProvider(provider, operation, input, trace, timeoutMs, fallbackTier);
+        const fallback = await this.invokeProvider(provider, operation, input, trace, timeoutMs, fallbackTier, runOptions);
         retries += fallback.retries;
         diagnostics = fallback.diagnostics ?? diagnostics;
         blocker = fallback.meta?.blocker ?? blocker;
@@ -647,10 +814,11 @@ export class ProviderRuntime {
     selection: ProviderSelection,
     startedAt: number,
     tierMetadata: ProviderTierMetadata,
-    providerIds?: string[]
+    providerIds?: string[],
+    runOptions: ProviderRunOptions = {}
   ): Promise<ProviderAggregateResult> {
     const results = await Promise.all(
-      providers.map((provider) => this.invokeProvider(provider, operation, input, trace, timeoutMs, tierMetadata))
+      providers.map((provider) => this.invokeProvider(provider, operation, input, trace, timeoutMs, tierMetadata, runOptions))
     );
 
     const records: NormalizedRecord[] = [];
@@ -698,7 +866,7 @@ export class ProviderRuntime {
       }
 
       const fallbackResults = await Promise.all(
-        fallbackProviders.map((provider) => this.invokeProvider(provider, operation, input, trace, timeoutMs, fallbackTier))
+        fallbackProviders.map((provider) => this.invokeProvider(provider, operation, input, trace, timeoutMs, fallbackTier, runOptions))
       );
 
       for (const result of fallbackResults) {
@@ -754,7 +922,8 @@ export class ProviderRuntime {
     input: ProviderCallResultByOperation[Operation],
     trace: TraceContext,
     timeoutMs: number,
-    tierMetadata: ProviderTierMetadata
+    tierMetadata: ProviderTierMetadata,
+    runOptions: ProviderRunOptions
   ): Promise<ProviderOperationResult> {
     const startedAt = Date.now();
     const scopeKey = this.resolveScopeKey(provider.id, operation, input);
@@ -788,13 +957,45 @@ export class ProviderRuntime {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
+        const preflight = this.antiBotPolicy.preflight({
+          providerId: provider.id,
+          operation
+        });
+        if (!preflight.allow) {
+          const reasonCode = preflight.reasonCode ?? "cooldown_active";
+          throw new ProviderRuntimeError(
+            providerErrorCodeFromReasonCode(reasonCode),
+            `Provider execution paused by anti-bot policy for ${provider.id}`,
+            {
+              provider: provider.id,
+              source: provider.source,
+              retryable: false,
+              reasonCode,
+              details: {
+                reasonCode,
+                ...(typeof preflight.retryAfterMs === "number" ? { retryAfterMs: preflight.retryAfterMs } : {}),
+                ...(preflight.retryGuidance ? { retryGuidance: preflight.retryGuidance } : {}),
+                ...(preflight.proxyHint ? { proxyHint: preflight.proxyHint } : {}),
+                ...(preflight.sessionHint ? { sessionHint: preflight.sessionHint } : {})
+              }
+            }
+          );
+        }
+
         const records = await this.withProviderConcurrency(provider.id, scopeKey, async () => {
           return this.withTimeout(timeoutMs, async (signal) => {
             const context: ProviderContext = {
               trace: createTraceContext(trace, provider.id),
               timeoutMs,
               attempt,
-              signal
+              signal,
+              ...(typeof runOptions.useCookies === "boolean" ? { useCookies: runOptions.useCookies } : {}),
+              ...(runOptions.cookiePolicyOverride
+                ? { cookiePolicyOverride: runOptions.cookiePolicyOverride }
+                : {}),
+              ...(this.browserFallbackPort
+                ? { browserFallbackPort: this.browserFallbackPort }
+                : {})
             };
             return this.callOperation(provider, operation, preparedInput, context);
           });
@@ -872,12 +1073,36 @@ export class ProviderRuntime {
           });
         }
         this.registry.markSuccess(provider.id, success.latencyMs);
+        this.antiBotPolicy.postflight({
+          providerId: provider.id,
+          operation,
+          success: true,
+          retryable: false,
+          attempt,
+          maxAttempts
+        });
         return success;
       } catch (error) {
-        const normalizedError = toProviderError(error, {
+        let normalizedError = toProviderError(error, {
           provider: provider.id,
           source: provider.source
         });
+        const reasonCode = normalizedError.reasonCode
+          ?? normalizeProviderReasonCode({
+            code: normalizedError.code,
+            message: normalizedError.message,
+            details: normalizedError.details
+          });
+        if (reasonCode && normalizedError.reasonCode !== reasonCode) {
+          normalizedError = {
+            ...normalizedError,
+            reasonCode,
+            details: {
+              ...(normalizedError.details ?? {}),
+              reasonCode
+            }
+          };
+        }
         this.adaptiveConcurrency.observe(scopeKey, {
           latencyMs: Math.max(0, Date.now() - startedAt),
           timeout: normalizedError.code === "timeout",
@@ -888,7 +1113,16 @@ export class ProviderRuntime {
         });
         this.registry.markFailure(provider.id, normalizedError, this.budgets.circuitBreaker);
 
-        if (attempt < maxAttempts && normalizedError.retryable) {
+        const postflight = this.antiBotPolicy.postflight({
+          providerId: provider.id,
+          operation,
+          success: false,
+          reasonCode,
+          retryable: normalizedError.retryable,
+          attempt,
+          maxAttempts
+        });
+        if (attempt < maxAttempts && postflight.allowRetry) {
           continue;
         }
 
@@ -1236,8 +1470,17 @@ export class ProviderRuntime {
       }
     })();
     const status = typeof details?.status === "number" ? details.status : undefined;
-    const envLimited = params.code === "unavailable"
-      && /extension not connected|not available in this environment|manual interaction/i.test(params.message);
+    const normalizedReasonCode = normalizeProviderReasonCode({
+      code: params.code as ProviderErrorCode,
+      message: params.message,
+      status,
+      details
+    });
+    const envLimited = normalizedReasonCode === "env_limited"
+      || (
+        params.code === "unavailable"
+        && /extension not connected|not available in this environment|manual interaction/i.test(params.message)
+      );
     const blocker = classifyBlockerSignal({
       source: params.operation === "post" ? "macro_execution" : "runtime_fetch",
       ...(url ? { url } : {}),
@@ -1251,7 +1494,14 @@ export class ProviderRuntime {
       promptGuardEnabled: this.promptGuardEnabled,
       threshold: this.blockerDetectionThreshold
     });
-    return blocker ?? undefined;
+    if (!blocker) return undefined;
+    if (blocker.reasonCode || !normalizedReasonCode) {
+      return blocker;
+    }
+    return {
+      ...blocker,
+      reasonCode: normalizedReasonCode
+    };
   }
 
   private async withTimeout<T>(
@@ -1287,15 +1537,20 @@ export const createProviderRuntime = (init: RuntimeInit = {}): ProviderRuntime =
   return new ProviderRuntime(init);
 };
 
-const withDefaultWebOptions = (options: WebProviderOptions | undefined): WebProviderOptions => {
+const withDefaultWebOptions = (
+  options: WebProviderOptions | undefined,
+  browserFallbackPort?: BrowserFallbackPort
+): WebProviderOptions => {
   const providerId = options?.id ?? "web/default";
   return {
     ...options,
     fetcher: options?.fetcher ?? (async (url: string) => {
-      const document = await fetchRuntimeDocument({
+      const document = await fetchRuntimeDocumentWithFallback({
         url,
         provider: providerId,
-        source: "web"
+        source: "web",
+        operation: "fetch",
+        browserFallbackPort
       });
       return {
         url: document.url,
@@ -1308,11 +1563,14 @@ const withDefaultWebOptions = (options: WebProviderOptions | undefined): WebProv
       const lookupUrl = isHttpUrl(query)
         ? query
         : `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}&ia=web`;
-      const document = await fetchRuntimeDocument({
+      const document = await fetchRuntimeDocumentWithFallback({
         url: lookupUrl,
         provider: providerId,
         source: "web",
-        signal: context.signal
+        operation: "search",
+        signal: context.signal,
+        context,
+        browserFallbackPort
       });
 
       const limit = Math.max(1, Math.min(input.limit ?? 5, 10));
@@ -1348,7 +1606,10 @@ const withDefaultWebOptions = (options: WebProviderOptions | undefined): WebProv
   };
 };
 
-const withDefaultCommunityOptions = (options: CommunityProviderOptions | undefined): CommunityProviderOptions => {
+const withDefaultCommunityOptions = (
+  options: CommunityProviderOptions | undefined,
+  browserFallbackPort?: BrowserFallbackPort
+): CommunityProviderOptions => {
   const providerId = options?.id ?? "community/default";
   return {
     ...options,
@@ -1358,11 +1619,14 @@ const withDefaultCommunityOptions = (options: CommunityProviderOptions | undefin
       const lookupUrl = isHttpUrl(query)
         ? query
         : `https://www.reddit.com/search/?q=${encodeURIComponent(query)}&sort=relevance&t=all&page=${page}`;
-      const document = await fetchRuntimeDocument({
+      const document = await fetchRuntimeDocumentWithFallback({
         url: lookupUrl,
         provider: providerId,
         source: "community",
-        signal: context.signal
+        operation: "search",
+        signal: context.signal,
+        context,
+        browserFallbackPort
       });
       const links = dedupeLinks(document.links, document.url, 20);
 
@@ -1381,11 +1645,14 @@ const withDefaultCommunityOptions = (options: CommunityProviderOptions | undefin
       }];
     }),
     fetch: options?.fetch ?? (async (input, context) => {
-      const document = await fetchRuntimeDocument({
+      const document = await fetchRuntimeDocumentWithFallback({
         url: input.url,
         provider: providerId,
         source: "community",
-        signal: context.signal
+        operation: "fetch",
+        signal: context.signal,
+        context,
+        browserFallbackPort
       });
       const links = dedupeLinks(document.links, document.url, 20);
       return {
@@ -1404,7 +1671,8 @@ const withDefaultCommunityOptions = (options: CommunityProviderOptions | undefin
 
 const withDefaultSocialPlatformOptions = (
   platform: SocialPlatform,
-  options: SocialProviderOptions | undefined
+  options: SocialProviderOptions | undefined,
+  browserFallbackPort?: BrowserFallbackPort
 ): SocialProviderOptions => {
   const providerId = options?.id ?? `social/${platform}`;
   return {
@@ -1415,11 +1683,14 @@ const withDefaultSocialPlatformOptions = (
       const lookupUrl = isHttpUrl(query)
         ? query
         : SOCIAL_SEARCH_ENDPOINTS[platform](query, page);
-      const document = await fetchRuntimeDocument({
+      const document = await fetchRuntimeDocumentWithFallback({
         url: lookupUrl,
         provider: providerId,
         source: "social",
-        signal: context.signal
+        operation: "search",
+        signal: context.signal,
+        context,
+        browserFallbackPort
       });
       const links = dedupeLinks(document.links, document.url, 20);
 
@@ -1439,11 +1710,14 @@ const withDefaultSocialPlatformOptions = (
       }];
     }),
     fetch: options?.fetch ?? (async (input, context) => {
-      const document = await fetchRuntimeDocument({
+      const document = await fetchRuntimeDocumentWithFallback({
         url: input.url,
         provider: providerId,
         source: "social",
-        signal: context.signal
+        operation: "fetch",
+        signal: context.signal,
+        context,
+        browserFallbackPort
       });
       const links = dedupeLinks(document.links, document.url, 20);
       return {
@@ -1461,15 +1735,42 @@ const withDefaultSocialPlatformOptions = (
   };
 };
 
-const withDefaultSocialOptions = (options: SocialProvidersOptions | undefined): SocialProvidersOptions => ({
-  x: withDefaultSocialPlatformOptions("x", options?.x),
-  reddit: withDefaultSocialPlatformOptions("reddit", options?.reddit),
-  bluesky: withDefaultSocialPlatformOptions("bluesky", options?.bluesky),
-  linkedin: withDefaultSocialPlatformOptions("linkedin", options?.linkedin),
-  instagram: withDefaultSocialPlatformOptions("instagram", options?.instagram),
-  tiktok: withDefaultSocialPlatformOptions("tiktok", options?.tiktok),
-  threads: withDefaultSocialPlatformOptions("threads", options?.threads),
-  youtube: withDefaultYouTubeOptions(options?.youtube)
+const withDefaultSocialOptions = (
+  options: SocialProvidersOptions | undefined,
+  runtimeInit: Pick<RuntimeInit, "transcript" | "browserFallbackPort" | "antiBotPolicy">
+): SocialProvidersOptions => ({
+  x: withDefaultSocialPlatformOptions("x", options?.x, runtimeInit.browserFallbackPort),
+  reddit: withDefaultSocialPlatformOptions("reddit", options?.reddit, runtimeInit.browserFallbackPort),
+  bluesky: withDefaultSocialPlatformOptions("bluesky", options?.bluesky, runtimeInit.browserFallbackPort),
+  facebook: withDefaultSocialPlatformOptions("facebook", options?.facebook, runtimeInit.browserFallbackPort),
+  linkedin: withDefaultSocialPlatformOptions("linkedin", options?.linkedin, runtimeInit.browserFallbackPort),
+  instagram: withDefaultSocialPlatformOptions("instagram", options?.instagram, runtimeInit.browserFallbackPort),
+  tiktok: withDefaultSocialPlatformOptions("tiktok", options?.tiktok, runtimeInit.browserFallbackPort),
+  threads: withDefaultSocialPlatformOptions("threads", options?.threads, runtimeInit.browserFallbackPort),
+  youtube: withDefaultYouTubeOptions({
+    ...(options?.youtube ?? {}),
+    ...(runtimeInit.transcript
+      ? {
+        transcriptResolver: {
+          modeDefault: runtimeInit.transcript.modeDefault,
+          strategyOrder: runtimeInit.transcript.strategyOrder,
+          enableYtdlp: runtimeInit.transcript.enableYtdlp,
+          enableAsr: runtimeInit.transcript.enableAsr,
+          enableYtdlpAudioAsr: runtimeInit.transcript.enableYtdlpAudioAsr,
+          enableApify: runtimeInit.transcript.enableApify,
+          apifyActorId: runtimeInit.transcript.apifyActorId,
+          enableBrowserFallback: runtimeInit.transcript.enableBrowserFallback,
+          ytdlpTimeoutMs: runtimeInit.transcript.ytdlpTimeoutMs
+        }
+      }
+      : {}),
+    ...(runtimeInit.browserFallbackPort
+      ? { browserFallbackPort: runtimeInit.browserFallbackPort }
+      : {}),
+    ...(runtimeInit.antiBotPolicy
+      ? { antiBotPolicy: runtimeInit.antiBotPolicy }
+      : {})
+  })
 });
 
 export const createDefaultRuntime = (
@@ -1477,9 +1778,13 @@ export const createDefaultRuntime = (
   init: Omit<RuntimeInit, "providers"> = {}
 ): ProviderRuntime => {
   const runtime = new ProviderRuntime(init);
-  runtime.register(createWebProvider(withDefaultWebOptions(defaults.web)));
-  runtime.register(createCommunityProvider(withDefaultCommunityOptions(defaults.community)));
-  for (const provider of createSocialProviders(withDefaultSocialOptions(defaults.social))) {
+  runtime.register(createWebProvider(withDefaultWebOptions(defaults.web, init.browserFallbackPort)));
+  runtime.register(createCommunityProvider(withDefaultCommunityOptions(defaults.community, init.browserFallbackPort)));
+  for (const provider of createSocialProviders(withDefaultSocialOptions(defaults.social, {
+    transcript: init.transcript,
+    browserFallbackPort: init.browserFallbackPort,
+    antiBotPolicy: init.antiBotPolicy
+  }))) {
     runtime.register(provider);
   }
   for (const provider of createShoppingProviders(defaults.shopping)) {

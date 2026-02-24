@@ -9,6 +9,8 @@ import {
   validateShoppingLegalReviewChecklist
 } from "./shopping";
 import { createLogger, redactSensitive } from "../core/logging";
+import { normalizeProviderReasonCode } from "./errors";
+import { providerRequestHeaders } from "./shared/request-headers";
 import { canonicalizeUrl } from "./web/crawler";
 import { toSnippet } from "./web/extract";
 import type {
@@ -16,8 +18,10 @@ import type {
   NormalizedRecord,
   ProviderAggregateResult,
   ProviderCallResultByOperation,
+  ProviderCookiePolicy,
   ProviderError,
   ProviderFailureEntry,
+  ProviderReasonCode,
   ProviderRunOptions,
   ProviderSelection,
   ProviderSource
@@ -46,6 +50,8 @@ export interface ResearchRunInput {
   limitPerSource?: number;
   outputDir?: string;
   ttlHours?: number;
+  useCookies?: boolean;
+  cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
 export interface ShoppingRunInput {
@@ -55,8 +61,11 @@ export interface ShoppingRunInput {
   region?: string;
   sort?: "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping";
   mode: RenderMode;
+  timeoutMs?: number;
   outputDir?: string;
   ttlHours?: number;
+  useCookies?: boolean;
+  cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
 export interface ProductVideoRunInput {
@@ -68,13 +77,15 @@ export interface ProductVideoRunInput {
   include_copy?: boolean;
   output_dir?: string;
   ttl_hours?: number;
+  useCookies?: boolean;
+  cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
 export interface ProductVideoWorkflowOptions {
   captureScreenshot?: (url: string) => Promise<Buffer | null>;
 }
 
-type ProviderSignal = "ok" | "anti_bot_challenge" | "rate_limited";
+type ProviderSignal = "ok" | "anti_bot_challenge" | "rate_limited" | "transcript_unavailable";
 type TrackedSignal = Exclude<ProviderSignal, "ok">;
 type AlertState = "none" | "warning" | "degraded";
 
@@ -91,8 +102,19 @@ const providerSignalMap = new Map<string, ProviderSignalState>();
 const workflowLogger = createLogger("provider-workflows");
 
 const detectSignal = (error: ProviderError): ProviderSignal | null => {
-  if (error.code === "rate_limited") return "rate_limited";
-  if (/captcha|challenge|anti.?bot|cf_chl/i.test(error.message)) return "anti_bot_challenge";
+  const reasonCode = error.reasonCode
+    ?? normalizeProviderReasonCode({
+      code: error.code,
+      message: error.message,
+      details: error.details
+    });
+  if (reasonCode === "rate_limited") return "rate_limited";
+  if (reasonCode === "challenge_detected" || /captcha|challenge|anti.?bot|cf_chl/i.test(error.message)) {
+    return "anti_bot_challenge";
+  }
+  if (reasonCode === "transcript_unavailable" || reasonCode === "caption_missing") {
+    return "transcript_unavailable";
+  }
   return null;
 };
 
@@ -109,15 +131,18 @@ const trackProviderSignals = (result: ProviderAggregateResult): void => {
       entries: [],
       previousWindowRates: {
         anti_bot_challenge: 0,
-        rate_limited: 0
+        rate_limited: 0,
+        transcript_unavailable: 0
       },
       signalState: {
         anti_bot_challenge: "none",
-        rate_limited: "none"
+        rate_limited: "none",
+        transcript_unavailable: "none"
       },
       healthyWindows: {
         anti_bot_challenge: 0,
-        rate_limited: 0
+        rate_limited: 0,
+        transcript_unavailable: 0
       }
     };
     state.entries.push(signal);
@@ -159,7 +184,7 @@ const buildAlerts = (): Array<Record<string, JsonValue>> => {
     const total = state.entries.length;
     if (total === 0) continue;
 
-    for (const signal of ["anti_bot_challenge", "rate_limited"] as const) {
+    for (const signal of ["anti_bot_challenge", "rate_limited", "transcript_unavailable"] as const) {
       const signalCount = state.entries.filter((entry) => entry === signal).length;
       const ratio = signalCount / total;
 
@@ -207,6 +232,11 @@ const buildAlerts = (): Array<Record<string, JsonValue>> => {
       alerts.push({
         provider,
         signal,
+        reasonCode: signal === "anti_bot_challenge"
+          ? "challenge_detected"
+          : signal === "rate_limited"
+            ? "rate_limited"
+            : "transcript_unavailable",
         state: nextState.state,
         window_total: total,
         signal_count: signalCount,
@@ -286,6 +316,175 @@ const withExcludedProviders = (
   };
 };
 
+const withCookieOverrides = (
+  options: ProviderRunOptions,
+  input: { useCookies?: boolean; cookiePolicyOverride?: ProviderCookiePolicy }
+): ProviderRunOptions => {
+  return {
+    ...options,
+    ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
+    ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
+  };
+};
+
+const detectFailureReasonCode = (failure: ProviderFailureEntry): ProviderReasonCode | undefined => {
+  return failure.error.reasonCode
+    ?? normalizeProviderReasonCode({
+      code: failure.error.code,
+      message: failure.error.message,
+      details: failure.error.details
+    });
+};
+
+const summarizeReasonCodeDistribution = (failures: ProviderFailureEntry[]): Record<string, number> => {
+  const counts = new Map<string, number>();
+  for (const failure of failures) {
+    const reasonCode = detectFailureReasonCode(failure);
+    if (!reasonCode) continue;
+    counts.set(reasonCode, (counts.get(reasonCode) ?? 0) + 1);
+  }
+  return Object.fromEntries([...counts.entries()].sort(([left], [right]) => left.localeCompare(right)));
+};
+
+const summarizeTranscriptStrategyFailures = (failures: ProviderFailureEntry[]): Record<string, number> => {
+  const counts = new Map<string, number>();
+  for (const failure of failures) {
+    const attemptChain = failure.error.details?.attemptChain;
+    if (!Array.isArray(attemptChain)) continue;
+    for (const item of attemptChain) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const strategy = (item as Record<string, unknown>).strategy;
+      const reasonCode = (item as Record<string, unknown>).reasonCode;
+      if (typeof strategy !== "string" || typeof reasonCode !== "string") continue;
+      const key = `${strategy}:${reasonCode}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return Object.fromEntries([...counts.entries()].sort(([left], [right]) => left.localeCompare(right)));
+};
+
+const summarizeTranscriptStrategyDetailDistribution = (records: NormalizedRecord[]): Record<string, number> => {
+  const counts = new Map<string, number>();
+  for (const record of records) {
+    const strategyDetail = record.attributes.transcript_strategy_detail;
+    const transcriptStrategy = record.attributes.transcript_strategy;
+    const resolved = typeof strategyDetail === "string" && strategyDetail.trim().length > 0
+      ? strategyDetail
+      : typeof transcriptStrategy === "string" && transcriptStrategy.trim().length > 0
+        ? transcriptStrategy
+        : null;
+    if (!resolved) continue;
+    counts.set(resolved, (counts.get(resolved) ?? 0) + 1);
+  }
+  return Object.fromEntries([...counts.entries()].sort(([left], [right]) => left.localeCompare(right)));
+};
+
+const TRANSCRIPT_REASON_CODES = new Set<ProviderReasonCode>([
+  "caption_missing",
+  "transcript_unavailable",
+  "strategy_unapproved"
+]);
+
+const ANTI_BOT_REASON_CODES = new Set<ProviderReasonCode>([
+  "ip_blocked",
+  "token_required",
+  "auth_required",
+  "challenge_detected",
+  "rate_limited",
+  "cooldown_active"
+]);
+
+const summarizeCookieDiagnostics = (
+  failures: ProviderFailureEntry[],
+  records: NormalizedRecord[]
+): Array<Record<string, JsonValue>> => {
+  const diagnostics: Array<Record<string, JsonValue>> = [];
+  for (const failure of failures) {
+    const candidate = failure.error.details?.cookieDiagnostics;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    diagnostics.push({
+      provider: failure.provider,
+      source: failure.source,
+      ...(detectFailureReasonCode(failure) ? { reasonCode: detectFailureReasonCode(failure) as JsonValue } : {}),
+      ...(candidate as Record<string, JsonValue>)
+    });
+  }
+
+  for (const record of records) {
+    const candidate = record.attributes.browser_fallback_cookie_diagnostics;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    diagnostics.push({
+      provider: record.provider,
+      source: record.source,
+      ...(candidate as Record<string, JsonValue>)
+    });
+  }
+
+  for (const record of records) {
+    const attemptChain = record.attributes.attempt_chain;
+    if (!Array.isArray(attemptChain)) continue;
+    for (const attempt of attemptChain) {
+      if (!attempt || typeof attempt !== "object" || Array.isArray(attempt)) continue;
+      const cookieDiagnostics = (attempt as Record<string, unknown>).cookieDiagnostics;
+      if (!cookieDiagnostics || typeof cookieDiagnostics !== "object" || Array.isArray(cookieDiagnostics)) continue;
+      diagnostics.push({
+        provider: record.provider,
+        source: record.source,
+        ...(cookieDiagnostics as Record<string, JsonValue>)
+      });
+    }
+  }
+  return diagnostics;
+};
+
+const hasTranscriptSuccess = (record: NormalizedRecord): boolean => {
+  const transcriptAvailable = record.attributes.transcript_available;
+  if (transcriptAvailable === true) return true;
+  const transcriptStrategy = record.attributes.transcript_strategy;
+  return typeof transcriptStrategy === "string" && transcriptStrategy.trim().length > 0;
+};
+
+const summarizeTranscriptDurability = (
+  records: NormalizedRecord[],
+  failures: ProviderFailureEntry[]
+): {
+  attempted: number;
+  successful: number;
+  failed: number;
+  success_rate: number;
+} => {
+  const successful = records.filter((record) => hasTranscriptSuccess(record)).length;
+  const failed = failures.filter((failure) => {
+    const reasonCode = detectFailureReasonCode(failure);
+    if (reasonCode && TRANSCRIPT_REASON_CODES.has(reasonCode)) return true;
+    return Array.isArray(failure.error.details?.attemptChain);
+  }).length;
+  const attempted = successful + failed;
+  return {
+    attempted,
+    successful,
+    failed,
+    success_rate: attempted > 0 ? Number((successful / attempted).toFixed(4)) : 0
+  };
+};
+
+const summarizeAntiBotPressure = (failures: ProviderFailureEntry[]): {
+  total_failures: number;
+  anti_bot_failures: number;
+  anti_bot_failure_ratio: number;
+} => {
+  const totalFailures = failures.length;
+  const antiBotFailures = failures.filter((failure) => {
+    const reasonCode = detectFailureReasonCode(failure);
+    return Boolean(reasonCode && ANTI_BOT_REASON_CODES.has(reasonCode));
+  }).length;
+  return {
+    total_failures: totalFailures,
+    anti_bot_failures: antiBotFailures,
+    anti_bot_failure_ratio: totalFailures > 0 ? Number((antiBotFailures / totalFailures).toFixed(4)) : 0
+  };
+};
+
 export const workflowTestUtils = {
   resetProviderSignalState: (): void => {
     providerSignalMap.clear();
@@ -302,7 +501,8 @@ export const workflowTestUtils = {
     redactRawCapture(record as Record<string, unknown>),
   toProviderSource: (providerId: string): ProviderSource | null => toProviderSource(providerId),
   resolveShoppingProviderIdForUrl: (url: string): string | null => resolveShoppingProviderIdForUrl(url),
-  fetchBinary: (url: string): Promise<Buffer | null> => fetchBinary(url)
+  fetchBinary: (url: string): Promise<Buffer | null> => fetchBinary(url),
+  rankResearchRecords: (records: ResearchRecord[]): ResearchRecord[] => rankResearchRecords(records)
 };
 
 const RESEARCH_AUTO_SOURCES: ProviderSource[] = ["web", "community", "social"];
@@ -575,7 +775,7 @@ const fetchBinary = async (url: string): Promise<Buffer | null> => {
     const response = await fetch(url, {
       headers: {
         accept: "image/*,*/*;q=0.8",
-        "user-agent": "opendevbrowser/1.0"
+        ...providerRequestHeaders
       },
       redirect: "follow"
     });
@@ -639,9 +839,9 @@ export const runResearchWorkflow = async (
         timebox_from: timebox.from,
         timebox_to: timebox.to
       }
-    }, {
+    }, withCookieOverrides({
       source
-    });
+    }, input));
     trackProviderSignals(result);
     return {
       source,
@@ -657,11 +857,17 @@ export const runResearchWorkflow = async (
     runs.flatMap((run) => run.result.failures),
     excludedProviderSet
   );
+  const reasonCodeDistribution = summarizeReasonCodeDistribution(mergedFailures);
+  const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(mergedFailures);
   const evaluationNow = new Date();
   const withinTimebox = filterByTimebox(mergedRecords, timebox, evaluationNow);
   const enriched = enrichResearchRecords(withinTimebox, timebox, evaluationNow);
   const deduped = dedupeResearchRecords(enriched);
   const ranked = rankResearchRecords(deduped);
+  const cookieDiagnostics = summarizeCookieDiagnostics(mergedFailures, mergedRecords);
+  const transcriptStrategyDetailDistribution = summarizeTranscriptStrategyDetailDistribution(ranked);
+  const transcriptDurability = summarizeTranscriptDurability(ranked, mergedFailures);
+  const antiBotPressure = summarizeAntiBotPressure(mergedFailures);
   const resolvedTimebox = timebox.mode === "days"
     ? {
       ...timebox,
@@ -679,7 +885,21 @@ export const runResearchWorkflow = async (
       total_records: mergedRecords.length,
       within_timebox: withinTimebox.length,
       final_records: ranked.length,
-      failed_sources: runs.filter((run) => !run.result.ok).map((run) => run.source)
+      failed_sources: runs.filter((run) => !run.result.ok).map((run) => run.source),
+      reason_code_distribution: reasonCodeDistribution,
+      reasonCodeDistribution,
+      transcript_strategy_failures: transcriptStrategyFailures,
+      transcriptStrategyFailures,
+      transcript_strategy_detail_failures: transcriptStrategyFailures,
+      transcriptStrategyDetailFailures: transcriptStrategyFailures,
+      transcript_strategy_detail_distribution: transcriptStrategyDetailDistribution,
+      transcriptStrategyDetailDistribution,
+      transcript_durability: transcriptDurability,
+      transcriptDurability,
+      cookie_diagnostics: cookieDiagnostics,
+      cookieDiagnostics,
+      anti_bot_pressure: antiBotPressure,
+      antiBotPressure
     },
     failures: mergedFailures,
     alerts: buildAlerts()
@@ -754,10 +974,11 @@ export const runShoppingWorkflow = async (
         ...(typeof input.budget === "number" ? { budget: input.budget } : {}),
         ...(input.region ? { region: input.region } : {})
       }
-    }, {
+    }, withCookieOverrides({
       source: "shopping",
-      providerIds: [providerId]
-    });
+      providerIds: [providerId],
+      ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {})
+    }, input));
     trackProviderSignals(result);
     return {
       providerId,
@@ -775,6 +996,13 @@ export const runShoppingWorkflow = async (
   );
 
   const failures = runs.flatMap((run) => run.result.failures);
+  const records = runs.flatMap((run) => run.result.records);
+  const reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
+  const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(failures);
+  const transcriptStrategyDetailDistribution = summarizeTranscriptStrategyDetailDistribution(records);
+  const transcriptDurability = summarizeTranscriptDurability(records, failures);
+  const cookieDiagnostics = summarizeCookieDiagnostics(failures, records);
+  const antiBotPressure = summarizeAntiBotPressure(failures);
   const meta = {
     selection: {
       providers: effectiveProviderIds,
@@ -782,7 +1010,21 @@ export const runShoppingWorkflow = async (
     },
     metrics: {
       total_offers: offers.length,
-      failed_providers: failures.map((entry) => entry.provider)
+      failed_providers: failures.map((entry) => entry.provider),
+      reason_code_distribution: reasonCodeDistribution,
+      reasonCodeDistribution,
+      transcript_strategy_failures: transcriptStrategyFailures,
+      transcriptStrategyFailures,
+      transcript_strategy_detail_failures: transcriptStrategyFailures,
+      transcriptStrategyDetailFailures: transcriptStrategyFailures,
+      transcript_strategy_detail_distribution: transcriptStrategyDetailDistribution,
+      transcriptStrategyDetailDistribution,
+      transcript_durability: transcriptDurability,
+      transcriptDurability,
+      cookie_diagnostics: cookieDiagnostics,
+      cookieDiagnostics,
+      anti_bot_pressure: antiBotPressure,
+      antiBotPressure
     },
     failures,
     alerts: buildAlerts()
@@ -848,7 +1090,9 @@ export const runProductVideoWorkflow = async (
     const shoppingResult = await runShoppingWorkflow(runtime, {
       query: candidateName,
       providers: providerHint ? [providerHint] : undefined,
-      mode: "json"
+      mode: "json",
+      useCookies: input.useCookies,
+      cookiePolicyOverride: input.cookiePolicyOverride
     });
 
     const offers = Array.isArray(shoppingResult.offers)
@@ -866,15 +1110,23 @@ export const runProductVideoWorkflow = async (
   }
 
   const source = resolveShoppingSourceForUrl(productUrl);
-  if (source === "shopping") {
-    const inferredProvider = providerHint
-      ? (providerHint.startsWith("shopping/") ? providerHint : `shopping/${providerHint}`)
-      : resolveShoppingProviderIdForUrl(productUrl);
-    if (inferredProvider) {
-      enforceShoppingLegalReviewGate([inferredProvider], new Date());
-    }
+  const shoppingProviderId = source === "shopping"
+    ? (
+      providerHint
+        ? (providerHint.startsWith("shopping/") ? providerHint : `shopping/${providerHint}`)
+        : resolveShoppingProviderIdForUrl(productUrl)
+    )
+    : null;
+  if (shoppingProviderId) {
+    enforceShoppingLegalReviewGate([shoppingProviderId], new Date());
   }
-  const details = await runtime.fetch({ url: productUrl }, { source });
+  const details = await runtime.fetch(
+    { url: productUrl },
+    withCookieOverrides({
+      source,
+      providerIds: shoppingProviderId ? [shoppingProviderId] : undefined
+    }, input)
+  );
   trackProviderSignals(details);
 
   if (!details.ok || details.records.length === 0) {
@@ -974,6 +1226,13 @@ export const runProductVideoWorkflow = async (
     manifestFileName: "bundle-manifest.json"
   });
 
+  const reasonCodeDistribution = summarizeReasonCodeDistribution(details.failures);
+  const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(details.failures);
+  const transcriptStrategyDetailDistribution = summarizeTranscriptStrategyDetailDistribution(details.records);
+  const transcriptDurability = summarizeTranscriptDurability(details.records, details.failures);
+  const cookieDiagnostics = summarizeCookieDiagnostics(details.failures, details.records);
+  const antiBotPressure = summarizeAntiBotPressure(details.failures);
+
   return {
     path: bundle.basePath,
     manifest: manifestPayload,
@@ -984,6 +1243,20 @@ export const runProductVideoWorkflow = async (
     meta: {
       alerts: buildAlerts(),
       failures: details.failures,
+      reason_code_distribution: reasonCodeDistribution,
+      reasonCodeDistribution,
+      transcript_strategy_failures: transcriptStrategyFailures,
+      transcriptStrategyFailures,
+      transcript_strategy_detail_failures: transcriptStrategyFailures,
+      transcriptStrategyDetailFailures: transcriptStrategyFailures,
+      transcript_strategy_detail_distribution: transcriptStrategyDetailDistribution,
+      transcriptStrategyDetailDistribution,
+      transcript_durability: transcriptDurability,
+      transcriptDurability,
+      cookie_diagnostics: cookieDiagnostics,
+      cookieDiagnostics,
+      anti_bot_pressure: antiBotPressure,
+      antiBotPressure,
       artifact_manifest: bundle.manifest
     }
   };

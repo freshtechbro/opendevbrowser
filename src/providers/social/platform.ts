@@ -55,7 +55,7 @@ export interface SocialProviderOptions {
 }
 
 export interface SocialPlatformProfile {
-  platform: "x" | "reddit" | "bluesky" | "linkedin" | "instagram" | "tiktok" | "threads" | "youtube";
+  platform: "x" | "reddit" | "bluesky" | "facebook" | "linkedin" | "instagram" | "tiktok" | "threads" | "youtube";
   displayName: string;
   baseUrl: string;
   maxPostLength: number;
@@ -449,7 +449,16 @@ export const createSocialPlatformProvider = (
     }, options.postPolicyHooks);
 
     if (!options.post) {
-      throw unavailable(providerId, `${profile.displayName} posting transport is not configured`);
+      throw new ProviderRuntimeError("unavailable", `${profile.displayName} posting transport is not configured`, {
+        provider: providerId,
+        source: SOCIAL_SOURCE,
+        retryable: false,
+        reasonCode: "policy_blocked",
+        details: {
+          reasonCode: "policy_blocked",
+          postingTransportConfigured: false
+        }
+      });
     }
 
     const row = await options.post(input, context);

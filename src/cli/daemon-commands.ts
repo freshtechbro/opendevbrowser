@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
-import { createDefaultRuntime } from "../providers";
+import { createConfiguredProviderRuntime } from "../providers/runtime-factory";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
 import {
@@ -163,77 +163,98 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return { ok: true };
     case "nav.goto":
       await authorizeSessionCommand(core, params, request.name, bindingId);
+      {
+        const targetId = optionalString(params.targetId);
+        const sessionId = requireString(params.sessionId, "sessionId");
       return attachBlockerMetaForNavigation(
         core,
-        requireString(params.sessionId, "sessionId"),
+          sessionId,
         await core.manager.goto(
-          requireString(params.sessionId, "sessionId"),
+            sessionId,
           requireString(params.url, "url"),
           requireWaitUntil(params.waitUntil),
-          optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+            optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000,
+            undefined,
+            targetId
         )
       );
+      }
     case "nav.wait":
       await authorizeSessionCommand(core, params, request.name, bindingId);
+      {
+        const targetId = optionalString(params.targetId);
+        const sessionId = requireString(params.sessionId, "sessionId");
       if (typeof params.ref === "string") {
         return attachBlockerMetaForNavigation(
           core,
-          requireString(params.sessionId, "sessionId"),
+            sessionId,
           await core.manager.waitForRef(
-            requireString(params.sessionId, "sessionId"),
+              sessionId,
             requireString(params.ref, "ref"),
             requireState(params.state),
-            optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+              optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000,
+              targetId
           )
         );
       }
       return attachBlockerMetaForNavigation(
         core,
-        requireString(params.sessionId, "sessionId"),
+          sessionId,
         await core.manager.waitForLoad(
-          requireString(params.sessionId, "sessionId"),
+            sessionId,
           requireWaitUntil(params.until),
-          optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+            optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000,
+            targetId
         )
       );
+      }
     case "nav.snapshot":
       await authorizeSessionCommand(core, params, request.name, bindingId);
+      {
+        const targetId = optionalString(params.targetId);
       return core.manager.snapshot(
         requireString(params.sessionId, "sessionId"),
         requireSnapshotMode(params.mode),
         optionalNumber(params.maxChars, "maxChars") ?? 16000,
-        optionalString(params.cursor)
+          optionalString(params.cursor),
+          targetId
       );
+      }
     case "interact.click":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.click(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "interact.hover":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.hover(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "interact.press":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.press(
         requireString(params.sessionId, "sessionId"),
         requireString(params.key, "key"),
-        optionalString(params.ref)
+        optionalString(params.ref),
+        optionalString(params.targetId)
       );
     case "interact.check":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.check(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "interact.uncheck":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.uncheck(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "interact.type":
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -242,90 +263,109 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.ref, "ref"),
         requireString(params.text, "text"),
         optionalBoolean(params.clear) ?? false,
-        optionalBoolean(params.submit) ?? false
+        optionalBoolean(params.submit) ?? false,
+        optionalString(params.targetId)
       );
     case "interact.select":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.select(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        requireStringArray(params.values, "values")
+        requireStringArray(params.values, "values"),
+        optionalString(params.targetId)
       );
     case "interact.scroll":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.scroll(
         requireString(params.sessionId, "sessionId"),
         optionalNumber(params.dy, "dy") ?? 0,
-        optionalString(params.ref)
+        optionalString(params.ref),
+        optionalString(params.targetId)
       );
     case "interact.scrollIntoView":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.scrollIntoView(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "dom.getHtml":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetHtml(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        optionalNumber(params.maxChars, "maxChars") ?? 8000
+        optionalNumber(params.maxChars, "maxChars") ?? 8000,
+        optionalString(params.targetId)
       );
     case "dom.getText":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetText(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        optionalNumber(params.maxChars, "maxChars") ?? 8000
+        optionalNumber(params.maxChars, "maxChars") ?? 8000,
+        optionalString(params.targetId)
       );
     case "dom.getAttr":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetAttr(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        requireString(params.name, "name")
+        requireString(params.name, "name"),
+        optionalString(params.targetId)
       );
     case "dom.getValue":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetValue(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "dom.isVisible":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domIsVisible(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "dom.isEnabled":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domIsEnabled(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "dom.isChecked":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domIsChecked(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "export.clonePage":
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      return core.manager.clonePage(requireString(params.sessionId, "sessionId"));
+      return core.manager.clonePage(
+        requireString(params.sessionId, "sessionId"),
+        optionalString(params.targetId)
+      );
     case "export.cloneComponent":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.cloneComponent(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "devtools.perf":
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      return core.manager.perfMetrics(requireString(params.sessionId, "sessionId"));
+      return core.manager.perfMetrics(
+        requireString(params.sessionId, "sessionId"),
+        optionalString(params.targetId)
+      );
     case "page.screenshot":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.screenshot(
         requireString(params.sessionId, "sessionId"),
-        optionalString(params.path)
+        optionalString(params.path),
+        optionalString(params.targetId)
       );
     case "devtools.consolePoll":
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -435,7 +475,8 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       }
 
       if (normalized.length > 0) {
-        await core.manager.withPage(sessionId, null, async (page) => {
+        const targetId = optionalString(params.targetId);
+        await core.manager.withPage(sessionId, targetId ?? null, async (page) => {
           await page.context().addCookies(normalized);
           return undefined;
         });
@@ -447,6 +488,49 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         rejected
       };
     }
+    case "session.cookieList": {
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const sessionId = requireString(params.sessionId, "sessionId");
+      const manager = core.manager as OpenDevBrowserCore["manager"] & {
+        cookieList?: (
+          sessionId: string,
+          urls?: string[],
+          requestId?: string
+        ) => Promise<{ requestId: string; cookies: CookieListRecord[]; count: number }>;
+      };
+
+      const urls = requireOptionalCookieUrlArray(params.urls, "urls");
+      const requestId = optionalString(params.requestId) ?? randomUUID();
+
+      if (typeof manager.cookieList === "function") {
+        return manager.cookieList(sessionId, urls, requestId);
+      }
+
+      const targetId = optionalString(params.targetId);
+      const cookies = await core.manager.withPage(
+        sessionId,
+        targetId ?? null,
+        async (page) => {
+          const listed = urls ? await page.context().cookies(urls) : await page.context().cookies();
+          return listed.map((cookie) => ({
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path,
+            expires: cookie.expires,
+            httpOnly: cookie.httpOnly,
+            secure: cookie.secure,
+            ...(cookie.sameSite ? { sameSite: cookie.sameSite as "Strict" | "Lax" | "None" } : {})
+          }));
+        }
+      );
+
+      return {
+        requestId,
+        cookies,
+        count: cookies.length
+      };
+    }
     case "macro.resolve":
       return resolveMacroExpression(
         {
@@ -455,15 +539,14 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           includeCatalog: optionalBoolean(params.includeCatalog) ?? false,
           execute: optionalBoolean(params.execute) ?? false
         },
-        core.config
+        core.config,
+        core.manager
       );
     case "research.run":
       return runResearchWorkflow(
-        createDefaultRuntime({}, {
-          blockerDetectionThreshold: core.config.blockerDetectionThreshold,
-          promptInjectionGuard: {
-            enabled: core.config.security.promptInjectionGuard?.enabled ?? true
-          }
+        createConfiguredProviderRuntime({
+          config: core.config,
+          manager: core.manager
         }),
         {
           topic: requireString(params.topic, "topic"),
@@ -476,16 +559,16 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           includeEngagement: optionalBoolean(params.includeEngagement),
           limitPerSource: optionalNumber(params.limitPerSource, "limitPerSource"),
           outputDir: optionalString(params.outputDir),
-          ttlHours: optionalNumber(params.ttlHours, "ttlHours")
+          ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
+          useCookies: optionalBoolean(params.useCookies),
+          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         }
       );
     case "shopping.run":
       return runShoppingWorkflow(
-        createDefaultRuntime({}, {
-          blockerDetectionThreshold: core.config.blockerDetectionThreshold,
-          promptInjectionGuard: {
-            enabled: core.config.security.promptInjectionGuard?.enabled ?? true
-          }
+        createConfiguredProviderRuntime({
+          config: core.config,
+          manager: core.manager
         }),
         {
           query: requireString(params.query, "query"),
@@ -494,17 +577,18 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           region: optionalString(params.region),
           sort: optionalShoppingSort(params.sort),
           mode: optionalRenderMode(params.mode) ?? "compact",
+          timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
           outputDir: optionalString(params.outputDir),
-          ttlHours: optionalNumber(params.ttlHours, "ttlHours")
+          ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
+          useCookies: optionalBoolean(params.useCookies),
+          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         }
       );
     case "product.video.run":
       return runProductVideoWorkflow(
-        createDefaultRuntime({}, {
-          blockerDetectionThreshold: core.config.blockerDetectionThreshold,
-          promptInjectionGuard: {
-            enabled: core.config.security.promptInjectionGuard?.enabled ?? true
-          }
+        createConfiguredProviderRuntime({
+          config: core.config,
+          manager: core.manager
         }),
         {
           product_url: optionalString(params.product_url),
@@ -514,11 +598,18 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           include_all_images: optionalBoolean(params.include_all_images),
           include_copy: optionalBoolean(params.include_copy),
           output_dir: optionalString(params.output_dir),
-          ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours")
+          ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours"),
+          useCookies: optionalBoolean(params.useCookies),
+          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         },
         {
           captureScreenshot: async (url: string) => {
-            const session = await core.manager.launch({ headless: true, startUrl: url });
+            const session = await core.manager.launch({
+              headless: true,
+              startUrl: url,
+              // Capture sessions are ephemeral; avoid persisted profile lock contention.
+              persistProfile: false
+            });
             try {
               const screenshot = await core.manager.screenshot(session.sessionId);
               if (typeof screenshot.base64 !== "string" || screenshot.base64.length === 0) return null;
@@ -550,6 +641,11 @@ async function launchWithRelay(
   const extensionOnly = optionalBoolean(params.extensionOnly) ?? false;
   const waitForExtension = optionalBoolean(params.waitForExtension) ?? false;
   const headlessExplicit = optionalBoolean(params.headless) === true;
+  if (headlessExplicit && !noExtension) {
+    throw unsupportedModeError(
+      "Extension mode does not support headless launches. Use --no-extension --headless for managed mode."
+    );
+  }
   const managedExplicit = Boolean(noExtension || headlessExplicit);
   const managedHeadless = headlessExplicit ? true : false;
   const waitTimeoutMs = clampWaitTimeout(optionalNumber(params.waitTimeoutMs, "waitTimeoutMs") ?? 30000);
@@ -666,11 +762,23 @@ async function connectWithRelayRouting(
       : normalizedOpsEndpoint;
 
   const hasExplicitCdp = Boolean(wsEndpoint || params.host || params.port);
+  const headlessExplicit = optionalBoolean(params.headless) === true;
   if (normalizedLegacyEndpoint && !extensionLegacy) {
     throw new Error("Legacy extension relay (/cdp) requires --extension-legacy.");
   }
 
+  if (headlessExplicit && !hasExplicitCdp) {
+    throw unsupportedModeError(
+      "Extension mode does not support headless connect routing. Use launch --no-extension --headless or connect to an explicit CDP endpoint."
+    );
+  }
+
   if (relayEndpoint || (!hasExplicitCdp && relayUrl)) {
+    if (headlessExplicit) {
+      throw unsupportedModeError(
+        "Extension mode does not support headless connect routing. Use launch --no-extension --headless or connect to an explicit CDP endpoint."
+      );
+    }
     if (extensionLegacy) {
       requireBinding(clientId, bindingId);
     }
@@ -774,6 +882,27 @@ function buildExtensionMissingMessage(reason: string): string {
 
 function buildManagedFailureMessage(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
+  const normalized = detail.toLowerCase();
+  const profileLocked = normalized.includes("singletonlock")
+    || normalized.includes("processsingleton")
+    || normalized.includes("profile in use")
+    || normalized.includes("already in use")
+    || normalized.includes("user data directory is already in use")
+    || normalized.includes("profile is locked");
+
+  if (profileLocked) {
+    return [
+      `Managed session failed: ${detail}`,
+      "",
+      "Detected persisted profile lock (another Chrome process is using the same profile).",
+      "Retry options (explicit):",
+      "- Managed with a unique profile: npx opendevbrowser launch --no-extension --profile lock-safe-<timestamp>",
+      "- Managed with a temporary profile: npx opendevbrowser launch --no-extension --persist-profile false",
+      "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
+      "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>"
+    ].join("\n");
+  }
+
   return [
     `Managed session failed: ${detail}`,
     "",
@@ -781,6 +910,10 @@ function buildManagedFailureMessage(error: unknown): string {
     "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
     "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>"
   ].join("\n");
+}
+
+function unsupportedModeError(message: string): Error {
+  return new Error(`[unsupported_mode] ${message}`);
 }
 
 async function attachBlockerMetaForNavigation(
@@ -934,6 +1067,17 @@ type CookieImportRecord = {
   sameSite?: "Strict" | "Lax" | "None";
 };
 
+type CookieListRecord = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+};
+
 function requireCookieArray(value: unknown, label: string): CookieImportRecord[] {
   if (!Array.isArray(value)) {
     throw new Error(`Invalid ${label}`);
@@ -963,6 +1107,44 @@ function requireCookieArray(value: unknown, label: string): CookieImportRecord[]
     });
   }
   return parsed;
+}
+
+function requireOptionalCookieUrlArray(value: unknown, label: string): string[] | undefined {
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid ${label}`);
+  }
+
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      throw new Error(`Invalid ${label}`);
+    }
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      throw new Error(`Invalid ${label}`);
+    }
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(trimmed);
+    } catch {
+      throw new Error(`Invalid ${label}`);
+    }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      throw new Error(`Invalid ${label}`);
+    }
+    const normalizedUrl = parsedUrl.toString();
+    if (seen.has(normalizedUrl)) {
+      continue;
+    }
+    seen.add(normalizedUrl);
+    normalized.push(normalizedUrl);
+  }
+
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function validateCookieRecord(cookie: CookieImportRecord): { valid: boolean; reason: string; cookie: CookieImportRecord } {
@@ -1092,6 +1274,14 @@ function optionalProviderSources(value: unknown): Array<"web" | "community" | "s
     throw new Error("Invalid sources");
   }
   return value as Array<"web" | "community" | "social" | "shopping">;
+}
+
+function optionalCookiePolicy(value: unknown): "off" | "auto" | "required" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "off" || value === "auto" || value === "required") {
+    return value;
+  }
+  throw new Error("Invalid cookiePolicyOverride");
 }
 
 function optionalShoppingSort(value: unknown): "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping" | undefined {
@@ -1310,7 +1500,8 @@ function parseFallbackMacro(expression: string, defaultProvider?: string): {
 
 async function resolveMacroExpression(
   options: MacroResolveOptions,
-  config: Pick<OpenDevBrowserCore["config"], "blockerDetectionThreshold" | "security">
+  config: Pick<OpenDevBrowserCore["config"], "blockerDetectionThreshold" | "security" | "providers">,
+  manager: OpenDevBrowserCore["manager"]
 ): Promise<{
   runtime: "macros" | "fallback";
   resolution: MacroResolution;
@@ -1350,11 +1541,9 @@ async function resolveMacroExpression(
   const execution = shapeExecutionPayload(
     await executeMacroResolution(
       resolution,
-      createDefaultRuntime({}, {
-        blockerDetectionThreshold: config.blockerDetectionThreshold,
-        promptInjectionGuard: {
-          enabled: config.security.promptInjectionGuard?.enabled ?? true
-        }
+      createConfiguredProviderRuntime({
+        config,
+        manager
       })
     )
   );

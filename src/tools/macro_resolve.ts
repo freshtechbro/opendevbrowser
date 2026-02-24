@@ -1,6 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
-import { createDefaultRuntime } from "../providers";
+import { createConfiguredProviderRuntime } from "../providers/runtime-factory";
 import {
   executeMacroResolution,
   shapeExecutionPayload,
@@ -119,13 +119,10 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
         }
 
         const runtimeConfig = deps.config?.get?.();
-        const providerRuntime = deps.providerRuntime ?? createDefaultRuntime({}, {
-          ...(typeof runtimeConfig?.blockerDetectionThreshold === "number"
-            ? { blockerDetectionThreshold: runtimeConfig.blockerDetectionThreshold }
-            : {}),
-          promptInjectionGuard: {
-            enabled: runtimeConfig?.security.promptInjectionGuard?.enabled ?? true
-          }
+        const providerRuntime = deps.providerRuntime ?? createConfiguredProviderRuntime({
+          config: runtimeConfig,
+          manager: deps.manager,
+          browserFallbackPort: deps.browserFallbackPort
         });
         const execution = shapeExecutionPayload(
           await executeMacroResolution(resolution, providerRuntime)

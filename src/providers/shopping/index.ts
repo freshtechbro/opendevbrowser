@@ -1,5 +1,6 @@
-import { ProviderRuntimeError } from "../errors";
+import { ProviderRuntimeError, normalizeProviderReasonCode, toProviderError } from "../errors";
 import { normalizeRecord, normalizeRecords } from "../normalize";
+import { providerRequestHeaders } from "../shared/request-headers";
 import { canonicalizeUrl } from "../web/crawler";
 import { extractStructuredContent, toSnippet } from "../web/extract";
 import type {
@@ -8,8 +9,10 @@ import type {
   ProviderAdapter,
   ProviderCapabilities,
   ProviderContext,
+  ProviderErrorCode,
   ProviderFetchInput,
   ProviderHealth,
+  ProviderReasonCode,
   ProviderSearchInput
 } from "../types";
 
@@ -84,7 +87,13 @@ interface ShoppingFetchRecord {
   html: string;
 }
 
-export type ShoppingFetcher = (args: { url: string; signal?: AbortSignal }) => Promise<ShoppingFetchRecord>;
+export type ShoppingFetcher = (args: {
+  url: string;
+  signal?: AbortSignal;
+  provider: string;
+  operation: "search" | "fetch";
+  context?: ProviderContext;
+}) => Promise<ShoppingFetchRecord>;
 
 export interface ShoppingProviderOptions {
   id?: string;
@@ -247,6 +256,90 @@ const parseIsoDate = (value: string): number => {
   return Number.isNaN(parsed) ? NaN : parsed;
 };
 
+const SHOPPING_FALLBACK_ERROR_CODES = new Set<ProviderErrorCode>([
+  "auth",
+  "rate_limited",
+  "timeout",
+  "network",
+  "upstream",
+  "unavailable"
+]);
+
+const fallbackReasonCodeForError = (error: {
+  code: ProviderErrorCode;
+  message: string;
+  details?: Record<string, JsonValue>;
+  reasonCode?: ProviderReasonCode;
+}): ProviderReasonCode | undefined => {
+  if (error.reasonCode) return error.reasonCode;
+  const normalized = normalizeProviderReasonCode({
+    code: error.code,
+    message: error.message,
+    details: error.details
+  });
+  if (normalized) return normalized;
+  if (error.code === "auth") return "token_required";
+  if (error.code === "rate_limited") return "rate_limited";
+  if (error.code === "upstream") return "ip_blocked";
+  if (error.code === "timeout" || error.code === "network" || error.code === "unavailable") return "env_limited";
+  return undefined;
+};
+
+const readFallbackString = (output: Record<string, JsonValue> | undefined, key: "html" | "url"): string | undefined => {
+  const value = output?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+};
+
+const resolveBrowserFallback = async (args: {
+  error: ProviderRuntimeError;
+  url: string;
+  provider: string;
+  operation: "search" | "fetch";
+  context?: ProviderContext;
+}): Promise<ShoppingFetchRecord | null> => {
+  const fallbackPort = args.context?.browserFallbackPort;
+  if (!fallbackPort) return null;
+
+  const normalized = toProviderError(args.error, {
+    provider: args.provider,
+    source: SHOPPING_SOURCE
+  });
+  if (!SHOPPING_FALLBACK_ERROR_CODES.has(normalized.code)) {
+    return null;
+  }
+  const reasonCode = fallbackReasonCodeForError(normalized) ?? "env_limited";
+
+  const fallback = await fallbackPort.resolve({
+    provider: args.provider,
+    source: SHOPPING_SOURCE,
+    operation: args.operation,
+    reasonCode,
+    trace: args.context?.trace ?? {
+      requestId: `shopping-fallback-${Date.now()}`,
+      provider: args.provider,
+      ts: new Date().toISOString()
+    },
+    url: args.url,
+    details: {
+      errorCode: normalized.code,
+      message: normalized.message,
+      ...(normalized.details ?? {})
+    },
+    ...(typeof args.context?.useCookies === "boolean" ? { useCookies: args.context.useCookies } : {}),
+    ...(args.context?.cookiePolicyOverride ? { cookiePolicyOverride: args.context.cookiePolicyOverride } : {})
+  });
+  if (!fallback.ok) {
+    return null;
+  }
+
+  const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? args.url);
+  return {
+    status: 200,
+    url: resolvedUrl,
+    html: readFallbackString(fallback.output, "html") ?? ""
+  };
+};
+
 export const validateLegalReviewChecklist = (
   checklist: ProviderLegalReviewChecklist | undefined,
   expectedProviderId: string,
@@ -281,45 +374,67 @@ export const validateShoppingLegalReviewChecklist = (
   return validateLegalReviewChecklist(profile.legalReview, profile.id, now);
 };
 
-const defaultFetcher: ShoppingFetcher = async ({ url, signal }) => {
+const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operation, context }) => {
+  const providerId = provider;
+  const resolveFallbackOrThrow = async (error: ProviderRuntimeError): Promise<ShoppingFetchRecord> => {
+    const fallback = await resolveBrowserFallback({
+      error,
+      url,
+      provider: providerId,
+      operation,
+      context
+    });
+    if (fallback) return fallback;
+    throw error;
+  };
+
   let response: Response;
   try {
     response = await fetch(url, {
       signal,
       headers: {
         accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "user-agent": "opendevbrowser/1.0"
+        ...providerRequestHeaders
       },
       redirect: "follow"
     });
   } catch (error) {
-    throw new ProviderRuntimeError("network", `Failed to retrieve ${url}`, {
+    const runtimeError = new ProviderRuntimeError("network", `Failed to retrieve ${url}`, {
+      provider: providerId,
       source: SHOPPING_SOURCE,
       retryable: true,
       cause: error
     });
+    return resolveFallbackOrThrow(runtimeError);
   }
 
   if (response.status === 401 || response.status === 403) {
-    throw new ProviderRuntimeError("auth", `Authentication required for ${url}`, {
+    const runtimeError = new ProviderRuntimeError("auth", `Authentication required for ${url}`, {
+      provider: providerId,
       source: SHOPPING_SOURCE,
       retryable: false,
-      details: { status: response.status, url }
+      reasonCode: "token_required",
+      details: { status: response.status, url, reasonCode: "token_required" }
     });
+    return resolveFallbackOrThrow(runtimeError);
   }
   if (response.status === 429) {
-    throw new ProviderRuntimeError("rate_limited", `Rate limited while retrieving ${url}`, {
+    const runtimeError = new ProviderRuntimeError("rate_limited", `Rate limited while retrieving ${url}`, {
+      provider: providerId,
       source: SHOPPING_SOURCE,
       retryable: true,
       details: { status: response.status, url }
     });
+    return resolveFallbackOrThrow(runtimeError);
   }
   if (response.status >= 400) {
-    throw new ProviderRuntimeError("unavailable", `Retrieval failed for ${url}`, {
+    const runtimeError = new ProviderRuntimeError("unavailable", `Retrieval failed for ${url}`, {
+      provider: providerId,
       source: SHOPPING_SOURCE,
       retryable: response.status >= 500,
       details: { status: response.status, url }
     });
+    return resolveFallbackOrThrow(runtimeError);
   }
 
   return {
@@ -510,7 +625,13 @@ const createDefaultSearch = (
   const lookupUrl = isHttpUrl(query)
     ? query
     : profile.searchPath(query);
-  const fetched = await fetcher({ url: lookupUrl, signal: context.signal });
+  const fetched = await fetcher({
+    url: lookupUrl,
+    signal: context.signal,
+    provider: providerId,
+    operation: "search",
+    context
+  });
   const extracted = extractStructuredContent(fetched.html, fetched.url);
 
   const limit = Math.max(1, Math.min(input.limit ?? 10, 20));
@@ -566,7 +687,13 @@ const createDefaultFetch = (
   providerId: string,
   fetcher: ShoppingFetcher
 ) => async (input: ProviderFetchInput, context: ProviderContext): Promise<ShoppingSearchRecord> => {
-  const fetched = await fetcher({ url: input.url, signal: context.signal });
+  const fetched = await fetcher({
+    url: input.url,
+    signal: context.signal,
+    provider: providerId,
+    operation: "fetch",
+    context
+  });
   const extracted = extractStructuredContent(fetched.html, fetched.url);
   const title = toSnippet(extracted.text, 120) || fetched.url;
 

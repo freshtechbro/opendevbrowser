@@ -30,6 +30,10 @@ import { extractExtension } from "./extension-extractor";
 import { isHubEnabled } from "./utils/hub-enabled";
 import type { RelayLike } from "./relay/relay-types";
 import type { ToolDeps } from "./tools/deps";
+import {
+  createBrowserFallbackPort,
+  createConfiguredProviderRuntime
+} from "./providers/runtime-factory";
 
 const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const core = createOpenDevBrowserCore({ directory, worktree });
@@ -38,6 +42,8 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   let manager = core.manager;
   let runner = core.runner;
   let annotationManager = core.annotationManager;
+  let providerRuntime = core.providerRuntime;
+  let browserFallbackPort = core.browserFallbackPort;
   let hubStop: (() => Promise<void>) | null = null;
   let daemonClient: DaemonClient | null = null;
   const skillNudgeState = createSkillNudgeState();
@@ -62,6 +68,8 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     runner,
     config: configStore,
     skills,
+    providerRuntime,
+    browserFallbackPort,
     relay,
     getExtensionPath
   };
@@ -75,9 +83,17 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     annotationManager.setRelay(relay);
     annotationManager.setBrowserManager(manager);
     runner = new ScriptRunner(manager);
+    browserFallbackPort = createBrowserFallbackPort(manager);
+    providerRuntime = createConfiguredProviderRuntime({
+      config: configStore.get(),
+      manager,
+      browserFallbackPort
+    });
     toolDeps.manager = manager;
     toolDeps.relay = relay;
     toolDeps.runner = runner;
+    toolDeps.providerRuntime = providerRuntime;
+    toolDeps.browserFallbackPort = browserFallbackPort;
   };
 
   const ensureHub = async (): Promise<void> => {

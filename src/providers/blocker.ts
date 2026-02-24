@@ -6,7 +6,8 @@ import type {
   BlockerArtifactsV1,
   BlockerSignalV1,
   BlockerType,
-  JsonValue
+  JsonValue,
+  ProviderReasonCode
 } from "./types";
 
 const AUTH_URL_PATTERNS: Array<{ id: string; regex: RegExp; confidence: number }> = [
@@ -196,7 +197,7 @@ const classifyFromInputs = (
   input: BlockerClassificationInput,
   normalizedHosts: string[],
   matchedPatterns: string[]
-): { type: BlockerType; confidence: number; retryable: boolean; matches: string[] } | null => {
+): { type: BlockerType; reasonCode?: ProviderReasonCode; confidence: number; retryable: boolean; matches: string[] } | null => {
   const status = input.status;
   const code = toLower(input.providerErrorCode ?? "");
   const url = input.url ?? "";
@@ -232,6 +233,7 @@ const classifyFromInputs = (
   if (authConfidence > 0) {
     return {
       type: "auth_required",
+      reasonCode: "token_required",
       confidence: authConfidence,
       retryable: false,
       matches: boundedUniqueList([...matchedPatterns, ...authMatches], 16)
@@ -259,6 +261,7 @@ const classifyFromInputs = (
     if (challengeConfidence > 0) {
       return {
         type: "anti_bot_challenge",
+        reasonCode: "challenge_detected",
         confidence: challengeConfidence,
         retryable: false,
         matches: boundedUniqueList([...matchedPatterns, ...challengeMatches], 16)
@@ -269,6 +272,7 @@ const classifyFromInputs = (
   if (status === 429 || code === "rate_limited") {
     return {
       type: "rate_limited",
+      reasonCode: "rate_limited",
       confidence: 0.95,
       retryable: true,
       matches: boundedUniqueList([...matchedPatterns, status === 429 ? "status:429" : "provider_code:rate_limited"], 16)
@@ -278,6 +282,7 @@ const classifyFromInputs = (
   if (isUpstreamCode && (hasStaticBlockHost || /retrieval failed/i.test(message) || (typeof status === "number" && status >= 500))) {
     return {
       type: "upstream_block",
+      reasonCode: "ip_blocked",
       confidence: hasStaticBlockHost ? 0.9 : 0.8,
       retryable: input.retryable ?? true,
       matches: boundedUniqueList(
@@ -307,6 +312,7 @@ const classifyFromInputs = (
   if (input.envLimited || (code === "unavailable" && ENV_LIMITED_PATTERNS.some((pattern) => pattern.test(message)))) {
     return {
       type: "env_limited",
+      reasonCode: "env_limited",
       confidence: input.envLimited ? 0.9 : 0.78,
       retryable: true,
       matches: boundedUniqueList([...matchedPatterns, "env_limited"], 16)
@@ -444,6 +450,7 @@ export const classifyBlockerSignal = (
     schemaVersion: "1.0",
     type: classification.type,
     source: input.source,
+    ...(classification.reasonCode ? { reasonCode: classification.reasonCode } : {}),
     confidence,
     retryable: classification.retryable,
     detectedAt: input.detectedAt ?? new Date().toISOString(),

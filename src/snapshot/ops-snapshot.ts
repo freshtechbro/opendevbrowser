@@ -82,13 +82,26 @@ export const selectorFunction = function(this: Element): string | null {
     }
     return String(value).replace(/([^\w-])/g, "\\$1");
   };
+  const isUniqueSelector = (selector: string): boolean => {
+    try {
+      return document.querySelectorAll(selector).length === 1;
+    } catch {
+      return false;
+    }
+  };
   const testId = this.getAttribute("data-testid");
   if (testId) {
-    return '[data-testid="' + escape(testId) + '"]';
+    const selector = '[data-testid="' + escape(testId) + '"]';
+    if (isUniqueSelector(selector)) {
+      return selector;
+    }
   }
   const ariaLabel = this.getAttribute("aria-label");
   if (ariaLabel && ariaLabel.length < 50) {
-    return '[aria-label="' + escape(ariaLabel) + '"]';
+    const selector = '[aria-label="' + escape(ariaLabel) + '"]';
+    if (isUniqueSelector(selector)) {
+      return selector;
+    }
   }
   const buildPathSelector = (start: Element): string => {
     const parts: string[] = [];
@@ -96,9 +109,11 @@ export const selectorFunction = function(this: Element): string | null {
     while (current && current.nodeType === Node.ELEMENT_NODE) {
       let selector = current.nodeName.toLowerCase();
       if (current.id) {
-        selector += "#" + escape(current.id);
-        parts.unshift(selector);
-        break;
+        const withId = selector + "#" + escape(current.id);
+        if (isUniqueSelector(withId)) {
+          parts.unshift(withId);
+          break;
+        }
       }
       const parentEl: Element | null = current.parentElement;
       if (!parentEl) {

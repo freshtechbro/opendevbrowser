@@ -59,6 +59,8 @@ const ANNOTATION_MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const ANNOTATION_REQUEST_TIMEOUT_MS = 120_000;
 const LAST_ANNOTATION_META_KEY = "annotationLastMeta";
 const LAST_ANNOTATION_PAYLOAD_KEY = "annotationLastPayloadSansScreenshots";
+const BADGE_CONNECTED_DOT_COLOR = "#16a34a";
+const BADGE_DISCONNECTED_DOT_COLOR = "#dc2626";
 
 type AnnotationTransport = "relay" | "native" | "popup";
 
@@ -125,10 +127,17 @@ type ContentScriptMessage =
 
 const updateBadge = (status: ConnectionStatus): void => {
   const isConnected = status === "connected";
-  chrome.action.setBadgeText({ text: isConnected ? "ON" : "OFF" });
-  chrome.action.setBadgeBackgroundColor({
-    color: isConnected ? "#20d5c6" : "#5b667a"
-  });
+  const dotColor = isConnected ? BADGE_CONNECTED_DOT_COLOR : BADGE_DISCONNECTED_DOT_COLOR;
+
+  chrome.action.setBadgeText({ text: "●" });
+
+  if (typeof chrome.action.setBadgeTextColor === "function") {
+    chrome.action.setBadgeTextColor({ color: dotColor });
+    chrome.action.setBadgeBackgroundColor({ color: [0, 0, 0, 0] });
+    return;
+  }
+
+  chrome.action.setBadgeBackgroundColor({ color: dotColor });
 };
 
 const getEffectiveStatus = (): ConnectionStatus => {

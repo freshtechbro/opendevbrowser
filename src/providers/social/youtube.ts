@@ -1,21 +1,36 @@
-import { ProviderRuntimeError } from "../errors";
+import { ProviderRuntimeError, providerErrorCodeFromReasonCode } from "../errors";
+import type { AntiBotPolicyConfig } from "../shared/anti-bot-policy";
+import { providerRequestHeaders } from "../shared/request-headers";
 import { createSocialPlatformProvider, type SocialProviderOptions } from "./platform";
+import {
+  normalizeYouTubeTranscriptMode,
+  resolveYouTubeTranscript,
+  resolveYouTubeTranscriptConfig,
+  type YouTubeTranscriptLegalChecklist,
+  type YouTubeTranscriptMode,
+  type YouTubeTranscriptResolverConfig,
+  type YouTubeTranscriptStrategy
+} from "./youtube-resolver";
 import { extractStructuredContent, toSnippet } from "../web/extract";
-import type { ProviderContext, ProviderFetchInput, ProviderSearchInput } from "../types";
+import type {
+  BrowserFallbackPort,
+  JsonValue,
+  ProviderContext,
+  ProviderFetchInput,
+  ProviderSearchInput
+} from "../types";
 
 const YOUTUBE_HEADERS = {
   accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "user-agent": "opendevbrowser/1.0"
+  ...providerRequestHeaders
 } as const;
 
-export interface YouTubeLegalReviewChecklist {
+export interface YouTubeLegalReviewChecklist extends YouTubeTranscriptLegalChecklist {
   providerId: "social/youtube";
   termsReviewDate: string;
   allowedExtractionSurfaces: string[];
   prohibitedFlows: string[];
   reviewer: string;
-  approvalExpiryDate: string;
-  signedOff: boolean;
 }
 
 export type YouTubeLegalReviewReasonCode =
@@ -27,7 +42,19 @@ export type YouTubeLegalReviewReasonCode =
   | "missing_approval_expiry"
   | "invalid_approval_expiry"
   | "approval_expired"
-  | "not_signed_off";
+  | "not_signed_off"
+  | "missing_approved_transcript_strategies";
+
+export interface YouTubeProviderOptions extends SocialProviderOptions {
+  transcriptResolver?: Partial<YouTubeTranscriptResolverConfig>;
+  browserFallbackPort?: BrowserFallbackPort;
+  antiBotPolicy?: Partial<AntiBotPolicyConfig>;
+  asrTranscribe?: (args: {
+    watchUrl: string;
+    context: ProviderContext;
+    audioFilePath?: string;
+  }) => Promise<{ text: string; language?: string } | null>;
+}
 
 export const YOUTUBE_LEGAL_REVIEW_CHECKLIST: YouTubeLegalReviewChecklist = {
   providerId: "social/youtube",
@@ -44,7 +71,14 @@ export const YOUTUBE_LEGAL_REVIEW_CHECKLIST: YouTubeLegalReviewChecklist = {
   ],
   reviewer: "opendevbrowser-compliance",
   approvalExpiryDate: "2030-12-31T00:00:00.000Z",
-  signedOff: true
+  signedOff: true,
+  approvedTranscriptStrategies: [
+    "youtubei",
+    "native_caption_parse",
+    "ytdlp_audio_asr",
+    "apify",
+    "browser_assisted"
+  ]
 };
 
 const hasValues = (values: string[]): boolean => values.some((value) => value.trim().length > 0);
@@ -64,6 +98,7 @@ export const validateYouTubeLegalReviewChecklist = (
   if (!hasValues(checklist.prohibitedFlows)) return { valid: false, reasonCode: "missing_prohibited_flows" };
   if (!checklist.reviewer.trim()) return { valid: false, reasonCode: "missing_reviewer" };
   if (!checklist.approvalExpiryDate.trim()) return { valid: false, reasonCode: "missing_approval_expiry" };
+  if (!hasValues(checklist.approvedTranscriptStrategies)) return { valid: false, reasonCode: "missing_approved_transcript_strategies" };
 
   const expiry = parseIsoDate(checklist.approvalExpiryDate);
   if (Number.isNaN(expiry)) return { valid: false, reasonCode: "invalid_approval_expiry" };
@@ -80,8 +115,10 @@ const assertYouTubeLegalReviewChecklist = (): void => {
     provider: "social/youtube",
     source: "social",
     retryable: false,
+    reasonCode: "policy_blocked",
     details: {
       reasonCode: validation.reasonCode as YouTubeLegalReviewReasonCode,
+      policyReasonCode: "policy_blocked",
       approvalExpiryDate: YOUTUBE_LEGAL_REVIEW_CHECKLIST.approvalExpiryDate
     }
   });
@@ -129,19 +166,6 @@ const parseVideoId = (url: string): string | null => {
   } catch {
     return null;
   }
-};
-
-const findCaptionBaseUrl = (html: string): string | null => {
-  const blockMatch = html.match(/"captionTracks":\[(.*?)\]/s);
-  if (!blockMatch?.[1]) return null;
-  const baseUrlMatch = blockMatch[1].match(/"baseUrl":"([^"]+)"/);
-  if (!baseUrlMatch?.[1]) return null;
-  return normalizeEscapedValue(baseUrlMatch[1]);
-};
-
-const findTranscriptLanguage = (html: string): string => {
-  const languageMatch = html.match(/"captionTracks":\[(.*?)\]/s)?.[1]?.match(/"languageCode":"([a-zA-Z-]+)"/);
-  return languageMatch?.[1] ?? "unknown";
 };
 
 const firstNonEmptyMatch = (html: string, patterns: RegExp[]): string | null => {
@@ -230,7 +254,8 @@ const fetchPage = async (url: string, context: ProviderContext): Promise<{ statu
       provider: "social/youtube",
       source: "social",
       retryable: false,
-      details: { status: response.status, url }
+      reasonCode: "token_required",
+      details: { status: response.status, url, reasonCode: "token_required" }
     });
   }
   if (response.status === 429) {
@@ -238,7 +263,8 @@ const fetchPage = async (url: string, context: ProviderContext): Promise<{ statu
       provider: "social/youtube",
       source: "social",
       retryable: true,
-      details: { status: response.status, url }
+      reasonCode: "rate_limited",
+      details: { status: response.status, url, reasonCode: "rate_limited" }
     });
   }
   if (response.status >= 400) {
@@ -246,7 +272,12 @@ const fetchPage = async (url: string, context: ProviderContext): Promise<{ statu
       provider: "social/youtube",
       source: "social",
       retryable: response.status >= 500,
-      details: { status: response.status, url }
+      reasonCode: response.status >= 500 ? "ip_blocked" : "transcript_unavailable",
+      details: {
+        status: response.status,
+        url,
+        reasonCode: response.status >= 500 ? "ip_blocked" : "transcript_unavailable"
+      }
     });
   }
 
@@ -255,28 +286,6 @@ const fetchPage = async (url: string, context: ProviderContext): Promise<{ statu
     url: response.url || url,
     html: await response.text()
   };
-};
-
-const fetchTranscript = async (baseUrl: string, context: ProviderContext): Promise<string> => {
-  let response: Response;
-  try {
-    response = await fetch(baseUrl, {
-      headers: {
-        accept: "application/xml,text/xml,*/*"
-      },
-      signal: context.signal,
-      redirect: "follow"
-    });
-  } catch {
-    return "";
-  }
-
-  if (!response.ok) return "";
-  const xml = await response.text();
-  const chunks = [...xml.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)]
-    .map((match) => decodeHtml(match[1]!))
-    .filter(Boolean);
-  return chunks.join("\n");
 };
 
 const parseBooleanFilter = (value: unknown, fallback = false): boolean => {
@@ -288,7 +297,52 @@ const parseBooleanFilter = (value: unknown, fallback = false): boolean => {
   return fallback;
 };
 
-const buildSearch = (options: SocialProviderOptions["search"]) => {
+const parseYouTubeModeFilter = (value: unknown): YouTubeTranscriptMode | null => {
+  return normalizeYouTubeTranscriptMode(value);
+};
+
+const toJsonRecord = (value: Record<string, unknown>): Record<string, JsonValue> => {
+  return JSON.parse(JSON.stringify(value)) as Record<string, JsonValue>;
+};
+
+const toAttemptChainJson = (attempts: Array<{
+  strategy: string;
+  ok: boolean;
+  reasonCode?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+}>): Array<Record<string, JsonValue>> => {
+  return attempts.map((attempt) => ({
+    strategy: attempt.strategy,
+    ok: attempt.ok,
+    ...(attempt.reasonCode ? { reasonCode: attempt.reasonCode } : {}),
+    ...(attempt.message ? { message: attempt.message } : {}),
+    ...(attempt.details ? toJsonRecord(attempt.details) : {})
+  }));
+};
+
+const resolveTranscriptStrategyDetail = (
+  transcript: Awaited<ReturnType<typeof resolveYouTubeTranscript>>
+): string | undefined => {
+  if (transcript.ok) {
+    return transcript.transcriptStrategyDetail;
+  }
+  for (let index = transcript.attemptChain.length - 1; index >= 0; index -= 1) {
+    const attempt = transcript.attemptChain[index];
+    if (!attempt?.reasonCode) continue;
+    if (attempt.reasonCode !== "env_limited" && attempt.reasonCode !== "token_required") {
+      return attempt.strategy;
+    }
+  }
+  for (let index = transcript.attemptChain.length - 1; index >= 0; index -= 1) {
+    const attempt = transcript.attemptChain[index];
+    if (!attempt?.reasonCode || attempt.reasonCode === "env_limited") continue;
+    return attempt.strategy;
+  }
+  return transcript.attemptChain.at(-1)?.strategy;
+};
+
+const buildSearch = (options: YouTubeProviderOptions["search"]) => {
   if (options) return options;
   return async (input: ProviderSearchInput, context: ProviderContext) => {
     assertYouTubeLegalReviewChecklist();
@@ -326,8 +380,8 @@ const buildSearch = (options: SocialProviderOptions["search"]) => {
   };
 };
 
-const buildFetch = (options: SocialProviderOptions["fetch"]) => {
-  if (options) return options;
+const buildFetch = (options: YouTubeProviderOptions) => {
+  if (options.fetch) return options.fetch;
   return async (input: ProviderFetchInput, context: ProviderContext) => {
     assertYouTubeLegalReviewChecklist();
     const page = await fetchPage(input.url, context);
@@ -336,23 +390,45 @@ const buildFetch = (options: SocialProviderOptions["fetch"]) => {
     const includeFullTranscript = parseBooleanFilter(input.filters?.include_full_transcript, false);
     const requireTranscript = parseBooleanFilter(input.filters?.requireTranscript, false);
     const translateToEnglish = parseBooleanFilter(input.filters?.translateToEnglish, true);
+    const requestedMode = parseYouTubeModeFilter(input.filters?.youtube_mode);
 
-    const baseUrl = findCaptionBaseUrl(page.html);
-    const transcriptLanguage = findTranscriptLanguage(page.html);
-    const transcriptRaw = baseUrl ? await fetchTranscript(baseUrl, context) : "";
+    const transcriptConfig = resolveYouTubeTranscriptConfig(options.transcriptResolver);
+    const transcript = await resolveYouTubeTranscript({
+      context,
+      watchUrl: page.url,
+      pageHtml: page.html,
+      legalChecklist: YOUTUBE_LEGAL_REVIEW_CHECKLIST,
+      config: transcriptConfig,
+      mode: requestedMode,
+      browserFallbackPort: options.browserFallbackPort,
+      allowBrowserFallbackEscalation: options.antiBotPolicy?.allowBrowserEscalation ?? true,
+      asrTranscribe: options.asrTranscribe
+    });
 
-    if (!transcriptRaw && requireTranscript) {
-      throw new ProviderRuntimeError("unavailable", "YouTube transcript unavailable", {
-        provider: "social/youtube",
-        source: "social",
-        retryable: false,
-        details: {
-          reasonCode: "transcript_unavailable",
-          url: page.url
+    if (!transcript.ok && requireTranscript) {
+      const requiredReasonCode = transcript.reasonCode === "caption_missing"
+        ? "transcript_unavailable"
+        : transcript.reasonCode;
+      throw new ProviderRuntimeError(
+        providerErrorCodeFromReasonCode(requiredReasonCode),
+        `YouTube transcript unavailable (${requiredReasonCode})`,
+        {
+          provider: "social/youtube",
+          source: "social",
+          retryable: requiredReasonCode === "rate_limited",
+          reasonCode: requiredReasonCode,
+          details: {
+            reasonCode: requiredReasonCode,
+            transcriptReasonCode: transcript.reasonCode,
+            url: page.url,
+            attemptChain: toAttemptChainJson(transcript.attemptChain)
+          }
         }
-      });
+      );
     }
 
+    const transcriptRaw = transcript.ok ? transcript.text : "";
+    const transcriptLanguage = transcript.ok ? transcript.language : "unknown";
     const translationApplied = Boolean(transcriptRaw && translateToEnglish && !transcriptLanguage.startsWith("en"));
     const transcriptContent = translationApplied
       ? `[translated:${transcriptLanguage}] ${transcriptRaw}`
@@ -361,6 +437,7 @@ const buildFetch = (options: SocialProviderOptions["fetch"]) => {
     const transcriptOutput = includeFullTranscript || transcriptContent.length < 1200
       ? transcriptContent
       : transcriptSummary;
+    const transcriptStrategyDetail = resolveTranscriptStrategyDetail(transcript);
 
     const videoId = parseVideoId(page.url);
     const channel = findChannel(page.html);
@@ -385,17 +462,28 @@ const buildFetch = (options: SocialProviderOptions["fetch"]) => {
         ...(typeof views === "number" ? { views } : {}),
         transcript_language: transcriptLanguage,
         transcript_retrieved_at: new Date().toISOString(),
-        transcript_available: transcriptRaw.length > 0,
+        transcript_available: transcript.ok,
+        transcript_mode: transcript.mode,
         translation_applied: translationApplied,
         transcript_summary: transcriptSummary,
         ...(includeFullTranscript ? { transcript_full: transcriptContent } : {}),
+        ...(transcriptStrategyDetail ? { transcript_strategy_detail: transcriptStrategyDetail } : {}),
+        ...(transcript.ok
+          ? {
+            transcript_strategy: transcript.transcriptStrategy,
+            attempt_chain: toAttemptChainJson(transcript.attemptChain)
+          }
+          : {
+            reasonCode: transcript.reasonCode,
+            attempt_chain: toAttemptChainJson(transcript.attemptChain)
+          }),
         date_confidence: dateConfidence
       }
     };
   };
 };
 
-export const createYouTubeProvider = (options: SocialProviderOptions = {}) => {
+export const createYouTubeProvider = (options: YouTubeProviderOptions = {}) => {
   return createSocialPlatformProvider({
     platform: "youtube",
     displayName: "YouTube",
@@ -406,8 +494,16 @@ export const createYouTubeProvider = (options: SocialProviderOptions = {}) => {
   }, options);
 };
 
-export const withDefaultYouTubeOptions = (options: SocialProviderOptions = {}): SocialProviderOptions => ({
+export const withDefaultYouTubeOptions = (options: YouTubeProviderOptions = {}): YouTubeProviderOptions => ({
   ...options,
+  defaultTraversal: {
+    pageLimit: options.defaultTraversal?.pageLimit ?? 1,
+    hopLimit: options.defaultTraversal?.hopLimit ?? 0,
+    expansionPerRecord: options.defaultTraversal?.expansionPerRecord ?? 1,
+    maxRecords: options.defaultTraversal?.maxRecords ?? 8
+  },
   search: buildSearch(options.search),
-  fetch: buildFetch(options.fetch)
+  fetch: buildFetch(options)
 });
+
+export type { YouTubeTranscriptStrategy };

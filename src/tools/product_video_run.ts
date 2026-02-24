@@ -6,6 +6,7 @@ import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
 
 const z = tool.schema;
+const cookiePolicySchema = z.enum(["off", "auto", "required"]);
 
 async function captureScreenshotBuffer(deps: ToolDeps, url: string): Promise<Buffer | null> {
   let sessionId: string | null = null;
@@ -42,7 +43,9 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
       include_all_images: z.boolean().optional().describe("Include all discovered images (default true)"),
       include_copy: z.boolean().optional().describe("Include product copy extraction (default true)"),
       output_dir: z.string().optional().describe("Optional output directory"),
-      ttl_hours: z.number().int().positive().optional().describe("Artifact retention TTL in hours")
+      ttl_hours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
+      useCookies: z.boolean().optional().describe("Enable/disable provider cookie injection for this run"),
+      cookiePolicyOverride: cookiePolicySchema.optional().describe("Override cookie policy: off|auto|required")
     },
     async execute(args) {
       try {
@@ -56,7 +59,9 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
           include_all_images: args.include_all_images,
           include_copy: args.include_copy,
           output_dir: args.output_dir,
-          ttl_hours: args.ttl_hours
+          ttl_hours: args.ttl_hours,
+          useCookies: args.useCookies,
+          cookiePolicyOverride: args.cookiePolicyOverride
         }, {
           captureScreenshot: includeScreenshots
             ? async (url) => captureScreenshotBuffer(deps, url)

@@ -4,26 +4,32 @@
 
 ## Overview
 
-CLI layer implementing script-first UX with 50 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, export, diagnostics, macro, annotate, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
+CLI layer implementing script-first UX with 55 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, export, diagnostics, provider workflows, macro, annotate, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
 
 ## Structure
 
 ```
 src/cli/
-├── commands/               # 20+ command implementations
+├── commands/               # 50+ command implementations
 │   ├── annotate.ts         # Annotation commands
+│   ├── artifacts.ts        # Artifact generation commands
 │   ├── daemon.ts           # Daemon lifecycle
 │   ├── devtools/           # Console/network commands
 │   ├── dom/                # DOM capture/export
 │   ├── export/             # Page export commands
 │   ├── interact/           # 9 interaction commands (click, type, etc.)
+│   ├── macro-resolve.ts    # Macro plan resolution
+│   ├── native.ts           # Native messaging bridge
 │   ├── nav/                # Navigation commands
 │   ├── pages/              # Page management
+│   ├── product-video.ts    # Product video workflow commands
 │   ├── registry.ts         # Command registration
+│   ├── research.ts         # Research workflow commands
 │   ├── rpc.ts              # Power-user internal daemon RPC (unsafe)
 │   ├── run.ts              # Script execution
 │   ├── serve.ts            # Relay server commands
 │   ├── session/            # Session management
+│   ├── shopping.ts         # Shopping workflow commands
 │   ├── status.ts           # Status commands
 │   ├── targets/            # Target management
 │   ├── types.ts            # Command types
@@ -57,10 +63,11 @@ src/cli/
 | `nav` | goto, wait, snapshot | Navigation + page readiness |
 | `interact` | click, type, press, hover, check, select, scroll, etc. | Element interaction |
 | `dom` | dom-html, dom-text, dom-attr, dom-value, dom-visible, dom-enabled, dom-checked | DOM operations |
-| `session` | launch, connect, disconnect, status, cookie-import | Session management |
+| `session` | launch, connect, disconnect, status, cookie-import, cookie-list | Session management |
 | `targets` | targets-list, target-use, target-new, target-close | Target (tab) management |
 | `devtools` | console-poll, network-poll, debug-trace-snapshot, perf, screenshot | DevTools integration |
 | `automation` | macro-resolve | Provider macro planning utilities |
+| `providers` | research, shopping, product-video, artifacts | Provider-backed workflow commands |
 | `annotate` | annotate | Visual annotations |
 | `power` | rpc | Internal daemon command passthrough (guarded, unsafe/power-user only) |
 | `export` | clone-page, clone-component | Page/component export |

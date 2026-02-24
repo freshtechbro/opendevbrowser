@@ -20,6 +20,47 @@ export type ProviderTierReasonCode =
   | "restricted_safe_disabled"
   | "fallback_to_tier_a";
 
+export type ProviderReasonCode =
+  | "ip_blocked"
+  | "token_required"
+  | "auth_required"
+  | "challenge_detected"
+  | "rate_limited"
+  | "caption_missing"
+  | "env_limited"
+  | "transcript_unavailable"
+  | "policy_blocked"
+  | "cooldown_active"
+  | "strategy_unapproved";
+
+export type ProviderCookiePolicy = "off" | "auto" | "required";
+
+export type ProviderCookieImportRecord = {
+  name: string;
+  value: string;
+  url?: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+};
+
+export type ProviderCookieSourceConfig =
+  | {
+    type: "file";
+    value: string;
+  }
+  | {
+    type: "env";
+    value: string;
+  }
+  | {
+    type: "inline";
+    value: ProviderCookieImportRecord[];
+  };
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
@@ -73,6 +114,7 @@ export interface BlockerSignalV1 {
   schemaVersion: "1.0";
   type: BlockerType;
   source: BlockerSource;
+  reasonCode?: ProviderReasonCode;
   confidence: number;
   retryable: boolean;
   detectedAt: string;
@@ -172,6 +214,7 @@ export interface ProviderError {
   code: ProviderErrorCode;
   message: string;
   retryable: boolean;
+  reasonCode?: ProviderReasonCode;
   provider?: string;
   source?: ProviderSource;
   details?: Record<string, JsonValue>;
@@ -182,6 +225,9 @@ export interface ProviderContext {
   timeoutMs: number;
   attempt: number;
   signal?: AbortSignal;
+  useCookies?: boolean;
+  cookiePolicyOverride?: ProviderCookiePolicy;
+  browserFallbackPort?: BrowserFallbackPort;
 }
 
 export interface ProviderHealth {
@@ -347,6 +393,8 @@ export interface ProviderRunOptions {
   providerIds?: string[];
   timeoutMs?: number;
   trace?: Partial<TraceContext>;
+  useCookies?: boolean;
+  cookiePolicyOverride?: ProviderCookiePolicy;
   tier?: {
     preferred?: ProviderTier;
     forceRestrictedSafe?: boolean;
@@ -360,6 +408,33 @@ export interface ProviderRunOptions {
     recoveryStableForMs?: number;
     policyAllowsRecovery?: boolean;
   };
+}
+
+export type BrowserFallbackMode = "managed_headed" | "extension";
+
+export interface BrowserFallbackRequest {
+  provider: string;
+  source: ProviderSource;
+  operation: ProviderOperation;
+  reasonCode: ProviderReasonCode;
+  trace: TraceContext;
+  url?: string;
+  details?: Record<string, JsonValue>;
+  preferredModes?: BrowserFallbackMode[];
+  useCookies?: boolean;
+  cookiePolicyOverride?: ProviderCookiePolicy;
+}
+
+export interface BrowserFallbackResponse {
+  ok: boolean;
+  reasonCode: ProviderReasonCode;
+  mode?: BrowserFallbackMode;
+  output?: Record<string, JsonValue>;
+  details?: Record<string, JsonValue>;
+}
+
+export interface BrowserFallbackPort {
+  resolve: (request: BrowserFallbackRequest) => Promise<BrowserFallbackResponse>;
 }
 
 export type ProviderCallResultByOperation = {

@@ -1,12 +1,14 @@
 import type { ParsedArgs } from "../args";
 import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
+import { parseNumberFlag } from "../utils/parse";
 
 type MacroResolveArgs = {
   expression?: string;
   defaultProvider?: string;
   includeCatalog?: boolean;
   execute?: boolean;
+  timeoutMs?: number;
 };
 
 const requireValue = (value: string | undefined, flag: string): string => {
@@ -51,6 +53,17 @@ const parseMacroResolveArgs = (rawArgs: string[]): MacroResolveArgs => {
       parsed.execute = true;
       continue;
     }
+
+    if (arg === "--timeout-ms") {
+      const value = requireValue(rawArgs[index + 1], "--timeout-ms");
+      parsed.timeoutMs = parseNumberFlag(value, "--timeout-ms", { min: 1 });
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--timeout-ms=")) {
+      parsed.timeoutMs = parseNumberFlag(requireValue(arg.split("=", 2)[1], "--timeout-ms"), "--timeout-ms", { min: 1 });
+      continue;
+    }
   }
 
   return parsed;
@@ -62,12 +75,15 @@ export async function runMacroResolve(args: ParsedArgs) {
     throw createUsageError("Missing --expression");
   }
 
-  const result = await callDaemon("macro.resolve", {
+  const params = {
     expression: parsed.expression,
     defaultProvider: parsed.defaultProvider,
     includeCatalog: parsed.includeCatalog ?? false,
     execute: parsed.execute ?? false
-  });
+  };
+  const result = typeof parsed.timeoutMs === "number"
+    ? await callDaemon("macro.resolve", params, { timeoutMs: parsed.timeoutMs })
+    : await callDaemon("macro.resolve", params);
 
   return {
     success: true,

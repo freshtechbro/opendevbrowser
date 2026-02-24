@@ -8,6 +8,7 @@ import { resolveProviderRuntime } from "./workflow-runtime";
 const z = tool.schema;
 const sortSchema = z.enum(["best_deal", "lowest_price", "highest_rating", "fastest_shipping"]);
 const modeSchema = z.enum(["compact", "json", "md", "context", "path"]);
+const cookiePolicySchema = z.enum(["off", "auto", "required"]);
 
 export function createShoppingRunTool(deps: ToolDeps): ToolDefinition {
   return tool({
@@ -20,7 +21,9 @@ export function createShoppingRunTool(deps: ToolDeps): ToolDefinition {
       sort: sortSchema.optional().describe("best_deal|lowest_price|highest_rating|fastest_shipping"),
       mode: modeSchema.optional().describe("compact|json|md|context|path"),
       outputDir: z.string().optional().describe("Optional artifact output directory"),
-      ttlHours: z.number().int().positive().optional().describe("Artifact retention TTL in hours")
+      ttlHours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
+      useCookies: z.boolean().optional().describe("Enable/disable provider cookie injection for this run"),
+      cookiePolicyOverride: cookiePolicySchema.optional().describe("Override cookie policy: off|auto|required")
     },
     async execute(args) {
       try {
@@ -33,7 +36,9 @@ export function createShoppingRunTool(deps: ToolDeps): ToolDefinition {
           sort: args.sort,
           mode: args.mode ?? "compact",
           outputDir: args.outputDir,
-          ttlHours: args.ttlHours
+          ttlHours: args.ttlHours,
+          useCookies: args.useCookies,
+          cookiePolicyOverride: args.cookiePolicyOverride
         });
         return ok(result);
       } catch (error) {

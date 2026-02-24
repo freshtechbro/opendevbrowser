@@ -1,6 +1,10 @@
 const STATIC_HOST_PATTERNS = [
   /(^|\.)redditstatic\.com$/i,
-  /(^|\.)twimg\.com$/i
+  /(^|\.)twimg\.com$/i,
+  /(^|\.)static\.licdn\.com$/i,
+  /(^|\.)ytimg\.com$/i,
+  /(^|\.)fbcdn\.net$/i,
+  /(^|\.)cdninstagram\.com$/i
 ];
 
 const STATIC_PATH_EXT_RE = /\.(?:avif|bmp|css|csv|gif|ico|jpe?g|js|json|map|mjs|mp3|mp4|ogg|pdf|png|svg|txt|wav|webm|webp|woff2?|xml|zip)$/i;

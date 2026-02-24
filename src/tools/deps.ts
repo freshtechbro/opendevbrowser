@@ -5,6 +5,7 @@ import type { ConfigStore } from "../config";
 import type { RelayLike } from "../relay/relay-types";
 import type { SkillLoader } from "../skills/skill-loader";
 import type {
+  BrowserFallbackPort,
   ProviderAggregateResult,
   ProviderCallResultByOperation,
   ProviderRunOptions
@@ -36,6 +37,7 @@ export type ToolDeps = {
   config: ConfigStore;
   skills: SkillLoader;
   providerRuntime?: ProviderRuntimeLike;
+  browserFallbackPort?: BrowserFallbackPort;
   relay?: RelayLike;
   getExtensionPath?: () => string | null;
   ensureHub?: () => Promise<void>;

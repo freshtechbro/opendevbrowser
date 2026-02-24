@@ -5,6 +5,11 @@ import * as os from "os";
 import { parse as parseJsonc, modify, applyEdits } from "jsonc-parser";
 import { generateSecureToken } from "./utils/crypto";
 import { writeFileAtomic } from "./utils/fs";
+import type {
+  ProviderCookieImportRecord,
+  ProviderCookiePolicy,
+  ProviderCookieSourceConfig
+} from "./providers/types";
 
 function isExecutable(filePath: string): boolean {
   try {
@@ -135,16 +140,74 @@ export type ProvidersCrawlerConfig = {
   queueMax: number;
 };
 
+export type ProvidersAntiBotPolicyConfig = {
+  enabled: boolean;
+  cooldownMs: number;
+  maxChallengeRetries: number;
+  proxyHint?: string;
+  sessionHint?: string;
+  allowBrowserEscalation: boolean;
+};
+
+export type ProvidersTranscriptConfig = {
+  modeDefault: "auto" | "web" | "no-auto" | "yt-dlp" | "apify";
+  strategyOrder: Array<
+    "youtubei"
+    | "native_caption_parse"
+    | "ytdlp_audio_asr"
+    | "apify"
+    | "ytdlp_subtitle"
+    | "optional_asr"
+  >;
+  enableYtdlp: boolean;
+  enableAsr: boolean;
+  enableYtdlpAudioAsr: boolean;
+  enableApify: boolean;
+  apifyActorId: string;
+  enableBrowserFallback: boolean;
+  ytdlpTimeoutMs: number;
+};
+
 export type ProvidersConfig = {
   tiers: ProvidersTierConfig;
   adaptiveConcurrency: ProvidersAdaptiveConcurrencyConfig;
   crawler: ProvidersCrawlerConfig;
+  antiBotPolicy: ProvidersAntiBotPolicyConfig;
+  transcript: ProvidersTranscriptConfig;
+  cookiePolicy?: ProviderCookiePolicy;
+  cookieSource?: ProviderCookieSourceConfig;
 };
 
 export type CanaryConfig = {
   targets: {
     enabled: boolean;
   };
+};
+
+export type ParallelModeCapsConfig = {
+  managedHeaded: number;
+  managedHeadless: number;
+  cdpConnectHeaded: number;
+  cdpConnectHeadless: number;
+  extensionOpsHeaded: number;
+  extensionLegacyCdpHeaded: number;
+};
+
+export type ParallelismGovernorConfig = {
+  floor: number;
+  backpressureTimeoutMs: number;
+  sampleIntervalMs: number;
+  recoveryStableWindows: number;
+  hostFreeMemMediumPct: number;
+  hostFreeMemHighPct: number;
+  hostFreeMemCriticalPct: number;
+  rssBudgetMb: number;
+  rssSoftPct: number;
+  rssHighPct: number;
+  rssCriticalPct: number;
+  queueAgeHighMs: number;
+  queueAgeCriticalMs: number;
+  modeCaps: ParallelModeCapsConfig;
 };
 
 export type OpenDevBrowserConfig = {
@@ -160,6 +223,7 @@ export type OpenDevBrowserConfig = {
   fingerprint: FingerprintConfig;
   canary?: CanaryConfig;
   export: ExportConfig;
+  parallelism: ParallelismGovernorConfig;
   skills: SkillsConfig;
   continuity: ContinuityConfig;
   relayPort: number;
@@ -204,6 +268,28 @@ const securitySchema = z.object({
   }).default({})
 });
 
+const DEFAULT_PROVIDER_COOKIE_FILE = "~/.config/opencode/opendevbrowser.provider-cookies.json";
+const DEFAULT_PROVIDER_COOKIE_ENV = "OPENDEVBROWSER_PROVIDER_COOKIES";
+
+const providerCookieRecordSchema: z.ZodType<ProviderCookieImportRecord> = z.object({
+  name: z.string().min(1),
+  value: z.string(),
+  url: z.string().min(1).optional(),
+  domain: z.string().min(1).optional(),
+  path: z.string().optional(),
+  expires: z.number().optional(),
+  httpOnly: z.boolean().optional(),
+  secure: z.boolean().optional(),
+  sameSite: z.enum(["Strict", "Lax", "None"]).optional()
+}).superRefine((cookie, ctx) => {
+  if (!cookie.url && !cookie.domain) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Provider cookie entries must set url or domain."
+    });
+  }
+});
+
 const providersSchema = z.object({
   tiers: z.object({
     default: z.enum(["A", "B", "C"]).default("A"),
@@ -220,7 +306,65 @@ const providersSchema = z.object({
   crawler: z.object({
     workerThreads: z.number().int().min(1).max(64).default(4),
     queueMax: z.number().int().min(1).max(100000).default(2000)
-  }).default({})
+  }).default({}),
+  antiBotPolicy: z.object({
+    enabled: z.boolean().default(true),
+    cooldownMs: z.number().int().min(0).max(300000).default(30000),
+    maxChallengeRetries: z.number().int().min(0).max(10).default(1),
+    proxyHint: z.string().min(1).optional(),
+    sessionHint: z.string().min(1).optional(),
+    allowBrowserEscalation: z.boolean().default(true)
+  }).default({}),
+  transcript: z.object({
+    modeDefault: z.union([
+      z.enum(["auto", "web", "no-auto", "yt-dlp", "apify"]),
+      z.literal("ytdlp")
+    ])
+      .default("auto")
+      .transform((mode) => mode === "ytdlp" ? "yt-dlp" : mode),
+    strategyOrder: z.array(z.enum([
+      "youtubei",
+      "native_caption_parse",
+      "ytdlp_audio_asr",
+      "apify",
+      "ytdlp_subtitle",
+      "optional_asr"
+    ]))
+      .default(["youtubei", "native_caption_parse", "ytdlp_audio_asr", "apify"]),
+    enableYtdlp: z.boolean().default(false),
+    enableAsr: z.boolean().default(false),
+    enableYtdlpAudioAsr: z.boolean().default(true),
+    enableApify: z.boolean().default(true),
+    apifyActorId: z.string().min(1).default("streamers/youtube-scraper"),
+    enableBrowserFallback: z.boolean().default(true),
+    ytdlpTimeoutMs: z.number().int().min(1000).max(120000).default(10000)
+  }).default({}),
+  cookiePolicy: z.enum(["off", "auto", "required"]).default("auto"),
+  cookieSource: z.object({
+    type: z.enum(["file", "env", "inline"]).default("file"),
+    value: z.union([
+      z.string(),
+      z.array(providerCookieRecordSchema)
+    ]).optional()
+  }).transform((raw): ProviderCookieSourceConfig => {
+    if (raw.type === "inline") {
+      return {
+        type: "inline",
+        value: Array.isArray(raw.value) ? raw.value : []
+      };
+    }
+    return {
+      type: raw.type,
+      value: typeof raw.value === "string"
+        ? raw.value
+        : raw.type === "file"
+          ? DEFAULT_PROVIDER_COOKIE_FILE
+          : DEFAULT_PROVIDER_COOKIE_ENV
+    };
+  }).default({
+    type: "file",
+    value: DEFAULT_PROVIDER_COOKIE_FILE
+  })
 }).default({});
 
 const canarySchema = z.object({
@@ -238,6 +382,30 @@ const exportSchema = z.object({
   maxNodes: z.number().int().min(1).max(5000).default(1000),
   inlineStyles: z.boolean().default(true)
 });
+
+const parallelismSchema = z.object({
+  floor: z.number().int().min(1).max(32).default(1),
+  backpressureTimeoutMs: z.number().int().min(100).max(120000).default(5000),
+  sampleIntervalMs: z.number().int().min(250).max(60000).default(2000),
+  recoveryStableWindows: z.number().int().min(1).max(20).default(3),
+  hostFreeMemMediumPct: z.number().int().min(1).max(99).default(25),
+  hostFreeMemHighPct: z.number().int().min(1).max(99).default(18),
+  hostFreeMemCriticalPct: z.number().int().min(1).max(99).default(10),
+  rssBudgetMb: z.number().int().min(64).max(65536).default(2048),
+  rssSoftPct: z.number().int().min(1).max(99).default(65),
+  rssHighPct: z.number().int().min(1).max(99).default(75),
+  rssCriticalPct: z.number().int().min(1).max(99).default(85),
+  queueAgeHighMs: z.number().int().min(100).max(120000).default(2000),
+  queueAgeCriticalMs: z.number().int().min(100).max(120000).default(5000),
+  modeCaps: z.object({
+    managedHeaded: z.number().int().min(1).max(64).default(6),
+    managedHeadless: z.number().int().min(1).max(64).default(8),
+    cdpConnectHeaded: z.number().int().min(1).max(64).default(6),
+    cdpConnectHeadless: z.number().int().min(1).max(64).default(8),
+    extensionOpsHeaded: z.number().int().min(1).max(64).default(6),
+    extensionLegacyCdpHeaded: z.number().int().min(1).max(64).default(1)
+  }).default({})
+}).default({});
 
 const blockerArtifactCapsSchema = z.object({
   maxNetworkEvents: z.number().int().min(1).max(500).default(20),
@@ -361,6 +529,7 @@ const configSchema = z.object({
   fingerprint: fingerprintSchema.default({}),
   canary: canarySchema.default({}),
   export: exportSchema.default({}),
+  parallelism: parallelismSchema.default({}),
   skills: skillsSchema.default({}),
   continuity: continuitySchema.default({}),
   relayPort: z.number().int().min(0).max(65535).default(DEFAULT_RELAY_PORT),
