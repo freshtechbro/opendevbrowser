@@ -4,9 +4,11 @@ Date: 2026-02-16
 Scope: OpenDevBrowser marketing landing pages and product dashboard planning
 Method: design-agent skill workflow (repo audit -> capability mapping -> wireframe ideation -> proposal)
 
+Status: historical design-finding record (superseded for current implementation truth by `docs/FRONTEND.md`, `docs/FRONTEND_DESIGN_AUDIT.md`, and `docs/SURFACE_REFERENCE.md`).
+
 ## Executive Summary
 
-- OpenDevBrowser already has a strong technical product core but no dedicated web landing/dashboard product surface yet.
+- At audit time (2026-02-16), OpenDevBrowser had a strong technical core but no dedicated web landing/dashboard product surface yet.
 - Existing extension UI styling shows an initial glassmorphism direction that can be evolved into a full brand system.
 - Static design-agent audit found UX debt patterns (focus handling, form labeling, performance hints) that should be addressed in any new UI system baseline.
 - Source-of-truth inventory in code has outpaced surface docs: current code exposes more CLI/tool surfaces than documented totals.
@@ -60,15 +62,15 @@ High-severity anchor:
 
 ### 2) Product-surface documentation drift
 
-Current docs state:
+Audit-time snapshot:
 
-- CLI commands: 50 (`docs/SURFACE_REFERENCE.md`)
-- Tools: 44 (`docs/SURFACE_REFERENCE.md`)
+- CLI commands: 53 (`src/cli/args.ts`, at 2026-02-16)
+- Tools: 47 (`src/tools/index.ts`, at 2026-02-16)
 
-Current source indicates:
+Current source of truth (2026-02-22):
 
-- CLI commands: 53 (`src/cli/args.ts`)
-- Tools: 47 (`src/tools/index.ts`)
+- CLI commands: 54 (`docs/SURFACE_REFERENCE.md`, `src/cli/args.ts`)
+- Tools: 47 (`docs/SURFACE_REFERENCE.md`, `src/tools/index.ts`)
 
 Newly present workflow surfaces include research/shopping/product-video command and tool paths.
 
@@ -294,4 +296,3 @@ Note: these failing checks were pre-existing workspace state during design docum
 - Surface reference currently published: `docs/SURFACE_REFERENCE.md`
 - Architecture and runtime surfaces: `docs/ARCHITECTURE.md`, `docs/CLI.md`, `README.md`
 - Existing glass UI baseline: `extension/popup.html`
-

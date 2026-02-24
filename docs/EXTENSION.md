@@ -2,6 +2,11 @@
 
 Optional Chrome extension that enables relay mode (attach to existing logged-in tabs).
 
+Status: active  
+Last updated: 2026-02-24
+
+Quick file-level overview: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/README.md`
+
 ## What it does
 
 - Connects to the local relay server (`ws://127.0.0.1:<port>/extension`).
@@ -10,6 +15,7 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 - Supports multi-tab CDP routing with flat sessions (Chrome 125+).
 - Exposes top-level tabs and auto-attached child targets (workers/OOPIF) through `Target.getTargets`.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
+- Extension mode is headed-only; extension-intent headless launch/connect is rejected with `unsupported_mode`.
 - When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
 
 ## Installation
@@ -23,7 +29,11 @@ Requires Node.js `>=18` and the npm package (`npx opendevbrowser` recommended; `
 2. Load the extension unpacked from:
    - `~/.config/opencode/opendevbrowser/extension`
    - Fallback: `~/.cache/opencode/node_modules/opendevbrowser/extension`
+   - Pre-release local package onboarding: `<WORKDIR>/node_modules/opendevbrowser/extension`
 3. Open the extension popup to configure relay settings.
+
+For full first-run pre-release onboarding flow (local package install, isolated daemon, extension connect, first task), use:
+- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/FIRST_RUN_ONBOARDING.md`
 
 ## Popup settings
 
@@ -49,6 +59,7 @@ Requires Node.js `>=18` and the npm package (`npx opendevbrowser` recommended; `
 
 Auto-connect is enabled by default. The extension attempts to connect on browser startup, install, and when the toggle is enabled in the UI. Auto-connect respects the current relay port, pairing settings, and auto-pair toggle.
 Native fallback is only attempted when the experimental native toggle is enabled.
+The toolbar action uses the OpenDevBrowser icon set from `extension/icons/` (synced from `assets/extension-icons/` during `npm run extension:build`) and a badge dot indicator (green = connected, red = disconnected).
 
 ## Auto-pair flow
 
@@ -65,6 +76,17 @@ Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`. The CLI/tool `connect` com
 Legacy relay `/cdp` is still available but must be explicitly opted in (CLI: `--extension-legacy`).
 When pairing is enabled, both `/ops` and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
 to obtain the token before connecting, so users should not manually pass or share tokenized URLs.
+
+Readiness checks:
+
+```bash
+npx opendevbrowser status --daemon --output-format json
+npx opendevbrowser --help
+```
+
+Expected extension-ready daemon fields:
+- `extensionConnected=true`
+- `extensionHandshakeComplete=true`
 
 ## Chrome version requirement
 
@@ -91,5 +113,6 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 - **No active tab / restricted tab**: The popup cannot attach to `chrome://`, `chrome-extension://`, or Chrome Web Store pages. Focus a normal http(s) tab before connecting.
 - **Debugger attach failed**: Close DevTools on the target tab (or any other debugger) and retry.
 - **Chrome too old**: Extension relay requires Chrome 125+ for flat sessions.
+- **Headless extension launch/connect fails**: expected. Extension mode is headed-only; use `launch --no-extension --headless` for managed headless sessions.
 - **Launch fails due to missing extension**: The CLI/tool will print exact commands for Managed or CDPConnect fallbacks when the extension is not connected.
 - **Popup shows Connected but launch says not connected**: Check the popup note for the relay port/instance (it now includes the relay identity) and ensure it matches the daemon relay port.

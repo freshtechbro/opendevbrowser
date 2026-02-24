@@ -1,0 +1,1644 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenDevBrowser — Script-first browser automation for AI agents</title>
+    <meta name="description"
+        content="Script-first browser automation for AI agents. Snapshot → Refs → Actions — deterministic control in three runtime modes.">
+    <meta property="og:title" content="OpenDevBrowser — Script-first browser automation for AI agents">
+    <meta property="og:description" content="Deterministic browser control built for AI agents. Snapshot the DOM, extract refs, execute actions.">
+    <meta property="og:image" content="../../assets/social-og.png">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="OpenDevBrowser">
+    <meta name="twitter:description" content="Script-first browser automation for AI agents.">
+    <meta name="twitter:image" content="../../assets/social-og.png">
+    <link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32x32.png">
+    <link rel="preconnect" href="https://api.fontshare.com">
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@800,700,400,600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;450;500&display=swap"
+        rel="stylesheet">
+    <style>
+        @layer reset, tokens, base, components, utilities;
+
+        /* ── Reset ── */
+        @layer reset {
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0
+            }
+        }
+
+        /* ── Tokens ── */
+        @layer tokens {
+            :root {
+                --color-bg:             oklch(16% 0.03 264);
+                --color-surface-1:      oklch(20% 0.03 264);
+                --color-surface-2:      oklch(24% 0.03 264);
+                --color-surface-3:      oklch(28% 0.03 264);
+                --color-primary:        oklch(57% 0.09 178);
+                --color-primary-hover:  oklch(63% 0.10 178);
+                --color-accent:         oklch(68% 0.11 207);
+                --color-accent-hover:   oklch(74% 0.12 207);
+                --color-glow:           oklch(79% 0.11 207);
+                --color-text:           oklch(100% 0 0);
+                --color-text-muted:     oklch(70% 0.02 264);
+                --color-text-subtle:    oklch(50% 0.02 264);
+                --color-success:        oklch(72% 0.14 155);
+                --color-warning:        oklch(78% 0.14 85);
+                --color-error:          oklch(62% 0.20 25);
+
+                --glass-1-bg:           oklch(79% 0.11 207 / 0.04);
+                --glass-1-border:       oklch(79% 0.11 207 / 0.08);
+                --glass-2-bg:           oklch(79% 0.11 207 / 0.07);
+                --glass-2-border:       oklch(79% 0.11 207 / 0.12);
+                --glass-3-bg:           oklch(79% 0.11 207 / 0.10);
+                --glass-3-border:       oklch(79% 0.11 207 / 0.16);
+
+                --font-display: 'Satoshi', 'General Sans', system-ui, sans-serif;
+                --font-body: 'Plus Jakarta Sans', 'Inter var', system-ui, sans-serif;
+                --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+                --font-size-hero: clamp(2.75rem, 2rem + 3vw, 4.5rem);
+                --font-size-section: clamp(1.875rem, 1.5rem + 1.5vw, 2.75rem);
+                --font-size-subsection: clamp(1.375rem, 1.1rem + 1vw, 1.875rem);
+                --font-size-body: clamp(1rem, 0.92rem + 0.4vw, 1.175rem);
+                --font-size-caption: clamp(0.8125rem, 0.78rem + 0.2vw, 0.9375rem);
+
+                --section-pad: clamp(56px, 8vw, 96px);
+                --content-max: 1200px;
+
+                --gradient-brand: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+                --gradient-glow: radial-gradient(var(--color-glow) 0%, transparent 70%);
+            }
+        }
+
+        /* ── Base ── */
+        @layer base {
+            html {
+                scroll-behavior: smooth
+            }
+
+            body {
+                font-family: var(--font-body);
+                background: var(--color-bg);
+                color: var(--color-text);
+                line-height: 1.6;
+                overflow-x: hidden;
+                -webkit-font-smoothing: antialiased;
+            }
+
+            a {
+                color: var(--color-accent);
+                text-decoration: none;
+                transition: color .2s
+            }
+
+            a:hover {
+                color: var(--color-accent-hover)
+            }
+
+            :focus-visible {
+                outline: 2px solid var(--color-accent);
+                outline-offset: 2px;
+            }
+        }
+
+        /* ── Utilities ── */
+        @layer utilities {
+            .skip-link {
+                position: absolute;
+                top: -100%;
+                left: 16px;
+                z-index: 200;
+                background: var(--color-primary);
+                color: var(--color-text);
+                padding: 12px 24px;
+                border-radius: 0 0 8px 8px;
+                font-weight: 600;
+                font-size: 0.875rem;
+                transition: top .2s;
+            }
+            .skip-link:focus {
+                top: 0;
+            }
+        }
+
+        /* ── Ambient ── */
+        .ambient {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(ellipse 80% 50% at 20% 20%, rgba(13, 148, 136, 0.15), transparent),
+                radial-gradient(ellipse 60% 40% at 80% 80%, rgba(6, 182, 212, 0.10), transparent),
+                radial-gradient(ellipse 50% 50% at 50% 50%, rgba(34, 211, 238, 0.05), transparent);
+        }
+
+        .noise {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+            background-size: 128px 128px;
+        }
+
+        /* ── Nav ── */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: var(--glass-1-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--glass-1-border);
+            padding: 0 24px;
+        }
+
+        .nav-inner {
+            max-width: var(--content-max);
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px
+        }
+
+        .nav-brand img {
+            height: 28px;
+            width: auto
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 28px;
+            list-style: none
+        }
+
+        .nav-links a {
+            color: var(--color-text-muted);
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: color .2s
+        }
+
+        .nav-links a:hover {
+            color: var(--color-text)
+        }
+
+        .nav-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center
+        }
+
+        .nav-github {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--color-text-muted);
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: color .2s;
+        }
+
+        .nav-github:hover {
+            color: var(--color-text)
+        }
+
+        .nav-github svg {
+            width: 18px;
+            height: 18px;
+            fill: currentColor
+        }
+
+        .nav-cta {
+            background: var(--gradient-brand);
+            color: var(--color-text);
+            border: none;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-family: var(--font-body);
+            font-weight: 600;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: transform .1s ease-out, box-shadow .2s;
+        }
+
+        .nav-cta:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(34, 211, 238, 0.25)
+        }
+
+        .nav-cta:active {
+            transform: scale(0.97)
+        }
+
+        /* ── Mobile Menu ── */
+        .nav-hamburger {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--color-text-muted);
+            cursor: pointer;
+            padding: 8px;
+            min-width: 44px;
+            min-height: 44px;
+            align-items: center;
+            justify-content: center;
+        }
+        .nav-hamburger svg { width: 24px; height: 24px; fill: currentColor; }
+        .nav-hamburger:hover { color: var(--color-text); }
+
+        .mobile-menu {
+            display: none;
+            position: fixed;
+            top: 64px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 99;
+            background: var(--color-bg);
+            padding: 24px;
+        }
+        .mobile-menu.open { display: flex; flex-direction: column; gap: 8px; }
+        .mobile-menu a {
+            color: var(--color-text-muted);
+            font-size: 1.125rem;
+            font-weight: 500;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--glass-1-border);
+            display: block;
+        }
+        .mobile-menu a:hover { color: var(--color-text); }
+        .mobile-menu-cta {
+            margin-top: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        @media(max-width:1024px) {
+            .nav-hamburger { display: inline-flex; }
+        }
+
+        /* ── Hero ── */
+        .hero {
+            position: relative;
+            z-index: 2;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 120px 24px var(--section-pad);
+        }
+
+        .hero-inner {
+            max-width: var(--content-max);
+            margin: 0 auto;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 48px;
+            align-items: center;
+        }
+
+        .hero-content h1 {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: var(--font-size-hero);
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+            margin-bottom: 20px;
+        }
+
+        .hero-content h1 .gradient {
+            background: var(--gradient-brand);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-content p {
+            color: var(--color-text-muted);
+            font-size: var(--font-size-body);
+            max-width: 48ch;
+            margin-bottom: 32px;
+            line-height: 1.7
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 16px;
+            align-items: center
+        }
+
+        .btn-primary {
+            background: var(--gradient-brand);
+            color: #fff;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 12px;
+            font-family: var(--font-body);
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: transform .1s, box-shadow .3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+            filter: blur(16px);
+            opacity: 0;
+            transition: opacity .3s;
+            z-index: -1;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px)
+        }
+
+        .btn-primary:hover::after {
+            opacity: 0.4
+        }
+
+        .btn-primary:active {
+            transform: scale(0.97)
+        }
+
+        .btn-secondary {
+            background: var(--glass-2-bg);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--glass-2-border);
+            color: var(--color-text);
+            padding: 14px 32px;
+            border-radius: 12px;
+            font-family: var(--font-body);
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: border-color .2s, background .2s;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--color-accent);
+            background: var(--glass-3-bg)
+        }
+
+        /* Hero visual */
+        .hero-visual {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative
+        }
+
+        .hero-visual img {
+            width: 100%;
+            max-width: 480px;
+            border-radius: 16px;
+            filter: drop-shadow(0 0 60px rgba(34, 211, 238, 0.15));
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0)
+            }
+
+            50% {
+                transform: translateY(-12px)
+            }
+        }
+
+        /* ── Proof Strip ── */
+        .proof-strip {
+            position: relative;
+            z-index: 2;
+            padding: 0 24px var(--section-pad)
+        }
+
+        .proof-inner {
+            max-width: var(--content-max);
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
+        }
+
+        .proof-card {
+            background: var(--glass-2-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-2-border);
+            border-radius: 16px;
+            padding: 32px;
+            text-align: center;
+            transition: transform .2s cubic-bezier(0.34, 1.56, 0.64, 1), border-color .2s, box-shadow .2s;
+        }
+
+        .proof-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(34, 211, 238, 0.24);
+            box-shadow: 0 8px 32px rgba(15, 23, 42, 0.4)
+        }
+
+        .proof-value {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: clamp(2rem, 1.5rem + 2vw, 3rem);
+            background: var(--gradient-brand);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 4px;
+        }
+
+        .proof-label {
+            color: var(--color-text-muted);
+            font-size: var(--font-size-caption)
+        }
+
+        /* ── Sections ── */
+        section {
+            position: relative;
+            z-index: 2;
+            padding: var(--section-pad) 24px
+        }
+
+        .section-inner {
+            max-width: var(--content-max);
+            margin: 0 auto
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 64px
+        }
+
+        .section-header h2 {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: var(--font-size-section);
+            line-height: 1.15;
+            letter-spacing: -0.015em;
+            margin-bottom: 16px;
+        }
+
+        .section-header p {
+            color: var(--color-text-muted);
+            font-size: var(--font-size-body);
+            max-width: 56ch;
+            margin: 0 auto
+        }
+
+        /* ── How it Works — 7 steps ── */
+        .steps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px
+        }
+
+        .step-card {
+            background: var(--glass-1-bg);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--glass-1-border);
+            border-radius: 16px;
+            padding: 28px 24px;
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            transition: transform .2s cubic-bezier(0.34, 1.56, 0.64, 1), border-color .2s;
+        }
+
+        .step-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(34, 211, 238, 0.18)
+        }
+
+        .step-num {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: 1.25rem;
+            color: var(--color-primary);
+            flex-shrink: 0;
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: rgba(13, 148, 136, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .step-card h3 {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 4px
+        }
+
+        .step-card p {
+            color: var(--color-text-muted);
+            font-size: var(--font-size-caption);
+            line-height: 1.5
+        }
+
+        .step-cmd {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            color: var(--color-glow);
+            margin-top: 8px;
+            display: block;
+            opacity: 0.8;
+        }
+
+        /* ── Features ── */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px
+        }
+
+        .feature-card {
+            background: var(--glass-2-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-2-border);
+            border-radius: 20px;
+            padding: 36px 28px;
+            position: relative;
+            overflow: hidden;
+            transition: transform .2s cubic-bezier(0.34, 1.56, 0.64, 1), border-color .25s, box-shadow .25s;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--color-glow), transparent);
+            opacity: 0;
+            transition: opacity .3s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(34, 211, 238, 0.20);
+            box-shadow: 0 8px 32px rgba(15, 23, 42, 0.35);
+        }
+
+        .feature-card:hover::before {
+            opacity: 0.6
+        }
+
+        .feature-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, rgba(13, 148, 136, 0.2), rgba(6, 182, 212, 0.15));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 16px;
+            font-size: 22px;
+        }
+
+        .feature-card h3 {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+            line-height: 1.2
+        }
+
+        .feature-card p {
+            color: var(--color-text-muted);
+            font-size: var(--font-size-caption);
+            line-height: 1.6
+        }
+
+        /* ── Use Cases — 10 lanes ── */
+        .usecase-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px
+        }
+
+        .usecase-card {
+            background: var(--glass-1-bg);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid var(--glass-1-border);
+            border-radius: 14px;
+            padding: 28px;
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            transition: transform .2s cubic-bezier(0.34, 1.56, 0.64, 1), border-color .2s;
+        }
+
+        .usecase-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(34, 211, 238, 0.18)
+        }
+
+        .usecase-num {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: 0.8rem;
+            color: var(--color-primary);
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: rgba(13, 148, 136, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .usecase-card h3 {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 4px
+        }
+
+        .usecase-card p {
+            color: var(--color-text-muted);
+            font-size: 0.8rem;
+            line-height: 1.5
+        }
+
+        /* ── Security ── */
+        .security-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px
+        }
+
+        .security-card {
+            background: var(--glass-1-bg);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--glass-1-border);
+            border-radius: 14px;
+            padding: 28px;
+            text-align: center;
+            transition: transform .2s cubic-bezier(0.34, 1.56, 0.64, 1), border-color .2s;
+        }
+
+        .security-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(34, 211, 238, 0.18)
+        }
+
+        .security-card .icon {
+            font-size: 28px;
+            margin-bottom: 12px;
+            display: block
+        }
+
+        .security-card h3 {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 6px
+        }
+
+        .security-card p {
+            color: var(--color-text-muted);
+            font-size: var(--font-size-caption);
+            line-height: 1.5
+        }
+
+        /* ── OSS ── */
+        .oss-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+            align-items: start;
+        }
+
+        .oss-content h3 {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: var(--font-size-subsection);
+            margin-bottom: 16px
+        }
+
+        .oss-content p {
+            color: var(--color-text-muted);
+            font-size: var(--font-size-body);
+            line-height: 1.7;
+            margin-bottom: 20px
+        }
+
+        .oss-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 24px
+        }
+
+        .oss-list li {
+            color: var(--color-text-muted);
+            font-size: var(--font-size-caption);
+            padding-left: 20px;
+            position: relative;
+            line-height: 1.5;
+        }
+
+        .oss-list li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 7px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--color-primary);
+            box-shadow: 0 0 8px rgba(13, 148, 136, 0.4);
+        }
+
+        .oss-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 6px 14px;
+            border-radius: 100px;
+            border: 1px solid rgba(34, 211, 238, 0.2);
+            color: var(--color-accent);
+            background: rgba(34, 211, 238, 0.05);
+        }
+
+        .oss-terminal {
+            background: var(--glass-3-bg);
+            backdrop-filter: blur(24px);
+            border: 1px solid var(--glass-3-border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .oss-term-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--glass-1-border);
+        }
+
+        .oss-term-header .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%
+        }
+
+        .oss-term-header .dot-r {
+            background: #ef4444
+        }
+
+        .oss-term-header .dot-y {
+            background: #f59e0b
+        }
+
+        .oss-term-header .dot-g {
+            background: #22c55e
+        }
+
+        .oss-term-body {
+            padding: 20px;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 2;
+            color: var(--color-text-muted)
+        }
+
+        .oss-term-body .kw {
+            color: var(--color-accent)
+        }
+
+        .oss-term-body .fn {
+            color: var(--color-primary)
+        }
+
+        .oss-term-body .str {
+            color: var(--color-glow)
+        }
+
+        .oss-term-body .cmt {
+            color: var(--color-text-subtle)
+        }
+
+        /* ── Code showcase ── */
+        .code-showcase {
+            margin-top: 64px;
+            background: var(--glass-3-bg);
+            backdrop-filter: blur(24px);
+            border: 1px solid var(--glass-3-border);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(15, 23, 42, 0.4);
+        }
+
+        .code-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--glass-1-border)
+        }
+
+        .code-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%
+        }
+
+        .code-dot-r {
+            background: #ef4444
+        }
+
+        .code-dot-y {
+            background: #f59e0b
+        }
+
+        .code-dot-g {
+            background: #22c55e
+        }
+
+        .code-title {
+            margin-left: 12px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--color-text-muted)
+        }
+
+        .code-body {
+            padding: 24px;
+            font-family: var(--font-mono);
+            font-size: var(--font-size-caption);
+            line-height: 1.8;
+            overflow-x: auto
+        }
+
+        .code-body .kw {
+            color: var(--color-accent)
+        }
+
+        .code-body .fn {
+            color: var(--color-primary)
+        }
+
+        .code-body .str {
+            color: var(--color-glow)
+        }
+
+        .code-body .cmt {
+            color: var(--color-text-subtle)
+        }
+
+        /* ── CTA ── */
+        .cta-section {
+            text-align: center;
+            padding: var(--section-pad) 24px
+        }
+
+        .cta-inner {
+            max-width: 720px;
+            margin: 0 auto;
+            background: var(--glass-3-bg);
+            backdrop-filter: blur(24px);
+            border: 1px solid var(--glass-3-border);
+            border-radius: 24px;
+            padding: 64px 48px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-inner::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: 25px;
+            background: linear-gradient(135deg, rgba(13, 148, 136, 0.3), transparent 50%, rgba(6, 182, 212, 0.3));
+            z-index: -1;
+        }
+
+        .cta-inner h2 {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: var(--font-size-section);
+            margin-bottom: 16px
+        }
+
+        .cta-inner p {
+            color: var(--color-text-muted);
+            font-size: var(--font-size-body);
+            margin-bottom: 24px
+        }
+
+        .cta-code {
+            font-family: var(--font-mono);
+            font-size: var(--font-size-caption);
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--glass-1-border);
+            border-radius: 8px;
+            padding: 12px 20px;
+            display: inline-block;
+            margin-bottom: 24px;
+            color: var(--color-glow);
+        }
+
+        /* ── Footer ── */
+        footer {
+            position: relative;
+            z-index: 2;
+            border-top: 1px solid var(--glass-1-border);
+            padding: 48px 24px;
+        }
+
+        .footer-inner {
+            max-width: var(--content-max);
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .footer-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px
+        }
+
+        .footer-brand img {
+            height: 22px;
+            width: auto
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 24px;
+            list-style: none
+        }
+
+        .footer-links a {
+            color: var(--color-text-muted);
+            font-size: 0.875rem
+        }
+
+        .footer-copy {
+            color: var(--color-text-subtle);
+            font-size: 0.8rem
+        }
+
+        /* ── Reveal ── */
+        .reveal {
+            opacity: 0;
+            transform: translateY(32px);
+            transition: opacity .5s cubic-bezier(0.16, 1, 0.3, 1), transform .5s cubic-bezier(0.16, 1, 0.3, 1)
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0)
+        }
+
+        /* ── Responsive ── */
+        @media(max-width:1024px) {
+            .hero-inner {
+                grid-template-columns: 1fr;
+                text-align: center
+            }
+
+            .hero-content p {
+                margin: 0 auto 32px
+            }
+
+            .hero-actions {
+                justify-content: center
+            }
+
+            .hero-visual {
+                order: -1
+            }
+
+            .hero-visual img {
+                max-width: 360px
+            }
+
+            .proof-inner {
+                grid-template-columns: repeat(2, 1fr)
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr 1fr
+            }
+
+            .usecase-grid {
+                grid-template-columns: 1fr
+            }
+
+            .security-grid {
+                grid-template-columns: 1fr
+            }
+
+            .oss-row {
+                grid-template-columns: 1fr
+            }
+
+            .nav-links {
+                display: none
+            }
+        }
+
+        @media(max-width:640px) {
+            .proof-inner {
+                grid-template-columns: 1fr
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr
+            }
+
+            .hero-actions {
+                flex-direction: column;
+                width: 100%
+            }
+
+            .btn-primary,
+            .btn-secondary {
+                width: 100%;
+                text-align: center
+            }
+        }
+
+        @media(prefers-reduced-motion:reduce) {
+            .hero-visual img {
+                animation: none
+            }
+
+            .reveal {
+                opacity: 1;
+                transform: none;
+                transition: none
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div class="ambient"></div>
+    <div class="noise"></div>
+
+    <!-- ═══ Navigation ═══ -->
+    <nav>
+        <div class="nav-inner">
+            <a href="/" class="nav-brand">
+                <img src="../../assets/favicon.svg" alt="OpenDevBrowser" height="28">
+            </a>
+            <ul class="nav-links">
+                <li><a href="#product">Product</a></li>
+                <li><a href="#how-it-works">How It Works</a></li>
+                <li><a href="#usecases">Use Cases</a></li>
+                <li><a href="#security">Security</a></li>
+                <li><a href="#open-source">Open Source</a></li>
+            </ul>
+            <div class="nav-actions">
+                <a class="nav-github" href="https://github.com/freshtechbro/opendevbrowser/releases/latest"
+                    aria-label="View on GitHub">
+                    <svg viewBox="0 0 16 16">
+                        <path
+                            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                    </svg>
+                </a>
+                <a href="/docs#quickstart" class="nav-cta">Get Started</a>
+                <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobile-menu">
+                    <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ═══ Mobile Menu ═══ -->
+    <div id="mobile-menu" class="mobile-menu" role="navigation" aria-label="Mobile navigation">
+        <a href="#product">Product</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="#usecases">Use Cases</a>
+        <a href="#security">Security</a>
+        <a href="#open-source">Open Source</a>
+        <div class="mobile-menu-cta">
+            <a href="/docs#quickstart" class="btn-primary" style="display:block;text-align:center;text-decoration:none">Get Started</a>
+            <a href="https://github.com/freshtechbro/opendevbrowser/releases/latest" class="btn-secondary" style="display:block;text-align:center;text-decoration:none">View on GitHub</a>
+        </div>
+    </div>
+
+    <!-- ═══ Hero ═══ -->
+    <main id="main-content">
+    <section class="hero">
+        <div class="hero-inner">
+            <div class="hero-content reveal">
+                <h1>Script-first<br><span class="gradient">browser automation</span><br>for AI agents</h1>
+                <p>Deterministic browser control built for AI agents. Snapshot the DOM, extract refs, execute
+                    actions — all from a single CLI command.</p>
+                <div class="hero-actions">
+                    <a href="/docs#quickstart" class="btn-primary" style="text-decoration:none">npx opendevbrowser</a>
+                    <a href="https://github.com/freshtechbro/opendevbrowser/releases/latest" class="btn-secondary" style="text-decoration:none">View on GitHub</a>
+                </div>
+            </div>
+            <div class="hero-visual reveal" style="transition-delay:.2s">
+                <img src="../../assets/hero-image.png"
+                    alt="OpenDevBrowser — isometric Browser Node network showing connected automation sessions with teal glow">
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ Proof Strip ═══ -->
+    <div class="proof-strip">
+        <div class="proof-inner">
+            <div class="proof-card reveal">
+                <div class="proof-value">54</div>
+                <div class="proof-label">CLI Commands</div>
+            </div>
+            <div class="proof-card reveal" style="transition-delay:.08s">
+                <div class="proof-value">47</div>
+                <div class="proof-label">Built-in Tools</div>
+            </div>
+            <div class="proof-card reveal" style="transition-delay:.16s">
+                <div class="proof-value">8</div>
+                <div class="proof-label">Skill Packs</div>
+            </div>
+            <div class="proof-card reveal" style="transition-delay:.24s">
+                <div class="proof-value">3</div>
+                <div class="proof-label">Runtime Modes</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Product Features — 3 Modes + 6 Capabilities ═══ -->
+    <section id="product">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <h2>Built for agents,<br>loved by developers</h2>
+                <p>Three runtime modes, deterministic actions, and a security-first architecture that gives AI agents
+                    reliable browser control.</p>
+            </div>
+            <div class="feature-grid">
+                <div class="feature-card reveal">
+                    <div class="feature-icon">🖥️</div>
+                    <h3>Managed browser</h3>
+                    <p>OpenDevBrowser launches and manages a Chromium instance. Full lifecycle control — launch, navigate, act,
+                        teardown.</p>
+                </div>
+                <div class="feature-card reveal" style="transition-delay:.08s">
+                    <div class="feature-icon">🔗</div>
+                    <h3>CDP Connect</h3>
+                    <p>Attach to an existing Chrome session via DevTools Protocol. Inspect, act, and export without
+                        spawning a new browser.</p>
+                </div>
+                <div class="feature-card reveal" style="transition-delay:.16s">
+                    <div class="feature-icon">📡</div>
+                    <h3>Extension Relay</h3>
+                    <p>Control any browser session through the OpenDevBrowser Chrome extension. WebSocket relay for full
+                        bi-directional control.</p>
+                </div>
+                <div class="feature-card reveal" style="transition-delay:.24s">
+                    <div class="feature-icon">📸</div>
+                    <h3>Snapshot → Refs → Actions</h3>
+                    <p>Capture a full DOM snapshot, extract stable element references, then execute deterministic
+                        actions. No flaky selectors.</p>
+                </div>
+                <div class="feature-card reveal" style="transition-delay:.32s">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Defense-in-depth security</h3>
+                    <p>Domain allowlists, prompt injection detection, and sandboxed execution protect every automation
+                        session.</p>
+                </div>
+                <div class="feature-card reveal" style="transition-delay:.40s">
+                    <div class="feature-icon">🧩</div>
+                    <h3>Skill packs</h3>
+                    <p>Pre-built automation patterns for login, data extraction, form testing, shopping, and research
+                        workflows.</p>
+                </div>
+                <div class="feature-card reveal" style="transition-delay:.48s">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Recurrent automation</h3>
+                    <p>Schedule and repeat multi-step workflows with built-in macro resolution and cross-session
+                        continuity.</p>
+                </div>
+                <div class="feature-card reveal" style="transition-delay:.56s">
+                    <div class="feature-icon">📊</div>
+                    <h3>Export & diagnostics</h3>
+                    <p>Full session export in JSON, PDF, HTML plus built-in diagnostics (console, network, perf) for
+                        debugging agent behavior.</p>
+                </div>
+                <div class="feature-card reveal" style="transition-delay:.64s">
+                    <div class="feature-icon">🔧</div>
+                    <h3>Workflow modules</h3>
+                    <p>Orchestrated multi-step pipelines for research, shopping comparison, and product video collection
+                        workflows.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ How It Works — 7-step model ═══ -->
+    <section id="how-it-works">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <h2>How it works</h2>
+                <p>The complete 7-step workflow — from session launch to verified close.</p>
+            </div>
+            <div class="steps-grid">
+                <div class="step-card reveal">
+                    <div class="step-num">1</div>
+                    <div>
+                        <h3>Launch / connect session</h3>
+                        <p>Start a managed browser, connect via CDP, or relay through the extension.</p>
+                        <span class="step-cmd">opendevbrowser launch --no-extension</span>
+                    </div>
+                </div>
+                <div class="step-card reveal" style="transition-delay:.06s">
+                    <div class="step-num">2</div>
+                    <div>
+                        <h3>Navigate & snapshot</h3>
+                        <p>Load your target URL and capture a deterministic DOM snapshot.</p>
+                        <span class="step-cmd">opendevbrowser goto → opendevbrowser snapshot</span>
+                    </div>
+                </div>
+                <div class="step-card reveal" style="transition-delay:.12s">
+                    <div class="step-num">3</div>
+                    <div>
+                        <h3>Act via stable refs</h3>
+                        <p>Click, type, select, press, scroll — using stable element references.</p>
+                        <span class="step-cmd">opendevbrowser click "ref:submit-btn"</span>
+                    </div>
+                </div>
+                <div class="step-card reveal" style="transition-delay:.18s">
+                    <div class="step-num">4</div>
+                    <div>
+                        <h3>Observe & debug</h3>
+                        <p>Poll console, network, trace snapshots, and perf metrics in real time.</p>
+                        <span class="step-cmd">opendevbrowser console-poll → opendevbrowser perf</span>
+                    </div>
+                </div>
+                <div class="step-card reveal" style="transition-delay:.24s">
+                    <div class="step-num">5</div>
+                    <div>
+                        <h3>Run workflows</h3>
+                        <p>Execute packaged research, shopping, or product video pipelines.</p>
+                        <span class="step-cmd">opendevbrowser research run --topic "query"</span>
+                    </div>
+                </div>
+                <div class="step-card reveal" style="transition-delay:.30s">
+                    <div class="step-num">6</div>
+                    <div>
+                        <h3>Export & capture</h3>
+                        <p>Screenshot, clone pages/components, annotate — export in any format.</p>
+                        <span class="step-cmd">opendevbrowser clone-page</span>
+                    </div>
+                </div>
+                <div class="step-card reveal" style="transition-delay:.36s">
+                    <div class="step-num">7</div>
+                    <div>
+                        <h3>Verify & close</h3>
+                        <p>Confirm session status, take follow-up snapshots, disconnect cleanly.</p>
+                        <span class="step-cmd">opendevbrowser status → opendevbrowser disconnect</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ Use Cases — all 10 lanes ═══ -->
+    <section id="usecases">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <h2>What can you automate?</h2>
+                <p>From development workflows to production monitoring — 10 validated use-case lanes covering the full
+                    automation surface.</p>
+            </div>
+            <div class="usecase-grid">
+                <div class="usecase-card reveal">
+                    <div class="usecase-num">01</div>
+                    <div>
+                        <h3>QA loop</h3>
+                        <p>Run repeatable browser checks with trace-backed pass/fail evidence.</p>
+                    </div>
+                </div>
+                <div class="usecase-card reveal" style="transition-delay:.06s">
+                    <div class="usecase-num">02</div>
+                    <div>
+                        <h3>Auth automation</h3>
+                        <p>Operate safely in logged-in sessions using extension relay controls.</p>
+                    </div>
+                </div>
+                <div class="usecase-card reveal" style="transition-delay:.12s">
+                    <div class="usecase-num">03</div>
+                    <div>
+                        <h3>Data extraction</h3>
+                        <p>Extract structured page intelligence from DOM and workflow outputs.</p>
+                    </div>
+                </div>
+                <div class="usecase-card reveal" style="transition-delay:.18s">
+                    <div class="usecase-num">04</div>
+                    <div>
+                        <h3>Visual QA</h3>
+                        <p>Capture screenshots and annotations for fast UI review cycles.</p>
+                    </div>
+                </div>
+                <div class="usecase-card reveal" style="transition-delay:.24s">
+                    <div class="usecase-num">05</div>
+                    <div>
+                        <h3>UI component extraction</h3>
+                        <p>Clone pages/components into reusable frontend artifacts quickly.</p>
+                    </div>
+                </div>
+                <div class="usecase-card reveal" style="transition-delay:.30s">
+                    <div class="usecase-num">06</div>
+                    <div>
+                        <h3>Ops monitoring</h3>
+                        <p>Diagnose regressions early with status, console, network, and perf signals.</p>
+                    </div>
+                </div>
+                <div class="usecase-card reveal" style="transition-delay:.36s">
+                    <div class="usecase-num">07</div>
+                    <div>
+                        <h3>Research</h3>
+                        <p>Generate time-bounded multi-source research outputs in one workflow run.</p>
+                    </div>
+                </div>
+                <div class="usecase-card reveal" style="transition-delay:.42s">
+                    <div class="usecase-num">08</div>
+                    <div>
+                        <h3>Shopping</h3>
+                        <p>Compare offers across providers with normalized pricing and confidence signals.</p>
+                    </div>
+                </div>
+                <div class="usecase-card reveal" style="transition-delay:.48s">
+                    <div class="usecase-num">09</div>
+                    <div>
+                        <h3>Shopping deals hunt</h3>
+                        <p>Find best-value opportunities with score-aware deal ranking and filters.</p>
+                    </div>
+                </div>
+                <div class="usecase-card reveal" style="transition-delay:.54s">
+                    <div class="usecase-num">10</div>
+                    <div>
+                        <h3>UGC & presentation assets</h3>
+                        <p>Collect product visuals/copy artifacts for UGC videos and product slides.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ Security ═══ -->
+    <section id="security">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <h2>Security-first architecture</h2>
+                <p>Every session is sandboxed, allowlisted, and auditable. Concise trust posture for technical buyers.
+                </p>
+            </div>
+            <div class="security-grid">
+                <div class="security-card reveal">
+                    <span class="icon">🛡️</span>
+                    <h3>Domain allowlists</h3>
+                    <p>Strict URL pattern matching controls which sites agents can access.</p>
+                </div>
+                <div class="security-card reveal" style="transition-delay:.08s">
+                    <span class="icon">🔐</span>
+                    <h3>Relay & token controls</h3>
+                    <p>Extension relay uses token-based auth with origin verification on every message.</p>
+                </div>
+                <div class="security-card reveal" style="transition-delay:.16s">
+                    <span class="icon">🚫</span>
+                    <h3>Prompt injection detection</h3>
+                    <p>Built-in heuristics flag and block suspicious prompts before action execution.</p>
+                </div>
+                <div class="security-card reveal" style="transition-delay:.24s">
+                    <span class="icon">🔒</span>
+                    <h3>Data redaction</h3>
+                    <p>Sensitive data is redacted from exports and session logs by default.</p>
+                </div>
+                <div class="security-card reveal" style="transition-delay:.32s">
+                    <span class="icon">🧪</span>
+                    <h3>97% test coverage</h3>
+                    <p>Comprehensive test suite with continuous verification on every commit.</p>
+                </div>
+                <div class="security-card reveal" style="transition-delay:.40s">
+                    <span class="icon">🔄</span>
+                    <h3>Recovery & ops controls</h3>
+                    <p>Session recovery, graceful degradation, and operational controls for production use.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ Open Source ═══ -->
+    <section id="open-source">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <h2>Open source, MIT licensed</h2>
+                <p>Fully open. Inspect every line. Contribute, fork, extend.</p>
+            </div>
+            <div class="oss-row">
+                <div class="oss-content reveal">
+                    <h3>What ships today</h3>
+                    <div class="oss-badge" style="margin-bottom:20px">MIT License · v0.0.15</div>
+                    <ul class="oss-list">
+                        <li>Core runtime with 3 session modes</li>
+                        <li>47 built-in browser tools</li>
+                        <li>54 CLI commands</li>
+                        <li>Chrome extension for relay mode</li>
+                        <li>Research, Shopping, Product Video workflows</li>
+                        <li>Skill packs baseline (login, extraction, forms)</li>
+                        <li>Full export in JSON, PDF, HTML</li>
+                    </ul>
+                    <p>Community-driven roadmap with public milestones and contribution touchpoints.</p>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap">
+                        <a href="https://github.com/freshtechbro/opendevbrowser/releases/latest" class="btn-primary"
+                            style="display:inline-block;padding:12px 24px;font-size:0.9rem;text-decoration:none">View
+                            Latest Release</a>
+                        <a href="https://github.com/freshtechbro/opendevbrowser" class="btn-secondary"
+                            style="display:inline-block;padding:12px 24px;font-size:0.9rem;text-decoration:none">View
+                            Repo</a>
+                    </div>
+                </div>
+                <div class="oss-terminal reveal" style="transition-delay:.15s">
+                    <div class="oss-term-header">
+                        <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+                    </div>
+                    <div class="oss-term-body">
+                        <span class="cmt"># Install globally</span><br>
+                        <span class="kw">npm</span> install -g opendevbrowser<br><br>
+                        <span class="cmt"># Or run instantly</span><br>
+                        <span class="kw">npx</span> opendevbrowser<br><br>
+                        <span class="cmt"># Full workflow in 4 commands</span><br>
+                        <span class="fn">opendevbrowser launch</span> <span class="kw">--no-extension</span><br>
+                        <span class="fn">opendevbrowser goto</span> <span class="str">"https://example.com"</span><br>
+                        <span class="fn">opendevbrowser snapshot</span> <span class="kw">--output-format</span> json<br>
+                        <span class="fn">opendevbrowser click</span> <span class="str">"ref:submit-button"</span><br>
+                        <span class="fn">opendevbrowser clone-page</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ Developer Quickstart ═══ -->
+    <section id="quickstart">
+        <div class="section-inner">
+            <div class="section-header reveal">
+                <h2>Works in 3 lines</h2>
+                <p>From install to first automation in under a minute.</p>
+            </div>
+            <div class="code-showcase reveal">
+                <div class="code-header">
+                    <span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span
+                        class="code-dot code-dot-g"></span>
+                    <span class="code-title">terminal</span>
+                </div>
+                <div class="code-body">
+                    <span class="cmt"># Install and launch</span><br>
+                    <span class="kw">npx</span> opendevbrowser<br><br>
+                    <span class="cmt"># Navigate and snapshot</span><br>
+                    <span class="fn">opendevbrowser goto</span> <span class="str">"https://example.com"</span><br>
+                    <span class="fn">opendevbrowser snapshot</span> <span class="kw">--output-format</span> json<br><br>
+                    <span class="cmt"># Act via refs</span><br>
+                    <span class="fn">opendevbrowser click</span> <span class="str">"ref:submit-button"</span><br>
+                    <span class="fn">opendevbrowser type</span> <span class="str">"ref:search-input"</span> <span
+                        class="str">"browser automation"</span><br><br>
+                    <span class="cmt"># Observe, debug, export</span><br>
+                    <span class="fn">opendevbrowser console-poll</span><br>
+                    <span class="fn">opendevbrowser network-poll</span><br>
+                    <span class="fn">opendevbrowser clone-page</span><br><br>
+                    <span class="cmt"># Run a packaged workflow</span><br>
+                    <span class="fn">opendevbrowser research run</span> <span class="kw">--topic</span> <span class="str">"AI browser automation trends"</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ CTA ═══ -->
+    <section class="cta-section">
+        <div class="cta-inner reveal">
+            <h2>Ready to automate?</h2>
+            <p>Open source, free to use, built for the AI-native development workflow.</p>
+            <div class="cta-code">npm install opendevbrowser</div>
+            <br><br>
+            <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+                <a href="/docs#quickstart" class="btn-primary" style="text-decoration:none">Get Started</a>
+                <a href="/docs" class="btn-secondary" style="text-decoration:none">Read the Docs</a>
+            </div>
+        </div>
+    </section>
+    </main>
+
+    <!-- ═══ Footer ═══ -->
+    <footer>
+        <div class="footer-inner">
+            <a href="/" class="footer-brand">
+                <img src="../../assets/favicon.svg" alt="OpenDevBrowser" height="22">
+            </a>
+            <ul class="footer-links">
+                <li><a href="/docs">Docs</a></li>
+                <li><a href="https://github.com/freshtechbro/opendevbrowser">GitHub</a></li>
+                <li><a href="/docs#security">Security</a></li>
+                <li><a href="/resources#changelog">Changelog</a></li>
+                <li><a href="/open-source">Roadmap</a></li>
+            </ul>
+            <div class="footer-copy">© 2026 OpenDevBrowser. MIT License.</div>
+        </div>
+    </footer>
+
+    <script>
+        /* ── Scroll reveal ── */
+        const obs = new IntersectionObserver(entries => {
+            entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target) } })
+        }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+        document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+
+        /* ── Proof strip count-up ── */
+        function animateCount(el, target, suffix = '') {
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            const dur = 1500, start = performance.now();
+            function step(now) {
+                const p = Math.min((now - start) / dur, 1);
+                el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3))) + suffix;
+                if (p < 1) requestAnimationFrame(step);
+            }
+            requestAnimationFrame(step);
+        }
+        const proofObs = new IntersectionObserver(entries => {
+            entries.forEach(e => {
+                if (e.isIntersecting) {
+                    const val = e.target.querySelector('.proof-value');
+                    const raw = val.textContent; const num = parseInt(raw);
+                    const suffix = raw.includes('%') ? '%' : '';
+                    animateCount(val, num, suffix);
+                    proofObs.unobserve(e.target);
+                }
+            })
+        }, { threshold: 0.5 });
+        document.querySelectorAll('.proof-card').forEach(el => proofObs.observe(el));
+
+        /* ── Mobile menu toggle ── */
+        const hamburger = document.querySelector('.nav-hamburger');
+        const mobileMenu = document.getElementById('mobile-menu');
+        if (hamburger && mobileMenu) {
+            hamburger.addEventListener('click', () => {
+                const open = mobileMenu.classList.toggle('open');
+                hamburger.setAttribute('aria-expanded', String(open));
+                hamburger.querySelector('svg').innerHTML = open
+                    ? '<path d="M6 6l12 12M6 18L18 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>'
+                    : '<path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/>';
+            });
+            mobileMenu.querySelectorAll('a').forEach(link => {
+                link.addEventListener('click', () => {
+                    mobileMenu.classList.remove('open');
+                    hamburger.setAttribute('aria-expanded', 'false');
+                    hamburger.querySelector('svg').innerHTML = '<path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/>';
+                });
+            });
+        }
+    </script>
+</body>
+
+</html>

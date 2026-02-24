@@ -1,6 +1,8 @@
 # OpenDevBrowser Surface Reference
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
+Status: active  
+Last updated: 2026-02-24
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/cli/args.ts`
@@ -8,9 +10,13 @@ This reference is intentionally exhaustive and should stay synchronized with:
 - `extension/src/ops/ops-runtime.ts`
 - `src/relay/protocol.ts`
 
+Operational mirror:
+- `npx opendevbrowser --help`
+- `npx opendevbrowser help`
+
 ---
 
-## CLI Command Inventory (54)
+## CLI Command Inventory (55)
 
 ### Install and runtime management (10)
 - `install`
@@ -24,12 +30,13 @@ This reference is intentionally exhaustive and should stay synchronized with:
 - `run`
 - `artifacts`
 
-### Session, connection, and workflow wrappers (8)
+### Session, connection, and workflow wrappers (9)
 - `launch`
 - `connect`
 - `disconnect`
 - `status`
 - `cookie-import`
+- `cookie-list`
 - `research`
 - `shopping`
 - `product-video`
@@ -82,14 +89,15 @@ This reference is intentionally exhaustive and should stay synchronized with:
 
 ---
 
-## Tool Inventory (47)
+## Tool Inventory (48)
 
-### Session and cookies (5)
+### Session and cookies (6)
 - `opendevbrowser_launch`
 - `opendevbrowser_connect`
 - `opendevbrowser_disconnect`
 - `opendevbrowser_status`
 - `opendevbrowser_cookie_import`
+- `opendevbrowser_cookie_list`
 
 ### Targets and pages (7)
 - `opendevbrowser_targets_list`
@@ -147,7 +155,7 @@ This reference is intentionally exhaustive and should stay synchronized with:
 
 ## Relay Channel Inventory
 
-### `/ops` command names (36)
+### `/ops` command names (38)
 
 `/ops` is the high-level relay protocol used by default extension sessions.
 
@@ -156,6 +164,10 @@ This reference is intentionally exhaustive and should stay synchronized with:
 - `session.connect`
 - `session.disconnect`
 - `session.status`
+
+#### Storage (2)
+- `storage.setCookies`
+- `storage.getCookies`
 
 #### Targets (4)
 - `targets.list`
@@ -249,6 +261,18 @@ Auth and policy:
 - `/ops` and `/cdp` require `?token=<relayToken>` when pairing is enabled.
 - `/ops` is multi-client by design.
 - `/cdp` is legacy and is typically subject to binding/lease coordination in hub mode.
+- Runtime concurrency key is `ExecutionKey = (sessionId,targetId)`.
+- Same target commands are FIFO; different targets in one session can run in parallel up to the governor cap.
+- Legacy `/cdp` remains sequential (`effectiveParallelCap=1`) for compatibility.
+- Extension headless is unsupported and returns `unsupported_mode` when extension-intent launch/connect is requested with headless.
+- Intentional parity exceptions must be listed in `docs/PARITY_DECLARED_DIVERGENCES.md`.
+
+### Command taxonomy (contract)
+
+- `TargetScoped`:
+  - `nav.*`, `interact.*`, `dom.*`, `export.*`, `devtools.*`, `page.screenshot`
+- `SessionStructural`:
+  - `session.*`, `targets.*`, `page.open`, `page.list`, `page.close`, storage commands
 
 ---
 
@@ -270,6 +294,7 @@ Auth and policy:
 ### Transport flags
 - Global transport flag: `--transport relay|native` (status and transport-aware flows).
 - Annotation transport flag: `annotate --transport auto|direct|relay`.
+- Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
 
 For complete argument and flag coverage by command, see `docs/CLI.md`.
 

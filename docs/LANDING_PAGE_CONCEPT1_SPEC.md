@@ -1,7 +1,7 @@
 # OpenDevBrowser Landing Page Specification
 
-Status: Draft v4 (Option B visual-first)
-Date: 2026-02-16
+Status: historical design specification (frontend implementation is now live; verify active behavior in `frontend/src/**` and `docs/FRONTEND.md`)
+Date: 2026-02-17
 Priority: Landing pages (dashboard deferred)
 Approved visual direction: Concept 1, Option B (Diagonal Split Hero)
 
@@ -84,6 +84,9 @@ This 7-step model replaces the old short-form "Launch -> Snapshot -> Act -> Veri
 14. Canonical open-source roadmap file:
 - `docs/OPEN_SOURCE_ROADMAP.md`
 15. Analytics `route` is always the current pathname; global CTA placement is represented via `section_id` scope `global`.
+16. Documentation architecture: two-layer design (marketing gateway + content-optimized docs sub-routes with collapsible sidebar).
+17. Docs content is auto-generated at build time from repository source-of-truth files — no manual content sync.
+18. Product positioning: agent-agnostic (use "AI agents", never "OpenCode agents").
 
 ---
 
@@ -106,6 +109,81 @@ Optional phase-2 routes:
 - `/blog`
 - `/partners`
 - `/careers`
+
+### 4.1 Implementation architecture (approved, professional file structure)
+
+The landing website must be implemented as a dedicated root-level frontend application, separate from the plugin runtime.
+
+Architecture boundary rules:
+
+- landing UI code lives in `/frontend` only,
+- plugin/runtime code remains in root `/src` and is not mixed with website UI files,
+- `docs/landing-prototypes/*` remains prototype/reference only (not production implementation surface).
+
+Canonical structure:
+
+```text
+/
+├─ frontend/
+│  ├─ package.json
+│  ├─ next.config.mjs
+│  ├─ tsconfig.json
+│  ├─ public/
+│  │  └─ brand/                     # synced from root /assets
+│  ├─ scripts/
+│  │  ├─ generate-docs.mjs          # build-time docs generation
+│  │  └─ sync-brand-assets.mjs
+│  ├─ src/
+│  │  ├─ app/
+│  │  │  ├─ layout.tsx
+│  │  │  ├─ loading.tsx
+│  │  │  ├─ (marketing)/
+│  │  │  │  ├─ page.tsx             # /
+│  │  │  │  ├─ product/page.tsx
+│  │  │  │  ├─ use-cases/page.tsx
+│  │  │  │  ├─ workflows/page.tsx
+│  │  │  │  ├─ security/page.tsx
+│  │  │  │  ├─ open-source/page.tsx
+│  │  │  │  ├─ docs/page.tsx        # gateway
+│  │  │  │  ├─ resources/page.tsx
+│  │  │  │  └─ company/page.tsx
+│  │  │  └─ docs/
+│  │  │     └─ [category]/
+│  │  │        └─ [slug]/page.tsx   # docs sub-routes
+│  │  ├─ components/
+│  │  │  ├─ layout/                 # Header, Footer, StickyCTA
+│  │  │  ├─ marketing/
+│  │  │  ├─ docs/
+│  │  │  └─ shared/
+│  │  ├─ content/
+│  │  │  ├─ docs-manifest.json      # generated
+│  │  │  └─ docs-generated/         # generated, gitignored
+│  │  ├─ lib/
+│  │  │  ├─ analytics/              # cta_click contract + validation
+│  │  │  ├─ docs/                   # content loaders
+│  │  │  ├─ seo/                    # route metadata + structured data
+│  │  │  └─ ui/                     # motion/transition helpers
+│  │  ├─ data/
+│  │  │  ├─ cta-registry.ts
+│  │  │  ├─ metrics.ts
+│  │  │  └─ roadmap.ts
+│  │  └─ styles/
+│  │     ├─ globals.css
+│  │     └─ tokens.css
+│  └─ tests/
+│     ├─ unit/
+│     └─ e2e/
+├─ assets/                          # brand/source assets
+├─ docs/                            # canonical product/spec docs
+└─ src/                             # existing plugin runtime
+```
+
+Implementation notes:
+
+- use Next.js App Router in `frontend/src/app`,
+- enforce CTA and analytics registry from a single source (`frontend/src/data/cta-registry.ts`),
+- generate docs sub-route content at build time via `frontend/scripts/generate-docs.mjs`,
+- keep marketing and docs layouts sharing one token system while preserving docs density constraints.
 
 ---
 
@@ -173,6 +251,198 @@ Asset requirements:
 - Min touch target `44x44`.
 - Reduced-motion mode required.
 - WCAG AA minimum contrast.
+- All icon-only buttons must have `aria-label`.
+- No clickable `div`/`span` — use semantic `<button>` or `<a>`/`<Link>`.
+- Images: descriptive `alt` text or `alt=""` for decorative.
+- Skip link for main content required.
+
+### 5.7 Color palette (dark-mode primary)
+
+Color space: `oklch()` for perceptual uniformity and contrast compliance.
+Source of truth: `assets/DESIGN_SPEC.md` — locked visual identity hex values converted to OKLCH.
+
+Core palette:
+
+```css
+/* ── Background & surface (derived from Deep Navy #0F172A) ── */
+--color-bg:             oklch(16% 0.03 264);   /* #0F172A deep navy */
+--color-surface-1:      oklch(20% 0.03 264);   /* card/panel base */
+--color-surface-2:      oklch(24% 0.03 264);   /* elevated card */
+--color-surface-3:      oklch(28% 0.03 264);   /* highest elevation */
+
+/* ── Brand & action (locked identity) ── */
+--color-primary:        oklch(57% 0.09 178);   /* #0D9488 Primary Teal — links, primary CTA */
+--color-primary-hover:  oklch(63% 0.10 178);   /* lighter teal hover */
+--color-accent:         oklch(68% 0.11 207);   /* #06B6D4 Accent Cyan — badges, callouts */
+--color-accent-hover:   oklch(74% 0.12 207);   /* lighter cyan hover */
+--color-glow:           oklch(79% 0.11 207);   /* #22D3EE Glow Cyan — halos, pulses */
+
+/* ── Text ── */
+--color-text:           oklch(100% 0 0);       /* #FFFFFF Pure White — primary text */
+--color-text-muted:     oklch(70% 0.02 264);   /* secondary/caption text */
+--color-text-subtle:    oklch(50% 0.02 264);   /* disabled/placeholder */
+
+/* ── Semantic ── */
+--color-success:        oklch(72% 0.14 155);   /* green — status pass */
+--color-warning:        oklch(78% 0.14 85);    /* amber — caution */
+--color-error:          oklch(62% 0.20 25);    /* red — error/blocked */
+
+/* ── Glass tints (derived from Glow Cyan) ── */
+--color-glass-border:   oklch(79% 0.11 207 / 0.12);
+--color-glass-fill:     oklch(79% 0.11 207 / 0.06);
+```
+
+Locked gradient formula (from `DESIGN_SPEC.md`):
+
+```css
+--gradient-brand: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+--gradient-glow:  radial-gradient(var(--color-glow) 0%, transparent 70%);
+```
+
+Contrast requirements:
+
+- `--color-text` on `--color-bg`: >= 15:1 (AAA+).
+- `--color-text-muted` on `--color-bg`: >= 4.5:1 (AA).
+- `--color-primary` on `--color-bg`: >= 4.5:1 (AA).
+- All CTA button text on button background: >= 4.5:1 (AA).
+- Glow effects capped at 40% opacity max (per `DESIGN_SPEC.md` lock).
+
+### 5.8 Typography scale
+
+Font stack:
+
+- Display/heading: `"Satoshi", "General Sans", system-ui, sans-serif`
+- Body: `"Plus Jakarta Sans", "Inter var", system-ui, sans-serif`
+- Code/mono: `"JetBrains Mono", "Fira Code", ui-monospace, monospace`
+
+Fluid scale using `clamp()` (min @ 390px, max @ 1536px):
+
+```css
+--font-size-hero:       clamp(2.75rem, 2rem + 3vw, 4.5rem);
+--font-size-section:    clamp(1.875rem, 1.5rem + 1.5vw, 2.75rem);
+--font-size-subsection: clamp(1.375rem, 1.1rem + 1vw, 1.875rem);
+--font-size-body:       clamp(1rem, 0.92rem + 0.4vw, 1.175rem);
+--font-size-caption:    clamp(0.8125rem, 0.78rem + 0.2vw, 0.9375rem);
+--font-size-code:       clamp(0.875rem, 0.84rem + 0.2vw, 1rem);
+```
+
+Weight map:
+
+- Hero headline: `800`
+- Section heading: `700`
+- Body: `400`
+- Body emphasis: `600`
+- Code: `450`
+
+Line height:
+
+- Headings: `1.15`
+- Body: `1.6`
+- Code: `1.5`
+
+Letter spacing:
+
+- Hero headline: `-0.02em`
+- Section heading: `-0.015em`
+- Body: `0`
+- Code: `0`
+
+### 5.9 Motion choreography sheet
+
+Animation library baseline: **GSAP ScrollTrigger** for scroll-linked reveals and scrubbing.
+Component-level transitions: **Framer Motion** (React) or CSS transitions.
+
+Signature moments (priority-ranked):
+
+| Priority | Moment | Transform | Duration | Easing | Reduced-motion fallback |
+|----------|--------|-----------|----------|--------|-------------------------|
+| 1 | Hero load | Staggered text reveal (`translateY(24px)` + `opacity: 0→1`) + isometric deck fade-in | 800ms (text) + 1200ms (visual) | `cubic-bezier(0.16, 1, 0.3, 1)` | Instant reveal, no motion |
+| 2 | Section scroll reveal | `translateY(32px)` + `opacity: 0→1`, stagger 80ms per child | 500ms | `cubic-bezier(0.16, 1, 0.3, 1)` | Instant reveal |
+| 3 | Card hover | `translateY(-4px)` + shadow → `--elevation-3` | 200ms | `cubic-bezier(0.34, 1.56, 0.64, 1)` | No transform, instant shadow |
+| 4 | Isometric tile tilt | `rotateX(5deg) rotateY(5deg)` on mouse-move | 300ms | spring: `stiffness 400, damping 17` | Disabled |
+| 5 | Button press | `scale(0.97)` | 100ms | `ease-out` | `scale(0.99)`, 50ms |
+| 6 | CTA glow pulse | `box-shadow` radiance cycle (`--color-primary / 30%`) | 2000ms | `ease-in-out`, infinite | Disabled |
+| 7 | Proof-strip count-up | Number count from 0 → value on scroll enter | 1500ms | `ease-out` | Instant value display |
+| 8 | Page route transition | Shared hero crossfade + incoming content slide-up | 400ms | `cubic-bezier(0.4, 0, 0.2, 1)` | Instant swap |
+
+Scroll animation plan:
+
+| Section type | Behavior | GSAP config |
+|-------------|----------|-------------|
+| Hero parallax | Isometric visual moves at 0.6x scroll speed | `scrub: true`, `start: "top top"`, `end: "bottom top"` |
+| Proof strip | Count-up + staggered card reveal on scroll enter | `start: "top 80%"`, `toggleActions: "play none none none"` |
+| Feature card grids | Staggered fade-in, 80ms offset per card | `batch: true`, `start: "top 85%"` |
+| How-it-Works steps | Sequential pin + step reveal | `pin: true`, `scrub: 1` |
+| CTA bands | Soft parallax on background gradient | `scrub: true` |
+
+Global timing rules:
+
+- No animation longer than 1200ms (except hero load sequence).
+- No `transition: all` — only explicit properties.
+- All motion must have `prefers-reduced-motion: reduce` fallback.
+- Scroll-triggered animations fire once (`once: true`) unless scrub-linked.
+
+### 5.10 Glassmorphism depth tokens
+
+Elevation levels:
+
+```css
+/* Glass surface variants — tinted with brand Glow Cyan (#22D3EE) */
+--glass-1-bg:       oklch(79% 0.11 207 / 0.04);
+--glass-1-blur:     8px;
+--glass-1-border:   oklch(79% 0.11 207 / 0.08);
+--glass-1-shadow:   0 2px 8px oklch(16% 0.03 264 / 0.30);
+
+--glass-2-bg:       oklch(79% 0.11 207 / 0.07);
+--glass-2-blur:     16px;
+--glass-2-border:   oklch(79% 0.11 207 / 0.12);
+--glass-2-shadow:   0 4px 16px oklch(16% 0.03 264 / 0.35);
+
+--glass-3-bg:       oklch(79% 0.11 207 / 0.10);
+--glass-3-blur:     24px;
+--glass-3-border:   oklch(79% 0.11 207 / 0.16);
+--glass-3-shadow:   0 8px 32px oklch(16% 0.03 264 / 0.40);
+```
+
+Usage map:
+
+- `glass-1`: proof-strip cards, navigation bar, footer panels.
+- `glass-2`: feature cards, use-case lane cards, workflow panels.
+- `glass-3`: hero content block, modal overlays, sticky CTA bar.
+
+Noise overlay:
+
+- Apply SVG noise filter or `background-image: url('/noise.svg')` at `opacity: 0.03` on `glass-2` and `glass-3` surfaces.
+- Noise must be static (not animated) to avoid performance cost.
+
+Light sweep:
+
+- Subtle diagonal gradient at `135deg` (matching locked brand gradient angle) using `--color-glow` at `opacity: 0.04` on `glass-3` panels.
+- Animates on hover only (shift gradient origin), not on scroll.
+
+### 5.11 Loading states
+
+Loading patterns (required):
+
+- Skeleton screens:
+  - Proof-strip cards: pulsing rectangle placeholders matching card dimensions.
+  - Feature grids: card-shaped skeleton with shimmer animation.
+  - Use-case lanes: list skeleton with icon placeholder + two text lines.
+
+- Hero visual loading:
+  - Show text content immediately (no blocking on visual).
+  - Isometric visual area: low-opacity gradient placeholder → fade-in on load.
+  - Blur-up technique for raster hero assets.
+
+- 3D asset loading:
+  - Pre-size containers to prevent CLS (explicit `width`/`height` or `aspect-ratio`).
+  - Show CSS-only fallback (gradient + glass surface) while JS/3D loads.
+  - Progressive enhancement: static PNG → animated SVG → interactive 3D.
+
+- Route transition loading:
+  - Shared navigation/header persists during transition.
+  - Incoming content: skeleton shell → staggered reveal on data ready.
+  - Maximum skeleton display: 300ms before content must appear or error state shown.
 
 ---
 
@@ -212,6 +482,7 @@ Asset requirements:
 | `/open-source` | View Latest Release | `https://github.com/freshtechbro/opendevbrowser/releases/latest` | Conversion | `cta_click` | `open_source_view_latest_release` | `open-source::release-panel` |
 | `/open-source` | View GitHub Repo | `https://github.com/freshtechbro/opendevbrowser` | Conversion | `cta_click` | `open_source_view_github_repo` | `open-source::cta-row` |
 | `/docs` | Quickstart | `/docs#quickstart` | Activation | `cta_click` | `docs_start_quickstart` | `docs::hero` |
+| `/docs/[slug]` | Edit on GitHub | `https://github.com/freshtechbro/opendevbrowser/edit/main/{source_path}` | Contribution | `cta_click` | `docs_edit_on_github` | `docs::content-header` |
 | `/resources` | View Changelog | `/resources#changelog` | Retention/Education | `cta_click` | `resources_view_changelog` | `resources::hero` |
 | `/company` | Contact Team | `/company#contact` | Support/Partnership | `cta_click` | `company_contact_team` | `company::contact` |
 | `sitewide` | Get Started (Top Nav) | `/docs#quickstart` | Activation | `cta_click` | `global_top_nav_get_started` | `global::top-nav` |
@@ -316,7 +587,8 @@ Metric card schema (required):
 | `/workflows` | Isometric pipeline lanes with animated stage handoff |
 | `/security` | Shield topology + control cards with concise trust copy |
 | `/open-source` | OSS ecosystem board + release and roadmap panels |
-| `/docs` | Isometric quickstart rail + action cards |
+| `/docs` | Isometric quickstart rail + action cards (gateway) |
+| `/docs/[category]/[slug]` | Content-optimized layout with collapsible sidebar + terminal-chrome code blocks |
 | `/resources` | Changelog timeline + guide card stack |
 | `/company` | Contact glass panel + credibility icon tiles |
 
@@ -469,27 +741,144 @@ Open-source preview must include:
 - contribution touchpoints,
 - public roadmap summary sourced from `docs/OPEN_SOURCE_ROADMAP.md`.
 
-### Page 7: `/docs`
+### Page 7: `/docs` (Gateway + Full Reference Documentation)
 
 Purpose:
-- shortest path to first successful run.
+- shortest path to first successful run (gateway),
+- complete auto-generated reference documentation for the full project surface.
+
+Architecture:
+- two-layer design: gateway page (marketing layout) + docs sub-routes (content-optimized layout).
 
 Primary CTA:
 - `Quickstart` -> `/docs#quickstart`
-
-Required sections:
-
-1. Docs hero
-2. Install path cards
-3. First-run walkthrough
-4. Command/tool references
-5. Troubleshooting
-6. Community/support links
 
 Anchor requirements:
 
 - `id="quickstart"`
 - `id="security"`
+
+#### 7a) `/docs` gateway (marketing layout)
+
+Uses the standard cinematic layout (diagonal hero, glass cards, motion choreography).
+
+Required sections:
+
+1. Docs hero (isometric quickstart rail visual)
+2. Install path cards (npx, npm global, manual)
+3. First-run walkthrough (3-step visual)
+4. Documentation category cards (link to sub-routes)
+5. Troubleshooting preview
+6. Community/support links
+
+#### 7b) `/docs/[category]/[slug]` sub-routes (docs layout)
+
+Uses a dedicated content-optimized layout that shares design tokens but shifts density for reference reading.
+
+Docs layout rules:
+- same `oklch()` palette, typography stack, and brand identity as marketing pages,
+- glassmorphism limited to `glass-1` only (sidebar, code blocks),
+- motion reduced to card hover lift and code block focus states only — no parallax, no scroll reveals,
+- body content area uses `max-width: 72ch` centered,
+- code blocks use terminal-style chrome (dot-r/dot-y/dot-g header) matching marketing code showcase,
+- navigation header persists but simplifies (no sticky CTA bar on docs sub-routes).
+
+#### 7c) Docs information architecture
+
+```
+/docs                              ← Gateway (marketing layout)
+/docs/quickstart                   ← First-run walkthrough
+/docs/installation                 ← Install paths (npx, npm, global, manual)
+/docs/concepts/
+  session-modes                    ← Managed / CDP Connect / Extension Relay
+  snapshot-refs                    ← AX-tree, ref system, action model
+  security-model                   ← Defense-in-depth, allowlists, redaction
+/docs/tools/
+  index                            ← Tool surface overview (47 tools, grouped)
+  [tool-name]                      ← Per-tool reference (params, examples, output)
+/docs/cli/
+  index                            ← CLI command overview (54 commands, grouped)
+  [command-name]                   ← Per-command reference (flags, examples, output)
+/docs/extension/
+  setup                            ← Chrome extension install + pairing
+  relay-protocol                   ← WebSocket relay, flat sessions, hub mode
+/docs/workflows/
+  research                         ← Research workflow module
+  shopping                         ← Shopping workflow module
+  product-video                    ← Product video workflow module
+/docs/skills/
+  overview                         ← Skill pack system
+  [skill-name]                     ← Per-skill reference
+/docs/guides/
+  qa-loop                          ← Use-case walkthrough guides
+  data-extraction
+  auth-automation
+  visual-qa
+  ui-component-extraction
+  ops-monitoring
+/docs/changelog                    ← Versioned release notes (mirrors CHANGELOG.md)
+```
+
+#### 7d) Collapsible sidebar component
+
+The docs layout uses a three-state collapsible sidebar for navigation.
+
+State definitions:
+
+| State | Trigger | Sidebar width | Content width | Behavior |
+|-------|---------|---------------|---------------|----------|
+| Expanded | Default on desktop ≥1024px | `280px` | `calc(100% - 280px)` | Full section tree with nested groups |
+| Collapsed | User toggle or viewport <1024px | `48px` icon rail | `calc(100% - 48px)` | Section icons only, tooltip on hover, click re-expands |
+| Overlay | Viewport <768px | `0` (off-canvas) | `100%` | Hamburger trigger, sidebar slides over as sheet |
+
+Interaction requirements:
+
+- toggle button: sidebar bottom edge when expanded, top-left icon when collapsed,
+- `aria-expanded` + `aria-controls` on toggle button,
+- keyboard shortcut: `Cmd+\` (macOS) / `Ctrl+\` (Windows/Linux) toggles sidebar,
+- user preference persisted via `localStorage('odb-docs-sidebar')`,
+- transition: `grid-template-columns` animates `280px → 48px` over `200ms cubic-bezier(0.4, 0, 0.2, 1)`,
+- reduced-motion: instant snap (no animation),
+- overlay mode: focus trap while open, `Escape` closes.
+
+Sidebar visual tokens:
+
+- background: `--glass-1-bg` with `--color-glass-border` edge,
+- active nav item: `2px` left border in `--color-primary`,
+- section group headers: `--font-size-caption` in `--color-text-subtle`,
+- collapsed rail icons: `--color-surface-1` background, `--color-primary` dot indicators,
+- no new visual language — all derived from existing token set.
+
+Code block benefit:
+- collapsed state gives code blocks ~200px more horizontal space, critical for CLI examples with long flag chains.
+
+#### 7e) Auto-generation pipeline
+
+All docs sub-route content is auto-generated at build time from repository source-of-truth files.
+
+Generation script: `scripts/generate-docs.mjs`
+
+Source mapping:
+
+| Source file | Generates | Extraction method |
+|-------------|-----------|-------------------|
+| `src/tools/index.ts` + individual tool files | `/docs/tools/[name]` | Parse Zod schema → params table, extract JSDoc → description, pull examples from tests |
+| `docs/CLI.md` | `/docs/cli/[command]` | Parse existing markdown command blocks (flags, examples, output) |
+| `docs/SURFACE_REFERENCE.md` | `/docs/tools/index` + `/docs/cli/index` | Category groupings already defined |
+| `docs/ARCHITECTURE.md` | `/docs/concepts/*` | Section splitting by `##` headings |
+| `skills/*/SKILL.md` | `/docs/skills/[name]` | Frontmatter + body content |
+| `CHANGELOG.md` | `/docs/changelog` | Direct render with version anchors |
+| `src/relay/` + `extension/` | `/docs/extension/*` | Structured extraction from module docs |
+
+Output format: MDX files consumed by Next.js docs pages.
+
+Pipeline rules:
+
+- runs at `npm run build` time (no runtime generation),
+- fails build if source files are missing or malformed,
+- emits sidebar navigation manifest (`docs-manifest.json`) consumed by sidebar component,
+- no manual content sync — source files are the single source of truth,
+- generated files are gitignored (derived artifacts, not source).
 
 ### Page 8: `/resources`
 
@@ -606,26 +995,35 @@ Copy rules:
 
 ## 13) Technical Build Requirements
 
-1. Performance
+1. Performance (Core Web Vitals)
 - LCP <= 2.5s (desktop broadband)
+- INP < 200ms (replaces FID as primary responsiveness metric)
+- CLS < 0.1 (pre-size 3D containers with `aspect-ratio` to prevent shift)
 - defer heavy 3D assets
 - code-split large visual modules
+- inline critical CSS above-the-fold
+- preload fonts: Satoshi (display), Plus Jakarta Sans (body), JetBrains Mono (code)
 
 2. Accessibility
 - keyboard navigation
-- visible focus states
-- reduced-motion mode
+- visible focus states (`:focus-visible` with `--color-accent` ring)
+- reduced-motion mode (`prefers-reduced-motion: reduce` on all animation)
 - semantic landmarks/headings
+- skip link to `#main-content`
+- `aria-label` on all icon-only buttons (GitHub, close, menu)
 
 3. Responsive behavior
 - no mobile overflow
 - sticky CTA consistency
 - simplified 3D layers on constrained devices
+- fluid typography via `clamp()` (section 5.8) — no media-query font overrides
+- container queries on card components for layout-aware responsiveness
 
 4. SEO
-- route metadata
+- route metadata (title, description, OG tags per route)
 - strong internal links
 - indexable docs/resources/open-source routes
+- structured data (`Organization`, `SoftwareApplication`) on home route
 
 5. QA toolchain (required)
 - `npm run lint`
@@ -638,6 +1036,23 @@ Copy rules:
 - tablet `768x1024`
 - desktop `1280x800`
 - wide desktop `1536x960`
+
+7. Modern CSS requirements
+- `oklch()` color space for all palette tokens (section 5.7)
+- `clamp()` for all fluid sizing (section 5.8)
+- `container queries` (`@container`) on card and panel components
+- `@layer` cascade layers: `reset`, `tokens`, `base`, `components`, `utilities`
+- `color-mix()` for dynamic glass tint generation from `--color-primary`
+- CSS `scroll-timeline` / `animation-timeline: scroll()` as progressive enhancement fallback for GSAP
+- View Transitions API (`document.startViewTransition`) for route changes (Chrome 111+, progressive)
+- `backdrop-filter` for glassmorphism (Firefox fallback: solid `--color-surface-2` background)
+
+8. Page transition contract
+- Use Next.js App Router `loading.tsx` skeleton as baseline.
+- Layer View Transitions API for shared-element hero crossfade between routes.
+- Fallback: CSS opacity crossfade (200ms) for browsers without View Transitions.
+- Navigation/header must persist — no full-page blank state.
+- Maximum time-to-content after route change: 400ms.
 
 ---
 
@@ -673,6 +1088,22 @@ Copy rules:
 6. Quality gates
 - [ ] Accessibility, responsive, and performance checks pass.
 - [ ] Required toolchain commands pass before sign-off.
+
+7. Documentation completeness
+- [ ] `/docs` gateway page renders with marketing layout and category cards linking to sub-routes.
+- [ ] Auto-generation pipeline (`scripts/generate-docs.mjs`) runs at build time without errors.
+- [ ] All 47 tools have generated `/docs/tools/[name]` pages with params table, description, and examples.
+- [ ] All 54 CLI commands have generated `/docs/cli/[command]` pages with flags, examples, and output.
+- [ ] Concepts pages (`session-modes`, `snapshot-refs`, `security-model`) render from `docs/ARCHITECTURE.md`.
+- [ ] Skill pack pages render from `skills/*/SKILL.md` files.
+- [ ] Changelog page renders from `CHANGELOG.md` with version anchors.
+- [ ] Collapsible sidebar renders in all three states (expanded, collapsed, overlay).
+- [ ] Sidebar state persists across page navigation via `localStorage`.
+- [ ] Sidebar toggle is keyboard-accessible (`Cmd+\` / `Ctrl+\`, `aria-expanded`).
+- [ ] Docs sub-route pages use `glass-1` only — no `glass-2`/`glass-3` depth.
+- [ ] Code blocks use terminal-chrome styling (dot header) matching marketing code showcase.
+- [ ] "Edit on GitHub" link on every docs sub-route page resolves to correct source file.
+- [ ] `docs-manifest.json` generated and consumed by sidebar navigation component.
 
 ---
 
