@@ -106,7 +106,8 @@ export const createChromeMock = (initial?: {
     },
     action: {
       setBadgeText: vi.fn(),
-      setBadgeBackgroundColor: vi.fn()
+      setBadgeBackgroundColor: vi.fn(),
+      setBadgeTextColor: vi.fn()
     },
     alarms: {
       create: vi.fn((name: string, alarmInfo: chrome.alarms.AlarmCreateInfo) => {

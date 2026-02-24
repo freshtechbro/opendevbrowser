@@ -1285,6 +1285,7 @@ describe("RelayServer", () => {
     const extension1 = await connect(`${started.url}/extension`);
     const closedPromise = waitForClose(extension1);
     const extension2 = await connect(`${started.url}/extension`);
+    expect(await closedPromise).toBe(1000);
 
     const cdp1 = await connect(`${started.url}/cdp`);
     const cdpClosed = waitForClose(cdp1);
@@ -1305,7 +1306,6 @@ describe("RelayServer", () => {
       });
     });
 
-    expect(await closedPromise).toBe(1000);
     expect(await cdp2Closed).toBe(1008);
 
     cdp1.close();

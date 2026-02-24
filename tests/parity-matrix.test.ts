@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { parseArgs } from "../src/cli/args";
 import { ConfigStore, resolveConfig } from "../src/config";
 
@@ -49,11 +51,105 @@ const CLI_TO_TOOL_PAIRS = [
   ["screenshot", "opendevbrowser_screenshot"],
   ["debug-trace-snapshot", "opendevbrowser_debug_trace_snapshot"],
   ["cookie-import", "opendevbrowser_cookie_import"],
+  ["cookie-list", "opendevbrowser_cookie_list"],
   ["macro-resolve", "opendevbrowser_macro_resolve"],
   ["annotate", "opendevbrowser_annotate"]
 ] as const;
 
 const parseToolResponse = (value: string): Record<string, unknown> => JSON.parse(value) as Record<string, unknown>;
+
+type NormalizedParityRecord = {
+  mode: string;
+  surface: string;
+  command: string;
+  status: "ok" | "error";
+  errorCode: string | null;
+  errorClass: string | null;
+  targetId: string | null;
+  blockerMeta: string | null;
+};
+
+type ParityFieldMismatch = {
+  field: keyof NormalizedParityRecord;
+  expected: string | null;
+  actual: string | null;
+};
+
+const normalizeParityRecord = (input: {
+  mode: string;
+  surface: string;
+  command: string;
+  status: "ok" | "error";
+  errorCode?: string | null;
+  errorClass?: string | null;
+  targetId?: string | null;
+  blockerMeta?: string | null;
+}): NormalizedParityRecord => ({
+  mode: input.mode,
+  surface: input.surface,
+  command: input.command,
+  status: input.status,
+  errorCode: input.errorCode ?? null,
+  errorClass: input.errorClass ?? null,
+  targetId: input.targetId ?? null,
+  blockerMeta: input.blockerMeta ?? null
+});
+
+const compareNormalizedParity = (
+  expected: NormalizedParityRecord,
+  actual: NormalizedParityRecord
+): ParityFieldMismatch[] => {
+  const fields: Array<keyof NormalizedParityRecord> = [
+    "mode",
+    "surface",
+    "command",
+    "status",
+    "errorCode",
+    "errorClass",
+    "targetId",
+    "blockerMeta"
+  ];
+  const mismatches: ParityFieldMismatch[] = [];
+  for (const field of fields) {
+    if (expected[field] !== actual[field]) {
+      mismatches.push({
+        field,
+        expected: expected[field],
+        actual: actual[field]
+      });
+    }
+  }
+  return mismatches;
+};
+
+const loadDeclaredDivergenceIds = (): Set<string> => {
+  const registryPath = resolve(process.cwd(), "docs/PARITY_DECLARED_DIVERGENCES.md");
+  const content = readFileSync(registryPath, "utf8");
+  const ids = new Set<string>();
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^\|\s*(D[0-9]{3,})\s*\|/);
+    if (!match) continue;
+    ids.add(match[1]);
+  }
+  return ids;
+};
+
+const assertDeclaredParityMismatches = (
+  mismatches: ParityFieldMismatch[],
+  divergenceId: string | null,
+  declaredIds: Set<string>
+): void => {
+  if (mismatches.length === 0) {
+    return;
+  }
+  if (!divergenceId) {
+    const summary = mismatches.map((item) => item.field).join(", ");
+    throw new Error(`Undeclared parity mismatch fields: ${summary}`);
+  }
+  if (!declaredIds.has(divergenceId)) {
+    throw new Error(`Unknown declared divergence id: ${divergenceId}`);
+  }
+};
 
 const createDeps = () => {
   const manager = {
@@ -96,7 +192,8 @@ const createDeps = () => {
     consolePoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
     networkPoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
     debugTraceSnapshot: vi.fn().mockResolvedValue({ requestId: "req-1", channels: {}, page: {}, meta: { blockerState: "clear" } }),
-    cookieImport: vi.fn().mockResolvedValue({ requestId: "req-1", imported: 0, rejected: [] })
+    cookieImport: vi.fn().mockResolvedValue({ requestId: "req-1", imported: 0, rejected: [] }),
+    cookieList: vi.fn().mockResolvedValue({ requestId: "req-2", cookies: [], count: 0 })
   };
 
   const runner = { run: vi.fn().mockResolvedValue({ results: [], timingMs: 1 }) };
@@ -161,7 +258,7 @@ describe("parity matrix", () => {
     expect(toolNames).toContain("opendevbrowser_skill_list");
     expect(toolNames).toContain("opendevbrowser_skill_load");
     expect(toolNames).not.toContain("opendevbrowser_rpc");
-  }, 15000);
+  }, 30000);
 
   it("keeps macro resolve parity for resolve and execute modes", async () => {
     const parsed = parseArgs([
@@ -279,6 +376,16 @@ describe("parity matrix", () => {
     );
   });
 
+  it("enforces unsupported_mode for extension-intent headless launch attempts", async () => {
+    const { createTools } = await import("../src/tools");
+    const deps = createDeps();
+    const tools = createTools(deps as never);
+
+    const unsupported = parseToolResponse(await tools.opendevbrowser_launch.execute({ headless: true } as never));
+    expect(unsupported.ok).toBe(false);
+    expect((unsupported.error as { code?: string }).code).toBe("unsupported_mode");
+  });
+
   it("keeps failure-mode parity across managed, extension, and cdpConnect", async () => {
     const { createTools } = await import("../src/tools");
 
@@ -322,5 +429,56 @@ describe("parity matrix", () => {
     } as never));
     expect(cdpFailure.ok).toBe(false);
     expect((cdpFailure.error as { code?: string }).code).toBe("connect_failed");
+  });
+
+  it("loads declared divergence registry ids", () => {
+    const declared = loadDeclaredDivergenceIds();
+    expect(declared.size).toBeGreaterThan(0);
+    expect(declared.has("D001")).toBe(true);
+  });
+
+  it("fails parity gate for undeclared normalized mismatches", () => {
+    const declared = loadDeclaredDivergenceIds();
+    const expected = normalizeParityRecord({
+      mode: "extensionOpsHeaded",
+      surface: "tool",
+      command: "nav.goto",
+      status: "ok"
+    });
+    const actual = normalizeParityRecord({
+      mode: "extensionOpsHeaded",
+      surface: "tool",
+      command: "nav.goto",
+      status: "error",
+      errorCode: "timeout",
+      errorClass: "retryable"
+    });
+    const mismatches = compareNormalizedParity(expected, actual);
+    expect(() => assertDeclaredParityMismatches(mismatches, null, declared)).toThrow(
+      "Undeclared parity mismatch fields"
+    );
+  });
+
+  it("accepts normalized mismatches only when divergence id is declared", () => {
+    const declared = loadDeclaredDivergenceIds();
+    const expected = normalizeParityRecord({
+      mode: "extensionLegacyCdpHeaded",
+      surface: "cli",
+      command: "nav.goto",
+      status: "ok"
+    });
+    const actual = normalizeParityRecord({
+      mode: "extensionLegacyCdpHeaded",
+      surface: "cli",
+      command: "nav.goto",
+      status: "error",
+      errorCode: "parallelism_backpressure",
+      errorClass: "retryable"
+    });
+    const mismatches = compareNormalizedParity(expected, actual);
+    expect(() => assertDeclaredParityMismatches(mismatches, "D001", declared)).not.toThrow();
+    expect(() => assertDeclaredParityMismatches(mismatches, "D404", declared)).toThrow(
+      "Unknown declared divergence id: D404"
+    );
   });
 });

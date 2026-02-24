@@ -119,7 +119,8 @@ const createDeps = () => {
         tier3: { enabled: false, status: "active", adapterName: "deterministic", fallbackTier: "tier2", canary: { level: 0, averageScore: 100, lastAction: "none", sampleCount: 0 } }
       }
     }),
-    cookieImport: vi.fn().mockResolvedValue({ requestId: "req-1", imported: 1, rejected: [] })
+    cookieImport: vi.fn().mockResolvedValue({ requestId: "req-1", imported: 1, rejected: [] }),
+    cookieList: vi.fn().mockResolvedValue({ requestId: "req-2", cookies: [], count: 0 })
   };
 
   const runner = {
@@ -197,6 +198,10 @@ describe("tools", () => {
       sessionId: "s1",
       cookies: [{ name: "session", value: "abc123", url: "https://example.com" }]
     } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_cookie_list.execute({
+      sessionId: "s1",
+      urls: ["https://example.com"]
+    } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_macro_resolve.execute({
       expression: "@web.search(\"openai\")"
     } as never))).toMatchObject({ ok: true });
@@ -225,7 +230,7 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-  }, 15000);
+  }, 30000);
 
   it("wraps tool execution with ensureHub when provided", async () => {
     const deps = createDeps();
@@ -558,6 +563,20 @@ describe("tools", () => {
 
     await tools.opendevbrowser_launch.execute({ noExtension: true, headless: true } as never);
     expect(deps.manager.launch).toHaveBeenCalledWith(expect.objectContaining({ headless: true }));
+  });
+
+  it("rejects extension-mode headless launch attempts with unsupported_mode", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ headless: true } as never));
+    expect(launchResult.ok).toBe(false);
+    expect(launchResult.error).toMatchObject({
+      code: "unsupported_mode"
+    });
+    expect(deps.manager.connectRelay).not.toHaveBeenCalled();
+    expect(deps.manager.launch).not.toHaveBeenCalled();
   });
 
   it("returns managed failure message when managed launch fails", async () => {

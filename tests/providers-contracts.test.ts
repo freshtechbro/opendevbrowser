@@ -212,9 +212,13 @@ describe("provider contracts + normalization", () => {
       code: "policy_blocked",
       message: "blocked",
       retryable: false,
+      reasonCode: "policy_blocked",
       provider: "social/x",
       source: "social",
-      details: { reason: "confirmation required" }
+      details: {
+        reason: "confirmation required",
+        reasonCode: "policy_blocked"
+      }
     });
 
     const created = createProviderError("rate_limited", "slow down", { provider: "web/default" });

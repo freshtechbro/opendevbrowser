@@ -6,6 +6,7 @@ import {
   runShoppingWorkflow,
   type ProviderExecutor
 } from "../src/providers/workflows";
+import type { ResearchRecord } from "../src/providers/enrichment";
 import { SHOPPING_PROVIDER_IDS } from "../src/providers/shopping";
 import type {
   NormalizedRecord,
@@ -203,6 +204,51 @@ describe("workflow branch coverage", () => {
       warnSpy.mock.calls.some((call) => String(call[0]).includes("\"event\":\"provider.signal.transition\""))
     ).toBe(true);
     warnSpy.mockRestore();
+  });
+
+  it("orders research records by timebox status and date confidence", () => {
+    const records: ResearchRecord[] = [
+      {
+        id: "inside-explicit",
+        source: "web",
+        provider: "web/default",
+        timestamp: isoHoursAgo(1),
+        confidence: 0.8,
+        engagement: { likes: 0, comments: 0, views: 0, upvotes: 0 },
+        recency: { within_timebox: true, age_hours: 1 },
+        date_confidence: { score: 1, source: "explicit" },
+        attributes: {}
+      },
+      {
+        id: "outside-inferred",
+        source: "web",
+        provider: "web/default",
+        timestamp: "invalid-date",
+        confidence: 0.7,
+        engagement: { likes: 0, comments: 0, views: 0, upvotes: 0 },
+        recency: { within_timebox: false, age_hours: Number.POSITIVE_INFINITY },
+        date_confidence: { score: 0.6, source: "inferred" },
+        attributes: {}
+      },
+      {
+        id: "outside-missing",
+        source: "web",
+        provider: "web/default",
+        timestamp: "invalid-date-two",
+        confidence: 0.6,
+        engagement: { likes: 0, comments: 0, views: 0, upvotes: 0 },
+        recency: { within_timebox: false, age_hours: Number.POSITIVE_INFINITY },
+        date_confidence: { score: 0, source: "missing" },
+        attributes: {}
+      }
+    ];
+
+    const ranked = workflowTestUtils.rankResearchRecords(records);
+    expect(ranked.map((record) => record.id)).toEqual([
+      "inside-explicit",
+      "outside-inferred",
+      "outside-missing"
+    ]);
   });
 
   it("tracks anti-bot consecutive warnings across a rolling signal window", async () => {
@@ -529,6 +575,209 @@ describe("workflow branch coverage", () => {
       source_selection: "auto",
       resolved_sources: ["web", "community", "social"]
     });
+  });
+
+  it("threads cookie overrides and aggregates cookie diagnostics across failures, records, and attempt chains", async () => {
+    const search = vi.fn(async (_input, options) => {
+      expect(options).toMatchObject({
+        source: "web",
+        useCookies: true,
+        cookiePolicyOverride: "required"
+      });
+
+      return makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [
+          makeRecord({
+            id: "cookie-record-object",
+            source: "web",
+            provider: "web/default",
+            url: "https://example.com/cookie-object",
+            title: "Cookie Object",
+            timestamp: isoHoursAgo(2),
+            attributes: {
+              transcript_strategy_detail: "detail_strategy",
+              browser_fallback_cookie_diagnostics: {
+                policy: "required",
+                source: "file",
+                injected: 1
+              },
+              attempt_chain: [
+                null,
+                "bad",
+                [],
+                {},
+                { cookieDiagnostics: null },
+                { cookieDiagnostics: [] },
+                { cookieDiagnostics: "invalid" },
+                { cookieDiagnostics: { policy: "required", verifiedCount: 2 } }
+              ]
+            }
+          }),
+          makeRecord({
+            id: "cookie-record-string",
+            source: "web",
+            provider: "web/default",
+            url: "https://example.com/cookie-string",
+            title: "Cookie String",
+            timestamp: isoHoursAgo(1),
+            attributes: {
+              transcript_strategy: "fallback_strategy",
+              browser_fallback_cookie_diagnostics: "invalid-shape",
+              attempt_chain: "not-an-array"
+            }
+          }),
+          makeRecord({
+            id: "cookie-record-array",
+            source: "web",
+            provider: "web/default",
+            timestamp: isoHoursAgo(3),
+            attributes: {
+              browser_fallback_cookie_diagnostics: []
+            }
+          }),
+          makeRecord({
+            id: "cookie-record-null",
+            source: "web",
+            provider: "web/default",
+            timestamp: isoHoursAgo(4),
+            attributes: {
+              browser_fallback_cookie_diagnostics: null
+            }
+          })
+        ],
+        failures: [
+          makeFailure("web/default", "web", {
+            code: "unavailable",
+            message: "auth required",
+            reasonCode: "auth_required",
+            details: {
+              cookieDiagnostics: {
+                policy: "required",
+                source: "env",
+                available: false
+              }
+            }
+          }),
+          makeFailure("web/default", "web", {
+            code: "internal",
+            message: "opaque provider failure with object diagnostics",
+            details: {
+              cookieDiagnostics: {
+                policy: "auto",
+                source: "inline"
+              }
+            }
+          }),
+          makeFailure("web/default", "web", {
+            code: "internal",
+            message: "opaque provider failure",
+            details: {
+              cookieDiagnostics: "bad-shape"
+            }
+          }),
+          makeFailure("web/default", "web", {
+            code: "unavailable",
+            message: "array diagnostics",
+            details: {
+              cookieDiagnostics: []
+            }
+          }),
+          makeFailure("web/default", "web", {
+            code: "unavailable",
+            message: "null diagnostics",
+            details: {
+              cookieDiagnostics: null
+            }
+          })
+        ]
+      });
+    });
+
+    const output = await runResearchWorkflow(toRuntime({ search }), {
+      topic: "cookie diagnostics",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json",
+      useCookies: true,
+      cookiePolicyOverride: "required"
+    });
+
+    const metrics = (output.meta as {
+      metrics: {
+        cookie_diagnostics: Array<Record<string, unknown>>;
+        cookieDiagnostics: Array<Record<string, unknown>>;
+        transcript_strategy_detail_distribution: Record<string, number>;
+        transcriptStrategyDetailDistribution: Record<string, number>;
+        transcript_durability: {
+          attempted: number;
+          successful: number;
+          failed: number;
+          success_rate: number;
+        };
+      };
+    }).metrics;
+
+    expect(metrics.cookie_diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "web/default",
+        source: "env",
+        reasonCode: "auth_required",
+        policy: "required"
+      }),
+      expect.objectContaining({
+        provider: "web/default",
+        source: "file",
+        policy: "required",
+        injected: 1
+      }),
+      expect.objectContaining({
+        provider: "web/default",
+        source: "web",
+        policy: "required",
+        verifiedCount: 2
+      })
+    ]));
+    expect(metrics.cookieDiagnostics).toEqual(metrics.cookie_diagnostics);
+    expect(metrics.transcript_strategy_detail_distribution).toEqual({
+      detail_strategy: 1,
+      fallback_strategy: 1
+    });
+    expect(metrics.transcriptStrategyDetailDistribution).toEqual(metrics.transcript_strategy_detail_distribution);
+    expect(metrics.transcript_durability).toMatchObject({
+      successful: 1
+    });
+  });
+
+  it("ranks records correctly when an outside-timebox item is compared first", () => {
+    const records: ResearchRecord[] = [
+      {
+        id: "outside-first",
+        source: "web",
+        provider: "web/default",
+        timestamp: "invalid-date",
+        confidence: 0.7,
+        engagement: { likes: 0, comments: 0, views: 0, upvotes: 0 },
+        recency: { within_timebox: false, age_hours: Number.POSITIVE_INFINITY },
+        date_confidence: { score: 0, source: "missing" },
+        attributes: {}
+      },
+      {
+        id: "inside-second",
+        source: "web",
+        provider: "web/default",
+        timestamp: isoHoursAgo(1),
+        confidence: 0.6,
+        engagement: { likes: 0, comments: 0, views: 0, upvotes: 0 },
+        recency: { within_timebox: true, age_hours: 1 },
+        date_confidence: { score: 1, source: "explicit" },
+        attributes: {}
+      }
+    ];
+
+    const ranked = workflowTestUtils.rankResearchRecords(records);
+    expect(ranked.map((record) => record.id)).toEqual(["inside-second", "outside-first"]);
   });
 
   it("covers source resolution defaults and research ranking tie-break branches", async () => {
@@ -1023,6 +1272,373 @@ describe("workflow branch coverage", () => {
     expect(offer?.shipping).toMatchObject({ amount: 0, currency: "EUR" });
     expect(offer?.rating).toBe(0);
     expect(offer?.reviews_count).toBe(0);
+  });
+
+  it("aggregates transcript strategy failures while ignoring malformed attempt-chain entries", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        failures: [
+          makeFailure("web/default", "web", {
+            code: "internal",
+            message: "opaque provider failure"
+          }),
+          makeFailure("web/default", "web", {
+            code: "unavailable",
+            message: "captions missing",
+            details: {
+              attemptChain: "not-an-array"
+            }
+          }),
+          makeFailure("web/default", "web", {
+            code: "unavailable",
+            message: "transcript unavailable",
+            details: {
+              attemptChain: [
+                null,
+                "bad",
+                [],
+                {},
+                { strategy: 1, reasonCode: "caption_missing" },
+                { strategy: "native_caption_parse", reasonCode: 7 },
+                { strategy: "native_caption_parse", reasonCode: "caption_missing" },
+                { strategy: "native_caption_parse", reasonCode: "caption_missing" }
+              ]
+            }
+          })
+        ],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "attempt-chain-summary",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    const metrics = (output.meta as {
+      metrics: {
+        reason_code_distribution: Record<string, number>;
+        reasonCodeDistribution: Record<string, number>;
+        transcript_strategy_failures: Record<string, number>;
+        transcriptStrategyFailures: Record<string, number>;
+        transcript_strategy_detail_failures: Record<string, number>;
+        transcriptStrategyDetailFailures: Record<string, number>;
+        transcript_strategy_detail_distribution: Record<string, number>;
+        transcriptStrategyDetailDistribution: Record<string, number>;
+        transcript_durability: {
+          attempted: number;
+          successful: number;
+          failed: number;
+          success_rate: number;
+        };
+        transcriptDurability: {
+          attempted: number;
+          successful: number;
+          failed: number;
+          success_rate: number;
+        };
+        anti_bot_pressure: {
+          total_failures: number;
+          anti_bot_failures: number;
+          anti_bot_failure_ratio: number;
+        };
+        antiBotPressure: {
+          total_failures: number;
+          anti_bot_failures: number;
+          anti_bot_failure_ratio: number;
+        };
+      };
+    }).metrics;
+
+    expect(metrics.reason_code_distribution).toMatchObject({
+      caption_missing: 1,
+      transcript_unavailable: 1
+    });
+    expect(metrics.reasonCodeDistribution).toEqual(metrics.reason_code_distribution);
+    expect(metrics.reason_code_distribution.internal).toBeUndefined();
+    expect(metrics.transcript_strategy_failures).toEqual({
+      "native_caption_parse:caption_missing": 2
+    });
+    expect(metrics.transcriptStrategyFailures).toEqual(metrics.transcript_strategy_failures);
+    expect(metrics.transcript_strategy_detail_failures).toEqual(metrics.transcript_strategy_failures);
+    expect(metrics.transcriptStrategyDetailFailures).toEqual(metrics.transcript_strategy_detail_failures);
+    expect(metrics.transcript_strategy_detail_distribution).toEqual({});
+    expect(metrics.transcriptStrategyDetailDistribution).toEqual(metrics.transcript_strategy_detail_distribution);
+    expect(metrics.transcript_durability).toEqual({
+      attempted: 2,
+      successful: 0,
+      failed: 2,
+      success_rate: 0
+    });
+    expect(metrics.transcriptDurability).toEqual(metrics.transcript_durability);
+    expect(metrics.anti_bot_pressure).toEqual({
+      total_failures: 3,
+      anti_bot_failures: 0,
+      anti_bot_failure_ratio: 0
+    });
+    expect(metrics.antiBotPressure).toEqual(metrics.anti_bot_pressure);
+  });
+
+  it("tracks caption-missing failures as transcript_unavailable alerts", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/youtube"],
+        failures: [makeFailure("social/youtube", "social", {
+          code: "unavailable",
+          message: "captions missing",
+          reasonCode: "caption_missing"
+        })],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "caption-alert",
+      sourceSelection: "social",
+      days: 1,
+      mode: "json"
+    });
+
+    const alerts = (output.meta as {
+      alerts: Array<{ signal: string; reasonCode: string }>;
+    }).alerts;
+    expect(alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        signal: "transcript_unavailable",
+        reasonCode: "transcript_unavailable"
+      })
+    ]));
+  });
+
+  it("sorts multiple auto-excluded providers across social and shopping sources", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source === "social") {
+          return makeAggregate({
+            ok: false,
+            sourceSelection: "social",
+            providerOrder: ["social/youtube"],
+            failures: [makeFailure("social/youtube", "social", {
+              code: "rate_limited",
+              message: "rate limited",
+              retryable: true
+            })],
+            metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+          });
+        }
+        if (source === "shopping") {
+          const providerId = options?.providerIds?.[0] ?? "shopping/walmart";
+          return makeAggregate({
+            ok: false,
+            sourceSelection: "shopping",
+            providerOrder: [providerId],
+            failures: [makeFailure(providerId, "shopping", {
+              code: "rate_limited",
+              message: "rate limited",
+              retryable: true
+            })],
+            metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+          });
+        }
+        return makeAggregate({
+          sourceSelection: source,
+          providerOrder: [`${source}/default`],
+          records: [makeRecord({ source, provider: `${source}/default`, id: `${source}-ok` })]
+        });
+      }
+    });
+
+    await runResearchWorkflow(runtime, {
+      topic: "seed-social-degraded-1",
+      sourceSelection: "social",
+      days: 1,
+      mode: "json"
+    });
+    await runResearchWorkflow(runtime, {
+      topic: "seed-social-degraded-2",
+      sourceSelection: "social",
+      days: 1,
+      mode: "json"
+    });
+    await runShoppingWorkflow(runtime, {
+      query: "seed-shopping-degraded-1",
+      providers: ["shopping/walmart"],
+      mode: "json"
+    });
+    await runShoppingWorkflow(runtime, {
+      query: "seed-shopping-degraded-2",
+      providers: ["shopping/walmart"],
+      mode: "json"
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "excluded-provider-sort",
+      sourceSelection: "auto",
+      sources: ["shopping", "social"],
+      days: 1,
+      mode: "json"
+    });
+
+    const selection = (output.meta as {
+      selection: { excluded_providers?: string[] };
+    }).selection;
+    expect(selection.excluded_providers).toEqual([
+      "shopping/walmart",
+      "social/youtube"
+    ]);
+  });
+
+  it("normalizes product-video provider hints for shopping-domain URLs", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "amazon-product",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/example",
+          title: "Amazon Product",
+          content: "$19.99",
+          attributes: {
+            links: [],
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "amazon-product",
+              title: "Amazon Product",
+              url: "https://www.amazon.com/dp/example",
+              price: { amount: 19.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.5,
+              reviews_count: 25
+            }
+          }
+        })]
+      })
+    });
+
+    const normalizedHint = await runProductVideoWorkflow(runtime, {
+      product_url: "https://www.amazon.com/dp/example",
+      provider_hint: "amazon",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+    expect((normalizedHint.product as { provider: string }).provider).toBe("amazon");
+
+    const prefixedHint = await runProductVideoWorkflow(runtime, {
+      product_url: "https://www.amazon.com/dp/example",
+      provider_hint: "shopping/amazon",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+    expect((prefixedHint.product as { provider: string }).provider).toBe("shopping/amazon");
+  });
+
+  it("pins product-video fetch to a normalized shopping provider id for shopping-domain URLs", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "amazon-pinned-provider",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/example",
+        title: "Amazon Product",
+        content: "$29.99",
+        attributes: {
+          links: [],
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "amazon-pinned-provider",
+            title: "Amazon Product",
+            url: "https://www.amazon.com/dp/example",
+            price: { amount: 29.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.6,
+            reviews_count: 31
+          }
+        }
+      })]
+    }));
+
+    await runProductVideoWorkflow(toRuntime({ fetch }), {
+      product_url: "https://www.amazon.com/dp/example",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(fetch).toHaveBeenNthCalledWith(1, { url: "https://www.amazon.com/dp/example" }, {
+      source: "shopping",
+      providerIds: ["shopping/amazon"]
+    });
+
+    await runProductVideoWorkflow(toRuntime({ fetch }), {
+      product_url: "https://www.amazon.com/dp/example",
+      provider_hint: "amazon",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(fetch).toHaveBeenNthCalledWith(2, { url: "https://www.amazon.com/dp/example" }, {
+      source: "shopping",
+      providerIds: ["shopping/amazon"]
+    });
+  });
+
+  it("falls back to zero when transcript price parsing becomes non-finite", async () => {
+    const hugePriceLiteral = `$${Array.from({ length: 180 }, () => "999").join(",")}`;
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/others"],
+        records: [makeRecord({
+          id: "overflow-price",
+          source: "shopping",
+          provider: "shopping/others",
+          title: "Overflow Price",
+          url: "https://shop.example/overflow",
+          content: `${hugePriceLiteral} unbelievable deal`,
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/others",
+              product_id: "",
+              title: "",
+              url: "",
+              price: { amount: "", currency: "", retrieved_at: "" },
+              shipping: { amount: 0, currency: "", notes: "std" },
+              availability: "unknown",
+              rating: 1,
+              reviews_count: 1
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "overflow price",
+      providers: ["shopping/others"],
+      mode: "json"
+    });
+    const offer = (output.offers as Array<{ price: { amount: number; currency: string } }>)[0];
+    expect(offer?.price).toMatchObject({
+      amount: 0,
+      currency: "USD"
+    });
   });
 
   it("validates product-video prerequisites and unresolved name flows", async () => {

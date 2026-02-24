@@ -76,6 +76,7 @@ describe("youtube social adapter", () => {
 
     expect(fetched?.[0]?.attributes).toMatchObject({
       transcript_available: true,
+      transcript_strategy_detail: "native_caption_parse",
       transcript_language: "es",
       translation_applied: true,
       video_id: "abc123def45",

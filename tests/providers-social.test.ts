@@ -103,7 +103,10 @@ describe("social provider", () => {
       content: "hello",
       confirm: true,
       riskAccepted: true
-    }, context("r6-post"))).rejects.toMatchObject({ code: "unavailable" });
+    }, context("r6-post"))).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "policy_blocked"
+    });
   });
 
   it("rejects empty social search queries", async () => {

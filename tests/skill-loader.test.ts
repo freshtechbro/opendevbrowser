@@ -25,7 +25,7 @@ beforeEach(async () => {
   originalAmpHome = process.env.AMP_HOME;
   process.env.OPENCODE_CONFIG_DIR = tempRoot;
   process.env.CODEX_HOME = join(tempRoot, "codex-home");
-  delete process.env.CLAUDECODE_HOME;
+  process.env.CLAUDECODE_HOME = join(tempRoot, "claudecode-home");
   delete process.env.CLAUDE_HOME;
   delete process.env.AMPCLI_HOME;
   process.env.AMP_CLI_HOME = join(tempRoot, "amp-home");
@@ -808,7 +808,10 @@ describe("bundled best-practices skill assets", () => {
     "artifacts/debug-trace-playbook.md",
     "artifacts/fingerprint-tiers.md",
     "artifacts/macro-workflows.md",
+    "artifacts/browser-agent-known-issues-matrix.md",
+    "assets/templates/robustness-checklist.json",
     "scripts/odb-workflow.sh",
+    "scripts/run-robustness-audit.sh",
     "scripts/validate-skill-assets.sh"
   ];
 
@@ -821,7 +824,7 @@ describe("bundled best-practices skill assets", () => {
   });
 
   it("marks workflow and validator scripts as executable", async () => {
-    for (const scriptRel of ["scripts/odb-workflow.sh", "scripts/validate-skill-assets.sh"]) {
+    for (const scriptRel of ["scripts/odb-workflow.sh", "scripts/run-robustness-audit.sh", "scripts/validate-skill-assets.sh"]) {
       const stats = await stat(join(skillRoot, scriptRel));
       expect((stats.mode & 0o111) !== 0).toBe(true);
     }
@@ -834,5 +837,5 @@ describe("bundled best-practices skill assets", () => {
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Skill assets validated:");
-  });
+  }, 20000);
 });

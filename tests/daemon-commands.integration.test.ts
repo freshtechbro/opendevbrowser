@@ -68,10 +68,15 @@ const makeCore = (overrides: {
     waitForRef: vi.fn(),
     consolePoll: vi.fn(),
     networkPoll: vi.fn(),
-    withPage: vi.fn(async (_sessionId: string, _targetId: string | null, fn: (page: { context: () => { addCookies: (cookies: unknown[]) => Promise<void> } }) => Promise<unknown>) => {
+    withPage: vi.fn(async (
+      _sessionId: string,
+      _targetId: string | null,
+      fn: (page: { context: () => { addCookies: (cookies: unknown[]) => Promise<void>; cookies: (urls?: string[]) => Promise<unknown[]> } }) => Promise<unknown>
+    ) => {
       const addCookies = vi.fn(async () => undefined);
+      const cookies = vi.fn(async () => []);
       return fn({
-        context: () => ({ addCookies })
+        context: () => ({ addCookies, cookies })
       });
     }),
     listTargets: vi.fn(),
@@ -79,7 +84,8 @@ const makeCore = (overrides: {
     connectRelay: vi.fn(),
     connect: vi.fn(),
     debugTraceSnapshot: vi.fn(),
-    cookieImport: vi.fn()
+    cookieImport: vi.fn(),
+    cookieList: vi.fn()
   };
 
   const relay = {
@@ -462,6 +468,109 @@ describe("daemon-commands integration", () => {
     expect(core.manager.cookieImport).toHaveBeenCalled();
   });
 
+  it("routes cookie list to manager capability when available", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1" });
+    core.manager.cookieList.mockResolvedValue({
+      requestId: "req-cookie-list",
+      cookies: [],
+      count: 0
+    });
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.cookieList",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        urls: ["https://example.com"]
+      }
+    });
+
+    expect(response).toEqual({
+      requestId: "req-cookie-list",
+      cookies: [],
+      count: 0
+    });
+    expect(core.manager.cookieList).toHaveBeenCalledWith(
+      "session-1",
+      ["https://example.com/"],
+      expect.any(String)
+    );
+  });
+
+  it("falls back to withPage for cookie list when manager capability is unavailable", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1" });
+    delete (core.manager as { cookieList?: unknown }).cookieList;
+    core.manager.withPage.mockImplementationOnce(async (_sessionId: string, _targetId: string | null, fn: (page: {
+      context: () => {
+        cookies: (urls?: string[]) => Promise<Array<{
+          name: string;
+          value: string;
+          domain: string;
+          path: string;
+          expires: number;
+          httpOnly: boolean;
+          secure: boolean;
+        }>>;
+      };
+    }) => Promise<unknown>) => {
+      return fn({
+        context: () => ({
+          cookies: async (urls?: string[]) => {
+            expect(urls).toEqual(["https://example.com/"]);
+            return [{
+              name: "session",
+              value: "abc",
+              domain: "example.com",
+              path: "/",
+              expires: -1,
+              httpOnly: true,
+              secure: true
+            }];
+          }
+        })
+      });
+    });
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.cookieList",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        urls: ["https://example.com"]
+      }
+    });
+
+    expect(response).toEqual({
+      requestId: expect.any(String),
+      cookies: [{
+        name: "session",
+        value: "abc",
+        domain: "example.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true
+      }],
+      count: 1
+    });
+  });
+
+  it("rejects invalid cookie list url filters", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1" });
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.cookieList",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        urls: ["ftp://example.com"]
+      }
+    })).rejects.toThrow("Invalid urls");
+  });
+
   it("resolves macros through daemon command (resolve only)", async () => {
     const core = makeCore();
 
@@ -568,5 +677,74 @@ describe("daemon-commands integration", () => {
     expect(response.execution?.meta.ok).toBe(true);
     expect(response.execution?.records.length ?? 0).toBeGreaterThan(0);
     expect(response.execution?.meta).not.toHaveProperty("blocker");
+  });
+
+  it("uses temporary profiles for product-video screenshot capture", async () => {
+    const core = makeCore();
+    const manager = core.manager as unknown as {
+      launch: ReturnType<typeof vi.fn>;
+      screenshot: ReturnType<typeof vi.fn>;
+      disconnect: ReturnType<typeof vi.fn>;
+    };
+    manager.launch = vi.fn(async () => ({ sessionId: "shot-session" }));
+    manager.screenshot = vi.fn(async () => ({ base64: Buffer.from("shot").toString("base64") }));
+    manager.disconnect = vi.fn(async () => undefined);
+
+    await handleDaemonCommand(core, {
+      name: "product.video.run",
+      params: {
+        product_url: "https://example.com/product",
+        include_screenshots: true,
+        include_copy: true
+      }
+    });
+
+    expect(manager.launch).toHaveBeenCalled();
+    expect(manager.launch).toHaveBeenCalledWith(expect.objectContaining({
+      headless: true,
+      startUrl: "https://example.com/product",
+      persistProfile: false
+    }));
+    expect(manager.disconnect).toHaveBeenCalledWith("shot-session", true);
+  });
+
+  it("rejects extension-mode headless launch with unsupported_mode", async () => {
+    const core = makeCore();
+    const manager = core.manager as unknown as {
+      connectRelay: ReturnType<typeof vi.fn>;
+    };
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.launch",
+      params: {
+        clientId: "client-1",
+        headless: true
+      }
+    })).rejects.toThrow("[unsupported_mode]");
+
+    expect(manager.connectRelay).not.toHaveBeenCalled();
+  });
+
+  it("rejects extension-routed headless connect with unsupported_mode", async () => {
+    const core = makeCore();
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+    const manager = core.manager as unknown as {
+      connectRelay: ReturnType<typeof vi.fn>;
+      connect: ReturnType<typeof vi.fn>;
+    };
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-1",
+        headless: true
+      }
+    })).rejects.toThrow("[unsupported_mode]");
+
+    expect(manager.connectRelay).not.toHaveBeenCalled();
+    expect(manager.connect).not.toHaveBeenCalled();
   });
 });

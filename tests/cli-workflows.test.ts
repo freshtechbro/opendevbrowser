@@ -58,7 +58,9 @@ describe("workflow CLI commands", () => {
       includeEngagement: true,
       limitPerSource: 5,
       outputDir: "/tmp/out",
-      ttlHours: 72
+      ttlHours: 72,
+      useCookies: undefined,
+      cookiePolicyOverride: undefined
     });
     expect(result).toMatchObject({ success: true });
   });
@@ -84,7 +86,36 @@ describe("workflow CLI commands", () => {
       sort: "lowest_price",
       mode: "md",
       outputDir: undefined,
-      ttlHours: undefined
+      ttlHours: undefined,
+      useCookies: undefined,
+      cookiePolicyOverride: undefined
+    });
+  });
+
+  it("supports explicit timeout for shopping workflows", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless mouse",
+      "--providers=shopping/bestbuy",
+      "--timeout-ms=45000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("shopping.run", {
+      query: "wireless mouse",
+      providers: ["shopping/bestbuy"],
+      budget: undefined,
+      region: undefined,
+      sort: undefined,
+      mode: "compact",
+      timeoutMs: 45000,
+      outputDir: undefined,
+      ttlHours: undefined,
+      useCookies: undefined,
+      cookiePolicyOverride: undefined
+    }, {
+      timeoutMs: 45000
     });
   });
 
@@ -110,8 +141,77 @@ describe("workflow CLI commands", () => {
       include_all_images: true,
       include_copy: false,
       output_dir: "/tmp/assets",
-      ttl_hours: 48
+      ttl_hours: 48,
+      useCookies: undefined,
+      cookiePolicyOverride: undefined
+    }, {
+      timeoutMs: 120000
     });
+  });
+
+  it("supports explicit timeout for product-video workflows", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runProductVideoCommand(makeArgs("product-video", [
+      "run",
+      "--product-url=https://example.com/item",
+      "--timeout-ms=45000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("product.video.run", {
+      product_url: "https://example.com/item",
+      product_name: undefined,
+      provider_hint: undefined,
+      include_screenshots: undefined,
+      include_all_images: undefined,
+      include_copy: undefined,
+      output_dir: undefined,
+      ttl_hours: undefined,
+      useCookies: undefined,
+      cookiePolicyOverride: undefined
+    }, {
+      timeoutMs: 45000
+    });
+  });
+
+  it("parses workflow cookie overrides and forwards them", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runResearchCommand(makeArgs("research", [
+      "run",
+      "--topic=cookie routing",
+      "--use-cookies=false",
+      "--cookie-policy-override=required"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("research.run", expect.objectContaining({
+      topic: "cookie routing",
+      useCookies: false,
+      cookiePolicyOverride: "required"
+    }));
+
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless keyboard",
+      "--use-cookies",
+      "--cookie-policy=auto"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("shopping.run", expect.objectContaining({
+      query: "wireless keyboard",
+      useCookies: true,
+      cookiePolicyOverride: "auto"
+    }));
+
+    await runProductVideoCommand(makeArgs("product-video", [
+      "run",
+      "--product-name=Device",
+      "--use-cookies=false",
+      "--cookie-policy-override=off"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("product.video.run", expect.objectContaining({
+      product_name: "Device",
+      useCookies: false,
+      cookiePolicyOverride: "off"
+    }), { timeoutMs: 120000 });
   });
 
   it("enforces run subcommand and required input", async () => {

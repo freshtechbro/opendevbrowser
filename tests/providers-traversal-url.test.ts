@@ -15,6 +15,10 @@ describe("provider traversal url filter", () => {
   it("rejects static asset hosts used in anti-bot walls", () => {
     expect(isLikelyDocumentUrl("https://www.redditstatic.com/challenge.js")).toBe(false);
     expect(isLikelyDocumentUrl("https://abs.twimg.com/responsive-web/client-web/main.js")).toBe(false);
+    expect(isLikelyDocumentUrl("https://static.licdn.com/sc/h/1exdo4axa6eaw1jioxh1vu4fj")).toBe(false);
+    expect(isLikelyDocumentUrl("https://i.ytimg.com/vi/abc123/hqdefault.jpg")).toBe(false);
+    expect(isLikelyDocumentUrl("https://scontent-lax3-1.xx.fbcdn.net/v/t39.30808-6/asset")).toBe(false);
+    expect(isLikelyDocumentUrl("https://scontent.cdninstagram.com/v/t51.2885-15/asset")).toBe(false);
   });
 
   it("rejects static asset file extensions", () => {

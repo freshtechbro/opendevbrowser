@@ -275,12 +275,14 @@ describe("extension background auto-connect", () => {
     await import("../extension/src/background");
     await flushMicrotasks();
 
-    expect(mock.chrome.action.setBadgeText).toHaveBeenCalledWith({ text: "OFF" });
-    expect(mock.chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: "#5b667a" });
+    expect(mock.chrome.action.setBadgeText).toHaveBeenCalledWith({ text: "●" });
+    expect(mock.chrome.action.setBadgeTextColor).toHaveBeenCalledWith({ color: "#dc2626" });
+    expect(mock.chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: [0, 0, 0, 0] });
 
     lastConnectionManager?.emitStatus("connected");
-    expect(mock.chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: "ON" });
-    expect(mock.chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: "#20d5c6" });
+    expect(mock.chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: "●" });
+    expect(mock.chrome.action.setBadgeTextColor).toHaveBeenLastCalledWith({ color: "#16a34a" });
+    expect(mock.chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: [0, 0, 0, 0] });
   });
 });
 

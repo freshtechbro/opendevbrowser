@@ -15,6 +15,7 @@ const context = {
 describe("youtube provider branches", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.useRealTimers();
   });
 
@@ -44,6 +45,7 @@ describe("youtube provider branches", () => {
       { expected: "missing_prohibited_flows", patch: { prohibitedFlows: ["   "] } },
       { expected: "missing_reviewer", patch: { reviewer: "   " } },
       { expected: "missing_approval_expiry", patch: { approvalExpiryDate: "   " } },
+      { expected: "missing_approved_transcript_strategies", patch: { approvedTranscriptStrategies: ["   "] as unknown as string[] } },
       { expected: "invalid_approval_expiry", patch: { approvalExpiryDate: "not-a-date" } },
       { expected: "approval_expired", patch: { approvalExpiryDate: "2026-02-15T23:59:59.000Z" }, now: new Date("2026-02-16T00:00:00.000Z") },
       { expected: "not_signed_off", patch: { signedOff: false } }
@@ -66,6 +68,19 @@ describe("youtube provider branches", () => {
   it("rejects empty search query when defaults are enabled", async () => {
     const provider = createYouTubeProvider(withDefaultYouTubeOptions());
     await expect(provider.search?.({ query: "   " }, context)).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("rejects empty query in the raw default youtube search handler", async () => {
+    const options = withDefaultYouTubeOptions();
+    expect(options.defaultTraversal).toMatchObject({
+      pageLimit: 1,
+      hopLimit: 0,
+      expansionPerRecord: 1,
+      maxRecords: 8
+    });
+    await expect(options.search?.({ query: "   " }, context)).rejects.toMatchObject({
+      code: "invalid_input"
+    });
   });
 
   it("uses direct URL search path when query is already a URL", async () => {
@@ -124,12 +139,14 @@ describe("youtube provider branches", () => {
       translation_applied: boolean;
       transcript_summary: string;
       transcript_full?: string;
+      transcript_strategy_detail?: string;
     };
 
     expect(attributes.video_id).toBe("abc123def45");
     expect(attributes.translation_applied).toBe(false);
     expect(attributes.transcript_summary.length).toBeGreaterThan(0);
     expect(attributes.transcript_full).toBeUndefined();
+    expect(attributes.transcript_strategy_detail).toBe("native_caption_parse");
     expect((fetched?.[0]?.content ?? "").length).toBeLessThan(1200);
   });
 
@@ -168,11 +185,13 @@ describe("youtube provider branches", () => {
       video_id: string;
       transcript_available: boolean;
       translation_applied: boolean;
+      transcript_strategy_detail?: string;
     };
 
     expect(attributes.video_id).toBe("shortsVideo123");
     expect(attributes.transcript_available).toBe(false);
     expect(attributes.translation_applied).toBe(false);
+    expect(attributes.transcript_strategy_detail).toBe("native_caption_parse");
     expect((fetched?.[0]?.content ?? "").length).toBeGreaterThan(0);
   });
 
@@ -201,6 +220,17 @@ describe("youtube provider branches", () => {
     await expect(provider.fetch?.({ url: "https://www.youtube.com/watch?v=down" }, context)).rejects.toMatchObject({
       code: "unavailable",
       retryable: true
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 404,
+      url: "https://www.youtube.com/watch?v=missing",
+      text: async () => "missing"
+    })) as unknown as typeof fetch);
+    await expect(provider.fetch?.({ url: "https://www.youtube.com/watch?v=missing" }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      retryable: false,
+      reasonCode: "transcript_unavailable"
     });
 
     vi.stubGlobal("fetch", vi.fn(async () => {
@@ -301,6 +331,44 @@ describe("youtube provider branches", () => {
     expect(String(attributes.transcript_full ?? "")).toContain("[translated:es]");
   });
 
+  it("falls back to default boolean filter values for non-boolean strings", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+    const transcriptUrl = "https://www.youtube.com/api/timedtext?v=boolfallback12";
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.startsWith(transcriptUrl)) {
+        return {
+          ok: true,
+          status: 200,
+          url,
+          text: async () => "<transcript><text>hola fallback</text></transcript>"
+        };
+      }
+      return {
+        status: 200,
+        url: "https://www.youtube.com/watch?v=boolfallback12",
+        text: async () => `<html><body><main>bool fallback page</main>\"captionTracks\":[{\"baseUrl\":\"${transcriptUrl.replace(/&/g, "\\u0026")}\",\"languageCode\":\"es\"}]</body></html>`
+      };
+    }) as unknown as typeof fetch);
+
+    const fetched = await provider.fetch?.({
+      url: "https://www.youtube.com/watch?v=boolfallback12",
+      filters: {
+        include_full_transcript: "invalid",
+        requireTranscript: "invalid",
+        translateToEnglish: "invalid"
+      }
+    }, context);
+
+    const attributes = fetched?.[0]?.attributes as {
+      transcript_full?: string;
+      translation_applied: boolean;
+    };
+    expect(attributes.translation_applied).toBe(true);
+    expect(attributes.transcript_full).toBeUndefined();
+  });
+
   it("falls back to request URL when response URL is empty and handles watch URLs without ids", async () => {
     const provider = createYouTubeProvider(withDefaultYouTubeOptions());
     const bareWatchUrl = "https://www.youtube.com/watch";
@@ -323,6 +391,24 @@ describe("youtube provider branches", () => {
     expect((fetched?.[0]?.attributes as { video_id: string | null }).video_id).toBeNull();
   });
 
+  it("handles malformed final response URLs in raw youtube fetch handler", async () => {
+    const options = withDefaultYouTubeOptions();
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "::::not-a-valid-url::::",
+      text: async () => "<html><body><main>malformed response url</main></body></html>"
+    })) as unknown as typeof fetch);
+
+    const fetched = await options.fetch?.({
+      url: "https://www.youtube.com/watch?v=malformedresponse",
+      filters: {
+        requireTranscript: false
+      }
+    }, context);
+
+    expect((fetched?.attributes as { video_id: string | null }).video_id).toBeNull();
+  });
+
   it("parses view counts from extracted text when structured view metadata is missing", async () => {
     const provider = createYouTubeProvider(withDefaultYouTubeOptions());
     vi.stubGlobal("fetch", vi.fn(async () => ({
@@ -342,5 +428,207 @@ describe("youtube provider branches", () => {
     const attributes = fetched?.[0]?.attributes as { views?: number; date_confidence: { source: string } };
     expect(attributes.views).toBe(12345);
     expect(attributes.date_confidence.source).toBe("inferred");
+  });
+
+  it("handles invalid publish dates, empty view counts, and non-finite numeric view payloads", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+    const hugeViewCount = "9".repeat(400);
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.youtube.com/watch?v=invalidmeta123",
+      text: async () => [
+        "<html><body><main>metadata fallback text</main>",
+        "\"publishDate\":\"not-a-date\"",
+        "\"viewCount\":\"abc\"",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    const withEmptyViews = await provider.fetch?.({
+      url: "https://www.youtube.com/watch?v=invalidmeta123",
+      filters: {
+        requireTranscript: "false"
+      }
+    }, context);
+
+    const emptyAttrs = withEmptyViews?.[0]?.attributes as {
+      views?: number;
+      date_confidence: { source: string };
+    };
+    expect(emptyAttrs.views).toBeUndefined();
+    expect(emptyAttrs.date_confidence.source).toBe("inferred");
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.youtube.com/watch?v=nonfiniteviews",
+      text: async () => [
+        "<html><body><main>metadata fallback text</main>",
+        "\"viewCount\":\"",
+        hugeViewCount,
+        "\"",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    const withHugeViews = await provider.fetch?.({
+      url: "https://www.youtube.com/watch?v=nonfiniteviews",
+      filters: {
+        requireTranscript: "false",
+        include_full_transcript: "false",
+        translateToEnglish: "false"
+      }
+    }, context);
+    const hugeAttrs = withHugeViews?.[0]?.attributes as { views?: number };
+    expect(hugeAttrs.views).toBeUndefined();
+  });
+
+  it("applies youtube_mode filter precedence over config modeDefault", async () => {
+    const transcriptUrl = "https://www.youtube.com/api/timedtext?v=modeprecedence123";
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions({
+      transcriptResolver: {
+        modeDefault: "apify",
+        enableApify: false
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.startsWith(transcriptUrl)) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => "<transcript><text>mode precedence transcript</text></transcript>"
+        };
+      }
+      return {
+        status: 200,
+        url: "https://www.youtube.com/watch?v=modeprecedence123",
+        text: async () => `<html><body><main>mode precedence page</main>\"captionTracks\":[{\"baseUrl\":\"${transcriptUrl.replace(/&/g, "\\u0026")}\",\"languageCode\":\"en\"}]</body></html>`
+      };
+    }) as unknown as typeof fetch);
+
+    const fetched = await provider.fetch?.({
+      url: "https://www.youtube.com/watch?v=modeprecedence123",
+      filters: {
+        youtube_mode: "web",
+        requireTranscript: true
+      }
+    }, context);
+
+    const attributes = fetched?.[0]?.attributes as {
+      transcript_mode: string;
+      transcript_strategy_detail: string;
+    };
+    expect(attributes.transcript_mode).toBe("web");
+    expect(attributes.transcript_strategy_detail).toBe("native_caption_parse");
+  });
+
+  it("fails fast for forced youtube_mode when strategy is disabled", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions({
+      transcriptResolver: {
+        modeDefault: "auto",
+        enableYtdlpAudioAsr: false
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.youtube.com/watch?v=forcedmode123",
+      text: async () => "<html><body><main>forced mode page</main></body></html>"
+    })) as unknown as typeof fetch);
+
+    await expect(provider.fetch?.({
+      url: "https://www.youtube.com/watch?v=forcedmode123",
+      filters: {
+        youtube_mode: "yt-dlp",
+        requireTranscript: true
+      }
+    }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "env_limited",
+      details: {
+        transcriptReasonCode: "env_limited"
+      }
+    });
+  });
+
+  it("maps caption_missing transcript failures to transcript_unavailable when transcript is required", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.youtube.com/watch?v=captionrequired",
+      text: async () => "<html><body><main>no captions available</main></body></html>"
+    })) as unknown as typeof fetch);
+
+    await expect(provider.fetch?.({
+      url: "https://www.youtube.com/watch?v=captionrequired",
+      filters: {
+        requireTranscript: true
+      }
+    }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "transcript_unavailable",
+      details: {
+        transcriptReasonCode: "caption_missing"
+      }
+    });
+  });
+
+  it("surfaces token_required strategy detail when forced apify mode is requested without token", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+    vi.stubEnv("APIFY_TOKEN", "");
+    vi.stubEnv("APIFY_API_TOKEN", "");
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.youtube.com/watch?v=apifyforced",
+      text: async () => "<html><body><main>no captions available</main></body></html>"
+    })) as unknown as typeof fetch);
+
+    const fetched = await provider.fetch?.({
+      url: "https://www.youtube.com/watch?v=apifyforced",
+      filters: {
+        youtube_mode: "apify",
+        requireTranscript: false
+      }
+    }, context);
+
+    const attributes = fetched?.[0]?.attributes as {
+      transcript_strategy_detail?: string;
+      reasonCode?: string;
+    };
+    expect(attributes.transcript_strategy_detail).toBe("apify");
+    expect(attributes.reasonCode).toBe("token_required");
+  });
+
+  it("falls back to last attempted strategy detail when forced yt-dlp mode only yields env_limited attempts", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions({
+      transcriptResolver: {
+        modeDefault: "auto",
+        enableYtdlpAudioAsr: false
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.youtube.com/watch?v=envlimitedtail",
+      text: async () => "<html><body><main>no captions available</main></body></html>"
+    })) as unknown as typeof fetch);
+
+    const fetched = await provider.fetch?.({
+      url: "https://www.youtube.com/watch?v=envlimitedtail",
+      filters: {
+        youtube_mode: "yt-dlp",
+        requireTranscript: false
+      }
+    }, context);
+
+    const attributes = fetched?.[0]?.attributes as {
+      transcript_strategy_detail?: string;
+      reasonCode?: string;
+    };
+    expect(attributes.transcript_strategy_detail).toBe("ytdlp_audio_asr");
+    expect(attributes.reasonCode).toBe("env_limited");
   });
 });

@@ -64,7 +64,6 @@ describe("artifacts command", () => {
       namespace: "shopping",
       outputDir: rootDir,
       ttlHours: 48,
-      now: new Date("2026-02-16T00:00:00.000Z"),
       files: [{ path: "summary.md", content: "active" }]
     });
 

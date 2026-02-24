@@ -98,6 +98,60 @@ describe("CDPRouter", () => {
     expect(chrome.debugger.attach).toHaveBeenCalledTimes(3);
   });
 
+  it("recovers routed root commands when the current tab id is stale", async () => {
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+    mock.setActiveTab({ id: 99, url: "https://stale.example", title: "Stale", groupId: 1, status: "complete" });
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(99);
+
+    mock.setActiveTab({ id: 100, url: "https://fresh.example", title: "Fresh", groupId: 1, status: "complete" });
+
+    vi.mocked(chrome.debugger.attach).mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if (debuggee.tabId === 99) {
+        mock.setRuntimeError("No tab with given id 99");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback();
+    });
+
+    let staleSendTriggered = false;
+    vi.mocked(chrome.debugger.sendCommand).mockImplementation(
+      (debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
+        if (!staleSendTriggered && debuggee.tabId === 99 && method === "Runtime.enable") {
+          staleSendTriggered = true;
+          mock.setRuntimeError("No tab with given id 99");
+          callback(undefined);
+          mock.setRuntimeError(null);
+          return;
+        }
+        callback({ ok: true });
+      }
+    );
+
+    await router.handleCommand({
+      id: 9001,
+      method: "forwardCDPCommand",
+      params: { method: "Runtime.enable", params: {} }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({ id: 9001, result: { ok: true } });
+    expect(chrome.debugger.attach).toHaveBeenCalledWith({ tabId: 100 }, "1.3", expect.any(Function));
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      { tabId: 100 },
+      "Runtime.enable",
+      {},
+      expect.any(Function)
+    );
+  });
+
   it("routes commands and events with root session ids", async () => {
     const mock = createChromeMock();
     globalThis.chrome = mock.chrome;

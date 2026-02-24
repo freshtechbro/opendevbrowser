@@ -167,7 +167,7 @@ describe("ConnectionManager", () => {
     const first = relayInstances[0];
     first.triggerClose();
 
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(13_000);
     expect(relayInstances.length).toBeGreaterThan(1);
   });
 
@@ -181,7 +181,7 @@ describe("ConnectionManager", () => {
     first.sendPing.mockRejectedValueOnce(new Error("Ping timeout"));
 
     await vi.advanceTimersByTimeAsync(25_000);
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(13_000);
 
     expect(relayInstances.length).toBeGreaterThan(1);
   });
@@ -195,7 +195,7 @@ describe("ConnectionManager", () => {
     const cdp = (manager as { cdp?: { triggerDetach?: (detail?: { reason?: string }) => void } }).cdp;
     cdp?.triggerDetach?.({ reason: "target_closed" });
 
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(13_000);
     expect(relayInstances.length).toBeGreaterThan(1);
   });
 

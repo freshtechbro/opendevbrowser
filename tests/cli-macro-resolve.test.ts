@@ -102,4 +102,40 @@ describe("macro-resolve CLI command", () => {
     expect(executionMeta?.ok).toBe(true);
     expect(executionMeta).not.toHaveProperty("blocker");
   });
+
+  it("passes timeout-ms through daemon call options", async () => {
+    callDaemon.mockResolvedValue({
+      runtime: "macros",
+      resolution: { action: { source: "web", operation: "search", input: { query: "openai" } } },
+      execution: {
+        records: [],
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        meta: {
+          ok: true,
+          partial: false,
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          trace: { requestId: "req-timeout" }
+        }
+      }
+    });
+
+    await runMacroResolve(makeArgs([
+      "--expression=@web.search(\"openai\")",
+      "--execute",
+      "--timeout-ms=120000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "macro.resolve",
+      {
+        expression: "@web.search(\"openai\")",
+        defaultProvider: undefined,
+        includeCatalog: false,
+        execute: true
+      },
+      { timeoutMs: 120000 }
+    );
+  });
 });

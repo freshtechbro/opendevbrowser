@@ -57,6 +57,35 @@ describe("provider runtime branches", () => {
     expect(result.providerOrder).toEqual([]);
   });
 
+  it("injects browser fallback port into provider context", async () => {
+    const fallbackPort = {
+      resolve: vi.fn(async () => ({
+        ok: true,
+        reasonCode: "env_limited" as const,
+        output: {}
+      }))
+    };
+    let seenFallbackPort = false;
+
+    const runtime = createProviderRuntime({
+      browserFallbackPort: fallbackPort,
+      providers: [
+        makeProvider("web/context", "web", {
+          search: async (_input, context) => {
+            seenFallbackPort = context.browserFallbackPort === fallbackPort;
+            return [normalizeRecord("web/context", "web", {
+              url: "https://example.com/context"
+            })];
+          }
+        })
+      ]
+    });
+
+    const result = await runtime.search({ query: "context" }, { source: "all" });
+    expect(result.ok).toBe(true);
+    expect(seenFallbackPort).toBe(true);
+  });
+
   it("falls back sequentially in auto mode and returns partial success", async () => {
     const runtime = new ProviderRuntime({
       budgets: {
@@ -416,8 +445,8 @@ describe("provider runtime branches", () => {
     expect(ids).toContain("web/custom");
     expect(ids).toContain("community/custom");
     expect(ids).toContain("social/custom-x");
-    expect(ids).toHaveLength(21);
-    expect(defaults.listCapabilities()).toHaveLength(21);
+    expect(ids).toHaveLength(22);
+    expect(defaults.listCapabilities()).toHaveLength(22);
     expect(DEFAULT_PROVIDER_BUDGETS.timeoutMs.search).toBe(12000);
   });
 
@@ -1133,5 +1162,243 @@ describe("provider runtime branches", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("falls back with env_limited reason and forwards cookie context on network failures", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true as const,
+      reasonCode: "env_limited" as const,
+      mode: "managed_headed" as const,
+      output: {},
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "provider fallback", limit: 1 },
+        {
+          source: "web",
+          providerIds: ["web/default"],
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "web/default",
+        source: "web",
+        operation: "search",
+        reasonCode: "env_limited",
+        useCookies: true,
+        cookiePolicyOverride: "required"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("maps upstream retrieval failures to ip_blocked fallback reason", async () => {
+    const fallbackResolve = vi.fn(async (request: { url?: string }) => ({
+      ok: true as const,
+      reasonCode: "ip_blocked" as const,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://duckduckgo.com/html/?q=provider+fallback&ia=web",
+        html: "<html><body><a href=\"https://example.com/ok\">ok</a></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 503,
+      url: String(input),
+      text: async () => "service unavailable"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "provider fallback", limit: 1 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "web/default",
+        reasonCode: "ip_blocked"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("skips browser fallback for invalid non-http fetch inputs", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true as const,
+      reasonCode: "env_limited" as const,
+      mode: "managed_headed" as const,
+      output: {
+        html: "<html><body>unused</body></html>"
+      },
+      details: {}
+    }));
+
+    const runtime = createDefaultRuntime({}, {
+      browserFallbackPort: {
+        resolve: fallbackResolve
+      }
+    });
+    const result = await runtime.fetch(
+      { url: "ftp://example.com/private-feed" },
+      { source: "web", providerIds: ["web/default"] }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("invalid_input");
+    expect(fallbackResolve).not.toHaveBeenCalled();
+  });
+
+  it("filters non-http links from web defaults while preserving http links", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://duckduckgo.com/html/?q=parallel+tabs&ia=web",
+      text: async () => [
+        "<html><body>",
+        "<a href=\"ftp://example.com/internal\">internal</a>",
+        "<a href=\"https://example.com/public\">public</a>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "parallel tabs", limit: 5 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+      expect(result.ok).toBe(true);
+      expect(result.records.map((row) => row.url)).toContain("https://example.com/public");
+      expect(result.records.map((row) => row.url)).not.toContain("ftp://example.com/internal");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces anti-bot preflight deny details for both implicit and explicit reasons", async () => {
+    const runtime = new ProviderRuntime({
+      budgets: {
+        retries: { read: 0, write: 0 },
+        circuitBreaker: { failureThreshold: 99, cooldownMs: 1000 }
+      }
+    });
+    runtime.register(makeProvider("web/preflight", "web", {
+      search: async () => [normalizeRecord("web/preflight", "web", { url: "https://example.com/ok" })]
+    }));
+
+    const policyRuntime = runtime as unknown as {
+      antiBotPolicy: {
+        preflight: (context: { providerId: string; operation: "search" }) => {
+          allow: boolean;
+          reasonCode?: "cooldown_active" | "challenge_detected";
+          retryAfterMs?: number;
+          retryGuidance?: string;
+          proxyHint?: string;
+          sessionHint?: string;
+          escalationIntent: boolean;
+        };
+        postflight: () => { allowRetry: boolean; escalationIntent: boolean };
+      };
+    };
+
+    policyRuntime.antiBotPolicy = {
+      preflight: () => ({
+        allow: false,
+        retryAfterMs: 4500,
+        retryGuidance: "slow_down",
+        proxyHint: "rotate_proxy",
+        sessionHint: "refresh_session",
+        escalationIntent: false
+      }),
+      postflight: () => ({
+        allowRetry: false,
+        escalationIntent: false
+      })
+    };
+
+    const first = await runtime.search({ query: "deny-first" }, { source: "all" });
+    expect(first.ok).toBe(false);
+    expect(first.failures[0]?.error.details).toMatchObject({
+      reasonCode: "cooldown_active",
+      retryAfterMs: 4500,
+      retryGuidance: "slow_down",
+      proxyHint: "rotate_proxy",
+      sessionHint: "refresh_session"
+    });
+
+    policyRuntime.antiBotPolicy = {
+      preflight: () => ({
+        allow: false,
+        reasonCode: "challenge_detected",
+        escalationIntent: false
+      }),
+      postflight: () => ({
+        allowRetry: false,
+        escalationIntent: false
+      })
+    };
+
+    const second = await runtime.search({ query: "deny-second" }, { source: "all" });
+    expect(second.ok).toBe(false);
+    expect(second.failures[0]?.error.details).toMatchObject({
+      reasonCode: "challenge_detected"
+    });
+  });
+
+  it("merges normalized blocker reason onto unknown blockers and preserves unknown when no reason can be inferred", async () => {
+    const makeRuntime = (message: string) => {
+      const runtime = new ProviderRuntime({
+        budgets: {
+          retries: { read: 0, write: 0 },
+          circuitBreaker: { failureThreshold: 99, cooldownMs: 1000 }
+        },
+        blockerDetectionThreshold: 0
+      });
+      runtime.register(makeProvider("web/unknown-blocker", "web", {
+        search: async () => {
+          throw new ProviderRuntimeError("invalid_input", message, {
+            retryable: false,
+            details: {
+              url: "https://example.com/resource"
+            }
+          });
+        }
+      }));
+      return runtime;
+    };
+
+    const inferred = await makeRuntime("unauthorized content response").search({ query: "inferred" }, { source: "all" });
+    expect(inferred.ok).toBe(false);
+    expect(inferred.meta?.blocker?.type).toBe("unknown");
+    expect(inferred.meta?.blocker?.reasonCode).toBe("token_required");
+
+    const untouched = await makeRuntime("malformed payload").search({ query: "untouched" }, { source: "all" });
+    expect(untouched.ok).toBe(false);
+    expect(untouched.meta?.blocker?.type).toBe("unknown");
+    expect(untouched.meta?.blocker?.reasonCode).toBeUndefined();
   });
 });

@@ -49,6 +49,29 @@ const makeConfig = (): OpenDevBrowserConfig => ({
   security: { allowRawCDP: false, allowNonLocalCdp: false, allowUnsafeExport: false },
   devtools: { showFullUrls: false, showFullConsole: false },
   export: { maxNodes: 1000, inlineStyles: true },
+  parallelism: {
+    floor: 1,
+    backpressureTimeoutMs: 5000,
+    sampleIntervalMs: 2000,
+    recoveryStableWindows: 3,
+    hostFreeMemMediumPct: 25,
+    hostFreeMemHighPct: 18,
+    hostFreeMemCriticalPct: 10,
+    rssBudgetMb: 2048,
+    rssSoftPct: 65,
+    rssHighPct: 75,
+    rssCriticalPct: 85,
+    queueAgeHighMs: 2000,
+    queueAgeCriticalMs: 5000,
+    modeCaps: {
+      managedHeaded: 6,
+      managedHeadless: 8,
+      cdpConnectHeaded: 6,
+      cdpConnectHeadless: 8,
+      extensionOpsHeaded: 6,
+      extensionLegacyCdpHeaded: 1
+    }
+  },
   skills: { nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   continuity: { enabled: true, filePath: "/tmp/continuity.md", nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   relayPort: 8787,
@@ -166,6 +189,8 @@ describe("OpsBrowserManager", () => {
       useTarget: vi.fn().mockResolvedValue({ activeTargetId: "tab-1", url: "https://example.com", title: "Example" }),
       newTarget: vi.fn().mockResolvedValue({ targetId: "tab-2" }),
       closeTarget: vi.fn().mockResolvedValue(undefined),
+      cookieImport: vi.fn().mockResolvedValue({ requestId: "req-base", imported: 1, rejected: [] }),
+      cookieList: vi.fn().mockResolvedValue({ requestId: "req-base-list", cookies: [], count: 0 }),
       page: vi.fn().mockResolvedValue({ targetId: "tab-3", created: true, url: "https://example.com", title: "Example" }),
       listPages: vi.fn().mockResolvedValue({ pages: [] }),
       closePage: vi.fn().mockResolvedValue(undefined)
@@ -208,12 +233,15 @@ describe("OpsBrowserManager", () => {
     await manager.useTarget("base-session", "tab-1");
     await manager.newTarget("base-session", "https://example.com");
     await manager.closeTarget("base-session", "tab-1");
+    await manager.cookieImport("base-session", [{ name: "session", value: "abc", url: "https://example.com" }], true, "req-base");
+    await manager.cookieList("base-session", ["https://example.com"], "req-base-list");
     await manager.page("base-session", "main", "https://example.com");
     await manager.listPages("base-session");
     await manager.closePage("base-session", "main");
 
     expect(base.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
     expect(base.goto).toHaveBeenCalled();
+    expect(base.cookieList).toHaveBeenCalledWith("base-session", ["https://example.com"], "req-base-list");
   });
 
   it("routes ops sessions through ops client and tracks sessions", async () => {
@@ -244,7 +272,23 @@ describe("OpsBrowserManager", () => {
     const result = await manager.connectRelay("ws://127.0.0.1:8787/ops");
     expect(result.sessionId).toBe("ops-1");
     expect(result.mode).toBe("extension");
-    expect(requestMock).toHaveBeenCalledWith("session.connect", {}, undefined, 30000, expect.any(String));
+    expect(requestMock).toHaveBeenCalledWith(
+      "session.connect",
+      expect.objectContaining({
+        parallelismPolicy: expect.objectContaining({
+          floor: 1,
+          backpressureTimeoutMs: 5000,
+          sampleIntervalMs: 2000,
+          modeCaps: expect.objectContaining({
+            extensionOpsHeaded: 6,
+            extensionLegacyCdpHeaded: 1
+          })
+        })
+      }),
+      undefined,
+      30000,
+      expect.any(String)
+    );
 
     const status = await manager.status("ops-1");
     expect(status.mode).toBe("extension");
@@ -395,6 +439,22 @@ describe("OpsBrowserManager", () => {
     await expect(manager.disconnect("ops-fail", false)).rejects.toThrow("disconnect failed");
     expect(opsSessions.has("ops-fail")).toBe(true);
     expect(opsLeases.has("ops-fail")).toBe(true);
+  });
+
+  it("treats null disconnect errors as non-ignorable and preserves session state", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
+    const opsLeases = (manager as { opsLeases: Map<string, string> }).opsLeases;
+
+    opsSessions.add("ops-null");
+    opsLeases.set("ops-null", "lease-null");
+    (manager as { opsClient: { request: () => Promise<unknown> } | null }).opsClient = {
+      request: vi.fn().mockRejectedValue(null)
+    };
+
+    await expect(manager.disconnect("ops-null", false)).rejects.toBeNull();
+    expect(opsSessions.has("ops-null")).toBe(true);
+    expect(opsLeases.has("ops-null")).toBe(true);
   });
 
   it("clears ops sessions when ops client closes", async () => {
@@ -591,6 +651,22 @@ describe("OpsBrowserManager", () => {
           return { targetId: "tab-2" };
         case "targets.close":
           return { ok: true };
+        case "storage.setCookies":
+          return { requestId: "req-ops", imported: 1, rejected: [] };
+        case "storage.getCookies":
+          return {
+            requestId: "req-ops-list",
+            cookies: [{
+              name: "session",
+              value: "abc",
+              domain: "example.com",
+              path: "/",
+              expires: -1,
+              httpOnly: true,
+              secure: true
+            }],
+            count: 1
+          };
         case "page.open":
           return { targetId: "tab-3", created: true, url: "https://example.com", title: "Example" };
         case "page.list":
@@ -648,6 +724,27 @@ describe("OpsBrowserManager", () => {
     await manager.useTarget("ops-2", "tab-1");
     await manager.newTarget("ops-2", "https://example.com");
     await manager.closeTarget("ops-2", "tab-1");
+    const cookieResult = await manager.cookieImport(
+      "ops-2",
+      [{ name: "session", value: "abc", url: "https://example.com" }],
+      true,
+      "req-ops"
+    );
+    expect(cookieResult).toEqual({ requestId: "req-ops", imported: 1, rejected: [] });
+    const cookieListResult = await manager.cookieList("ops-2", ["https://example.com"], "req-ops-list");
+    expect(cookieListResult).toEqual({
+      requestId: "req-ops-list",
+      cookies: [{
+        name: "session",
+        value: "abc",
+        domain: "example.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true
+      }],
+      count: 1
+    });
     await manager.page("ops-2", "main", "https://example.com");
     await manager.listPages("ops-2");
     await manager.closePage("ops-2", "main");

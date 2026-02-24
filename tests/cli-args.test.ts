@@ -102,6 +102,19 @@ describe("parseArgs", () => {
     expect(parsed.command).toBe("cookie-import");
   });
 
+  it("accepts cookie-list command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "cookie-list",
+      "--session-id",
+      "s1",
+      "--url",
+      "https://example.com"
+    ]);
+    expect(parsed.command).toBe("cookie-list");
+  });
+
   it("accepts macro-resolve command", () => {
     const parsed = parseArgs([
       "node",
@@ -142,6 +155,12 @@ describe("parseArgs", () => {
     const connectParsed = parseArgs(["node", "cli", "connect", "--ws-endpoint", "ws://127.0.0.1:8787", "--extension-legacy"]);
     expect(connectParsed.command).toBe("connect");
     expect(connectParsed.rawArgs).toEqual(["--ws-endpoint", "ws://127.0.0.1:8787", "--extension-legacy"]);
+  });
+
+  it("accepts --persist-profile in equals form for launch parsing", () => {
+    const parsed = parseArgs(["node", "cli", "launch", "--persist-profile=false"]);
+    expect(parsed.command).toBe("launch");
+    expect(parsed.rawArgs).toEqual(["--persist-profile=false"]);
   });
 
   it("accepts annotate flags (space-separated)", () => {
@@ -313,5 +332,24 @@ describe("parseMacroResolveArgs", () => {
       "--execute"
     ]);
     expect(parsed.execute).toBe(true);
+  });
+
+  it("parses timeout-ms", () => {
+    const parsed = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--timeout-ms",
+      "120000"
+    ]);
+    expect(parsed.timeoutMs).toBe(120000);
+  });
+
+  it("rejects invalid timeout-ms", () => {
+    expect(() => macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--timeout-ms",
+      "nope"
+    ])).toThrow("Invalid --timeout-ms");
   });
 });

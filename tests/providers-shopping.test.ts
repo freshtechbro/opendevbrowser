@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  SHOPPING_PROVIDER_PROFILES,
   SHOPPING_PROVIDER_IDS,
   createShoppingProvider,
   createShoppingProviderById,
@@ -51,6 +52,22 @@ describe("shopping providers", () => {
     const providers = createShoppingProviders();
     expect(providers).toHaveLength(11);
     expect(new Set(providers.map((provider) => provider.id))).toEqual(new Set(SHOPPING_PROVIDER_IDS));
+  });
+
+  it("routes non-url searches through every default provider searchPath", async () => {
+    const fetcher = vi.fn(async ({ url }: { url: string }) => ({
+      status: 200,
+      url,
+      html: "<html><body><main>catalog result</main></body></html>"
+    }));
+
+    for (const profile of SHOPPING_PROVIDER_PROFILES) {
+      const provider = createShoppingProvider(profile, { fetcher });
+      const rows = await provider.search?.({ query: "ergonomic office chair", limit: 1 }, context);
+      expect(rows?.length).toBeGreaterThan(0);
+    }
+
+    expect(fetcher).toHaveBeenCalledTimes(SHOPPING_PROVIDER_PROFILES.length);
   });
 
   it("validates legal review checklist metadata", () => {
@@ -160,6 +177,159 @@ describe("shopping providers", () => {
       .rejects.toMatchObject({ code: "unavailable", retryable: true });
 
     vi.unstubAllGlobals();
+  });
+
+  it("uses browser fallback for auth-blocked shopping retrieval", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.amazon.com/s?k=wireless%20mouse",
+        html: `<html><body><main>fallback shopping content $59.99 4.5 out of 5 42 reviews in stock</main></body></html>`
+      },
+      details: {}
+    }));
+    const provider = createShoppingProvider(amazonProfile);
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 403,
+      url: String(input),
+      text: async () => "auth"
+    })) as unknown as typeof fetch);
+
+    try {
+      const records = await provider.search?.(
+        { query: "wireless mouse", limit: 2 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(records?.length).toBeGreaterThan(0);
+      expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+        provider: "shopping/amazon"
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/amazon",
+        operation: "search",
+        reasonCode: "token_required"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps original auth error when browser fallback rejects the request", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "token_required" as const,
+      details: { message: "challenge still active" }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 403,
+      url: "https://www.amazon.com/s?k=wireless%20mouse",
+      text: async () => "auth"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse" },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({ code: "auth" });
+
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/amazon",
+        operation: "search",
+        reasonCode: "token_required"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses browser fallback on network failure when fallback output omits html/url", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      mode: "managed_headed" as const,
+      output: {},
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(rows?.[0]?.url).toContain("amazon.com");
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        reasonCode: "env_limited"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses browser fallback on rate-limited shopping retrieval", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.amazon.com/s?k=wireless%20mouse",
+        html: "<html><body><main>rate limit fallback</main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 429,
+      url: "https://www.amazon.com/s?k=wireless%20mouse",
+      text: async () => "rate limited"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        reasonCode: "rate_limited"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("validates required queries", async () => {

@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { RefStore } from "../src/snapshot/refs";
 import { Snapshotter, selectorFunction } from "../src/snapshot/snapshotter";
+import { selectorFunction as extensionSelectorFunction } from "../extension/src/ops/snapshot-shared";
 
 type HappyDomSettings = {
   fetch: {
@@ -442,13 +443,19 @@ describe("Snapshotter", () => {
     expect(result.warnings?.[0]).toContain("Skipped 1 iframe");
   });
 
-  it("prefers data-testid, then aria-label, then id, then nth-child selectors", () => {
+  it("prefers unique test-id/aria selectors and falls back for collisions", () => {
     document.body.innerHTML = `
       <div id="root">
         <button data-testid="cta">Buy</button>
         <button aria-label="Close">Close</button>
         <button id="primary">Primary</button>
         <div><span>Nested</span></div>
+        <section>
+          <button data-testid="dup">First</button>
+          <button data-testid="dup">Second</button>
+          <button aria-label="dup-label">Third</button>
+          <button aria-label="dup-label">Fourth</button>
+        </section>
       </div>
     `;
 
@@ -456,11 +463,25 @@ describe("Snapshotter", () => {
     const aria = document.querySelector("[aria-label=\"Close\"]") as Element;
     const idButton = document.querySelector("#primary") as Element;
     const nested = document.querySelector("#root div span") as Element;
+    const duplicateTestId = document.querySelector("section button[data-testid=\"dup\"]") as Element;
+    const duplicateAria = document.querySelector("section button[aria-label=\"dup-label\"]") as Element;
 
     expect(selectorFunction.call(testId)).toBe("[data-testid=\"cta\"]");
     expect(selectorFunction.call(aria)).toBe("[aria-label=\"Close\"]");
     expect(selectorFunction.call(idButton)).toBe("button#primary");
     expect(selectorFunction.call(nested)).toContain("div:nth-child");
+
+    const duplicateTestSelector = selectorFunction.call(duplicateTestId);
+    expect(duplicateTestSelector).not.toBe("[data-testid=\"dup\"]");
+    expect(duplicateTestSelector).toContain(":nth-child");
+
+    const duplicateAriaSelector = selectorFunction.call(duplicateAria);
+    expect(duplicateAriaSelector).not.toBe("[aria-label=\"dup-label\"]");
+    expect(duplicateAriaSelector).toContain(":nth-child");
+
+    expect(extensionSelectorFunction.call(testId)).toBe("[data-testid=\"cta\"]");
+    expect(extensionSelectorFunction.call(duplicateTestId)).toBe(duplicateTestSelector);
+    expect(extensionSelectorFunction.call(duplicateAria)).toBe(duplicateAriaSelector);
   });
 
   it("falls back to manual escaping when CSS.escape is unavailable", () => {
@@ -470,10 +491,12 @@ describe("Snapshotter", () => {
 
     const element = document.createElement("div");
     element.setAttribute("data-testid", "hello world");
+    document.body.appendChild(element);
     const selector = selectorFunction.call(element);
 
     expect(selector).toBe("[data-testid=\"hello\\ world\"]");
 
+    element.remove();
     globalThis.CSS = originalCSS;
   });
 
@@ -481,5 +504,23 @@ describe("Snapshotter", () => {
     const element = document.createElement("span");
     const selector = selectorFunction.call(element);
     expect(selector).toBe("span");
+  });
+
+  it("returns null when selector helper is called with a non-element receiver", () => {
+    const selector = selectorFunction.call({} as Element);
+    expect(selector).toBeNull();
+  });
+
+  it("falls back to path selector when id selector is not unique", () => {
+    document.body.innerHTML = `
+      <div>
+        <button id="dup-id">One</button>
+        <button id="dup-id">Two</button>
+      </div>
+    `;
+    const duplicateId = document.querySelector("button#dup-id") as Element;
+    const selector = selectorFunction.call(duplicateId);
+    expect(selector).not.toBe("button#dup-id");
+    expect(selector).toContain(":nth-child");
   });
 });

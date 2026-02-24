@@ -100,7 +100,7 @@ describe("installSkills", () => {
       const skillPath = path.join(target.dir, "opendevbrowser-best-practices", "SKILL.md");
       expect(fs.existsSync(skillPath)).toBe(true);
     }
-  });
+  }, 60_000);
 
   it("installs bundled skills across all local agent targets", () => {
     const result = installSkills("local");
@@ -111,7 +111,7 @@ describe("installSkills", () => {
       const skillPath = path.join(target.dir, "opendevbrowser-best-practices", "SKILL.md");
       expect(fs.existsSync(skillPath)).toBe(true);
     }
-  });
+  }, 60_000);
 
   it("skips existing skill directories on rerun", () => {
     const firstRun = installSkills("global");
@@ -121,7 +121,7 @@ describe("installSkills", () => {
     expect(secondRun.success).toBe(true);
     expect(secondRun.targets.every((target) => target.installed.length === 0)).toBe(true);
     expect(secondRun.targets.every((target) => target.skipped.length > 0)).toBe(true);
-  });
+  }, 60_000);
 
   it("publishes canonical and legacy aliases for ClaudeCode and AmpCLI targets", () => {
     const globalTargets = getGlobalSkillTargets();

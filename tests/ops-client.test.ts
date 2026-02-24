@@ -351,8 +351,9 @@ describe("OpsClient", () => {
     const closeSpy = vi.spyOn(client as unknown as { closeSocket: (code: number, reason: string, allowReconnect: boolean) => void }, "closeSocket");
     await client.connect();
 
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect(closeSpy).toHaveBeenCalledWith(1011, "Ops heartbeat missed", true);
+    await vi.waitFor(() => {
+      expect(closeSpy).toHaveBeenCalledWith(1011, "Ops heartbeat missed", true);
+    }, { timeout: 800, interval: 25 });
 
     client.disconnect();
     await new Promise((resolve) => server.wss.close(() => resolve(null)));

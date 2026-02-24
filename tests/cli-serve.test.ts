@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
   fetchWithTimeout: vi.fn(),
   discoverExtensionId: vi.fn(),
   getNativeStatusSnapshot: vi.fn(),
-  installNativeHost: vi.fn()
+  installNativeHost: vi.fn(),
+  spawnSync: vi.fn()
 }));
 
 vi.mock("../src/cli/daemon", () => ({
@@ -34,6 +35,10 @@ vi.mock("../src/cli/commands/native", () => ({
   discoverExtensionId: mocks.discoverExtensionId,
   getNativeStatusSnapshot: mocks.getNativeStatusSnapshot,
   installNativeHost: mocks.installNativeHost
+}));
+
+vi.mock("node:child_process", () => ({
+  spawnSync: mocks.spawnSync
 }));
 
 import { runServe } from "../src/cli/commands/serve";
@@ -78,6 +83,7 @@ describe("serve command", () => {
     mocks.readDaemonMetadata.mockReturnValue(null);
     mocks.fetchDaemonStatus.mockResolvedValue(null);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true });
+    mocks.spawnSync.mockReturnValue({ status: 1, stdout: "" });
     mocks.startDaemon.mockResolvedValue({
       state: { port: 8788, pid: 1234, relayPort: 8787 },
       stop: vi.fn()
@@ -321,5 +327,75 @@ describe("serve command", () => {
     expect(result.success).toBe(false);
     expect(result.message).toContain("Daemon port 8788 is already in use by another process.");
     expect(result.message).toContain("opendevbrowser status --daemon");
+  });
+
+  it("clears stale serve daemons before startup", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.spawnSync.mockReturnValue({
+      status: 0,
+      stdout: [
+        `${process.pid} /opt/homebrew/bin/node /repo/dist/cli/index.js serve --output-format json`,
+        `${process.ppid} npm exec opendevbrowser serve --output-format json`,
+        "7777 /opt/homebrew/bin/node /repo/node_modules/.bin/opendevbrowser serve --output-format json",
+        "8888 /opt/homebrew/bin/node /repo/dist/cli/index.js serve --output-format json"
+      ].join("\n")
+    });
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Cleared 2 stale daemon processes.");
+    expect(killSpy).toHaveBeenCalledWith(7777, "SIGTERM");
+    expect(killSpy).toHaveBeenCalledWith(8888, "SIGTERM");
+    expect(killSpy).toHaveBeenCalledWith(7777, "SIGKILL");
+    expect(killSpy).toHaveBeenCalledWith(8888, "SIGKILL");
+    killSpy.mockRestore();
+  });
+
+  it("keeps the active daemon pid when cleaning stale serve daemons", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString()
+    });
+    mocks.fetchDaemonStatus.mockResolvedValue({
+      ok: true,
+      pid: 8080,
+      hub: { instanceId: "hub-1" },
+      relay: {
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        pairingRequired: false,
+        port: 8787,
+        tokenConfigured: true,
+        health: { status: "ok", reason: "ready" }
+      },
+      binding: null
+    });
+    mocks.spawnSync.mockReturnValue({
+      status: 0,
+      stdout: [
+        "8080 /opt/homebrew/bin/node /repo/node_modules/.bin/opendevbrowser serve --output-format json",
+        "9999 /opt/homebrew/bin/node /repo/dist/cli/index.js serve --output-format json"
+      ].join("\n")
+    });
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Cleared 1 stale daemon process.");
+    expect(killSpy).toHaveBeenCalledWith(9999, "SIGTERM");
+    expect(killSpy).not.toHaveBeenCalledWith(8080, "SIGTERM");
+    killSpy.mockRestore();
   });
 });

@@ -130,6 +130,24 @@ const createPage = (nodes: LegacyNode[]) => {
         return { object: { objectId: `obj-${backendNodeId}` } };
       }
       if (method === "Runtime.callFunctionOn") {
+        const declaration = typeof params?.functionDeclaration === "string"
+          ? params.functionDeclaration
+          : "";
+        if (declaration.includes("odb-dom-get-attr")) {
+          return { result: { value: "attr" } };
+        }
+        if (declaration.includes("odb-dom-get-value")) {
+          return { result: { value: "value" } };
+        }
+        if (declaration.includes("odb-dom-is-visible")) {
+          return { result: { value: true } };
+        }
+        if (declaration.includes("odb-dom-is-enabled")) {
+          return { result: { value: true } };
+        }
+        if (declaration.includes("odb-dom-is-checked")) {
+          return { result: { value: false } };
+        }
         const selector = selectorByBackendId.get(lastBackendNodeId) ?? `#node-${lastBackendNodeId}`;
         return { result: { value: selector } };
       }
@@ -160,6 +178,16 @@ type BrowserContextLike = {
   newPage: () => Promise<PageLike>;
   newCDPSession: (page: PageLike) => Promise<{ send: (method: string, params?: Record<string, unknown>) => Promise<unknown>; detach: () => Promise<void> }>;
   addCookies: (cookies: unknown[]) => Promise<void>;
+  cookies: (urls?: string[]) => Promise<Array<{
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    expires: number;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite?: "Strict" | "Lax" | "None";
+  }>>;
   browser: () => BrowserLike;
   close: () => Promise<void>;
 };
@@ -183,6 +211,7 @@ const createBrowserBundle = (
       return next;
     }),
     addCookies: vi.fn(async () => undefined),
+    cookies: vi.fn(async () => []),
     newCDPSession: vi.fn(async () => cdpSession),
     browser: () => browser,
     close: vi.fn().mockResolvedValue(undefined)
@@ -247,7 +276,7 @@ describe("BrowserManager", () => {
     page.title.mockRejectedValueOnce(new Error("boom"));
     const status = await manager.status(result.sessionId);
     expect(status.url).toBeDefined();
-  });
+  }, 15000);
 
   it("updates tracker options when config changes", async () => {
     const nodes = [
@@ -378,6 +407,31 @@ describe("BrowserManager", () => {
     await expect(manager.launch({ profile: "default" }))
       .rejects
       .toThrow("Failed to launch browser context: Unknown error");
+  });
+
+  it("adds profile-lock guidance when launch fails with process singleton errors", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockRejectedValueOnce(new Error("ProcessSingleton failed because SingletonLock already exists"));
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    let thrown: Error | null = null;
+    try {
+      await manager.launch({ profile: "default" });
+    } catch (error) {
+      thrown = error as Error;
+    }
+
+    expect(thrown).not.toBeNull();
+    expect(thrown?.message).toContain("profile is locked by another process");
+    expect(thrown?.message).toContain("--profile <name>");
+    expect(thrown?.message).toContain("--persist-profile false");
   });
 
   it("aggregates cleanup errors when profile cleanup fails on launch", async () => {
@@ -2625,6 +2679,57 @@ describe("BrowserManager", () => {
     expect(managed.networkTracker.detach).toHaveBeenCalled();
   });
 
+  it("unsubscribes network signals and tolerates missing page listeners on disconnect", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+
+    const sessions = (manager as unknown as { sessions: Map<string, unknown> }).sessions;
+    const managed = sessions.get(result.sessionId) as { targets: { listPageEntries: () => Array<{ page: unknown }> } };
+    const entry = managed.targets.listPageEntries()[0];
+
+    const pageListeners = (manager as unknown as { pageListeners: Map<unknown, () => void> }).pageListeners;
+    if (entry) {
+      pageListeners.delete(entry.page);
+    }
+
+    const unsubscribeSignals = vi.fn();
+    const signalMap = (manager as unknown as { networkSignalSubscriptions: Map<string, () => void> }).networkSignalSubscriptions;
+    signalMap.set(result.sessionId, unsubscribeSignals);
+
+    await manager.disconnect(result.sessionId, false);
+
+    expect(unsubscribeSignals).toHaveBeenCalledTimes(1);
+    expect(signalMap.has(result.sessionId)).toBe(false);
+  });
+
+  it("disconnects cleanly when no network signal subscription is registered", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+
+    const signalMap = (manager as unknown as { networkSignalSubscriptions: Map<string, () => void> }).networkSignalSubscriptions;
+    signalMap.delete(result.sessionId);
+
+    await expect(manager.disconnect(result.sessionId, false)).resolves.toBeUndefined();
+  });
+
   it("rejects unknown refs and snapshots with no target", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -2954,6 +3059,260 @@ describe("BrowserManager", () => {
 
     const checked = await manager.domIsChecked(launch.sessionId, "r1");
     expect(checked.value).toBe(false);
+
+    expect(locator.getAttribute).not.toHaveBeenCalled();
+    expect(locator.inputValue).not.toHaveBeenCalled();
+    expect(locator.isVisible).not.toHaveBeenCalled();
+    expect(locator.isEnabled).not.toHaveBeenCalled();
+    expect(locator.isChecked).not.toHaveBeenCalled();
+  });
+
+  it("uses locator-based DOM-state reads for extension sessions", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, locator } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const session = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.snapshot(session.sessionId, "outline", 500);
+
+    const attr = await manager.domGetAttr(session.sessionId, "r1", "data-test");
+    const value = await manager.domGetValue(session.sessionId, "r1");
+    const visible = await manager.domIsVisible(session.sessionId, "r1");
+    const enabled = await manager.domIsEnabled(session.sessionId, "r1");
+    const checked = await manager.domIsChecked(session.sessionId, "r1");
+
+    expect(attr.value).toBe("attr");
+    expect(value.value).toBe("value");
+    expect(visible.value).toBe(true);
+    expect(enabled.value).toBe(true);
+    expect(checked.value).toBe(false);
+    expect(locator.getAttribute).toHaveBeenCalledTimes(1);
+    expect(locator.inputValue).toHaveBeenCalledTimes(1);
+    expect(locator.isVisible).toHaveBeenCalledTimes(1);
+    expect(locator.isEnabled).toHaveBeenCalledTimes(1);
+    expect(locator.isChecked).toHaveBeenCalledTimes(1);
+  });
+
+  it("coerces managed backend DOM-state values without selector fallback", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, locator } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId, "outline", 500);
+
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "obj-101" } };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof params?.functionDeclaration === "string"
+            ? params.functionDeclaration
+            : "";
+          if (declaration.includes("odb-dom-get-attr")) {
+            return { result: { value: 123 } };
+          }
+          if (declaration.includes("odb-dom-get-value")) {
+            return { result: { value: false } };
+          }
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    const attr = await manager.domGetAttr(launch.sessionId, "r1", "data-test");
+    const value = await manager.domGetValue(launch.sessionId, "r1");
+
+    expect(attr.value).toBeNull();
+    expect(value.value).toBe("");
+    expect(locator.getAttribute).not.toHaveBeenCalled();
+    expect(locator.inputValue).not.toHaveBeenCalled();
+  });
+
+  it("returns stale snapshot guidance when DOM.resolveNode does not return objectId", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, locator } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId, "outline", 500);
+
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.resolveNode") {
+          return { object: {} };
+        }
+        return { result: { value: "attr" } };
+      }),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    await expect(manager.domGetAttr(launch.sessionId, "r1", "data-test"))
+      .rejects
+      .toThrow("Take a new snapshot first.");
+    expect(locator.getAttribute).not.toHaveBeenCalled();
+  });
+
+  it("falls back to selector reads when Runtime.callFunctionOn returns exception details", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, locator } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId, "outline", 500);
+
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "obj-101" } };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof params?.functionDeclaration === "string"
+            ? params.functionDeclaration
+            : "";
+          if (declaration.includes("odb-dom-get-attr")) {
+            return { exceptionDetails: { text: "runtime exploded" } };
+          }
+          return { exceptionDetails: {} };
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    const attr = await manager.domGetAttr(launch.sessionId, "r1", "data-test");
+    const value = await manager.domGetValue(launch.sessionId, "r1");
+    expect(attr.value).toBe("attr");
+    expect(value.value).toBe("value");
+    expect(locator.getAttribute).toHaveBeenCalledTimes(1);
+    expect(locator.inputValue).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns stale snapshot guidance for managed DOM-state reads when backend node resolution is stale", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, locator } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId, "outline", 500);
+
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.resolveNode") {
+          throw new Error("No node with given id found");
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    await expect(manager.domGetAttr(launch.sessionId, "r1", "data-test"))
+      .rejects
+      .toThrow("Take a new snapshot first.");
+    expect(locator.getAttribute).not.toHaveBeenCalled();
+  });
+
+  it("returns stale snapshot guidance when stale backend errors are thrown as strings", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, locator } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId, "outline", 500);
+
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.resolveNode") {
+          throw "No node with given id";
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    await expect(manager.domGetValue(launch.sessionId, "r1"))
+      .rejects
+      .toThrow("Take a new snapshot first.");
+    await expect(manager.domIsVisible(launch.sessionId, "r1"))
+      .rejects
+      .toThrow("Take a new snapshot first.");
+    await expect(manager.domIsEnabled(launch.sessionId, "r1"))
+      .rejects
+      .toThrow("Take a new snapshot first.");
+    await expect(manager.domIsChecked(launch.sessionId, "r1"))
+      .rejects
+      .toThrow("Take a new snapshot first.");
+    expect(locator.inputValue).not.toHaveBeenCalled();
+    expect(locator.isVisible).not.toHaveBeenCalled();
+    expect(locator.isEnabled).not.toHaveBeenCalled();
+    expect(locator.isChecked).not.toHaveBeenCalled();
+  });
+
+  it("falls back to selector reads when managed backend-node DOM-state evaluation fails for non-stale errors", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, locator } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId, "outline", 500);
+
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async () => {
+        throw new Error("CDP transport unavailable");
+      }),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    const attr = await manager.domGetAttr(launch.sessionId, "r1", "data-test");
+    expect(attr.value).toBe("attr");
+    expect(locator.getAttribute).toHaveBeenCalledTimes(1);
   });
 
   it("exports clones and collects perf metrics", async () => {
@@ -3105,6 +3464,53 @@ describe("BrowserManager", () => {
     )).rejects.toThrow("Cookie import rejected 1 entries.");
   });
 
+  it("lists cookies with optional url filters", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+    context.cookies.mockResolvedValue([
+      {
+        name: "session",
+        value: "abc123",
+        domain: "example.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+        sameSite: "Lax"
+      }
+    ]);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const listed = await manager.cookieList(launch.sessionId, ["https://example.com"], "req-list");
+    expect(listed).toEqual({
+      requestId: "req-list",
+      cookies: [{
+        name: "session",
+        value: "abc123",
+        domain: "example.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+        sameSite: "Lax"
+      }],
+      count: 1
+    });
+    expect(context.cookies).toHaveBeenCalledWith(["https://example.com/"]);
+
+    await expect(manager.cookieList(launch.sessionId, ["ftp://example.com"], "req-list-invalid"))
+      .rejects
+      .toThrow("Cookie list url must be http(s)");
+  });
+
   it("waits for extension readiness in withPage and supports exception polling", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -3135,6 +3541,93 @@ describe("BrowserManager", () => {
     const polled = await manager.exceptionPoll(session.sessionId, 0, 10);
     expect(polled.events.length).toBe(1);
     expect(polled.events[0]?.message).toContain("Unhandled extension failure");
+  });
+
+  it("does not wait for extension readiness in managed withPage calls", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const helper = manager as unknown as {
+      waitForExtensionTargetReady: (page: unknown, action: string, timeoutMs?: number) => Promise<void>;
+    };
+    const waitSpy = vi.spyOn(helper, "waitForExtensionTargetReady").mockResolvedValue(undefined);
+
+    const currentUrl = await manager.withPage(launch.sessionId, null, async (activePage) => activePage.url());
+    expect(currentUrl).toBe("about:blank");
+    expect(waitSpy).not.toHaveBeenCalled();
+  });
+
+  it("omits navigation status when goto response lacks a status function", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    page.goto.mockImplementationOnce(async (nextUrl: string) => {
+      page.url.mockReturnValue(nextUrl);
+      return undefined;
+    });
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const result = await manager.goto(launch.sessionId, "https://example.com");
+    expect(result.finalUrl).toBe("https://example.com");
+    expect(result).not.toHaveProperty("status");
+  });
+
+  it("skips verifier-failure tracking for goto session overrides", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const sessions = (manager as unknown as { sessions: Map<string, unknown> }).sessions;
+    const managed = sessions.get(launch.sessionId) as {
+      browser: unknown;
+      context: unknown;
+      targets: unknown;
+    };
+    const markVerifierFailure = vi.spyOn(
+      manager as unknown as { markVerifierFailure: (sessionId: string, error: unknown) => void },
+      "markVerifierFailure"
+    );
+
+    page.goto.mockRejectedValueOnce(new Error("override fail"));
+    await expect(
+      manager.goto(
+        launch.sessionId,
+        "https://example.com",
+        "load",
+        30000,
+        {
+          browser: managed.browser as never,
+          context: managed.context as never,
+          targets: managed.targets as never
+        }
+      )
+    ).rejects.toThrow("override fail");
+
+    expect(markVerifierFailure).not.toHaveBeenCalled();
   });
 
   it("applies fingerprint signal logging branches continuously with enriched canary payloads", async () => {
@@ -3616,5 +4109,446 @@ describe("BrowserManager", () => {
         reason: "env_limited"
       }
     });
+  });
+
+  it("covers parallel helper cleanup and mode resolution branches", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      resolveModeVariant: (managed: { mode: string; headless: boolean; extensionLegacy: boolean }) => string;
+      clearSessionParallelState: (sessionId: string) => void;
+      sessionParallel: Map<string, {
+        inflight: number;
+        waiters: Array<{ targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>;
+        waitingByTarget: Map<string, number[]>;
+      }>;
+      targetQueues: Map<string, Promise<void>>;
+    };
+
+    expect(managerAny.resolveModeVariant({ mode: "managed", headless: false, extensionLegacy: false })).toBe("managedHeaded");
+    expect(managerAny.resolveModeVariant({ mode: "managed", headless: true, extensionLegacy: false })).toBe("managedHeadless");
+    expect(managerAny.resolveModeVariant({ mode: "cdpConnect", headless: false, extensionLegacy: false })).toBe("cdpConnectHeaded");
+    expect(managerAny.resolveModeVariant({ mode: "cdpConnect", headless: true, extensionLegacy: false })).toBe("cdpConnectHeadless");
+    expect(managerAny.resolveModeVariant({ mode: "extension", headless: false, extensionLegacy: false })).toBe("extensionOpsHeaded");
+    expect(managerAny.resolveModeVariant({ mode: "extension", headless: false, extensionLegacy: true })).toBe("extensionLegacyCdpHeaded");
+
+    const rejectWaiter = vi.fn();
+    const rejectWaiterNoTimer = vi.fn();
+    const waiterTimer = setTimeout(() => undefined, 1000);
+    managerAny.sessionParallel.set("cleanup-session", {
+      inflight: 0,
+      waiters: [
+        {
+          targetId: "tab-1",
+          enqueuedAt: Date.now(),
+          timeoutMs: 100,
+          resolve: vi.fn(),
+          reject: rejectWaiter,
+          timer: waiterTimer
+        },
+        {
+          targetId: "tab-2",
+          enqueuedAt: Date.now(),
+          timeoutMs: 100,
+          resolve: vi.fn(),
+          reject: rejectWaiterNoTimer,
+          timer: null
+        }
+      ],
+      waitingByTarget: new Map([["tab-1", [Date.now()]]])
+    });
+    managerAny.targetQueues.set("cleanup-session:tab-1", Promise.resolve());
+    managerAny.targetQueues.set("other-session:tab-1", Promise.resolve());
+
+    managerAny.clearSessionParallelState("cleanup-session");
+
+    expect(rejectWaiter).toHaveBeenCalledWith(expect.any(Error));
+    expect(rejectWaiterNoTimer).toHaveBeenCalledWith(expect.any(Error));
+    expect(managerAny.sessionParallel.has("cleanup-session")).toBe(false);
+    expect(managerAny.targetQueues.has("cleanup-session:tab-1")).toBe(false);
+    expect(managerAny.targetQueues.has("other-session:tab-1")).toBe(true);
+  });
+
+  it("covers wake waiters and backpressure timeout paths", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      sessionParallel: Map<string, {
+        inflight: number;
+        waiters: Array<{ targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>;
+        waitingByTarget: Map<string, number[]>;
+        governor: { modeVariant: string; staticCap: number; effectiveCap: number; healthyWindows: number; lastSampleAt: number; lastPressure: string };
+      }>;
+      refreshGovernorSnapshot: (sessionId: string) => {
+        state: { modeVariant: string; staticCap: number; effectiveCap: number; healthyWindows: number; lastSampleAt: number; lastPressure: string };
+        pressure: string;
+        targetCap: number;
+        waitQueueDepth: number;
+        waitQueueAgeMs: number;
+      };
+      wakeWaiters: (sessionId: string) => void;
+      acquireParallelSlot: (sessionId: string, targetId: string, timeoutMs: number) => Promise<void>;
+      getParallelState: (sessionId: string) => {
+        inflight: number;
+        waiters: Array<{ targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>;
+        waitingByTarget: Map<string, number[]>;
+        governor: { modeVariant: string; staticCap: number; effectiveCap: number; healthyWindows: number; lastSampleAt: number; lastPressure: string };
+      };
+      createBackpressureError: (sessionId: string, targetId: string, timeoutMs: number) => Error;
+    };
+
+    const waiterResolve = vi.fn();
+    const waiterTimer = setTimeout(() => undefined, 1000);
+    const wakeState = {
+      inflight: 0,
+      waiters: [{
+        targetId: "tab-a",
+        enqueuedAt: Date.now(),
+        timeoutMs: 10,
+        resolve: waiterResolve,
+        reject: vi.fn(),
+        timer: waiterTimer
+      }],
+      waitingByTarget: new Map([["tab-a", [Date.now()]]]),
+      governor: {
+        modeVariant: "managedHeaded",
+        staticCap: 2,
+        effectiveCap: 2,
+        healthyWindows: 0,
+        lastSampleAt: 0,
+        lastPressure: "healthy"
+      }
+    };
+    managerAny.sessionParallel.set("wake-session", wakeState);
+    vi.spyOn(managerAny, "refreshGovernorSnapshot").mockImplementation(() => ({
+      state: wakeState.governor,
+      pressure: "healthy",
+      targetCap: wakeState.governor.effectiveCap,
+      waitQueueDepth: wakeState.waiters.length,
+      waitQueueAgeMs: 0
+    }));
+
+    managerAny.wakeWaiters("wake-session");
+    managerAny.wakeWaiters("missing-session");
+
+    expect(waiterResolve).toHaveBeenCalledTimes(1);
+    expect(wakeState.inflight).toBe(1);
+    expect(wakeState.waiters).toHaveLength(0);
+    expect(wakeState.waitingByTarget.has("tab-a")).toBe(false);
+
+    const timeoutState = {
+      inflight: 1,
+      waiters: [] as Array<{ targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>,
+      waitingByTarget: new Map<string, number[]>(),
+      governor: {
+        modeVariant: "managedHeaded",
+        staticCap: 1,
+        effectiveCap: 1,
+        healthyWindows: 0,
+        lastSampleAt: 0,
+        lastPressure: "high"
+      }
+    };
+
+    vi.spyOn(managerAny, "getParallelState").mockReturnValue(timeoutState);
+    vi.spyOn(managerAny, "refreshGovernorSnapshot").mockImplementation(() => ({
+      state: timeoutState.governor,
+      pressure: "high",
+      targetCap: 1,
+      waitQueueDepth: timeoutState.waiters.length,
+      waitQueueAgeMs: 0
+    }));
+    vi.spyOn(managerAny, "createBackpressureError").mockImplementation(() => new Error("parallelism-timeout"));
+    vi.spyOn(managerAny, "wakeWaiters").mockImplementation(() => undefined);
+
+    vi.useFakeTimers();
+    try {
+      const pending = managerAny
+        .acquireParallelSlot("timeout-session", "tab-timeout", 25)
+        .then(() => null, (error: unknown) => error);
+      expect(timeoutState.waiters).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(25);
+      const timeoutError = await pending;
+      expect(timeoutError).toBeInstanceOf(Error);
+      expect((timeoutError as Error).message).toContain("parallelism-timeout");
+      expect(timeoutState.waitingByTarget.has("tab-timeout")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("covers selector fallback and dom target-resolution error branches", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      resolveSelector: (managed: unknown, ref: string, targetId?: string) => string;
+      evaluateDomStateByBackendNode: (
+        managed: unknown,
+        ref: string,
+        functionDeclaration: string,
+        args?: unknown[],
+        targetId?: string
+      ) => Promise<unknown>;
+    };
+
+    const managedForSelector = {
+      targets: {
+        getActiveTargetId: vi.fn(() => "tab-main")
+      },
+      refStore: {
+        resolve: vi.fn(() => ({ selector: "#node-main", backendNodeId: 11 }))
+      }
+    };
+
+    expect(managerAny.resolveSelector(managedForSelector, "r1")).toBe("#node-main");
+    expect(managerAny.resolveSelector(managedForSelector, "r1", "tab-explicit")).toBe("#node-main");
+
+    const session = {
+      send: vi.fn()
+        .mockResolvedValueOnce({ object: {} }),
+      detach: vi.fn().mockRejectedValue(new Error("detach-failed"))
+    };
+    const managedForDom = {
+      targets: {
+        getActiveTargetId: vi.fn(() => "tab-main"),
+        getPage: vi.fn(() => ({}))
+      },
+      refStore: {
+        resolve: vi.fn(() => ({ selector: "#node-main", backendNodeId: 12 }))
+      },
+      context: {
+        newCDPSession: vi.fn(async () => session)
+      }
+    };
+
+    await expect(
+      managerAny.evaluateDomStateByBackendNode(managedForDom, "r1", "function() { return true; }")
+    ).rejects.toThrow("Take a new snapshot first.");
+    expect(session.detach).toHaveBeenCalled();
+
+    managedForDom.context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn()
+        .mockResolvedValueOnce({ object: { objectId: "obj-12" } })
+        .mockResolvedValueOnce({ exceptionDetails: { text: "No node with given id" } }),
+      detach: vi.fn().mockResolvedValue(undefined)
+    }));
+
+    await expect(
+      managerAny.evaluateDomStateByBackendNode(managedForDom, "r1", "function() { return true; }")
+    ).rejects.toThrow("Take a new snapshot first.");
+
+    const managedWithoutActiveTarget = {
+      targets: {
+        getActiveTargetId: vi.fn(() => null)
+      }
+    };
+
+    await expect(
+      managerAny.evaluateDomStateByBackendNode(
+        managedWithoutActiveTarget,
+        "r1",
+        "function() { return true; }"
+      )
+    ).rejects.toThrow("No active target for ref resolution");
+
+    const managedWithoutSelectorTarget = {
+      targets: {
+        getActiveTargetId: vi.fn(() => null)
+      },
+      refStore: {
+        resolve: vi.fn()
+      }
+    };
+    expect(() => managerAny.resolveSelector(managedWithoutSelectorTarget, "r1")).toThrow("No active target for ref resolution");
+  });
+
+  it("covers wakeWaiters corner branches and missing release state", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      sessionParallel: Map<string, {
+        inflight: number;
+        waiters: Array<{ targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>;
+        waitingByTarget: Map<string, number[]>;
+        governor: { modeVariant: string; staticCap: number; effectiveCap: number; healthyWindows: number; lastSampleAt: number; lastPressure: string };
+      }>;
+      refreshGovernorSnapshot: (sessionId: string) => unknown;
+      wakeWaiters: (sessionId: string) => void;
+      releaseParallelSlot: (sessionId: string) => void;
+    };
+
+    const wakeState = {
+      inflight: 0,
+      waiters: [] as Array<{ targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>,
+      waitingByTarget: new Map<string, number[]>(),
+      governor: {
+        modeVariant: "managedHeaded",
+        staticCap: 2,
+        effectiveCap: 2,
+        healthyWindows: 0,
+        lastSampleAt: 0,
+        lastPressure: "healthy"
+      }
+    };
+    managerAny.sessionParallel.set("edge-session", wakeState);
+    vi.spyOn(managerAny, "refreshGovernorSnapshot").mockImplementation(() => ({
+      state: wakeState.governor,
+      pressure: "healthy",
+      targetCap: wakeState.governor.effectiveCap,
+      waitQueueDepth: wakeState.waiters.length,
+      waitQueueAgeMs: 0
+    }));
+
+    wakeState.waiters = [undefined as unknown as { targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }];
+    managerAny.wakeWaiters("edge-session");
+    expect(wakeState.inflight).toBe(0);
+
+    const resolveNoQueue = vi.fn();
+    wakeState.waiters = [{
+      targetId: "tab-no-queue",
+      enqueuedAt: Date.now(),
+      timeoutMs: 10,
+      resolve: resolveNoQueue,
+      reject: vi.fn(),
+      timer: null
+    }];
+    wakeState.waitingByTarget.clear();
+    managerAny.wakeWaiters("edge-session");
+    expect(resolveNoQueue).toHaveBeenCalledTimes(1);
+
+    const resolveQueueRetained = vi.fn();
+    wakeState.inflight = 0;
+    wakeState.waiters = [{
+      targetId: "tab-queue",
+      enqueuedAt: Date.now(),
+      timeoutMs: 10,
+      resolve: resolveQueueRetained,
+      reject: vi.fn(),
+      timer: null
+    }];
+    wakeState.waitingByTarget.set("tab-queue", [1, 2]);
+    managerAny.wakeWaiters("edge-session");
+    expect(resolveQueueRetained).toHaveBeenCalledTimes(1);
+    expect(wakeState.waitingByTarget.get("tab-queue")).toEqual([2]);
+
+    managerAny.releaseParallelSlot("missing-session");
+  });
+
+  it("covers acquire timeout callback edge branches and runTargetScoped cleanup", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      acquireParallelSlot: (sessionId: string, targetId: string, timeoutMs: number) => Promise<void>;
+      getParallelState: (sessionId: string) => {
+        inflight: number;
+        waiters: Array<{ targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>;
+        waitingByTarget: Map<string, number[]>;
+        governor: { modeVariant: string; staticCap: number; effectiveCap: number; healthyWindows: number; lastSampleAt: number; lastPressure: string };
+      };
+      refreshGovernorSnapshot: (sessionId: string) => unknown;
+      createBackpressureError: (sessionId: string, targetId: string, timeoutMs: number) => Error;
+      wakeWaiters: (sessionId: string) => void;
+      runTargetScoped: <T>(
+        sessionId: string,
+        targetId: string | null | undefined,
+        execute: (ctx: { managed: unknown; targetId: string; page: unknown }) => Promise<T>,
+        timeoutMs?: number
+      ) => Promise<T>;
+      getManaged: (sessionId: string) => unknown;
+      resolveTargetContext: (managed: unknown, targetId: string | null | undefined) => { targetId: string; page: unknown };
+      targetQueues: Map<string, Promise<void>>;
+      targetQueueKey: (sessionId: string, targetId: string) => string;
+    };
+
+    const timeoutState = {
+      inflight: 1,
+      waiters: [] as Array<{ targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>,
+      waitingByTarget: new Map<string, number[]>(),
+      governor: {
+        modeVariant: "managedHeaded",
+        staticCap: 1,
+        effectiveCap: 1,
+        healthyWindows: 0,
+        lastSampleAt: 0,
+        lastPressure: "high"
+      }
+    };
+
+    vi.spyOn(managerAny, "getParallelState").mockReturnValue(timeoutState);
+    vi.spyOn(managerAny, "refreshGovernorSnapshot").mockImplementation(() => ({
+      state: timeoutState.governor,
+      pressure: "high",
+      targetCap: 1,
+      waitQueueDepth: timeoutState.waiters.length,
+      waitQueueAgeMs: 0
+    }));
+    vi.spyOn(managerAny, "createBackpressureError").mockImplementation(() => new Error("parallelism-timeout"));
+    vi.spyOn(managerAny, "wakeWaiters").mockImplementation(() => undefined);
+
+    vi.useFakeTimers();
+    try {
+      const pendingMissingIndex = managerAny.acquireParallelSlot("timeout-a", "tab-a", 20).then(
+        () => null,
+        (error: unknown) => error
+      );
+      timeoutState.waiters.splice(0, 1);
+      timeoutState.waitingByTarget.delete("tab-a");
+      await vi.advanceTimersByTimeAsync(20);
+      const errA = await pendingMissingIndex;
+      expect((errA as Error).message).toContain("parallelism-timeout");
+
+      timeoutState.waiters = [];
+      timeoutState.waitingByTarget = new Map();
+      const pendingQueueRetained = managerAny.acquireParallelSlot("timeout-b", "tab-b", 20).then(
+        () => null,
+        (error: unknown) => error
+      );
+      const queue = timeoutState.waitingByTarget.get("tab-b");
+      if (queue) {
+        queue.push(Date.now());
+      }
+      await vi.advanceTimersByTimeAsync(20);
+      const errB = await pendingQueueRetained;
+      expect((errB as Error).message).toContain("parallelism-timeout");
+      expect(timeoutState.waitingByTarget.has("tab-b")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    vi.spyOn(managerAny, "getManaged").mockReturnValue({ id: "managed" });
+    vi.spyOn(managerAny, "resolveTargetContext").mockReturnValue({ targetId: "tab-scope", page: {} });
+    vi.spyOn(managerAny, "acquireParallelSlot").mockImplementation(async () => {
+      managerAny.targetQueues.set("scoped-session:tab-scope", Promise.resolve());
+      throw new Error("slot-denied");
+    });
+
+    await expect(
+      managerAny.runTargetScoped("scoped-session", "tab-scope", async () => {
+        throw new Error("should-not-run");
+      }, 5)
+    ).rejects.toThrow("slot-denied");
+    expect(managerAny.targetQueues.has("scoped-session:tab-scope")).toBe(true);
+  });
+
+  it("covers cookie-list normalization and extension helper message branches", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      normalizeCookieListUrls: (urls?: string[]) => string[] | undefined;
+      isTargetNotAllowedError: (error: unknown) => boolean;
+      isExtensionTargetReadyTimeout: (error: unknown) => boolean;
+    };
+
+    expect(managerAny.normalizeCookieListUrls(undefined)).toBeUndefined();
+    expect(managerAny.normalizeCookieListUrls([])).toBeUndefined();
+    expect(managerAny.normalizeCookieListUrls([
+      "https://example.com",
+      "https://example.com/"
+    ])).toEqual(["https://example.com/"]);
+
+    expect(managerAny.isTargetNotAllowedError("Target.createTarget: Not allowed")).toBe(true);
+    expect(managerAny.isTargetNotAllowedError(new Error("something else"))).toBe(false);
+    expect(managerAny.isExtensionTargetReadyTimeout("EXTENSION_TARGET_READY_TIMEOUT: nav")).toBe(true);
+    expect(managerAny.isExtensionTargetReadyTimeout(new Error("different"))).toBe(false);
   });
 });

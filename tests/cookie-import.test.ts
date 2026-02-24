@@ -312,4 +312,167 @@ describe("cookie import", () => {
       cookiesFile: "/tmp/cookies.json"
     })).toThrow("Provide only one cookies source");
   });
+
+  it("normalizes cookie-list tool URL filters", async () => {
+    const { __test__: cookieListToolTest } = await import("../src/tools/cookie_list");
+    expect(cookieListToolTest.normalizeCookieUrls([
+      "https://example.com",
+      "https://example.com/",
+      "https://example.com/path"
+    ])).toEqual([
+      "https://example.com/",
+      "https://example.com/path"
+    ]);
+    expect(cookieListToolTest.normalizeCookieUrls()).toBeUndefined();
+
+    expect(() => cookieListToolTest.normalizeCookieUrls(["  "]))
+      .toThrow("non-empty");
+    expect(() => cookieListToolTest.normalizeCookieUrls(["not-a-url"]))
+      .toThrow("invalid");
+
+    expect(() => cookieListToolTest.normalizeCookieUrls(["ftp://example.com"]))
+      .toThrow("http(s)");
+  });
+
+  it("prefers manager cookieList capability and falls back to withPage when needed", async () => {
+    const { createCookieListTool } = await import("../src/tools/cookie_list");
+    const cookieList = vi.fn(async () => ({
+      requestId: "req-managed-list",
+      cookies: [],
+      count: 0
+    }));
+    const listCookies = vi.fn(async (_urls?: string[]) => [{
+      name: "session",
+      value: "abc",
+      domain: "example.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true
+    }, {
+      name: "refresh",
+      value: "xyz",
+      domain: "example.com",
+      path: "/",
+      expires: -1,
+      httpOnly: false,
+      secure: true,
+      sameSite: "Lax" as const
+    }]);
+    const withPage = vi.fn(async (_sessionId: string, _targetId: string | null, fn: (page: {
+      context: () => {
+        cookies: (urls?: string[]) => Promise<Array<{
+          name: string;
+          value: string;
+          domain: string;
+          path: string;
+          expires: number;
+          httpOnly: boolean;
+          secure: boolean;
+        }>>;
+      };
+    }) => Promise<unknown>) => {
+      return fn({
+        context: () => ({
+          cookies: listCookies
+        })
+      });
+    });
+
+    const managedTool = createCookieListTool({
+      manager: {
+        cookieList,
+        withPage
+      }
+    } as never);
+
+    const managedOutput = parse(await managedTool.execute({
+      sessionId: "s1",
+      urls: ["https://example.com"]
+    })) as { ok: boolean; requestId?: string; count?: number };
+    expect(managedOutput).toEqual({
+      ok: true,
+      requestId: "req-managed-list",
+      cookies: [],
+      count: 0
+    });
+    expect(cookieList).toHaveBeenCalledWith("s1", ["https://example.com/"], expect.any(String));
+
+    const fallbackTool = createCookieListTool({
+      manager: {
+        withPage
+      }
+    } as never);
+    const fallbackOutput = parse(await fallbackTool.execute({
+      sessionId: "s1"
+    })) as { ok: boolean; count?: number };
+    expect(fallbackOutput).toMatchObject({ ok: true, count: 2 });
+    expect(listCookies.mock.calls[0]?.length).toBe(0);
+
+    const filteredFallback = parse(await fallbackTool.execute({
+      sessionId: "s1",
+      urls: ["https://example.com"]
+    })) as { ok: boolean; count?: number };
+    expect(filteredFallback).toMatchObject({ ok: true, count: 2 });
+    expect(listCookies).toHaveBeenLastCalledWith(["https://example.com/"]);
+
+    const invalid = parse(await fallbackTool.execute({
+      sessionId: "s1",
+      urls: ["ftp://example.com"]
+    })) as { ok: boolean; error?: { code?: string; message?: string } };
+    expect(invalid).toEqual({
+      ok: false,
+      error: {
+        code: "cookie_list_failed",
+        message: "Cookie list url must be http(s): ftp://example.com"
+      }
+    });
+  });
+
+  it("parses CLI cookie-list arguments and executes daemon call", async () => {
+    const { __test__: cookieListCliTest, runCookieList } = await import("../src/cli/commands/session/cookie-list");
+    const { callDaemon } = await import("../src/cli/client");
+    const callDaemonMock = vi.mocked(callDaemon);
+    callDaemonMock.mockResolvedValueOnce({
+      requestId: "req-list",
+      cookies: [],
+      count: 0
+    });
+
+    const parsed = cookieListCliTest.parseCookieListArgs([
+      "--session-id", "s1",
+      "--url", "https://example.com,https://example.com/path",
+      "--request-id", "req-list"
+    ]);
+    expect(parsed).toEqual({
+      sessionId: "s1",
+      urls: ["https://example.com/", "https://example.com/path"],
+      requestId: "req-list"
+    });
+
+    const result = await runCookieList({
+      command: "cookie-list",
+      mode: undefined,
+      withConfig: false,
+      noPrompt: false,
+      noInteractive: false,
+      quiet: false,
+      outputFormat: "json",
+      transport: "relay",
+      skillsMode: "global",
+      fullInstall: false,
+      rawArgs: ["--session-id", "s1", "--url", "https://example.com"]
+    });
+
+    expect(result).toEqual({
+      success: true,
+      message: "Cookies listed: 0",
+      data: { requestId: "req-list", cookies: [], count: 0 }
+    });
+    expect(callDaemonMock).toHaveBeenCalledWith("session.cookieList", {
+      sessionId: "s1",
+      urls: ["https://example.com/"],
+      requestId: undefined
+    });
+  });
 });

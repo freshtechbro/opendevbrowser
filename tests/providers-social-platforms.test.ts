@@ -5,7 +5,7 @@ import { ProviderRuntimeError } from "../src/providers/errors";
 import type { ProviderAdapter } from "../src/providers/types";
 
 const providers: ProviderAdapter[] = createSocialProviders();
-const platforms: SocialPlatform[] = ["x", "reddit", "bluesky", "linkedin", "instagram", "tiktok", "threads", "youtube"];
+const platforms: SocialPlatform[] = ["x", "reddit", "bluesky", "facebook", "linkedin", "instagram", "tiktok", "threads", "youtube"];
 
 const context = (requestId: string) => ({
   trace: { requestId, ts: new Date().toISOString() },
@@ -40,8 +40,67 @@ describe("social platform adapters", () => {
     }
   });
 
+  it("falls back to browser retrieval for auth-blocked social defaults across all social platforms (including reddit)", async () => {
+    const fallbackResolve = vi.fn(async (request: {
+      reasonCode: "token_required" | "auth_required" | "challenge_detected" | "rate_limited" | "env_limited" | "ip_blocked";
+      url?: string;
+    }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.facebook.com/search/top?q=browser%20automation",
+        html: `<html><body>fallback social content <a href="https://www.facebook.com/post/1">post</a></body></html>`
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 403,
+      url: String(input),
+      text: async () => "<html><body>auth wall</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+
+      const authBlockedProviders = [
+        "social/x",
+        "social/reddit",
+        "social/bluesky",
+        "social/facebook",
+        "social/linkedin",
+        "social/instagram",
+        "social/tiktok",
+        "social/threads"
+      ];
+
+      for (const providerId of authBlockedProviders) {
+        const result = await runtime.search(
+          { query: "browser automation", limit: 3 },
+          { source: "social", providerIds: [providerId] }
+        );
+        expect(result.ok).toBe(true);
+        expect(result.records.length).toBeGreaterThan(0);
+        expect(result.failures).toHaveLength(0);
+      }
+
+      expect(fallbackResolve).toHaveBeenCalled();
+      const providers = fallbackResolve.mock.calls
+        .map((call) => call[0]?.provider)
+        .filter((provider): provider is string => typeof provider === "string");
+      expect(providers).toEqual(expect.arrayContaining(authBlockedProviders));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("exposes normalized capability metadata for all configured platforms", () => {
-    expect(providers).toHaveLength(8);
+    expect(providers).toHaveLength(9);
 
     for (const provider of providers) {
       const caps = provider.capabilities();
@@ -320,7 +379,8 @@ describe("social platform adapters", () => {
       confirm: true,
       riskAccepted: true
     }, context("post-unavailable"))).rejects.toMatchObject({
-      code: "unavailable"
+      code: "unavailable",
+      reasonCode: "policy_blocked"
     });
   });
 

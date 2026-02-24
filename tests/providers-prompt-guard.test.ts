@@ -78,4 +78,13 @@ describe("provider prompt guard branches", () => {
     expect(sanitized.diagnostics.entries).toBeGreaterThan(0);
     expect(sanitized.diagnostics.quarantinedSegments).toBeGreaterThan(0);
   });
+
+  it("truncates long guard excerpts to bounded diagnostics payloads", () => {
+    const longSpan = "x".repeat(118);
+    const sanitized = sanitizePromptGuardText(`use the tool ${longSpan} delete`, true);
+    const first = sanitized.entries[0];
+    expect(first).toBeDefined();
+    expect(first?.excerpt.length ?? 0).toBeLessThanOrEqual(120);
+    expect(first?.excerpt.endsWith("...")).toBe(true);
+  });
 });

@@ -57,6 +57,11 @@ describe("loadGlobalConfig", () => {
     expect(config.providers?.adaptiveConcurrency.maxPerDomain).toBe(4);
     expect(config.providers?.crawler.workerThreads).toBe(4);
     expect(config.providers?.crawler.queueMax).toBe(2000);
+    expect(config.providers?.cookiePolicy).toBe("auto");
+    expect(config.providers?.cookieSource).toEqual({
+      type: "file",
+      value: "~/.config/opencode/opendevbrowser.provider-cookies.json"
+    });
     expect(config.devtools.showFullUrls).toBe(false);
     expect(config.devtools.showFullConsole).toBe(false);
     expect(config.fingerprint.tier1.enabled).toBe(true);
@@ -119,7 +124,18 @@ describe("loadGlobalConfig", () => {
           restrictedSafeRecoveryIntervalMs: 90000
         },
         adaptiveConcurrency: { enabled: true, maxGlobal: 12, maxPerDomain: 6 },
-        crawler: { workerThreads: 8, queueMax: 4000 }
+        crawler: { workerThreads: 8, queueMax: 4000 },
+        cookiePolicy: "required",
+        cookieSource: {
+          type: "inline",
+          value: [{
+            name: "sid",
+            value: "session",
+            domain: ".youtube.com",
+            path: "/",
+            secure: true
+          }]
+        }
       },
       devtools: { showFullUrls: true, showFullConsole: true },
       fingerprint: {
@@ -164,6 +180,17 @@ describe("loadGlobalConfig", () => {
     expect(config.providers?.adaptiveConcurrency.maxPerDomain).toBe(6);
     expect(config.providers?.crawler.workerThreads).toBe(8);
     expect(config.providers?.crawler.queueMax).toBe(4000);
+    expect(config.providers?.cookiePolicy).toBe("required");
+    expect(config.providers?.cookieSource).toEqual({
+      type: "inline",
+      value: [{
+        name: "sid",
+        value: "session",
+        domain: ".youtube.com",
+        path: "/",
+        secure: true
+      }]
+    });
     expect(config.devtools.showFullUrls).toBe(true);
     expect(config.devtools.showFullConsole).toBe(true);
     expect(config.fingerprint.tier1.warnOnly).toBe(false);
@@ -201,6 +228,52 @@ describe("loadGlobalConfig", () => {
     );
   });
 
+  it("normalizes transcript alias and cookie-source defaults across source types", () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      providers: {
+        transcript: {
+          modeDefault: "ytdlp"
+        },
+        cookieSource: {
+          type: "inline"
+        }
+      }
+    }));
+    const inlineConfig = loadGlobalConfig();
+    expect(inlineConfig.providers?.transcript.modeDefault).toBe("yt-dlp");
+    expect(inlineConfig.providers?.cookieSource).toEqual({
+      type: "inline",
+      value: []
+    });
+
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      providers: {
+        cookieSource: {
+          type: "file"
+        }
+      }
+    }));
+    const fileConfig = loadGlobalConfig();
+    expect(fileConfig.providers?.cookieSource).toEqual({
+      type: "file",
+      value: "~/.config/opencode/opendevbrowser.provider-cookies.json"
+    });
+
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      providers: {
+        cookieSource: {
+          type: "env"
+        }
+      }
+    }));
+    const envConfig = loadGlobalConfig();
+    expect(envConfig.providers?.cookieSource).toEqual({
+      type: "env",
+      value: "OPENDEVBROWSER_PROVIDER_COOKIES"
+    });
+  });
+
   it("strips JSONC comments", () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(`{
@@ -222,6 +295,23 @@ describe("loadGlobalConfig", () => {
     }));
 
     expect(() => loadGlobalConfig()).toThrow("Invalid opendevbrowser config");
+  });
+
+  it("rejects inline provider cookies without url/domain", () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      providers: {
+        cookieSource: {
+          type: "inline",
+          value: [{
+            name: "broken",
+            value: "cookie"
+          }]
+        }
+      }
+    }));
+
+    expect(() => loadGlobalConfig()).toThrow("Provider cookie entries must set url or domain.");
   });
 
   it("throws on malformed JSON", () => {
