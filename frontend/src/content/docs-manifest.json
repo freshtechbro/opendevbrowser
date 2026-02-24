@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-02-24T19:13:56.812Z",
+  "generatedAt": "2026-02-24T19:39:39.383Z",
   "categories": [
     {
       "slug": "changelog",
@@ -467,24 +467,6 @@
       "slug": "skills",
       "title": "Skills",
       "pages": [
-        {
-          "slug": "data-extraction",
-          "title": "data-extraction",
-          "route": "/docs/skills/data-extraction",
-          "sourcePath": "skills/data-extraction/SKILL.md"
-        },
-        {
-          "slug": "form-testing",
-          "title": "form-testing",
-          "route": "/docs/skills/form-testing",
-          "sourcePath": "skills/form-testing/SKILL.md"
-        },
-        {
-          "slug": "login-automation",
-          "title": "login-automation",
-          "route": "/docs/skills/login-automation",
-          "sourcePath": "skills/login-automation/SKILL.md"
-        },
         {
           "slug": "opendevbrowser-best-practices",
           "title": "opendevbrowser-best-practices",
