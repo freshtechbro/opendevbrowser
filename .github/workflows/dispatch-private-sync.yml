@@ -1,0 +1,83 @@
+name: Dispatch Private Website Sync
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - docs/**
+      - skills/**
+      - assets/**
+      - CHANGELOG.md
+      - src/tools/index.ts
+  workflow_dispatch:
+    inputs:
+      public_ref:
+        description: "Public repo ref to sync from"
+        required: true
+        default: "main"
+        type: string
+      public_sha:
+        description: "Optional explicit public SHA"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dispatch-private-sync-${{ github.ref_name || 'manual' }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve dispatch payload
+        id: payload
+        shell: bash
+        env:
+          TARGET_REPO_VAR: ${{ vars.PRIVATE_WEBSITE_REPO }}
+        run: |
+          set -euo pipefail
+
+          target_repo="${TARGET_REPO_VAR:-freshtechbro/opendevbrowser-website-deploy}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            public_ref="${GITHUB_REF_NAME}"
+            public_sha="${GITHUB_SHA}"
+          else
+            public_ref="${{ inputs.public_ref }}"
+            public_sha="${{ inputs.public_sha }}"
+            if [[ -z "${public_sha}" ]]; then
+              public_sha="${GITHUB_SHA}"
+            fi
+          fi
+
+          payload=$(printf '{"public_repo":"%s","public_ref":"%s","public_sha":"%s","trigger":"%s"}' \
+            "${GITHUB_REPOSITORY}" \
+            "${public_ref}" \
+            "${public_sha}" \
+            "${GITHUB_EVENT_NAME}")
+
+          {
+            echo "target_repo=${target_repo}"
+            echo "public_ref=${public_ref}"
+            echo "public_sha=${public_sha}"
+            echo "client_payload=${payload}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Warn when dispatch token is missing
+        if: ${{ secrets.PRIVATE_REPO_DISPATCH_TOKEN == '' }}
+        run: |
+          echo "PRIVATE_REPO_DISPATCH_TOKEN is not configured; skipping private repo dispatch."
+
+      - name: Dispatch sync event to private repo
+        if: ${{ secrets.PRIVATE_REPO_DISPATCH_TOKEN != '' }}
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PRIVATE_REPO_DISPATCH_TOKEN }}
+          repository: ${{ steps.payload.outputs.target_repo }}
+          event-type: opendevbrowser_public_sync
+          client-payload: ${{ steps.payload.outputs.client_payload }}

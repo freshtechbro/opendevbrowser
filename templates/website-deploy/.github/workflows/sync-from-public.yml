@@ -1,0 +1,137 @@
+name: Sync From Public
+
+on:
+  repository_dispatch:
+    types:
+      - opendevbrowser_public_sync
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      public_ref:
+        description: "Public repo ref to sync from"
+        required: true
+        default: "main"
+        type: string
+      public_sha:
+        description: "Optional explicit public SHA"
+        required: false
+        type: string
+      retention_count:
+        description: "Snapshot retention count"
+        required: true
+        default: "20"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-from-public-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve sync metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
+            public_ref="${{ github.event.client_payload.public_ref || 'main' }}"
+            public_sha="${{ github.event.client_payload.public_sha || '' }}"
+            retention="20"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            public_ref="${{ inputs.public_ref }}"
+            public_sha="${{ inputs.public_sha }}"
+            retention="${{ inputs.retention_count }}"
+          else
+            public_ref="main"
+            public_sha=""
+            retention="20"
+          fi
+
+          {
+            echo "public_ref=${public_ref}"
+            echo "public_sha=${public_sha}"
+            echo "retention=${retention}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Checkout private repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Sync inputs from public repo
+        env:
+          PUBLIC_REPO_URL: ${{ vars.PUBLIC_REPO_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_url="${PUBLIC_REPO_URL:-https://github.com/freshtechbro/opendevbrowser.git}"
+
+          node scripts/sync-from-public.mjs \
+            --public-repo "${repo_url}" \
+            --public-ref "${{ steps.meta.outputs.public_ref }}" \
+            --public-sha "${{ steps.meta.outputs.public_sha }}" \
+            --retain "${{ steps.meta.outputs.retention }}"
+
+      - name: Regenerate and validate frontend outputs
+        run: |
+          npm run sync:assets --prefix frontend
+          npm run generate:docs --prefix frontend
+          npm run lint --prefix frontend
+          npm run typecheck --prefix frontend
+          npm run build --prefix frontend
+
+      - name: Normalize generated timestamps
+        run: |
+          node scripts/sync-from-public.mjs \
+            --normalize-generated \
+            --public-sha "${{ steps.meta.outputs.public_sha }}"
+
+      - name: Commit synced changes
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet --ignore-submodules --exit-code; then
+            echo "No changes to commit."
+            echo "committed=false" >>"${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          sha="${{ steps.meta.outputs.public_sha }}"
+          if [[ -z "${sha}" ]]; then
+            sha="unknown"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs skills assets src/tools/index.ts CHANGELOG.md upstream frontend/src/content
+          git commit -m "chore(sync): mirror public content from ${sha}"
+          git push
+
+          echo "committed=true" >>"${GITHUB_OUTPUT}"
+
+      - name: Write workflow summary
+        shell: bash
+        run: |
+          {
+            echo "## Sync Summary"
+            echo "- public_ref: \`${{ steps.meta.outputs.public_ref }}\`"
+            echo "- public_sha: \`${{ steps.meta.outputs.public_sha || 'unknown' }}\`"
+            echo "- committed: \`${{ steps.commit.outputs.committed || 'false' }}\`"
+          } >>"${GITHUB_STEP_SUMMARY}"
