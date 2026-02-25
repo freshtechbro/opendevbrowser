@@ -1,14 +1,14 @@
 # OpenDevBrowser Asset Inventory
 
 Status: active  
-Last updated: 2026-02-22
+Last updated: 2026-02-25
 
-This inventory reflects the current `assets/` tree used by README and frontend branding flows.
+This inventory reflects the current `assets/` tree used by README, extension packaging, and private website branding flows.
 
 ## Source and usage
 
 - Source directory: `assets/`
-- Frontend sync target: `frontend/public/brand/` via `cd frontend && npm run sync:assets`
+- Private website sync target: `opendevbrowser-website-deploy/frontend/public/brand/` via `npm run sync:assets --prefix frontend` (private repo)
 - Extension sync target: `extension/icons/` via `npm run extension:build` (`scripts/copy-extension-assets.mjs`)
 - Design reference: `assets/DESIGN_SPEC.md`
 

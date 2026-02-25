@@ -1,0 +1,99 @@
+name: Chrome Store Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: "Git ref (branch/tag/SHA) to publish"
+        required: true
+        default: "main"
+        type: string
+      release_tag:
+        description: "Release tag (vX.Y.Z)"
+        required: true
+        type: string
+      publish:
+        description: "Publish to store after upload"
+        required: true
+        default: false
+        type: boolean
+      publish_target:
+        description: "Chrome Web Store publish target"
+        required: true
+        default: "default"
+        type: choice
+        options:
+          - default
+          - trustedTesters
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chrome-store-publish-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate release tag format
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${{ inputs.release_tag }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release_tag must match vX.Y.Z" >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify version alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(node -e "const pkg=require('./package.json'); process.stdout.write(String(pkg.version ?? ''));")
+          if [[ "v${package_version}" != "${{ inputs.release_tag }}" ]]; then
+            echo "package.json version (v${package_version}) does not match release_tag (${{ inputs.release_tag }})" >&2
+            exit 1
+          fi
+          npm run version:check
+
+      - name: Build extension artifact
+        run: |
+          npm run extension:build
+          npm run extension:pack
+
+      - name: Upload package to Chrome Web Store
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          publish_flag=""
+          if [[ "${{ inputs.publish }}" == "true" ]]; then
+            publish_flag="--publish"
+          fi
+
+          node scripts/chrome-store-publish.mjs \
+            --zip opendevbrowser-extension.zip \
+            --publish-target "${{ inputs.publish_target }}" \
+            ${publish_flag}

@@ -10,7 +10,7 @@
 
 > **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
-OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions. The repository also includes a production frontend app (`frontend/`) for the public product site and generated docs experience.
+OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions. Frontend website source and deployment are maintained in the private repo `opendevbrowser-website-deploy`.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
@@ -25,10 +25,14 @@ OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it a
 | **CLI (`npx opendevbrowser ...`)** | No | Any agent/workflow that can run shell commands |
 | **Chrome Extension + Relay** | No | Reusing existing logged-in tabs without launching a new browser |
 | **OpenCode Plugin Tools** | Yes | Native tool-calling inside OpenCode (`opendevbrowser_*`) |
-| **Frontend Website (`frontend/`)** | No | Public product pages and generated docs routes |
+| **Frontend Website (private repo)** | No | Product website and generated docs routes |
 
 All core automation flows are available through the CLI command surface and the plugin tool surface.
-Frontend docs routes are generated from repository source-of-truth docs and skill packs.
+Private website docs routes are generated from public repository source-of-truth docs and skill packs.
+
+Distribution split (current target state):
+- Public repo (`opendevbrowser`): runtime, CLI, extension, docs, npm, release artifacts.
+- Private repo (`opendevbrowser-website-deploy`): website deployment (`website-production` branch).
 
 ## Why OpenDevBrowser?
 
@@ -76,13 +80,13 @@ opendevbrowser --version
 Use this path to validate first-run onboarding before public distribution:
 
 ```bash
-cd /Users/bishopdotun/Documents/DevProjects/opendevbrowser
+cd <public-repo-root>
 npm pack
 
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install /Users/bishopdotun/Documents/DevProjects/opendevbrowser/opendevbrowser-0.0.16.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.16.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -121,16 +125,17 @@ npx opendevbrowser launch --no-extension
 Unpacked extension load path after local install:
 - `<WORKDIR>/node_modules/opendevbrowser/extension`
 
-### Frontend Website (Marketing + Generated Docs)
+### Frontend Website (Private Repo)
 
 ```bash
-cd frontend
+git clone https://github.com/freshtechbro/opendevbrowser-website-deploy.git
+cd opendevbrowser-website-deploy/frontend
 npm install
 npm run dev
 ```
 
-Frontend build/data pipeline:
-- `npm run sync:assets` copies `assets/` into `frontend/public/brand`.
+Website build/data pipeline lives in the private repo:
+- `npm run sync:assets` copies mirrored assets into private `frontend/public/brand`.
 - `npm run generate:docs` regenerates docs, metrics, and roadmap JSON consumed by `/docs`.
 
 ### Agent Installation (OpenCode)
@@ -754,11 +759,10 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
-├── frontend/         # Next.js marketing/docs frontend
 ├── scripts/          # Operational scripts (build/sync/smoke)
 ├── skills/           # Bundled skill packs (8 total)
 ├── tests/            # Vitest tests (97% coverage required)
-└── docs/             # Architecture, CLI, extension, frontend, plans
+└── docs/             # Architecture, CLI, extension, distribution plans
 ```
 
 Extension relay uses flat CDP sessions (Chrome 125+) with DebuggerSession `sessionId` routing for multi-tab support. When hub mode is enabled, the hub daemon is the sole relay owner and enforces a FIFO lease queue for multi-client safety. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture reference.
@@ -777,7 +781,7 @@ npm run version:check    # Verify package/extension version alignment
 npm run extension:pack   # Build extension zip for releases
 ```
 
-### Packaging & Distribution (NPM + GitHub + Extension)
+### Packaging & Distribution (Public + Private)
 
 Uniform versioning is required (source of truth: `package.json`):
 
@@ -787,9 +791,14 @@ Uniform versioning is required (source of truth: `package.json`):
 4. Run: `npm run build`
 5. Run: `npm run extension:build`
 6. Run: `npm run extension:pack` (outputs `./opendevbrowser-extension.zip`)
-7. Publish to NPM and attach the zip to the GitHub release tag (`vX.Y.Z`).
+7. Tag `vX.Y.Z` and let `.github/workflows/release-public.yml` publish npm + GitHub release artifacts.
+8. Dispatch website content sync to private repo through `.github/workflows/dispatch-private-sync.yml`.
 
-Release checklist: `docs/DISTRIBUTION_PLAN.md`
+Runbooks:
+- `docs/DISTRIBUTION_PLAN.md`
+- `docs/RELEASE_RUNBOOK.md`
+- `docs/EXTENSION_RELEASE_RUNBOOK.md`
+- `docs/CUTOVER_CHECKLIST.md`
 
 ---
 

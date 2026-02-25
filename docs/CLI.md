@@ -39,13 +39,13 @@ opendevbrowser --version
 ### Pre-release local package onboarding (no npm publish)
 
 ```bash
-cd /Users/bishopdotun/Documents/DevProjects/opendevbrowser
+cd <public-repo-root>
 npm pack
 
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install /Users/bishopdotun/Documents/DevProjects/opendevbrowser/opendevbrowser-0.0.15.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.15.tgz
 npx --no-install opendevbrowser --help
 ```
 

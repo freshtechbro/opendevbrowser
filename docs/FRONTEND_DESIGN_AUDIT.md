@@ -1,5 +1,7 @@
 # OpenDevBrowser Frontend Design Re-Audit (Premium Polish Pass)
 
+Status: historical (frontend source now maintained in private repo `opendevbrowser-website-deploy`)
+
 **Date:** 2026-02-21  
 **Auditor:** Amp (Implementation + Design QA)  
 **Scope:** `frontend/` directory with re-audit + direct refinement implementation across tokens, layout rhythm, glass fallback strategy, motion, and accessibility

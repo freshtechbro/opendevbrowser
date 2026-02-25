@@ -25,15 +25,15 @@ Concrete technical spec for reliable multi-tab parallel operations across OpenDe
 
 ### Current behavior (code-verified)
 - `BrowserManager` serializes many target operations through session-level mutex use.
-  - Evidence: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/browser-manager.ts:170`
-  - Evidence: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/browser-manager.ts:951`
+  - Evidence: `<public-repo-root>/src/browser/browser-manager.ts:170`
+  - Evidence: `<public-repo-root>/src/browser/browser-manager.ts:951`
 - `OpsRuntime` serializes all session commands through one session queue.
-  - Evidence: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/src/ops/ops-runtime.ts:1079`
+  - Evidence: `<public-repo-root>/extension/src/ops/ops-runtime.ts:1079`
 - Relay supports multiple `/ops` clients but single `/cdp` client.
-  - Evidence: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/relay/relay-server.ts:171`
-  - Evidence: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/relay/relay-server.ts:138`
+  - Evidence: `<public-repo-root>/src/relay/relay-server.ts:171`
+  - Evidence: `<public-repo-root>/src/relay/relay-server.ts:138`
 - `/cdp` attach is blocked for ops-owned targets.
-  - Evidence: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/relay/relay-server.ts:779`
+  - Evidence: `<public-repo-root>/src/relay/relay-server.ts:779`
 
 ### Design goals
 - Deterministic ordering on same target.
@@ -195,10 +195,10 @@ Document one canonical contract for command classes, queueing semantics, and par
 3. Add explicit parity scope notes in `docs/CLI.md` and `docs/EXTENSION.md`.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/ARCHITECTURE.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/SURFACE_REFERENCE.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CLI.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/EXTENSION.md`
+- `<public-repo-root>/docs/ARCHITECTURE.md`
+- `<public-repo-root>/docs/SURFACE_REFERENCE.md`
+- `<public-repo-root>/docs/CLI.md`
+- `<public-repo-root>/docs/EXTENSION.md`
 
 ### End goal
 All surfaces implement against one deterministic contract.
@@ -227,12 +227,12 @@ Implement a shared `ParallelismGovernor` that computes `effectiveParallelCap` fr
 6. Apply deterministic hysteresis/recovery rules from the policy table.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/core/types.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/config.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/relay/protocol.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/browser-manager.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/src/ops/ops-runtime.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/tools/workflow-runtime.ts`
+- `<public-repo-root>/src/core/types.ts`
+- `<public-repo-root>/src/config.ts`
+- `<public-repo-root>/src/relay/protocol.ts`
+- `<public-repo-root>/src/browser/browser-manager.ts`
+- `<public-repo-root>/extension/src/ops/ops-runtime.ts`
+- `<public-repo-root>/src/tools/workflow-runtime.ts`
 
 ### End goal
 Parallelism scales safely and predictably under changing memory pressure.
@@ -259,9 +259,9 @@ Standardize one-worker-one-session guidance for concurrent multitab workflows.
 3. Update matrix script examples to show session isolation pattern.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CLI.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/TROUBLESHOOTING.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/scripts/live-regression-matrix.mjs`
+- `<public-repo-root>/docs/CLI.md`
+- `<public-repo-root>/docs/TROUBLESHOOTING.md`
+- `<public-repo-root>/scripts/live-regression-matrix.mjs`
 
 ### End goal
 Teams can run safe parallel tab workflows immediately with current runtime.
@@ -287,13 +287,13 @@ Move `TargetScoped` execution to explicit `targetId` routing.
 3. Keep active-target state only as ergonomic fallback, not correctness dependency.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/manager-types.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/browser-manager.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/ops-browser-manager.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/cli/remote-manager.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/cli/daemon-commands.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/tools/index.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/tools/workflow-runtime.ts`
+- `<public-repo-root>/src/browser/manager-types.ts`
+- `<public-repo-root>/src/browser/browser-manager.ts`
+- `<public-repo-root>/src/browser/ops-browser-manager.ts`
+- `<public-repo-root>/src/cli/remote-manager.ts`
+- `<public-repo-root>/src/cli/daemon-commands.ts`
+- `<public-repo-root>/src/tools/index.ts`
+- `<public-repo-root>/src/tools/workflow-runtime.ts`
 
 ### End goal
 Target identity, not mutable active state, controls execution routing.
@@ -320,8 +320,8 @@ Replace broad per-session locking with target-scoped scheduling plus lightweight
 4. Plug governor cap checks into queue admission.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/browser-manager.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/target-manager.ts`
+- `<public-repo-root>/src/browser/browser-manager.ts`
+- `<public-repo-root>/src/browser/target-manager.ts`
 
 ### End goal
 Different targets within one session progress in parallel safely.
@@ -348,9 +348,9 @@ Implement target-scoped `/ops` scheduling with unchanged ownership invariants.
 4. Integrate governor admission and backpressure envelope.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/src/ops/ops-session-store.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/src/ops/ops-runtime.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/src/ops/dom-bridge.ts`
+- `<public-repo-root>/extension/src/ops/ops-session-store.ts`
+- `<public-repo-root>/extension/src/ops/ops-runtime.ts`
+- `<public-repo-root>/extension/src/ops/dom-bridge.ts`
 
 ### End goal
 `/ops` supports true in-session multi-target parallelism without lease bleed.
@@ -377,10 +377,10 @@ Add normalized parity harness across mode/surface combinations and gate unknown 
 4. Emit parity report artifact for release review.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/parity-matrix.test.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/daemon-commands.integration.test.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/scripts/live-regression-matrix.mjs`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/PARITY_DECLARED_DIVERGENCES.md` (new file)
+- `<public-repo-root>/tests/parity-matrix.test.ts`
+- `<public-repo-root>/tests/daemon-commands.integration.test.ts`
+- `<public-repo-root>/scripts/live-regression-matrix.mjs`
+- `<public-repo-root>/docs/PARITY_DECLARED_DIVERGENCES.md` (new file)
 
 ### End goal
 Parity drift is blocked by tests, not discovered after release.
@@ -406,10 +406,10 @@ Codify sequential-only behavior and warnings for legacy extension `/cdp`.
 3. Keep `/ops` default route and explicit legacy opt-in.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/relay/relay-server.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/cli/daemon-commands.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CLI.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/TROUBLESHOOTING.md`
+- `<public-repo-root>/src/relay/relay-server.ts`
+- `<public-repo-root>/src/cli/daemon-commands.ts`
+- `<public-repo-root>/docs/CLI.md`
+- `<public-repo-root>/docs/TROUBLESHOOTING.md`
 
 ### End goal
 Legacy mode remains usable but predictable and bounded.
@@ -449,25 +449,25 @@ Run mandatory documentation alignment sweep at the end of every phase.
 6. Record phase-level doc sweep completion in version history/release notes.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/README.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/ARCHITECTURE.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CLI.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/SURFACE_REFERENCE.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/EXTENSION.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/TROUBLESHOOTING.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/FRONTEND.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/cli/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/relay/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/tools/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/src/ops/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/src/services/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/frontend/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/frontend/src/AGENTS.md`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/frontend/scripts/generate-docs.mjs`
+- `<public-repo-root>/README.md`
+- `<public-repo-root>/docs/ARCHITECTURE.md`
+- `<public-repo-root>/docs/CLI.md`
+- `<public-repo-root>/docs/SURFACE_REFERENCE.md`
+- `<public-repo-root>/docs/EXTENSION.md`
+- `<public-repo-root>/docs/TROUBLESHOOTING.md`
+- `<public-repo-root>/docs/FRONTEND.md`
+- `<public-repo-root>/docs/AGENTS.md`
+- `<public-repo-root>/AGENTS.md`
+- `<public-repo-root>/src/AGENTS.md`
+- `<public-repo-root>/src/cli/AGENTS.md`
+- `<public-repo-root>/src/relay/AGENTS.md`
+- `<public-repo-root>/src/tools/AGENTS.md`
+- `<public-repo-root>/extension/AGENTS.md`
+- `<public-repo-root>/extension/src/ops/AGENTS.md`
+- `<public-repo-root>/extension/src/services/AGENTS.md`
+- `<public-repo-root>/frontend/AGENTS.md`
+- `<public-repo-root>/frontend/src/AGENTS.md`
+- `<public-repo-root>/frontend/scripts/generate-docs.mjs`
 
 ### End goal
 Documentation remains phase-synchronized with runtime truth.
@@ -496,13 +496,13 @@ Ship deterministic matrix and soak gates covering functional parity, memory gove
 5. Enforce full quality gate and parity gate before release.
 
 ### Files impacted
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/browser-manager.test.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/ops-browser-manager.test.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/extension-ops-runtime.test.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/relay-server.test.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/parity-matrix.test.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/daemon-commands.integration.test.ts`
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/scripts/live-regression-matrix.mjs`
+- `<public-repo-root>/tests/browser-manager.test.ts`
+- `<public-repo-root>/tests/ops-browser-manager.test.ts`
+- `<public-repo-root>/tests/extension-ops-runtime.test.ts`
+- `<public-repo-root>/tests/relay-server.test.ts`
+- `<public-repo-root>/tests/parity-matrix.test.ts`
+- `<public-repo-root>/tests/daemon-commands.integration.test.ts`
+- `<public-repo-root>/scripts/live-regression-matrix.mjs`
 
 ### End goal
 Parallel operations are stable, memory-safe, and parity-guarded across supported modes.
@@ -584,14 +584,14 @@ Parallel operations are stable, memory-safe, and parity-guarded across supported
 
 ## File-by-File Implementation Sequence
 
-1. `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/MULTITAB_PARALLEL_OPERATIONS_SPEC.md` — source of truth (this document)
-2. `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/core/types.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/config.ts` — governor config contract
-3. `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/manager-types.ts` — target-aware API surface
-4. `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/browser-manager.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/target-manager.ts` — Node scheduler + governor
-5. `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/src/ops/ops-session-store.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/src/ops/ops-runtime.ts` — `/ops` scheduler + governor
-6. `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/cli/remote-manager.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/cli/daemon-commands.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/tools/index.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/tools/workflow-runtime.ts` — plumbing + normalized envelopes
-7. `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/browser-manager.test.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/ops-browser-manager.test.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/extension-ops-runtime.test.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/relay-server.test.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/parity-matrix.test.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/tests/daemon-commands.integration.test.ts` + `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/scripts/live-regression-matrix.mjs` — parity/memory matrix gates
-8. `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/PARITY_DECLARED_DIVERGENCES.md` (new file) — divergence registry
+1. `<public-repo-root>/docs/MULTITAB_PARALLEL_OPERATIONS_SPEC.md` — source of truth (this document)
+2. `<public-repo-root>/src/core/types.ts` + `<public-repo-root>/src/config.ts` — governor config contract
+3. `<public-repo-root>/src/browser/manager-types.ts` — target-aware API surface
+4. `<public-repo-root>/src/browser/browser-manager.ts` + `<public-repo-root>/src/browser/target-manager.ts` — Node scheduler + governor
+5. `<public-repo-root>/extension/src/ops/ops-session-store.ts` + `<public-repo-root>/extension/src/ops/ops-runtime.ts` — `/ops` scheduler + governor
+6. `<public-repo-root>/src/cli/remote-manager.ts` + `<public-repo-root>/src/cli/daemon-commands.ts` + `<public-repo-root>/src/tools/index.ts` + `<public-repo-root>/src/tools/workflow-runtime.ts` — plumbing + normalized envelopes
+7. `<public-repo-root>/tests/browser-manager.test.ts` + `<public-repo-root>/tests/ops-browser-manager.test.ts` + `<public-repo-root>/tests/extension-ops-runtime.test.ts` + `<public-repo-root>/tests/relay-server.test.ts` + `<public-repo-root>/tests/parity-matrix.test.ts` + `<public-repo-root>/tests/daemon-commands.integration.test.ts` + `<public-repo-root>/scripts/live-regression-matrix.mjs` — parity/memory matrix gates
+8. `<public-repo-root>/docs/PARITY_DECLARED_DIVERGENCES.md` (new file) — divergence registry
 9. Docs sweep files + frontend doc generation outputs at end of each phase
 
 ---

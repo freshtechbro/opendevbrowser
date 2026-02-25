@@ -5,7 +5,7 @@ Optional Chrome extension that enables relay mode (attach to existing logged-in 
 Status: active  
 Last updated: 2026-02-24
 
-Quick file-level overview: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/extension/README.md`
+Quick file-level overview: `<public-repo-root>/extension/README.md`
 
 ## What it does
 
@@ -33,7 +33,7 @@ Requires Node.js `>=18` and the npm package (`npx opendevbrowser` recommended; `
 3. Open the extension popup to configure relay settings.
 
 For full first-run pre-release onboarding flow (local package install, isolated daemon, extension connect, first task), use:
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/FIRST_RUN_ONBOARDING.md`
+- `<public-repo-root>/docs/FIRST_RUN_ONBOARDING.md`
 
 ## Popup settings
 

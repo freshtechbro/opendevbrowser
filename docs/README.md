@@ -1,27 +1,31 @@
 # Documentation Index
 
-Canonical documentation map for OpenDevBrowser runtime, extension, and frontend docs surfaces.
+Canonical documentation map for OpenDevBrowser runtime, extension, and distribution surfaces.
 
 ## Active operational docs
 
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/README.md` - product overview, installation, and first-run flow
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/ARCHITECTURE.md` - canonical ASCII runtime architecture map, relay modes, and security boundaries
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CLI.md` - CLI commands, flags, and operational usage
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/FIRST_RUN_ONBOARDING.md` - first-time local-package onboarding and first-task verification flow
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/SURFACE_REFERENCE.md` - canonical command/tool/channel inventory
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/EXTENSION.md` - extension setup, relay behavior, and diagnostics
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/TROUBLESHOOTING.md` - deterministic recovery and verification guidance
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/ANNOTATE.md` - annotation workflows and artifact expectations
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/privacy.md` - extension privacy policy
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/LANDING_METRICS_SOURCE_OF_TRUTH.md` - landing metrics verification register
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/OPEN_SOURCE_ROADMAP.md` - public roadmap register
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/DEPENDENCIES.md` - dependency inventory and update policy
+- `<public-repo-root>/README.md` - product overview, installation, and first-run flow
+- `<public-repo-root>/docs/ARCHITECTURE.md` - canonical ASCII runtime architecture map, relay modes, and security boundaries
+- `<public-repo-root>/docs/CLI.md` - CLI commands, flags, and operational usage
+- `<public-repo-root>/docs/FIRST_RUN_ONBOARDING.md` - first-time local-package onboarding and first-task verification flow
+- `<public-repo-root>/docs/SURFACE_REFERENCE.md` - canonical command/tool/channel inventory
+- `<public-repo-root>/docs/EXTENSION.md` - extension setup, relay behavior, and diagnostics
+- `<public-repo-root>/docs/TROUBLESHOOTING.md` - deterministic recovery and verification guidance
+- `<public-repo-root>/docs/ANNOTATE.md` - annotation workflows and artifact expectations
+- `<public-repo-root>/docs/privacy.md` - extension privacy policy
+- `<public-repo-root>/docs/LANDING_METRICS_SOURCE_OF_TRUTH.md` - landing metrics verification register
+- `<public-repo-root>/docs/OPEN_SOURCE_ROADMAP.md` - public roadmap register
+- `<public-repo-root>/docs/DEPENDENCIES.md` - dependency inventory and update policy
+- `<public-repo-root>/docs/DISTRIBUTION_PLAN.md` - active public/private distribution strategy
+- `<public-repo-root>/docs/RELEASE_RUNBOOK.md` - public npm + GitHub release operations
+- `<public-repo-root>/docs/EXTENSION_RELEASE_RUNBOOK.md` - extension artifact/store publication operations
+- `<public-repo-root>/docs/CUTOVER_CHECKLIST.md` - public/private cutover and rollback checklist
 
-## Frontend and design docs
+## Website and design docs
 
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/FRONTEND.md` - frontend architecture, routes, and docs generation pipeline
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/FRONTEND_DESIGN_AUDIT.md` - implementation audit record
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/ASSET_INVENTORY.md` - brand and marketing asset inventory
+- `<public-repo-root>/docs/FRONTEND.md` - public/private website ownership, sync, and validation contract
+- `<public-repo-root>/docs/FRONTEND_DESIGN_AUDIT.md` - historical frontend implementation audit (pre-split reference)
+- `<public-repo-root>/docs/ASSET_INVENTORY.md` - brand and marketing asset inventory
 
 ## Planning/spec docs (historical or in-flight)
 
@@ -34,8 +38,14 @@ Use these as planning references only; verify against runtime code and active do
 
 ## Update workflow
 
-1. Validate implementation truth in source files (`src/**`, `extension/**`, `frontend/src/**`).
+1. Validate implementation truth in source files (`src/**`, `extension/**`) and mirrored website inputs (`docs/**`, `skills/**`, `assets/**`, `CHANGELOG.md`, `src/tools/index.ts`).
 2. Update active documentation sources in this directory.
-3. Regenerate frontend docs content:
-   - `cd /Users/bishopdotun/Documents/DevProjects/opendevbrowser/frontend && npm run generate:docs`
-4. Run quality gates before closing the task.
+3. Dispatch private website sync after public source updates:
+   - `.github/workflows/dispatch-private-sync.yml`
+4. Validate private website generation/build in `opendevbrowser-website-deploy`:
+   - `npm run sync:assets --prefix frontend`
+   - `npm run generate:docs --prefix frontend`
+   - `npm run lint --prefix frontend`
+   - `npm run typecheck --prefix frontend`
+   - `npm run build --prefix frontend`
+5. Run public quality gates before closing the task.

@@ -1,0 +1,114 @@
+name: Promote Website Production
+
+on:
+  workflow_run:
+    workflows:
+      - Sync From Public
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Ref to promote"
+        required: true
+        default: "main"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-website-production
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve promotion source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            source_ref="${{ inputs.source_ref }}"
+          else
+            source_ref="main"
+          fi
+          echo "source_ref=${source_ref}" >>"${GITHUB_OUTPUT}"
+
+      - name: Checkout source ref
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.source.outputs.source_ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Re-run website quality gates
+        run: |
+          npm run sync:assets --prefix frontend
+          npm run generate:docs --prefix frontend
+          npm run lint --prefix frontend
+          npm run typecheck --prefix frontend
+          npm run build --prefix frontend
+
+      - name: Build promotion metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_sha=$(git rev-parse HEAD)
+          upstream_sha=$(git log --max-count=1 --pretty=%B | sed -n 's/.*from \([a-f0-9]\{7,40\}\).*/\1/p')
+          if [[ -z "${upstream_sha}" ]]; then
+            upstream_sha="unknown"
+          fi
+
+          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          cat > promotion-metadata.json <<JSON
+          {
+            "source_ref": "${{ steps.source.outputs.source_ref }}",
+            "source_sha": "${source_sha}",
+            "upstream_sha": "${upstream_sha}",
+            "promoted_at_utc": "${timestamp}"
+          }
+          JSON
+
+          {
+            echo "source_sha=${source_sha}"
+            echo "upstream_sha=${upstream_sha}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Upload promotion metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-production-promotion-metadata
+          path: promotion-metadata.json
+
+      - name: Promote to website-production branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin "${{ steps.metadata.outputs.source_sha }}:refs/heads/website-production" --force
+
+      - name: Write workflow summary
+        shell: bash
+        run: |
+          {
+            echo "## Promotion Summary"
+            echo "- source_ref: \`${{ steps.source.outputs.source_ref }}\`"
+            echo "- source_sha: \`${{ steps.metadata.outputs.source_sha }}\`"
+            echo "- upstream_sha: \`${{ steps.metadata.outputs.upstream_sha }}\`"
+          } >>"${GITHUB_STEP_SUMMARY}"

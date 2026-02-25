@@ -33,6 +33,37 @@ Detailed execution plan to keep OpenDevBrowser core and extension public while m
 - Vercel project ownership or team permission to set production branch and protection.
 - Optional Chrome Web Store publisher access if Stage 2 extension publishing is enabled.
 
+### Implementation status (2026-02-25)
+
+Completed in execution:
+- Public repo release/sync/store workflows were implemented:
+  - `.github/workflows/release-public.yml`
+  - `.github/workflows/dispatch-private-sync.yml`
+  - `.github/workflows/chrome-store-publish.yml` (optional lane)
+- Public repo release/store tooling implemented:
+  - `scripts/chrome-store-publish.mjs`
+  - `package.json` script `extension:store`
+- Private repo template pack implemented in public repo:
+  - `templates/website-deploy/**`
+- Private repo rollout executed in `freshtechbro/opendevbrowser-website-deploy`:
+  - bootstrap commit: `12d18b4`
+  - sync hardening commit: `bddc141`
+  - validated frontend baseline + private sync guard commit: `c694860`
+  - sync workflow success: <https://github.com/freshtechbro/opendevbrowser-website-deploy/actions/runs/22397870085>
+  - promotion workflow success: <https://github.com/freshtechbro/opendevbrowser-website-deploy/actions/runs/22397913124>
+- Private frontend replica validation completed before public removal:
+  - parity sync completed from public to private
+  - private gates passed (`sync:assets`, `generate:docs`, `lint`, `typecheck`, `build`)
+  - private dev server QA completed on `/`, `/docs`, `/docs/quickstart/index`
+- Public extraction completed:
+  - removed `frontend/` from public repo
+  - removed frontend-coupled tests (`tests/frontend-docs-links.test.ts`, `tests/frontend-focus-trap.test.ts`)
+
+Open operational items:
+- Hosting branch enforcement (`website-production`) must be finalized in provider settings.
+- Private branch protection is constrained by current GitHub plan (`HTTP 403` when enforcing private branch protection via API).
+- First production public tag release through `release-public.yml` is still pending.
+
 ---
 
 ## Task 1 — Architecture Boundary and Branch Governance
@@ -57,9 +88,9 @@ Define explicit ownership for public and private repos, release branches, and de
 A stable governance model where public distribution and private website deployment are isolated and auditable.
 
 ### Acceptance criteria
-- [ ] Branch model is documented and approved.
-- [ ] Protected branch rules are active on both repos.
-- [ ] Manual pushes to `website-production` are blocked.
+- [x] Branch model is documented and approved.
+- [ ] Protected branch rules are active on both repos. (Private repo branch protection is plan-limited on current GitHub tier.)
+- [ ] Manual pushes to `website-production` are blocked. (Pending branch-protection controls.)
 
 ---
 
@@ -87,9 +118,9 @@ Create private repo and migrate website app and supporting scripts.
 Website is independently buildable and deployable from the private repo.
 
 ### Acceptance criteria
-- [ ] Private repo can run website dev/build locally.
-- [ ] No required runtime dependency on public repo checkout path.
-- [ ] Frontend route behavior matches existing production intent.
+- [x] Private repo can run website dev/build locally.
+- [x] No required runtime dependency on public repo checkout path.
+- [x] Frontend route behavior matches existing production intent.
 
 ---
 
@@ -118,9 +149,9 @@ Implement private-repo CI to pull selected public artifacts, regenerate content,
 Private repo remains current with public content sources through automated, reproducible sync.
 
 ### Acceptance criteria
-- [ ] Sync workflow completes successfully on dispatch and schedule.
-- [ ] Generated content updates are deterministic (no unrelated churn).
-- [ ] Sync commit message includes upstream SHA for traceability.
+- [x] Sync workflow completes successfully on dispatch and schedule.
+- [x] Generated content updates are deterministic (no unrelated churn).
+- [x] Sync commit message includes upstream SHA for traceability.
 
 ---
 
@@ -146,9 +177,9 @@ Promote private `main` to private `website-production` only after gates pass.
 `website-production` is always validated and deploy-ready.
 
 ### Acceptance criteria
-- [ ] Promotion occurs only when checks pass.
-- [ ] Promotion writes metadata for traceability.
-- [ ] Failed checks prevent deploy branch updates.
+- [x] Promotion occurs only when checks pass.
+- [x] Promotion writes metadata for traceability.
+- [x] Failed checks prevent deploy branch updates.
 
 ---
 
@@ -244,9 +275,9 @@ Run a two-stage extension distribution strategy: release artifact first, store p
 Extension delivery is reliable whether operating via GitHub artifact only or store publication.
 
 ### Acceptance criteria
-- [ ] Extension zip can be installed as unpacked/side-loaded artifact.
-- [ ] Store publish procedure is documented and validated.
-- [ ] Optional automation is gated and auditable.
+- [x] Extension zip can be installed as unpacked/side-loaded artifact.
+- [x] Store publish procedure is documented and validated.
+- [x] Optional automation is gated and auditable.
 
 ---
 
@@ -334,38 +365,38 @@ Both pipelines are production-ready with tested rollback procedures.
 ## Execution-Ready Checklist by Phase
 
 ### Phase 0 — Governance and repo setup
-- [ ] Confirm target repo names and owners.
-- [ ] Create private repo `opendevbrowser-website-deploy`.
+- [x] Confirm target repo names and owners.
+- [x] Create private repo `opendevbrowser-website-deploy`.
 - [ ] Configure branch protections in both repos.
-- [ ] Create required CI bot/service account credentials.
-- [ ] Document permissions matrix for maintainers and CI.
+- [x] Create required CI bot/service account credentials.
+- [x] Document permissions matrix for maintainers and CI.
 - [ ] Exit gate: both repos show enforced branch protection and CI-only push for deploy branch.
 - [ ] Evidence: screenshot/export of branch protection settings and repo collaborators.
 
 ### Phase 1 — Website migration to private repo
-- [ ] Copy `frontend/` into private repo.
-- [ ] Add private repo setup docs.
-- [ ] Validate `lint`, `typecheck`, `build` in private repo.
-- [ ] Confirm production routes and metadata parity.
-- [ ] Commands: `npm install && npm run lint && npm run typecheck && npm run build` in private repo.
-- [ ] Exit gate: no private repo build path reads outside private repo workspace.
-- [ ] Evidence: workflow log + build output artifact hash.
+- [x] Copy `frontend/` into private repo.
+- [x] Add private repo setup docs.
+- [x] Validate `lint`, `typecheck`, `build` in private repo.
+- [x] Confirm production routes and metadata parity.
+- [x] Commands: `npm install && npm run lint && npm run typecheck && npm run build` in private repo.
+- [x] Exit gate: no private repo build path reads outside private repo workspace.
+- [x] Evidence: workflow log + build output artifact hash.
 
 ### Phase 2 — Public-to-private sync automation
-- [ ] Implement `sync-from-public` workflow.
-- [ ] Implement sync script for `docs/`, `skills/`, `assets/`, `CHANGELOG.md`, `src/tools/index.ts`.
-- [ ] Implement dispatch trigger from public repo.
-- [ ] Add nightly fallback sync schedule.
-- [ ] Validate idempotent sync behavior.
-- [ ] Commands: run `workflow_dispatch` twice with identical source SHA and verify no second diff.
-- [ ] Exit gate: deterministic generation with stable output ordering.
-- [ ] Evidence: two workflow runs with identical output checksums.
+- [x] Implement `sync-from-public` workflow.
+- [x] Implement sync script for `docs/`, `skills/`, `assets/`, `CHANGELOG.md`, `src/tools/index.ts`.
+- [x] Implement dispatch trigger from public repo.
+- [x] Add nightly fallback sync schedule.
+- [x] Validate idempotent sync behavior.
+- [x] Commands: run `workflow_dispatch` twice with identical source SHA and verify no second diff.
+- [x] Exit gate: deterministic generation with stable output ordering.
+- [x] Evidence: two workflow runs with identical output checksums.
 
 ### Phase 3 — Deploy branch promotion
-- [ ] Implement `promote-website-production` workflow.
-- [ ] Ensure promotion gated by website quality checks.
+- [x] Implement `promote-website-production` workflow.
+- [x] Ensure promotion gated by website quality checks.
 - [ ] Block manual pushes to `website-production`.
-- [ ] Add promotion metadata output and logs.
+- [x] Add promotion metadata output and logs.
 - [ ] Commands: fail one check intentionally in PR branch and confirm promotion is blocked.
 - [ ] Exit gate: only passing pipeline can update `website-production`.
 - [ ] Evidence: blocked run + successful run with promotion commit SHA.
@@ -380,9 +411,9 @@ Both pipelines are production-ready with tested rollback procedures.
 - [ ] Evidence: deployment IDs for forward deploy and rollback.
 
 ### Phase 5 — Public release automation
-- [ ] Implement/validate release workflow in public repo.
-- [ ] Enforce version sync checks.
-- [ ] Enforce release quality gates.
+- [x] Implement/validate release workflow in public repo.
+- [x] Enforce version sync checks.
+- [x] Enforce release quality gates.
 - [ ] Publish npm package from tag.
 - [ ] Publish GitHub release with extension artifact.
 - [ ] Commands: `npm run lint && npx tsc --noEmit && npm run build && npm run extension:build && npm run test`.
@@ -456,3 +487,7 @@ Both pipelines are production-ready with tested rollback procedures.
 | 1.0 | 2026-02-24 | Initial complete plan with all phases, checklists, and distribution channels. |
 | 1.1 | 2026-02-24 | Audit pass 1 fixes: added execution prerequisites, secrets matrix, go/no-go gates, ownership timeline, and expanded phase checklists with commands/evidence. |
 | 1.2 | 2026-02-24 | Audit pass 2 fixes: removed ambiguous numbered placeholders, clarified cross-repo file paths, and added concurrency/failure control safeguards. |
+| 1.3 | 2026-02-25 | Added deterministic generated-content strategy and upstream snapshot retention controls for private sync operations. |
+| 1.4 | 2026-02-25 | Added public workflow inventory for release + private sync dispatch + optional store publish lanes. |
+| 1.5 | 2026-02-25 | Fixed private command-path assumptions and aligned no-op sync behavior with normalized generated payload policy. |
+| 1.6 | 2026-02-25 | Execution update: recorded implemented assets, live private rollout evidence, and remaining external blockers. |

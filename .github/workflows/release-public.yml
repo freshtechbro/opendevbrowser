@@ -1,0 +1,157 @@
+name: Public Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: "Git ref (branch/tag/SHA) to release"
+        required: true
+        default: "main"
+        type: string
+      release_tag:
+        description: "Release tag (vX.Y.Z)"
+        required: true
+        type: string
+      publish_npm:
+        description: "Publish package to npm"
+        required: true
+        default: false
+        type: boolean
+      publish_github_release:
+        description: "Publish GitHub release with extension artifact"
+        required: true
+        default: true
+        type: boolean
+      draft_release:
+        description: "Create GitHub release as draft"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-public-${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            release_ref="${GITHUB_REF}"
+            release_tag="${GITHUB_REF_NAME}"
+            publish_npm="true"
+            publish_release="true"
+            draft_release="false"
+          else
+            release_ref="${{ inputs.release_ref }}"
+            release_tag="${{ inputs.release_tag }}"
+            publish_npm="${{ inputs.publish_npm }}"
+            publish_release="${{ inputs.publish_github_release }}"
+            draft_release="${{ inputs.draft_release }}"
+          fi
+
+          if [[ ! "${release_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vX.Y.Z, got ${release_tag}" >&2
+            exit 1
+          fi
+
+          release_version="${release_tag#v}"
+
+          {
+            echo "release_ref=${release_ref}"
+            echo "release_tag=${release_tag}"
+            echo "release_version=${release_version}"
+            echo "publish_npm=${publish_npm}"
+            echo "publish_release=${publish_release}"
+            echo "draft_release=${draft_release}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.meta.outputs.release_ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release version alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(node -e "const pkg=require('./package.json'); process.stdout.write(String(pkg.version ?? ''));")
+          if [[ -z "${package_version}" ]]; then
+            echo "package.json version is missing" >&2
+            exit 1
+          fi
+          if [[ "${package_version}" != "${{ steps.meta.outputs.release_version }}" ]]; then
+            echo "package.json version (${package_version}) does not match release tag (${{ steps.meta.outputs.release_tag }})" >&2
+            exit 1
+          fi
+
+      - name: Run release quality gates
+        run: |
+          npm run version:check
+          npm run lint
+          npm run typecheck
+          npm run test
+          npm run build
+          npm run extension:build
+
+      - name: Pack extension artifact
+        run: npm run extension:pack
+
+      - name: Compute extension checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f opendevbrowser-extension.zip ]]; then
+            echo "opendevbrowser-extension.zip was not created" >&2
+            exit 1
+          fi
+          shasum -a 256 opendevbrowser-extension.zip > opendevbrowser-extension.zip.sha256
+          cat opendevbrowser-extension.zip.sha256
+
+      - name: Publish npm package
+        if: steps.meta.outputs.publish_npm == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "NPM_TOKEN is required when publish_npm=true" >&2
+            exit 1
+          fi
+          npm publish --access public
+
+      - name: Publish GitHub release
+        if: steps.meta.outputs.publish_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.release_tag }}
+          draft: ${{ steps.meta.outputs.draft_release == 'true' }}
+          generate_release_notes: true
+          files: |
+            opendevbrowser-extension.zip
+            opendevbrowser-extension.zip.sha256
