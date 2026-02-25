@@ -1,5 +1,8 @@
 # Annotate
 
+Status: active  
+Last updated: 2026-02-24
+
 OpenDevBrowser can capture interactive annotations either directly via CDP/Playwright or through the extension relay, and
 return a markdown summary plus structured data and screenshots. This is exposed via the `opendevbrowser_annotate` tool.
 
@@ -13,6 +16,9 @@ return a markdown summary plus structured data and screenshots. This is exposed 
 - Relay daemon running (`npx opendevbrowser serve` or auto-started daemon).
 - Chrome extension connected (popup shows **Connected**).
 - Session must be in **extension** mode (relay).
+
+Mode boundary:
+- Extension-intent headless launch/connect is unsupported (`unsupported_mode`); use managed or cdpConnect for headless annotate runs.
 
 ## CLI Usage
 
@@ -34,6 +40,9 @@ npx opendevbrowser annotate --session-id <session-id> --url https://example.com 
 CLI output:
 - Text mode prints the markdown summary directly.
 - JSON/stream-json returns `{ success, message, data }`, where `data.details` is the redacted payload and `data.screenshots` lists local file paths.
+
+For first-run pre-release onboarding and extension connection steps, see:
+- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/FIRST_RUN_ONBOARDING.md`
 
 ## Extension UI
 

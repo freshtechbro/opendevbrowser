@@ -26,6 +26,9 @@ describe("OpsRuntime target teardown", () => {
           addListener: vi.fn((listener: TabRemovedListener) => {
             tabRemovedListener = listener;
           })
+        },
+        onUpdated: {
+          addListener: vi.fn()
         }
       },
       debugger: {
@@ -149,5 +152,214 @@ describe("OpsRuntime target teardown", () => {
     expect(updated?.targets.has("tab-202")).toBe(true);
     expect(cdp.detachTab).not.toHaveBeenCalled();
     expect(sent).toEqual([]);
+  });
+
+  it("handles storage.setCookies with validated payloads", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-cookies",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "storage.setCookies",
+      payload: {
+        requestId: "cookie-import-1",
+        strict: true,
+        cookies: [{ name: "session", value: "abc123", url: "https://example.com" }]
+      }
+    });
+    await flushMicrotasks();
+
+    expect(cdp.sendCommand).toHaveBeenCalledWith(
+      { tabId: 101 },
+      "Network.setCookies",
+      {
+        cookies: [{ name: "session", value: "abc123", url: "https://example.com/" }]
+      }
+    );
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-cookies",
+          payload: {
+            requestId: "cookie-import-1",
+            imported: 1,
+            rejected: []
+          }
+        })
+      ])
+    );
+  });
+
+  it("rejects strict storage.setCookies payloads with invalid entries", async () => {
+    const sent: Array<{ type?: string; requestId?: string; error?: { code?: string; message?: string } }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; error?: { code?: string; message?: string } }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-cookies-invalid",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "storage.setCookies",
+      payload: {
+        requestId: "cookie-import-2",
+        strict: true,
+        cookies: [{ name: "session", value: "abc123", domain: ".example.com", sameSite: "None", secure: false }]
+      }
+    });
+    await flushMicrotasks();
+
+    expect(cdp.sendCommand).not.toHaveBeenCalled();
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_error",
+          requestId: "req-cookies-invalid",
+          error: expect.objectContaining({
+            code: "invalid_request",
+            message: "Cookie import rejected 1 entries."
+          })
+        })
+      ])
+    );
+  });
+
+  it("handles storage.getCookies with url filters", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({
+        cookies: [{
+          name: "session",
+          value: "abc123",
+          domain: "example.com",
+          path: "/",
+          expires: -1,
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax"
+        }]
+      }))
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-cookies-list",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "storage.getCookies",
+      payload: {
+        requestId: "cookie-list-1",
+        urls: ["https://example.com"]
+      }
+    });
+    await flushMicrotasks();
+
+    expect(cdp.sendCommand).toHaveBeenCalledWith(
+      { tabId: 101 },
+      "Network.getCookies",
+      { urls: ["https://example.com/"] }
+    );
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-cookies-list",
+          payload: {
+            requestId: "cookie-list-1",
+            cookies: [{
+              name: "session",
+              value: "abc123",
+              domain: "example.com",
+              path: "/",
+              expires: -1,
+              httpOnly: true,
+              secure: true,
+              sameSite: "Lax"
+            }],
+            count: 1
+          }
+        })
+      ])
+    );
+  });
+
+  it("rejects invalid storage.getCookies url filters", async () => {
+    const sent: Array<{ type?: string; requestId?: string; error?: { code?: string; message?: string } }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({ cookies: [] }))
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; error?: { code?: string; message?: string } }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-cookies-list-invalid",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "storage.getCookies",
+      payload: {
+        urls: ["ftp://example.com"]
+      }
+    });
+    await flushMicrotasks();
+
+    expect(cdp.sendCommand).not.toHaveBeenCalled();
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_error",
+          requestId: "req-cookies-list-invalid",
+          error: expect.objectContaining({
+            code: "invalid_request",
+            message: expect.stringContaining("http(s)")
+          })
+        })
+      ])
+    );
   });
 });

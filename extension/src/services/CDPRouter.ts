@@ -91,14 +91,44 @@ export class CDPRouter {
       }
       await this.safeDetach(debuggee);
       if (allowRetry && this.isStaleTabError(error)) {
+        const attemptedTabIds = new Set<number>([tabId]);
+        let lastStaleError: unknown = error;
         const activeTabId = await this.tabManager.getActiveTabId();
-        if (activeTabId && activeTabId !== tabId) {
-          return await this.attachInternal(activeTabId, false);
+        if (activeTabId && !attemptedTabIds.has(activeTabId)) {
+          attemptedTabIds.add(activeTabId);
+          try {
+            return await this.attachInternal(activeTabId, false);
+          } catch (candidateError) {
+            if (!this.isStaleTabError(candidateError)) {
+              throw candidateError;
+            }
+            lastStaleError = candidateError;
+          }
         }
         const fallbackTabId = await this.tabManager.getFirstHttpTabId();
-        if (fallbackTabId && fallbackTabId !== tabId) {
-          return await this.attachInternal(fallbackTabId, false);
+        if (fallbackTabId && !attemptedTabIds.has(fallbackTabId)) {
+          attemptedTabIds.add(fallbackTabId);
+          try {
+            return await this.attachInternal(fallbackTabId, false);
+          } catch (candidateError) {
+            if (!this.isStaleTabError(candidateError)) {
+              throw candidateError;
+            }
+            lastStaleError = candidateError;
+          }
         }
+        try {
+          const createdTab = await this.tabManager.createTab("about:blank", true);
+          if (typeof createdTab.id === "number" && !attemptedTabIds.has(createdTab.id)) {
+            return await this.attachInternal(createdTab.id, false);
+          }
+        } catch (candidateError) {
+          if (!this.isStaleTabError(candidateError)) {
+            throw candidateError;
+          }
+          lastStaleError = candidateError;
+        }
+        throw lastStaleError;
       }
       throw error;
     }
@@ -551,7 +581,24 @@ export class CDPRouter {
   }
 
   async sendCommand(debuggee: DebuggerSession, method: string, params: object): Promise<unknown> {
-    return new Promise((resolve, reject) => {
+    try {
+      return await this.sendCommandOnce(debuggee, method, params);
+    } catch (error) {
+      const hasChildSession = typeof (debuggee as { sessionId?: unknown }).sessionId === "string";
+      if (!this.isStaleTabError(error) || hasChildSession) {
+        throw error;
+      }
+
+      const recovered = await this.recoverFromStaleTab(debuggee);
+      if (!recovered) {
+        throw error;
+      }
+      return await this.sendCommandOnce(recovered, method, params);
+    }
+  }
+
+  private async sendCommandOnce(debuggee: DebuggerSession, method: string, params: object): Promise<unknown> {
+    return await new Promise((resolve, reject) => {
       chrome.debugger.sendCommand(debuggee as chrome.debugger.Debuggee, method, params, (result) => {
         const lastError = chrome.runtime.lastError;
         if (lastError) {
@@ -561,6 +608,25 @@ export class CDPRouter {
         resolve(result);
       });
     });
+  }
+
+  private async recoverFromStaleTab(debuggee: DebuggerSession): Promise<DebuggerSession | null> {
+    const staleTabId = typeof debuggee.tabId === "number" ? debuggee.tabId : null;
+    if (staleTabId === null) {
+      return null;
+    }
+
+    this.debuggees.delete(staleTabId);
+    this.detachTabState(staleTabId);
+    await this.safeDetach({ tabId: staleTabId });
+
+    try {
+      await this.attachInternal(staleTabId, true);
+    } catch {
+      return null;
+    }
+
+    return this.getPrimaryDebuggee();
   }
 
   private isStaleTabError(error: unknown): boolean {

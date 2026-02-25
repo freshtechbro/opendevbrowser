@@ -1,0 +1,14 @@
+{
+  "session_id": "session-123",
+  "url_before": "https://example.com/login",
+  "url_after": "https://example.com/app",
+  "auth_element_ref": "r42",
+  "auth_element_visible": true,
+  "network": {
+    "login_request_seen": true,
+    "status_codes": [200]
+  },
+  "challenge_detected": false,
+  "mfa_detected": true,
+  "result": "authenticated"
+}

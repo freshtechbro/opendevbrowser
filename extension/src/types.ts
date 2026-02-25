@@ -80,6 +80,32 @@ export const OPS_PROTOCOL_VERSION = "1";
 export const MAX_OPS_PAYLOAD_BYTES = 12 * 1024 * 1024;
 export const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
 
+export type ParallelismModeCapsPolicy = {
+  managedHeaded: number;
+  managedHeadless: number;
+  cdpConnectHeaded: number;
+  cdpConnectHeadless: number;
+  extensionOpsHeaded: number;
+  extensionLegacyCdpHeaded: number;
+};
+
+export type ParallelismGovernorPolicyPayload = {
+  floor: number;
+  backpressureTimeoutMs: number;
+  sampleIntervalMs: number;
+  recoveryStableWindows: number;
+  hostFreeMemMediumPct: number;
+  hostFreeMemHighPct: number;
+  hostFreeMemCriticalPct: number;
+  rssBudgetMb: number;
+  rssSoftPct: number;
+  rssHighPct: number;
+  rssCriticalPct: number;
+  queueAgeHighMs: number;
+  queueAgeCriticalMs: number;
+  modeCaps: ParallelismModeCapsPolicy;
+};
+
 export type OpsErrorCode =
   | "ops_unavailable"
   | "invalid_request"
@@ -90,6 +116,7 @@ export type OpsErrorCode =
   | "not_supported"
   | "snapshot_too_large"
   | "execution_failed"
+  | "parallelism_backpressure"
   | "cdp_attach_failed"
   | "cdp_session_lost"
   | "cdp_attach_blocked";

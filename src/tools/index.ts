@@ -34,11 +34,18 @@ import { createRunTool } from "./run";
 import { createPromptingGuideTool } from "./prompting_guide";
 import { createConsolePollTool } from "./console_poll";
 import { createNetworkPollTool } from "./network_poll";
+import { createDebugTraceSnapshotTool } from "./debug_trace_snapshot";
+import { createCookieImportTool } from "./cookie_import";
+import { createCookieListTool } from "./cookie_list";
+import { createMacroResolveTool } from "./macro_resolve";
 import { createClonePageTool } from "./clone_page";
 import { createCloneComponentTool } from "./clone_component";
 import { createPerfTool } from "./perf";
 import { createScreenshotTool } from "./screenshot";
 import { createAnnotateTool } from "./annotate";
+import { createResearchRunTool } from "./research_run";
+import { createShoppingRunTool } from "./shopping_run";
+import { createProductVideoRunTool } from "./product_video_run";
 import { createSkillListTool } from "./skill_list";
 import { createSkillLoadTool } from "./skill_load";
 
@@ -93,6 +100,13 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_prompting_guide: wrap(createPromptingGuideTool(deps)),
     opendevbrowser_console_poll: wrap(createConsolePollTool(deps)),
     opendevbrowser_network_poll: wrap(createNetworkPollTool(deps)),
+    opendevbrowser_debug_trace_snapshot: wrap(createDebugTraceSnapshotTool(deps)),
+    opendevbrowser_cookie_import: wrap(createCookieImportTool(deps)),
+    opendevbrowser_cookie_list: wrap(createCookieListTool(deps)),
+    opendevbrowser_macro_resolve: wrap(createMacroResolveTool(deps)),
+    opendevbrowser_research_run: wrap(createResearchRunTool(deps)),
+    opendevbrowser_shopping_run: wrap(createShoppingRunTool(deps)),
+    opendevbrowser_product_video_run: wrap(createProductVideoRunTool(deps)),
     opendevbrowser_clone_page: wrap(createClonePageTool(deps)),
     opendevbrowser_clone_component: wrap(createCloneComponentTool(deps)),
     opendevbrowser_perf: wrap(createPerfTool(deps)),

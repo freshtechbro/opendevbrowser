@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import type { ParsedArgs } from "../args";
 import { startDaemon, readDaemonMetadata } from "../daemon";
 import { loadGlobalConfig } from "../../config";
@@ -5,6 +6,8 @@ import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { fetchWithTimeout } from "../utils/http";
 import { discoverExtensionId, getNativeStatusSnapshot, installNativeHost } from "./native";
+import type { DaemonStatusPayload } from "../daemon-status";
+import { fetchDaemonStatus } from "../daemon-status";
 
 type ServeArgs = {
   port?: number;
@@ -17,6 +20,30 @@ type DaemonHandle = {
 };
 
 let daemonHandle: DaemonHandle | null = null;
+const PS_MAX_BUFFER = 8 * 1024 * 1024;
+
+function resolveTokenCandidates(
+  requestedToken: string | undefined,
+  metadataToken: string | undefined,
+  configToken: string | undefined
+): string[] {
+  return Array.from(new Set([requestedToken, metadataToken, configToken].filter((token): token is string => (
+    typeof token === "string" && token.trim().length > 0
+  ))));
+}
+
+async function resolveExistingDaemon(
+  port: number,
+  tokens: string[]
+): Promise<{ token: string; status: DaemonStatusPayload } | null> {
+  for (const token of tokens) {
+    const status = await fetchDaemonStatus(port, token);
+    if (status?.ok) {
+      return { token, status };
+    }
+  }
+  return null;
+}
 
 function parseServeArgs(rawArgs: string[]): ServeArgs {
   const parsed: ServeArgs = { stop: false };
@@ -64,6 +91,63 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
   return parsed;
 }
 
+function listServeProcessPids(): number[] {
+  const result = spawnSync("ps", ["-ax", "-o", "pid=,command="], {
+    encoding: "utf-8",
+    maxBuffer: PS_MAX_BUFFER
+  });
+  if ((result.status ?? 1) !== 0) {
+    return [];
+  }
+  const servePattern = /\b(opendevbrowser|dist\/cli\/index\.js)\b.*\bserve\b/;
+  const lines = String(result.stdout ?? "").split(/\r?\n/);
+  const pids = new Set<number>();
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^(\d+)\s+(.+)$/);
+    if (!match) continue;
+    const pidText = match[1];
+    if (!pidText) continue;
+    const pid = Number.parseInt(pidText, 10);
+    const command = match[2] ?? "";
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    if (pid === process.pid || pid === process.ppid) continue;
+    if (!servePattern.test(command)) continue;
+    pids.add(pid);
+  }
+  return [...pids];
+}
+
+function terminateProcess(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || pid === process.ppid) {
+    return false;
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return false;
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // process may have exited after SIGTERM
+  }
+  return true;
+}
+
+function cleanupStaleServeProcesses(keepPid?: number): number {
+  const candidates = listServeProcessPids();
+  let cleaned = 0;
+  for (const pid of candidates) {
+    if (Number.isInteger(keepPid) && pid === keepPid) continue;
+    if (terminateProcess(pid)) {
+      cleaned += 1;
+    }
+  }
+  return cleaned;
+}
+
 export async function runServe(args: ParsedArgs) {
   const serveArgs = parseServeArgs(args.rawArgs);
 
@@ -94,6 +178,31 @@ export async function runServe(args: ParsedArgs) {
   }
 
   const config = loadGlobalConfig();
+  const requestedPort = serveArgs.port ?? config.daemonPort;
+  const metadata = readDaemonMetadata();
+  const metadataToken = metadata?.port === requestedPort ? metadata.token : undefined;
+  const tokenCandidates = resolveTokenCandidates(serveArgs.token, metadataToken, config.daemonToken);
+
+  const existingDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
+  const staleCleared = cleanupStaleServeProcesses(existingDaemon?.status.pid);
+  if (existingDaemon) {
+    const relayPort = existingDaemon.status.relay.port ?? config.relayPort;
+    const staleNote = staleCleared > 0 ? ` Cleared ${staleCleared} stale daemon process${staleCleared === 1 ? "" : "es"}.` : "";
+    return {
+      success: true,
+      message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${existingDaemon.status.pid}, relay ${relayPort}).${staleNote}`,
+      data: {
+        port: requestedPort,
+        pid: existingDaemon.status.pid,
+        relayPort,
+        alreadyRunning: true,
+        staleDaemonsCleared: staleCleared,
+        relay: existingDaemon.status.relay
+      },
+      exitCode: null
+    };
+  }
+
   let nativeStatus = getNativeStatusSnapshot();
   let nativeMessage: string | null = null;
   if (!nativeStatus.installed) {
@@ -114,21 +223,56 @@ export async function runServe(args: ParsedArgs) {
     }
   }
 
-  const handle = await startDaemon({
-    port: serveArgs.port,
-    token: serveArgs.token,
-    config
-  });
+  let handle: Awaited<ReturnType<typeof startDaemon>>;
+  try {
+    handle = await startDaemon({
+      port: serveArgs.port,
+      token: serveArgs.token,
+      config
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("EADDRINUSE") || message.includes("in use")) {
+      const runningDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
+      if (runningDaemon) {
+        const relayPort = runningDaemon.status.relay.port ?? config.relayPort;
+        return {
+          success: true,
+          message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${runningDaemon.status.pid}, relay ${relayPort}).`,
+          data: {
+            port: requestedPort,
+            pid: runningDaemon.status.pid,
+            relayPort,
+            alreadyRunning: true,
+            relay: runningDaemon.status.relay
+          },
+          exitCode: null
+        };
+      }
+      return {
+        success: false,
+        message: `Daemon port ${requestedPort} is already in use by another process. If this is an existing daemon, run \`opendevbrowser status --daemon\` or \`opendevbrowser serve --stop\`.`,
+        exitCode: EXIT_EXECUTION
+      };
+    }
+    return {
+      success: false,
+      message: `Failed to start daemon: ${message}`,
+      exitCode: EXIT_EXECUTION
+    };
+  }
+
   daemonHandle = handle;
   const { state } = handle;
 
   const baseMessage = `Daemon running on 127.0.0.1:${state.port} (relay ${state.relayPort})`;
-  const message = nativeMessage ? `${baseMessage}\n${nativeMessage}` : baseMessage;
+  const staleNote = staleCleared > 0 ? `\nCleared ${staleCleared} stale daemon process${staleCleared === 1 ? "" : "es"}.` : "";
+  const message = nativeMessage ? `${baseMessage}\n${nativeMessage}${staleNote}` : `${baseMessage}${staleNote}`;
 
   return {
     success: true,
     message,
-    data: { port: state.port, pid: state.pid, relayPort: state.relayPort, native: nativeStatus },
+    data: { port: state.port, pid: state.pid, relayPort: state.relayPort, native: nativeStatus, staleDaemonsCleared: staleCleared },
     exitCode: null
   };
 }

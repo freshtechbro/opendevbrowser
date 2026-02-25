@@ -6,6 +6,10 @@ import { ConfigStore, loadGlobalConfig } from "../config";
 import { getExtensionPath } from "../extension-extractor";
 import { RelayServer } from "../relay/relay-server";
 import { SkillLoader } from "../skills/skill-loader";
+import {
+  createBrowserFallbackPort,
+  createConfiguredProviderRuntime
+} from "../providers/runtime-factory";
 import type { CoreOptions, OpenDevBrowserCore } from "./types";
 
 export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCore {
@@ -16,6 +20,12 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   const manager = new OpsBrowserManager(baseManager, config);
   const runner = new ScriptRunner(manager);
   const skills = new SkillLoader(cacheRoot, config.skillPaths);
+  const browserFallbackPort = createBrowserFallbackPort(manager);
+  const providerRuntime = createConfiguredProviderRuntime({
+    config,
+    manager,
+    browserFallbackPort
+  });
   const relay = new RelayServer();
   relay.setToken(config.relayToken);
   const annotationManager = new AnnotationManager(relay, config, manager);
@@ -51,11 +61,14 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   return {
     cacheRoot,
     config,
+    parallelismPolicy: config.parallelism,
     configStore,
     manager,
     annotationManager,
     runner,
     skills,
+    providerRuntime,
+    ...(browserFallbackPort ? { browserFallbackPort } : {}),
     relay,
     ensureRelay,
     cleanup,

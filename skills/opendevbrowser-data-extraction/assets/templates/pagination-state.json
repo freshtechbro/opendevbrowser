@@ -1,0 +1,11 @@
+{
+  "strategy": "next",
+  "current_page": 1,
+  "pages_processed": 0,
+  "records_collected": 0,
+  "last_page_delta": 0,
+  "checkpoint_token": "",
+  "retry_after_seconds": 0,
+  "challenge_loops": 0,
+  "stopping_reason": ""
+}

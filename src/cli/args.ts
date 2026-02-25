@@ -1,15 +1,23 @@
 import { createUsageError } from "./errors";
 
-export type CliCommand = "install" | "update" | "uninstall" | "help" | "version" | "serve" | "daemon" | "native" | "run"
-  | "launch" | "connect" | "disconnect" | "status"
-  | "goto" | "wait" | "snapshot"
-  | "click" | "hover" | "press" | "check" | "uncheck" | "type" | "select" | "scroll" | "scroll-into-view"
-  | "targets-list" | "target-use" | "target-new" | "target-close"
-  | "page" | "pages" | "page-close"
-  | "dom-html" | "dom-text" | "dom-attr" | "dom-value" | "dom-visible" | "dom-enabled" | "dom-checked"
-  | "clone-page" | "clone-component"
-  | "perf" | "screenshot" | "console-poll" | "network-poll"
-  | "annotate";
+export const CLI_COMMANDS = [
+  "install", "update", "uninstall", "help", "version", "serve", "daemon", "native", "run",
+  "launch", "connect", "disconnect", "status",
+  "research", "shopping", "product-video", "artifacts",
+  "goto", "wait", "snapshot",
+  "click", "hover", "press", "check", "uncheck", "type", "select", "scroll", "scroll-into-view",
+  "targets-list", "target-use", "target-new", "target-close",
+  "page", "pages", "page-close",
+  "dom-html", "dom-text", "dom-attr", "dom-value", "dom-visible", "dom-enabled", "dom-checked",
+  "clone-page", "clone-component",
+  "perf", "screenshot", "console-poll", "network-poll", "debug-trace-snapshot",
+  "cookie-import", "cookie-list", "macro-resolve",
+  "annotate", "rpc"
+] as const;
+
+const CLI_COMMAND_SET = new Set<string>(CLI_COMMANDS);
+
+export type CliCommand = (typeof CLI_COMMANDS)[number];
 export type InstallMode = "global" | "local";
 export type SkillsMode = "global" | "local" | "none";
 export type OutputFormat = "text" | "json" | "stream-json";
@@ -102,25 +110,93 @@ function parseTransport(args: string[]): TransportMode {
   throw createUsageError(`Invalid --transport: ${value ?? "missing"}`);
 }
 
+export const VALID_FLAGS = [
+  "--global", "--local", "--update", "--uninstall",
+  "--help", "--version", "--with-config", "--no-prompt",
+  "--no-interactive", "--quiet", "--output-format",
+  "--full",
+  "--port", "--token", "--stop",
+  "--script", "--headless", "--profile", "--persist-profile", "--chrome-path", "--start-url", "--flag",
+  "--session-id", "--close-browser", "--ws-endpoint", "--host", "--cdp-port",
+  "--url", "--wait-until", "--timeout-ms", "--ref", "--state", "--until", "--mode", "--max-chars", "--cursor",
+  "--text", "--clear", "--submit", "--values", "--dy", "--key", "--attr",
+  "--name", "--target-id", "--tab-id", "--include-urls", "--path", "--since-seq", "--max",
+  "--since-console-seq", "--since-network-seq", "--since-exception-seq", "--request-id",
+  "--cookies", "--cookies-file", "--strict",
+  "--expression", "--default-provider", "--include-catalog",
+  "--execute",
+  "--params", "--params-file", "--unsafe-internal",
+  "--daemon",
+  "--transport",
+  "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms",
+  "--skills-global", "--skills-local", "--no-skills",
+  "--screenshot-mode", "--debug", "--context",
+  "--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source",
+  "--query", "--providers", "--budget", "--region", "--sort",
+  "--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy",
+  "--output-dir", "--ttl-hours", "--expired-only"
+] as const;
+
+const VALID_FLAG_SET = new Set<string>(VALID_FLAGS);
+
+export const VALID_EQUALS_FLAGS = [
+  "--output-format",
+  "--transport",
+  "--session-id",
+  "--url",
+  "--screenshot-mode",
+  "--context",
+  "--timeout-ms",
+  "--since-seq",
+  "--since-console-seq",
+  "--since-network-seq",
+  "--since-exception-seq",
+  "--max",
+  "--target-id",
+  "--tab-id",
+  "--name",
+  "--cookies",
+  "--cookies-file",
+  "--persist-profile",
+  "--expression",
+  "--default-provider",
+  "--request-id",
+  "--strict",
+  "--params",
+  "--params-file",
+  "--topic",
+  "--days",
+  "--from",
+  "--to",
+  "--source-selection",
+  "--sources",
+  "--mode",
+  "--limit-per-source",
+  "--query",
+  "--providers",
+  "--budget",
+  "--region",
+  "--sort",
+  "--product-url",
+  "--product-name",
+  "--provider-hint",
+  "--include-screenshots",
+  "--include-all-images",
+  "--include-copy",
+  "--output-dir",
+  "--ttl-hours"
+] as const;
+
+const VALID_EQUALS_FLAG_SET = new Set<string>(VALID_EQUALS_FLAGS);
+
 export function parseArgs(argv: string[]): ParsedArgs {
   let args = expandShortFlags(argv.slice(2));
   let commandOverride: CliCommand | null = null;
 
   if (args[0] && !args[0].startsWith("-")) {
     const candidate = args[0];
-    if (candidate === "install" || candidate === "update" || candidate === "uninstall" || candidate === "help" || candidate === "version" || candidate === "serve" || candidate === "daemon" || candidate === "native" || candidate === "run"
-      || candidate === "launch" || candidate === "connect" || candidate === "disconnect" || candidate === "status"
-      || candidate === "goto" || candidate === "wait" || candidate === "snapshot"
-      || candidate === "click" || candidate === "hover" || candidate === "press" || candidate === "check" || candidate === "uncheck"
-      || candidate === "type" || candidate === "select" || candidate === "scroll" || candidate === "scroll-into-view"
-      || candidate === "targets-list" || candidate === "target-use" || candidate === "target-new" || candidate === "target-close"
-      || candidate === "page" || candidate === "pages" || candidate === "page-close"
-      || candidate === "dom-html" || candidate === "dom-text" || candidate === "dom-attr" || candidate === "dom-value"
-      || candidate === "dom-visible" || candidate === "dom-enabled" || candidate === "dom-checked"
-      || candidate === "clone-page" || candidate === "clone-component"
-      || candidate === "perf" || candidate === "screenshot" || candidate === "console-poll" || candidate === "network-poll"
-      || candidate === "annotate") {
-      commandOverride = candidate;
+    if (CLI_COMMAND_SET.has(candidate)) {
+      commandOverride = candidate as CliCommand;
       args = args.slice(1);
     } else {
       throw createUsageError(`Unknown command: ${candidate}`);
@@ -216,41 +292,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
     mode = "global";
   }
 
-  const validFlags = new Set([
-    "--global", "--local", "--update", "--uninstall",
-    "--help", "--version", "--with-config", "--no-prompt",
-    "--no-interactive", "--quiet", "--output-format",
-    "--full",
-    "--port", "--token", "--stop",
-    "--script", "--headless", "--profile", "--persist-profile", "--chrome-path", "--start-url", "--flag",
-    "--session-id", "--close-browser", "--ws-endpoint", "--host", "--cdp-port",
-    "--url", "--wait-until", "--timeout-ms", "--ref", "--state", "--until", "--mode", "--max-chars", "--cursor",
-    "--text", "--clear", "--submit", "--values", "--dy", "--key", "--attr",
-    "--name", "--target-id", "--tab-id", "--include-urls", "--path", "--since-seq", "--max",
-    "--daemon",
-    "--transport",
-    "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms",
-    "--skills-global", "--skills-local", "--no-skills",
-    "--screenshot-mode", "--debug", "--context"
-  ]);
-
-  const validEqualsFlags = new Set([
-    "--output-format",
-    "--transport",
-    "--session-id",
-    "--url",
-    "--screenshot-mode",
-    "--context",
-    "--timeout-ms",
-    "--target-id",
-    "--tab-id"
-  ]);
-
   for (const arg of args) {
-    if (arg.startsWith("--") && !validFlags.has(arg)) {
+    if (arg.startsWith("--") && !VALID_FLAG_SET.has(arg)) {
       if (arg.includes("=")) {
         const baseFlag = arg.split("=", 2)[0] ?? "";
-        if (validEqualsFlags.has(baseFlag)) {
+        if (VALID_EQUALS_FLAG_SET.has(baseFlag)) {
           continue;
         }
       }
@@ -274,95 +320,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
     fullInstall,
     rawArgs: args
   };
-}
-
-export function getHelpText(): string {
-  return `
-OpenDevBrowser CLI - Install and manage the OpenDevBrowser plugin
-
-USAGE:
-  npx opendevbrowser [command] [options]
-
-COMMANDS:
-  install          Install the plugin (default if no command specified)
-  update           Clear cached plugin to trigger reinstall
-  uninstall        Remove plugin from config
-  serve            Start or stop the local daemon
-  daemon           Install/uninstall/status daemon auto-start
-  native           Install/uninstall/status native messaging host
-  run              Execute a JSON script in a single process
-  launch           Launch a managed browser session via daemon
-  connect          Connect to an existing browser via daemon
-  disconnect       Disconnect a daemon session
-  status           Get daemon status (or session status with --session-id)
-  goto             Navigate current session to a URL
-  wait             Wait for load or a ref to appear
-  snapshot         Capture a snapshot of the active page
-  click            Click an element by ref
-  hover            Hover an element by ref
-  press            Press a keyboard key
-  check            Check a checkbox by ref
-  uncheck          Uncheck a checkbox by ref
-  type             Type into an element by ref
-  select           Select values in a select by ref
-  scroll           Scroll the page or element by ref
-  scroll-into-view Scroll an element into view by ref
-  targets-list     List page targets
-  target-use       Focus a target by id
-  target-new       Open a new target
-  target-close     Close a target by id
-  page             Open or focus a named page
-  pages            List named pages
-  page-close       Close a named page
-  dom-html         Capture HTML for a ref
-  dom-text         Capture text for a ref
-  dom-attr         Capture attribute value for a ref
-  dom-value        Capture input value for a ref
-  dom-visible      Check visibility for a ref
-  dom-enabled      Check enabled state for a ref
-  dom-checked      Check checked state for a ref
-  clone-page       Clone the active page to React
-  clone-component  Clone a component by ref
-  perf             Capture performance metrics
-  screenshot       Capture a screenshot
-  console-poll     Poll console events
-  network-poll     Poll network events
-  annotate         Request interactive annotations (direct or relay)
-  help             Show this help message
-  version          Show version
-
-ALIASES:
-  --update, -u     Same as update
-  --uninstall      Same as uninstall
-  --help, -h       Same as help
-  --version, -v    Same as version
-
-INSTALL OPTIONS:
-  --global, -g     Install to ~/.config/opencode/opencode.json
-  --local, -l      Install to ./opencode.json (project-local)
-  --with-config    Also create opendevbrowser.jsonc with defaults
-  --full, -f       Create config and pre-extract extension assets
-  --no-prompt      Skip prompts, use defaults (global install)
-  --no-interactive Alias of --no-prompt
-  --quiet          Suppress non-error output
-  --output-format  Output format: text (default), json, stream-json
-  --transport      Transport: relay (default) or native
-  --skills-global  Install bundled skills to ~/.config/opencode/skill (default)
-  --skills-local   Install bundled skills to ./.opencode/skill
-  --no-skills      Skip installing bundled skills
-
-EXAMPLES:
-  npx opendevbrowser              # Interactive install
-  npx opendevbrowser --global     # Global install
-  npx opendevbrowser --local      # Project install
-  npx opendevbrowser --full       # Install + config + extension assets
-  npx opendevbrowser -g --with-config  # Global + config file
-  npx opendevbrowser --skills-local   # Install skills locally
-  npx opendevbrowser --no-skills      # Skip skill installation
-  npx opendevbrowser --update     # Update plugin
-  npx opendevbrowser --uninstall --global  # Remove from global config
-  npx opendevbrowser native install <extension-id>  # Install native host
-`.trim();
 }
 
 export function detectOutputFormat(argv: string[]): OutputFormat {

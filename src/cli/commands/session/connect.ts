@@ -7,6 +7,7 @@ type ConnectArgs = {
   wsEndpoint?: string;
   host?: string;
   port?: number;
+  headless?: boolean;
   extensionLegacy?: boolean;
 };
 
@@ -53,6 +54,10 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
     }
     if (arg === "--extension-legacy") {
       parsed.extensionLegacy = true;
+      continue;
+    }
+    if (arg === "--headless") {
+      parsed.headless = true;
       continue;
     }
   }

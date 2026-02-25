@@ -4,7 +4,7 @@ Tool development patterns. Extends `src/AGENTS.md`.
 
 ## Overview
 
-41 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
+48 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
 Hub mode is enforced via `ensureHub` in `src/tools/index.ts` to rebind remote managers and avoid local relay fallback.
 
 ## Tool Structure
@@ -31,7 +31,7 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 
 | Category | Tools |
 |------|-------|
-| Session | launch, connect, disconnect, status |
+| Session | launch, connect, disconnect, status, cookie_import, cookie_list |
 | Navigation | goto, wait, snapshot |
 | Interaction | click, hover, press, check, uncheck, type, select, scroll, scroll_into_view |
 | Targets | targets_list, target_use, target_new, target_close |
@@ -42,6 +42,7 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 | Export | clone_page, clone_component |
 | Skills | skill_list, skill_load |
 | Run | run (multi-action) |
+| Provider workflows | research_run, shopping_run, product_video_run |
 | Prompting | prompting_guide |
 
 ## Where Logic Lives
@@ -55,7 +56,7 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 
 **Tools NEVER own business logic.** They delegate.
 
-Keep tool names and counts in sync with `src/tools/index.ts` and `docs/CLI.md`.
+Keep tool names and counts in sync with `src/tools/index.ts`, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md`.
 
 ## Response Pattern
 

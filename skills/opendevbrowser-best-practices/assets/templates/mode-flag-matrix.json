@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1.0",
+  "modes": [
+    {
+      "name": "managed",
+      "launch": "npx opendevbrowser launch --no-extension",
+      "statusProbe": "npx opendevbrowser status --session-id <session-id>",
+      "requiredFlags": [
+        "--no-extension"
+      ],
+      "statusExpectations": {
+        "mode": "managed"
+      }
+    },
+    {
+      "name": "extension",
+      "launch": "npx opendevbrowser launch --extension-only --wait-for-extension",
+      "statusProbe": "npx opendevbrowser status --daemon",
+      "requiredFlags": [
+        "--extension-only",
+        "--wait-for-extension"
+      ],
+      "statusExpectations": {
+        "extensionConnected": true,
+        "extensionHandshakeComplete": true,
+        "opsConnected": true
+      }
+    },
+    {
+      "name": "extension-legacy",
+      "launch": "npx opendevbrowser launch --extension-only --extension-legacy --wait-for-extension",
+      "statusProbe": "npx opendevbrowser status --daemon",
+      "requiredFlags": [
+        "--extension-only",
+        "--extension-legacy",
+        "--wait-for-extension"
+      ],
+      "statusExpectations": {
+        "extensionConnected": true,
+        "extensionHandshakeComplete": true,
+        "cdpConnected": true
+      }
+    },
+    {
+      "name": "cdpConnect",
+      "connect": "npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>",
+      "statusProbe": "npx opendevbrowser status --session-id <session-id>",
+      "requiredFlags": [
+        "--ws-endpoint"
+      ],
+      "statusExpectations": {
+        "mode": "cdpConnect"
+      }
+    }
+  ]
+}

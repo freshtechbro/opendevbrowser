@@ -50,3 +50,7 @@ Update `docs/CLI.md` when CLI output or exit codes change.
 ## CLI Smoke Tests
 
 Use `node scripts/cli-smoke-test.mjs` for managed-mode coverage; document extension/CDP-connect runs in `docs/CLI.md`.
+
+## Performance Gate
+
+Run `npm run test -- tests/providers-performance-gate.test.ts` to enforce deterministic provider SLO baselines from `docs/benchmarks/provider-fixtures.md`.

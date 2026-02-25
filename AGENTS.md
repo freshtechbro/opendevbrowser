@@ -14,7 +14,7 @@ OpenCode plugin providing AI agents with browser automation via Chrome DevTools 
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Distribution Layer                         │
 ├──────────────────┬──────────────────┬──────────────────┬──────────────────────────┤
@@ -25,8 +25,8 @@ OpenCode plugin providing AI agents with browser automation via Chrome DevTools 
          │                  │                  │                       │
          ▼                  ▼                  ▼                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Core Runtime (src/core/)                      │
-│  bootstrap.ts → wires managers, injects ToolDeps                 │
+│                    Core Runtime (src/core/)                    │
+│  bootstrap.ts → wires managers, injects ToolDeps              │
 └────────┬────────────────────────────────────────────────────────┘
          │
     ┌────┴────┬─────────────┬──────────────┬──────────────┬──────────────┐
@@ -94,13 +94,15 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 41 opendevbrowser_* tool definitions
+│   ├── tools/        # 48 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
-├── skills/           # Bundled skill packs (5 total)
+├── frontend/         # Next.js marketing/docs frontend
+├── scripts/          # Operational scripts (build/sync/smoke)
+├── skills/           # Bundled skill packs (8 total)
 ├── tests/            # Vitest tests (97% coverage required)
-└── docs/             # Architecture, plans, CLI docs
+└── docs/             # Architecture, CLI, extension, frontend, plans
 ```
 
 ## Where to Look
@@ -119,6 +121,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Add skill pack | `skills/*/SKILL.md` | Follow naming conventions |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
+| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 55 CLI + 48 tools + `/ops` + `/cdp` map |
 
 ## Commands
 
@@ -204,7 +207,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   return {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 41 tools
+    // ... 48 tools
   };
 }
 ```
@@ -227,9 +230,10 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Source of truth: `docs/`
 - Architecture: `docs/ARCHITECTURE.md`
 - CLI reference: `docs/CLI.md`
+- Surface inventory: `docs/SURFACE_REFERENCE.md`
 - Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
-- If tool list or outputs change, update `docs/CLI.md` and this file together.
+- If tool list or outputs change, update `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, and this file together.
 
 ## AGENTS.md Governance
 
@@ -241,10 +245,17 @@ Subdirectory guides override this root file:
 - `src/AGENTS.md` — module boundaries, manager patterns
 - `src/browser/AGENTS.md` — browser/session module specifics
 - `src/cli/AGENTS.md` — CLI command and daemon conventions
+- `src/providers/AGENTS.md` — provider system (web/social/shopping), tiers, safety
 - `src/relay/AGENTS.md` — relay protocol and security specifics
 - `src/snapshot/AGENTS.md` — snapshot/ref pipeline specifics
 - `src/tools/AGENTS.md` — tool development patterns
 - `extension/AGENTS.md` — Chrome extension specifics
+- `extension/src/ops/AGENTS.md` — ops runtime for extension relay
+- `extension/src/services/AGENTS.md` — CDP routing, flat-session handling
+- `frontend/AGENTS.md` — frontend app conventions and generation workflow
+- `frontend/src/AGENTS.md` — frontend source module boundaries
+- `docs/AGENTS.md` — documentation source-of-truth and sync rules
+- `scripts/AGENTS.md` — script safety and output conventions
 - `tests/AGENTS.md` — testing conventions
 - `skills/AGENTS.md` — skill pack format
 

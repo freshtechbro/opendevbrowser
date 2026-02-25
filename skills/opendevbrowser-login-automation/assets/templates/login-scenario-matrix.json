@@ -1,0 +1,26 @@
+{
+  "scenario": "",
+  "steps": [],
+  "issue_ids": [
+    "ISSUE-01",
+    "ISSUE-02",
+    "ISSUE-03",
+    "ISSUE-04",
+    "ISSUE-05",
+    "ISSUE-06",
+    "ISSUE-07"
+  ],
+  "expected_signals": [
+    "url_changed",
+    "auth_shell_visible",
+    "auth_network_success"
+  ],
+  "failure_signals": [
+    "invalid_credentials",
+    "anti_bot_challenge",
+    "rate_limited",
+    "lockout"
+  ],
+  "max_automated_retries": 2,
+  "requires_manual_checkpoint": false
+}

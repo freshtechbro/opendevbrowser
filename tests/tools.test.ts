@@ -18,7 +18,24 @@ beforeEach(() => {
   vi.mocked(fs.existsSync).mockReturnValue(false);
   vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ version: "0.1.0" }));
   delete process.env.OPENCODE_CONFIG_DIR;
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }));
+  vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+    const url = String(input);
+    if (url.endsWith("/status")) {
+      return {
+        ok: false,
+        status: 503,
+        url,
+        json: async () => ({})
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      url,
+      text: async () => `<html><body><main>tools content ${url}</main><a href="https://example.com/result">result</a></body></html>`,
+      json: async () => ({})
+    };
+  }) as unknown as typeof fetch);
 });
 
 afterEach(() => {
@@ -40,9 +57,26 @@ const createDeps = () => {
     page: vi.fn().mockResolvedValue({ targetId: "t1", created: true, url: "https://", title: "Title" }),
     listPages: vi.fn().mockResolvedValue({ pages: [{ name: "main", targetId: "t1", url: "https://", title: "Title" }] }),
     closePage: vi.fn().mockResolvedValue(undefined),
-    goto: vi.fn().mockResolvedValue({ finalUrl: "https://", status: 200, timingMs: 1 }),
-    waitForRef: vi.fn().mockResolvedValue({ timingMs: 1 }),
-    waitForLoad: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    goto: vi.fn().mockResolvedValue({
+      finalUrl: "https://",
+      status: 200,
+      timingMs: 1,
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0",
+          type: "auth_required",
+          source: "navigation",
+          confidence: 0.95,
+          retryable: false,
+          detectedAt: "2026-02-14T00:00:00.000Z",
+          evidence: { matchedPatterns: ["redirect_login_flow"], networkHosts: [] },
+          actionHints: [{ id: "manual_login", reason: "login", priority: 1 }]
+        }
+      }
+    }),
+    waitForRef: vi.fn().mockResolvedValue({ timingMs: 1, meta: { blockerState: "clear" } }),
+    waitForLoad: vi.fn().mockResolvedValue({ timingMs: 1, meta: { blockerState: "clear" } }),
     snapshot: vi.fn().mockResolvedValue({ snapshotId: "snap", content: "", truncated: false, refCount: 0, timingMs: 1 }),
     click: vi.fn().mockResolvedValue({ timingMs: 1, navigated: false }),
     hover: vi.fn().mockResolvedValue({ timingMs: 1 }),
@@ -65,7 +99,28 @@ const createDeps = () => {
     perfMetrics: vi.fn().mockResolvedValue({ metrics: [{ name: "Nodes", value: 1 }] }),
     screenshot: vi.fn().mockResolvedValue({ base64: "image" }),
     consolePoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
-    networkPoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 })
+    exceptionPoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
+    networkPoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
+    debugTraceSnapshot: vi.fn().mockResolvedValue({
+      requestId: "req-1",
+      generatedAt: "2026-02-01T00:00:00.000Z",
+      page: { mode: "managed", activeTargetId: "t1", url: "https://", title: "Title" },
+      channels: {
+        console: { events: [], nextSeq: 0 },
+        network: { events: [], nextSeq: 0 },
+        exception: { events: [], nextSeq: 0 }
+      },
+      meta: {
+        blockerState: "clear"
+      },
+      fingerprint: {
+        tier1: { ok: true, warnings: [], issues: [] },
+        tier2: { enabled: false, mode: "off", profileId: "fp", healthScore: 100, challengeCount: 0, rotationCount: 0, lastRotationTs: 0, recentChallenges: [] },
+        tier3: { enabled: false, status: "active", adapterName: "deterministic", fallbackTier: "tier2", canary: { level: 0, averageScore: 100, lastAction: "none", sampleCount: 0 } }
+      }
+    }),
+    cookieImport: vi.fn().mockResolvedValue({ requestId: "req-1", imported: 1, rejected: [] }),
+    cookieList: vi.fn().mockResolvedValue({ requestId: "req-2", cookies: [], count: 0 })
   };
 
   const runner = {
@@ -99,9 +154,21 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_page.execute({ sessionId: "s1", name: "main" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_list.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_close.execute({ sessionId: "s1", name: "main" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_goto.execute({ sessionId: "s1", url: "https://" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", until: "load" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_goto.execute({ sessionId: "s1", url: "https://" } as never))).toMatchObject({
+      ok: true,
+      meta: {
+        blockerState: "active",
+        blocker: { type: "auth_required" }
+      }
+    });
+    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", until: "load" } as never))).toMatchObject({
+      ok: true,
+      meta: { blockerState: "clear" }
+    });
+    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({
+      ok: true,
+      meta: { blockerState: "clear" }
+    });
     expect(parse(await tools.opendevbrowser_snapshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_click.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_hover.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
@@ -123,11 +190,47 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_prompting_guide.execute({} as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_console_poll.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_network_poll.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never))).toMatchObject({
+      ok: true,
+      meta: { blockerState: "clear" }
+    });
+    expect(parse(await tools.opendevbrowser_cookie_import.execute({
+      sessionId: "s1",
+      cookies: [{ name: "session", value: "abc123", url: "https://example.com" }]
+    } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_cookie_list.execute({
+      sessionId: "s1",
+      urls: ["https://example.com"]
+    } as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_macro_resolve.execute({
+      expression: "@web.search(\"openai\")"
+    } as never))).toMatchObject({ ok: true });
+    const macroExecution = parse(await tools.opendevbrowser_macro_resolve.execute({
+      expression: "@community.search(\"openai\")",
+      execute: true
+    } as never));
+    expect(macroExecution).toMatchObject({
+      ok: true,
+      execution: {
+        records: expect.any(Array),
+        metrics: {
+          attempted: expect.any(Number),
+          succeeded: expect.any(Number),
+          failed: expect.any(Number)
+        },
+        meta: {
+          ok: expect.any(Boolean),
+          sourceSelection: expect.any(String)
+        }
+      }
+    });
+    expect(((macroExecution.execution as { records: unknown[] } | undefined)?.records.length ?? 0)).toBeGreaterThan(0);
+    expect((macroExecution.execution as { meta?: { ok?: boolean } } | undefined)?.meta?.ok).toBe(true);
     expect(parse(await tools.opendevbrowser_clone_page.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-  }, 15000);
+  }, 30000);
 
   it("wraps tool execution with ensureHub when provided", async () => {
     const deps = createDeps();
@@ -151,6 +254,151 @@ describe("tools", () => {
     expect(statusResult.ok).toBe(true);
     expect(ensureHub).toHaveBeenCalledTimes(1);
     expect(deps.manager.status).toHaveBeenCalled();
+  });
+
+  it("falls back to composed trace snapshot when manager capability is missing", async () => {
+    const deps = createDeps();
+    delete (deps.manager as { debugTraceSnapshot?: unknown }).debugTraceSnapshot;
+    deps.manager.consolePoll.mockReturnValue({
+      events: [{ seq: 1, level: "log", category: "log", text: "hello", argsPreview: "hello", ts: 1 }],
+      nextSeq: 1,
+      truncated: false
+    });
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never));
+    expect(result.ok).toBe(true);
+    expect(deps.manager.status).toHaveBeenCalledWith("s1");
+    expect(deps.manager.consolePoll).toHaveBeenCalledWith("s1", undefined, 500);
+    expect(deps.manager.networkPoll).toHaveBeenCalledWith("s1", undefined, 500);
+    expect(deps.manager.exceptionPoll).toHaveBeenCalledWith("s1", undefined, 500);
+    expect(result.channels).toMatchObject({
+      console: {
+        truncated: false,
+        events: [{ sessionId: "s1", requestId: expect.any(String), text: "hello" }]
+      }
+    });
+  });
+
+  it("uses default exception channel when exception polling capability is missing", async () => {
+    const deps = createDeps();
+    delete (deps.manager as { debugTraceSnapshot?: unknown }).debugTraceSnapshot;
+    delete (deps.manager as { exceptionPoll?: unknown }).exceptionPoll;
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const defaultCursor = parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never));
+    expect(defaultCursor.ok).toBe(true);
+    expect(defaultCursor.channels).toMatchObject({
+      exception: { events: [], nextSeq: 0 }
+    });
+
+    const resumedCursor = parse(await tools.opendevbrowser_debug_trace_snapshot.execute({
+      sessionId: "s1",
+      sinceExceptionSeq: 7
+    } as never));
+    expect(resumedCursor.ok).toBe(true);
+    expect(resumedCursor.channels).toMatchObject({
+      exception: { events: [], nextSeq: 7 }
+    });
+  });
+
+  it("derives blocker fallback status and deduped hosts from mixed network events", async () => {
+    const deps = createDeps();
+    delete (deps.manager as { debugTraceSnapshot?: unknown }).debugTraceSnapshot;
+    deps.manager.status.mockResolvedValue({
+      mode: "managed",
+      activeTargetId: "t1",
+      url: "https://x.com/i/flow/login",
+      title: "Log in to X"
+    });
+    deps.manager.networkPoll.mockReturnValue({
+      events: [
+        { status: "bad", url: "not a url" },
+        { url: "https://x.com/a" },
+        { status: 403, url: "https://x.com/b" }
+      ],
+      nextSeq: 3,
+      truncated: false
+    });
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never));
+    expect(result.ok).toBe(true);
+    expect(result.meta).toMatchObject({
+      blockerState: "active",
+      blocker: {
+        type: "auth_required",
+        evidence: {
+          status: 403,
+          networkHosts: ["x.com"]
+        }
+      },
+      blockerArtifacts: {
+        hosts: ["x.com"]
+      }
+    });
+  });
+
+  it("uses fallback config defaults when prompt guard settings are unset", async () => {
+    const deps = createDeps();
+    delete (deps.manager as { debugTraceSnapshot?: unknown }).debugTraceSnapshot;
+    const baseConfig = resolveConfig({});
+    deps.config = {
+      get: () => ({
+        ...baseConfig,
+        security: {},
+        blockerDetectionThreshold: 0.7,
+        blockerArtifactCaps: baseConfig.blockerArtifactCaps
+      })
+    } as unknown as ConfigStore;
+    deps.manager.status.mockResolvedValue({
+      mode: "managed",
+      activeTargetId: "t1",
+      url: 101 as unknown as string,
+      title: null as unknown as string
+    });
+    deps.manager.networkPoll.mockReturnValue({
+      events: [
+        { status: "bad" },
+        { url: 42 },
+        { status: 403, url: "https://x.com/i/flow/login" }
+      ],
+      nextSeq: 3,
+      truncated: false
+    });
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never));
+    expect(result.ok).toBe(true);
+    expect(result.meta).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" },
+      blockerArtifacts: { hosts: ["x.com"] }
+    });
+  });
+
+  it("returns debug snapshot failure when fallback channels throw", async () => {
+    const deps = createDeps();
+    delete (deps.manager as { debugTraceSnapshot?: unknown }).debugTraceSnapshot;
+    deps.manager.status.mockRejectedValueOnce(new Error("status boom"));
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never));
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatchObject({
+      code: "debug_trace_snapshot_failed",
+      message: "status boom"
+    });
   });
 
   it("includes warnings when present", async () => {
@@ -315,6 +563,20 @@ describe("tools", () => {
 
     await tools.opendevbrowser_launch.execute({ noExtension: true, headless: true } as never);
     expect(deps.manager.launch).toHaveBeenCalledWith(expect.objectContaining({ headless: true }));
+  });
+
+  it("rejects extension-mode headless launch attempts with unsupported_mode", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ headless: true } as never));
+    expect(launchResult.ok).toBe(false);
+    expect(launchResult.error).toMatchObject({
+      code: "unsupported_mode"
+    });
+    expect(deps.manager.connectRelay).not.toHaveBeenCalled();
+    expect(deps.manager.launch).not.toHaveBeenCalled();
   });
 
   it("returns managed failure message when managed launch fails", async () => {

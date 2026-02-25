@@ -39,8 +39,40 @@ describe("loadGlobalConfig", () => {
     expect(config.security.allowRawCDP).toBe(false);
     expect(config.security.allowNonLocalCdp).toBe(false);
     expect(config.security.allowUnsafeExport).toBe(false);
+    expect(config.security.promptInjectionGuard?.enabled).toBe(true);
+    expect(config.blockerDetectionThreshold).toBe(0.7);
+    expect(config.blockerResolutionTimeoutMs).toBe(600000);
+    expect(config.blockerArtifactCaps.maxNetworkEvents).toBe(20);
+    expect(config.blockerArtifactCaps.maxConsoleEvents).toBe(20);
+    expect(config.blockerArtifactCaps.maxExceptionEvents).toBe(10);
+    expect(config.blockerArtifactCaps.maxHosts).toBe(10);
+    expect(config.blockerArtifactCaps.maxTextLength).toBe(512);
+    expect(config.providers?.tiers.default).toBe("A");
+    expect(config.providers?.tiers.enableHybrid).toBe(false);
+    expect(config.providers?.tiers.enableRestrictedSafe).toBe(false);
+    expect(config.providers?.tiers.hybridRiskThreshold).toBe(0.6);
+    expect(config.providers?.tiers.restrictedSafeRecoveryIntervalMs).toBe(60000);
+    expect(config.providers?.adaptiveConcurrency.enabled).toBe(false);
+    expect(config.providers?.adaptiveConcurrency.maxGlobal).toBe(8);
+    expect(config.providers?.adaptiveConcurrency.maxPerDomain).toBe(4);
+    expect(config.providers?.crawler.workerThreads).toBe(4);
+    expect(config.providers?.crawler.queueMax).toBe(2000);
+    expect(config.providers?.cookiePolicy).toBe("auto");
+    expect(config.providers?.cookieSource).toEqual({
+      type: "file",
+      value: "~/.config/opencode/opendevbrowser.provider-cookies.json"
+    });
     expect(config.devtools.showFullUrls).toBe(false);
     expect(config.devtools.showFullConsole).toBe(false);
+    expect(config.fingerprint.tier1.enabled).toBe(true);
+    expect(config.fingerprint.tier1.warnOnly).toBe(true);
+    expect(config.fingerprint.tier2.enabled).toBe(true);
+    expect(config.fingerprint.tier2.mode).toBe("adaptive");
+    expect(config.fingerprint.tier2.continuousSignals).toBe(true);
+    expect(config.fingerprint.tier3.enabled).toBe(true);
+    expect(config.fingerprint.tier3.continuousSignals).toBe(true);
+    expect(config.fingerprint.tier3.fallbackTier).toBe("tier2");
+    expect(config.canary?.targets.enabled).toBe(false);
     expect(config.export.maxNodes).toBe(1000);
     expect(config.export.inlineStyles).toBe(true);
     expect(config.persistProfile).toBe(true);
@@ -68,8 +100,50 @@ describe("loadGlobalConfig", () => {
       headless: true,
       profile: "test",
       snapshot: { maxChars: 5000, maxNodes: 1500 },
-      security: { allowRawCDP: true, allowNonLocalCdp: true, allowUnsafeExport: true },
+      security: {
+        allowRawCDP: true,
+        allowNonLocalCdp: true,
+        allowUnsafeExport: true,
+        promptInjectionGuard: { enabled: false }
+      },
+      blockerDetectionThreshold: 0.82,
+      blockerResolutionTimeoutMs: 120000,
+      blockerArtifactCaps: {
+        maxNetworkEvents: 12,
+        maxConsoleEvents: 14,
+        maxExceptionEvents: 6,
+        maxHosts: 5,
+        maxTextLength: 300
+      },
+      providers: {
+        tiers: {
+          default: "B",
+          enableHybrid: true,
+          enableRestrictedSafe: true,
+          hybridRiskThreshold: 0.42,
+          restrictedSafeRecoveryIntervalMs: 90000
+        },
+        adaptiveConcurrency: { enabled: true, maxGlobal: 12, maxPerDomain: 6 },
+        crawler: { workerThreads: 8, queueMax: 4000 },
+        cookiePolicy: "required",
+        cookieSource: {
+          type: "inline",
+          value: [{
+            name: "sid",
+            value: "session",
+            domain: ".youtube.com",
+            path: "/",
+            secure: true
+          }]
+        }
+      },
       devtools: { showFullUrls: true, showFullConsole: true },
+      fingerprint: {
+        tier1: { enabled: true, warnOnly: false, locale: "en-US", timezone: "America/New_York", languages: ["en-US"], requireProxy: true, geolocationRequired: false },
+        tier2: { enabled: true, mode: "adaptive", continuousSignals: false, rotationIntervalMs: 1234, challengePatterns: ["captcha"], maxChallengeEvents: 2, scorePenalty: 10, scoreRecovery: 3, rotationHealthThreshold: 44 },
+        tier3: { enabled: true, continuousSignals: false, fallbackTier: "tier1", canary: { windowSize: 7, minSamples: 2, promoteThreshold: 88, rollbackThreshold: 22 } }
+      },
+      canary: { targets: { enabled: true } },
       export: { maxNodes: 2500, inlineStyles: false },
       relayPort: 9191,
       relayToken: "secret",
@@ -86,8 +160,49 @@ describe("loadGlobalConfig", () => {
     expect(config.security.allowRawCDP).toBe(true);
     expect(config.security.allowNonLocalCdp).toBe(true);
     expect(config.security.allowUnsafeExport).toBe(true);
+    expect(config.security.promptInjectionGuard?.enabled).toBe(false);
+    expect(config.blockerDetectionThreshold).toBe(0.82);
+    expect(config.blockerResolutionTimeoutMs).toBe(120000);
+    expect(config.blockerArtifactCaps).toEqual({
+      maxNetworkEvents: 12,
+      maxConsoleEvents: 14,
+      maxExceptionEvents: 6,
+      maxHosts: 5,
+      maxTextLength: 300
+    });
+    expect(config.providers?.tiers.default).toBe("B");
+    expect(config.providers?.tiers.enableHybrid).toBe(true);
+    expect(config.providers?.tiers.enableRestrictedSafe).toBe(true);
+    expect(config.providers?.tiers.hybridRiskThreshold).toBe(0.42);
+    expect(config.providers?.tiers.restrictedSafeRecoveryIntervalMs).toBe(90000);
+    expect(config.providers?.adaptiveConcurrency.enabled).toBe(true);
+    expect(config.providers?.adaptiveConcurrency.maxGlobal).toBe(12);
+    expect(config.providers?.adaptiveConcurrency.maxPerDomain).toBe(6);
+    expect(config.providers?.crawler.workerThreads).toBe(8);
+    expect(config.providers?.crawler.queueMax).toBe(4000);
+    expect(config.providers?.cookiePolicy).toBe("required");
+    expect(config.providers?.cookieSource).toEqual({
+      type: "inline",
+      value: [{
+        name: "sid",
+        value: "session",
+        domain: ".youtube.com",
+        path: "/",
+        secure: true
+      }]
+    });
     expect(config.devtools.showFullUrls).toBe(true);
     expect(config.devtools.showFullConsole).toBe(true);
+    expect(config.fingerprint.tier1.warnOnly).toBe(false);
+    expect(config.fingerprint.tier1.locale).toBe("en-US");
+    expect(config.fingerprint.tier2.mode).toBe("adaptive");
+    expect(config.fingerprint.tier2.continuousSignals).toBe(false);
+    expect(config.fingerprint.tier2.rotationIntervalMs).toBe(1234);
+    expect(config.fingerprint.tier3.enabled).toBe(true);
+    expect(config.fingerprint.tier3.continuousSignals).toBe(false);
+    expect(config.fingerprint.tier3.fallbackTier).toBe("tier1");
+    expect(config.fingerprint.tier3.canary.windowSize).toBe(7);
+    expect(config.canary?.targets.enabled).toBe(true);
     expect(config.export.maxNodes).toBe(2500);
     expect(config.export.inlineStyles).toBe(false);
     expect(config.relayPort).toBe(9191);
@@ -113,6 +228,52 @@ describe("loadGlobalConfig", () => {
     );
   });
 
+  it("normalizes transcript alias and cookie-source defaults across source types", () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      providers: {
+        transcript: {
+          modeDefault: "ytdlp"
+        },
+        cookieSource: {
+          type: "inline"
+        }
+      }
+    }));
+    const inlineConfig = loadGlobalConfig();
+    expect(inlineConfig.providers?.transcript.modeDefault).toBe("yt-dlp");
+    expect(inlineConfig.providers?.cookieSource).toEqual({
+      type: "inline",
+      value: []
+    });
+
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      providers: {
+        cookieSource: {
+          type: "file"
+        }
+      }
+    }));
+    const fileConfig = loadGlobalConfig();
+    expect(fileConfig.providers?.cookieSource).toEqual({
+      type: "file",
+      value: "~/.config/opencode/opendevbrowser.provider-cookies.json"
+    });
+
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      providers: {
+        cookieSource: {
+          type: "env"
+        }
+      }
+    }));
+    const envConfig = loadGlobalConfig();
+    expect(envConfig.providers?.cookieSource).toEqual({
+      type: "env",
+      value: "OPENDEVBROWSER_PROVIDER_COOKIES"
+    });
+  });
+
   it("strips JSONC comments", () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(`{
@@ -134,6 +295,23 @@ describe("loadGlobalConfig", () => {
     }));
 
     expect(() => loadGlobalConfig()).toThrow("Invalid opendevbrowser config");
+  });
+
+  it("rejects inline provider cookies without url/domain", () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      providers: {
+        cookieSource: {
+          type: "inline",
+          value: [{
+            name: "broken",
+            value: "cookie"
+          }]
+        }
+      }
+    }));
+
+    expect(() => loadGlobalConfig()).toThrow("Provider cookie entries must set url or domain.");
   });
 
   it("throws on malformed JSON", () => {
@@ -175,6 +353,18 @@ describe("loadGlobalConfig", () => {
 
     const config = loadGlobalConfig();
     expect(config.relayToken).toBe(false);
+  });
+
+  it("maps legacy fingerprint tier2 mode off to deterministic", () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      fingerprint: {
+        tier2: { mode: "off" }
+      }
+    }));
+
+    const config = loadGlobalConfig();
+    expect(config.fingerprint.tier2.mode).toBe("deterministic");
   });
 
   it("skips config creation when file appears between checks", () => {

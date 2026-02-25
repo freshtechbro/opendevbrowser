@@ -64,6 +64,9 @@ const logWarn = (message: string): void => {
   console.warn(`[opendevbrowser] ${message}`);
 };
 
+const RECONNECT_INITIAL_DELAY_MS = 12_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+
 export class ConnectionManager {
   private status: ConnectionStatus = "disconnected";
   private lastError: ConnectionErrorInfo | null = null;
@@ -76,7 +79,7 @@ export class ConnectionManager {
   private shouldReconnect = false;
   private reconnectTimer: number | null = null;
   private reconnectAttempts = 0;
-  private reconnectDelayMs = 500;
+  private reconnectDelayMs = RECONNECT_INITIAL_DELAY_MS;
   private pairingToken: string | null = DEFAULT_PAIRING_TOKEN;
   private pairingEnabled = DEFAULT_PAIRING_ENABLED;
   private relayPort = DEFAULT_RELAY_PORT;
@@ -84,7 +87,7 @@ export class ConnectionManager {
   private relayEpoch: number | null = null;
   private relayConfirmedPort: number | null = null;
   private relayNotice: string | null = null;
-  private readonly maxReconnectDelayMs = 5000;
+  private readonly maxReconnectDelayMs = RECONNECT_MAX_DELAY_MS;
   private connectPromise: Promise<void> | null = null;
   private annotationHandler: ((command: RelayAnnotationCommand) => void) | null = null;
   private opsHandler: ((message: OpsEnvelope) => void) | null = null;
@@ -469,7 +472,7 @@ export class ConnectionManager {
       this.setStatus("connected");
       this.startHeartbeat();
       this.reconnectAttempts = 0;
-      this.reconnectDelayMs = 500;
+      this.reconnectDelayMs = RECONNECT_INITIAL_DELAY_MS;
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown error";
       logWarn(`Relay WebSocket connect failed. ${detail}`);

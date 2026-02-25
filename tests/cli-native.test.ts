@@ -97,4 +97,12 @@ describe("native CLI command", () => {
 
     expect(__test__.findExtensionIdInCommands(preferences)).toBe(extensionId);
   });
+
+  it("keeps native scripts in npm package files list", () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
+      files?: string[];
+    };
+    expect(Array.isArray(packageJson.files)).toBe(true);
+    expect(packageJson.files).toContain("scripts/native");
+  });
 });

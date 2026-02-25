@@ -10,10 +10,10 @@
 
 > **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
-OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions.
+OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions. The repository also includes a production frontend app (`frontend/`) for the public product site and generated docs experience.
 
 <p align="center">
-  <img src="assets/readme-image-candidates/2026-02-08/04-annotation-automation-scene.jpg" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
+  <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
   <br />
   <em>AI-assisted annotation and browser automation workflow</em>
 </p>
@@ -25,8 +25,10 @@ OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it a
 | **CLI (`npx opendevbrowser ...`)** | No | Any agent/workflow that can run shell commands |
 | **Chrome Extension + Relay** | No | Reusing existing logged-in tabs without launching a new browser |
 | **OpenCode Plugin Tools** | Yes | Native tool-calling inside OpenCode (`opendevbrowser_*`) |
+| **Frontend Website (`frontend/`)** | No | Public product pages and generated docs routes |
 
 All core automation flows are available through the CLI command surface and the plugin tool surface.
+Frontend docs routes are generated from repository source-of-truth docs and skill packs.
 
 ## Why OpenDevBrowser?
 
@@ -40,8 +42,9 @@ All core automation flows are available through the CLI command surface and the 
 | **Ops + CDP channels** | High-level multi-client `/ops` plus legacy `/cdp` compatibility |
 | **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
-| **5 bundled skill packs** | Best practices for login, forms, data extraction |
-| **41 tools** | Complete browser automation coverage |
+| **Loop-closure diagnostics** | Console/network polling + unified debug trace snapshots for verification workflows |
+| **8 bundled skill packs** | Best practices plus login, forms, data extraction, research, shopping, and product asset workflows |
+| **48 tools** | Complete browser automation coverage |
 | **97% test coverage** | Production-ready with strict TypeScript |
 
 ---
@@ -68,12 +71,39 @@ npm install -g opendevbrowser
 opendevbrowser --version
 ```
 
+### Pre-release Local Package (No npm publish required)
+
+Use this path to validate first-run onboarding before public distribution:
+
+```bash
+cd /Users/bishopdotun/Documents/DevProjects/opendevbrowser
+npm pack
+
+WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
+cd "$WORKDIR"
+npm init -y
+npm install /Users/bishopdotun/Documents/DevProjects/opendevbrowser/opendevbrowser-0.0.16.tgz
+npx --no-install opendevbrowser --help
+npx --no-install opendevbrowser help
+```
+
+Full validated flow: [`docs/FIRST_RUN_ONBOARDING.md`](docs/FIRST_RUN_ONBOARDING.md).
+Dependency/runtime inventory: [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+
 Use OpenCode only if you want plugin tools. CLI and extension workflows work without OpenCode.
 
 On first successful install, the CLI attempts to install daemon auto-start on supported platforms so the relay is available on login.
 You can remove it later with `npx opendevbrowser daemon uninstall`.
 
-OpenCode discovers skills in `.opencode/skill` (project) and `~/.config/opencode/skill` (global) first; `.claude/skills` is compatibility-only. The CLI installs bundled skills into the OpenCode-native locations by default.
+During install, bundled skills are synced for **OpenCode, Codex, ClaudeCode, and AmpCLI**.
+Default `--skills-global` targets:
+- `~/.config/opencode/skill` (OpenCode)
+- `$CODEX_HOME/skills` (fallback `~/.codex/skills`)
+- `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (fallback `~/.claude/skills`)
+- `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
+
+Use `--skills-local` for project-local targets:
+- `./.opencode/skill`, `./.codex/skills`, `./.claude/skills`, `./.amp/skills`
 
 ### CLI + Extension (No OpenCode)
 
@@ -87,6 +117,21 @@ npx opendevbrowser launch --extension-only --wait-for-extension
 # Or force managed mode without extension
 npx opendevbrowser launch --no-extension
 ```
+
+Unpacked extension load path after local install:
+- `<WORKDIR>/node_modules/opendevbrowser/extension`
+
+### Frontend Website (Marketing + Generated Docs)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend build/data pipeline:
+- `npm run sync:assets` copies `assets/` into `frontend/public/brand`.
+- `npm run generate:docs` regenerates docs, metrics, and roadmap JSON consumed by `/docs`.
 
 ### Agent Installation (OpenCode)
 
@@ -129,6 +174,11 @@ OpenDevBrowser uses the same automation model across plugin tools and CLI comman
 5. Re-snapshot after navigation
 ```
 
+Shipping checklist for first-time users (local-package install, daemon, extension, first task, multi-tab auth/cookies):
+- [`docs/FIRST_RUN_ONBOARDING.md`](docs/FIRST_RUN_ONBOARDING.md)
+
+Parallel execution is target-scoped (`ExecutionKey = (sessionId,targetId)`): same target is FIFO, different targets can run concurrently up to the governor cap. `session-per-worker` remains the safest baseline for strict isolation. See [`docs/CLI.md`](docs/CLI.md) (Concurrency semantics), [`docs/MULTITAB_PARALLEL_OPERATIONS_SPEC.md`](docs/MULTITAB_PARALLEL_OPERATIONS_SPEC.md), and [`skills/opendevbrowser-best-practices/artifacts/provider-workflows.md`](skills/opendevbrowser-best-practices/artifacts/provider-workflows.md) (Workflow E).
+
 ### Core Workflow (Plugin Tools)
 
 | Step | Tool | Purpose |
@@ -165,6 +215,9 @@ npx opendevbrowser snapshot --session-id <session-id>
 npx opendevbrowser click --session-id <session-id> --ref r12
 ```
 
+`opendevbrowser serve` includes stale-daemon preflight cleanup by default, so orphan daemon processes are terminated automatically
+before startup while preserving the active daemon on the requested port.
+
 For single-shot scripts:
 
 ```bash
@@ -177,7 +230,13 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ## Recent Features
 
-### v0.0.15 (Latest)
+### v0.0.16 (Latest)
+
+- **Dependency refresh for distribution readiness** with updates to runtime and development packages.
+- **Release hardening for root configs** with stricter TypeScript emit safety and deterministic test timeouts.
+- **Documentation alignment** for the new package version and local pre-release install flow.
+
+### v0.0.15
 
 - **Documentation and release readiness refresh** across README/CLI/extension guidance.
 - **Extension mode stabilization** with stronger native host flow and recovery paths.
@@ -212,8 +271,14 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 ### DevTools Integration
 - **Console Capture** - Monitor console.log, errors, warnings
 - **Network Tracking** - Request/response metadata (method, url, status)
+- **Debug Trace Snapshot** - Combined page/console/network/exception diagnostics with blocker metadata
 - **Screenshot** - Viewport PNG screenshot (file or base64)
 - **Performance** - Page load metrics
+
+### Session & Macro Utilities
+- **Cookie Import** - Validate and import cookies into active sessions
+- **Cookie List** - First-class cookie inspection with optional URL filters
+- **Macro Resolve/Execute** - Expand macro expressions into provider actions with optional execution
 
 ### Export & Clone
 - **DOM Capture** - Extract sanitized HTML with inline styles
@@ -224,8 +289,9 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **41 tools** organized by category:
+OpenDevBrowser provides **48 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
+Complete source-accurate inventory (tools + CLI + `/ops` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 
 ### Session Management
 | Tool | Description |
@@ -234,6 +300,8 @@ Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/C
 | `opendevbrowser_connect` | Connect to existing Chrome CDP endpoint (or relay `/ops`; legacy `/cdp` via `--extension-legacy`) |
 | `opendevbrowser_disconnect` | Disconnect browser session |
 | `opendevbrowser_status` | Get session status and connection info (daemon status in hub mode) |
+| `opendevbrowser_cookie_import` | Import validated cookies into the current session |
+| `opendevbrowser_cookie_list` | List session cookies with optional URL filters |
 
 ### Tab/Target Management
 | Tool | Description |
@@ -283,9 +351,15 @@ Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/C
 |------|-------------|
 | `opendevbrowser_console_poll` | Poll console logs since sequence |
 | `opendevbrowser_network_poll` | Poll network requests since sequence |
+| `opendevbrowser_debug_trace_snapshot` | Capture a unified page + console + network + exception diagnostic bundle |
 | `opendevbrowser_screenshot` | Capture page screenshot |
 | `opendevbrowser_perf` | Get page performance metrics |
 | `opendevbrowser_prompting_guide` | Get best-practice prompting guidance |
+
+### Macro Workflows
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_macro_resolve` | Resolve macro expressions into provider action/provenance (optionally execute) |
 
 ### Annotation
 | Tool | Description |
@@ -308,22 +382,29 @@ Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/C
 
 ## Bundled Skills
 
-OpenDevBrowser includes **5 task-specific skill packs**:
+OpenDevBrowser includes **8 task-specific skill packs**:
 
 | Skill | Purpose |
 |-------|---------|
 | `opendevbrowser-best-practices` | Core prompting patterns and workflow guidance |
 | `opendevbrowser-continuity-ledger` | Long-running task state management |
-| `login-automation` | Authentication flow patterns |
-| `form-testing` | Form validation and submission workflows |
-| `data-extraction` | Structured data scraping patterns |
+| `opendevbrowser-login-automation` | Authentication flow patterns |
+| `opendevbrowser-form-testing` | Form validation and submission workflows |
+| `opendevbrowser-data-extraction` | Structured data scraping patterns |
+| `opendevbrowser-research` | Deterministic multi-source research workflows |
+| `opendevbrowser-shopping` | Deterministic multi-provider deal comparison workflows |
+| `opendevbrowser-product-presentation-asset` | Product screenshot/copy asset collection for presentation pipelines |
 
 Skills are discovered from (priority order):
 1. `.opencode/skill/` (project)
 2. `~/.config/opencode/skill/` (global)
-3. `.claude/skills/` (compatibility)
-4. `~/.claude/skills/` (compatibility)
-5. Custom paths via `skillPaths` config
+3. `.codex/skills/` (project compatibility)
+4. `$CODEX_HOME/skills` (global compatibility; fallback `~/.codex/skills`)
+5. `.claude/skills/` (ClaudeCode project compatibility)
+6. `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (ClaudeCode global compatibility; fallback `~/.claude/skills`)
+7. `.amp/skills/` (AmpCLI project compatibility)
+8. `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (AmpCLI global compatibility; fallback `~/.amp/skills`)
+9. Custom paths via `skillPaths` config
 
 Load a skill: `opendevbrowser_skill_load` with `name` and optional `topic` filter.
 
@@ -354,6 +435,8 @@ When pairing is enabled, both `/ops` and `/cdp` require a relay token (`?token=<
 | **`/cdp` (legacy)** | Low-level CDP relay path with compatibility-focused behavior | Opt-in compatibility mode (`--extension-legacy`) |
 | **Direct CDP connect** | Attach to Chrome started with `--remote-debugging-port` | Existing debug/browser setups without extension relay |
 
+For full `/ops` command names, `/cdp` envelope details, and mode/flag matrices, see [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
+
 ---
 
 ## Breaking Changes (latest)
@@ -376,7 +459,7 @@ The runtime (plugin or CLI daemon) and extension can automatically pair:
 3. Extension fetches relay port from discovery, then fetches token from the relay server
 4. Connection established with color indicator (green = connected)
 
-**Auto-connect** and **Auto-pair** are enabled by default for a seamless setup. The extension badge shows status (ON/OFF).
+**Auto-connect** and **Auto-pair** are enabled by default for a seamless setup. The extension badge shows a small status dot (green = connected, red = disconnected).
 If the relay is unavailable, the background worker retries `/config` + `/pair` with exponential backoff (using `chrome.alarms`).
 
 ### Default Settings (Extension)
@@ -461,6 +544,15 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
     "allowUnsafeExport": false
   },
 
+  // Provider workflow cookie defaults (optional)
+  "providers": {
+    "cookiePolicy": "auto",
+    "cookieSource": {
+      "type": "file",
+      "value": "~/.config/opencode/opendevbrowser.provider-cookies.json"
+    }
+  },
+
   // Skills configuration
   "skills": {
     "nudge": {
@@ -504,6 +596,19 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, and annotate).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 48 tools, `/ops` and `/cdp` channel contracts).
+
+### CLI Category Matrix (core command groups)
+
+| Category | Commands |
+|---------|----------|
+| Install/runtime | `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run` |
+| Session/connection | `launch`, `connect`, `disconnect`, `status`, `cookie-import`, `cookie-list` |
+| Navigation | `goto`, `wait`, `snapshot` |
+| Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view` |
+| Targets/pages | `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close` |
+| DOM | `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked` |
+| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `screenshot`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `macro-resolve`, `annotate`, `rpc` |
 
 ### Install/Management
 
@@ -537,6 +642,12 @@ Start the daemon with `npx opendevbrowser serve`, then use:
 | `npx opendevbrowser select` | Select dropdown option by ref |
 | `npx opendevbrowser scroll` | Scroll page or element |
 | `npx opendevbrowser run` | Run a JSON script |
+| `npx opendevbrowser macro-resolve --expression '@media.search("youtube transcript parity", "youtube", 5)' --execute --timeout-ms 120000` | Execute macro plans with extended timeout for slow runs |
+
+Workflow cookie controls (`research run`, `shopping run`, `product-video run`):
+- Defaults come from `providers.cookiePolicy` (`off|auto|required`) and `providers.cookieSource` (`file|env|inline`).
+- Per-run overrides: `--use-cookies`, `--cookie-policy-override` (alias `--cookie-policy`).
+- `auto` is non-blocking when cookies are unavailable; `required` fails fast with `reasonCode=auth_required`.
 
 ---
 
@@ -571,28 +682,86 @@ npx opendevbrowser --update
 
 Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 Release checklist: [docs/DISTRIBUTION_PLAN.md](docs/DISTRIBUTION_PLAN.md)
+Documentation index: [docs/README.md](docs/README.md)
+Frontend docs: [docs/FRONTEND.md](docs/FRONTEND.md)
+Dependency inventory: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)
 
 ---
 
 ## Architecture
 
 ```
-src/
-├── browser/      # BrowserManager, TargetManager, CDP lifecycle
-├── cli/          # CLI commands and installers
-├── core/         # Bootstrap, runtime wiring
-├── devtools/     # Console/network trackers with redaction
-├── export/       # DOM capture, React emitter, CSS extraction
-├── relay/        # Extension relay server, protocol types
-├── skills/       # SkillLoader for skill pack discovery
-├── snapshot/     # AX-tree snapshots, ref management
-├── tools/        # 41 opendevbrowser_* tool definitions
-└── utils/        # Shared utilities
+┌─────────────────────────────────────────────────────────────────┐
+│                      Distribution Layer                         │
+├──────────────────┬──────────────────┬──────────────────┬──────────────────────────┤
+│  OpenCode Plugin │       CLI        │    Hub Daemon    │    Chrome Extension       │
+│  (src/index.ts)  │ (src/cli/index)  │ (opendevbrowser  │   (extension/src/)        │
+│                  │                  │      serve)     │                           │
+└────────┬─────────┴────────┬─────────┴─────────┬────────┴──────────────┬────────────┘
+         │                  │                  │                       │
+         ▼                  ▼                  ▼                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Core Runtime (src/core/)                    │
+│  bootstrap.ts → wires managers, injects ToolDeps              │
+└────────┬────────────────────────────────────────────────────────┘
+         │
+    ┌────┴────┬─────────────┬──────────────┬──────────────┬──────────────┐
+    ▼         ▼             ▼              ▼              ▼              ▼
+┌────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+│Browser │ │Script  │ │Snapshot  │ │ Annotation │ │  Relay     │ │  Skills    │
+│Manager │ │Runner  │ │Pipeline  │ │  Manager   │ │  Server    │ │  Loader    │
+└───┬────┘ └────────┘ └──────────┘ └────────────┘ └─────┬──────┘ └────────────┘
+    │                                                  │
+    ▼                                                  ▼
+┌────────┐                                        ┌────────────┐
+│Target  │                                        │ Extension  │
+│Manager │                                        │ (WS relay) │
+└────────┘                                        └────────────┘
 ```
 
-Extension relay uses flat CDP sessions (Chrome 125+) with DebuggerSession `sessionId` routing for multi-tab support.
-When hub mode is enabled, the hub daemon is the sole relay owner and enforces a FIFO lease queue for multi-client safety.
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed component diagrams.
+### Data Flow
+
+```
+Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
+                                   ↓
+                            Snapshot (AX-tree → refs)
+                                   ↓
+                            Action (ref → backendNodeId → DOM)
+```
+
+### System Workflow (Happy Path)
+
+1. `launch` (extension or managed) -> `sessionId`
+2. `snapshot` -> refs
+3. Action commands (`click`, `type`, `press`, `hover`, `check`, etc.) -> repeat snapshot
+4. `disconnect` on completion
+
+### Repository Layout
+
+```
+.
+├── src/              # Plugin implementation
+│   ├── browser/      # BrowserManager, TargetManager, CDP lifecycle
+│   ├── cache/        # Chrome executable resolution
+│   ├── cli/          # CLI commands, daemon, installers
+│   ├── core/         # Bootstrap, runtime wiring, ToolDeps
+│   ├── devtools/     # Console/network trackers with redaction
+│   ├── export/       # DOM capture, React emitter, CSS extraction
+│   ├── relay/        # Extension relay server, protocol types
+│   ├── skills/       # SkillLoader for skill pack discovery
+│   ├── snapshot/     # AX-tree snapshots, ref management
+│   ├── tools/        # 48 opendevbrowser_* tool definitions
+│   ├── annotate/     # Annotation transports + output shaping
+│   └── utils/        # Shared utilities
+├── extension/        # Chrome extension (relay client)
+├── frontend/         # Next.js marketing/docs frontend
+├── scripts/          # Operational scripts (build/sync/smoke)
+├── skills/           # Bundled skill packs (8 total)
+├── tests/            # Vitest tests (97% coverage required)
+└── docs/             # Architecture, CLI, extension, frontend, plans
+```
+
+Extension relay uses flat CDP sessions (Chrome 125+) with DebuggerSession `sessionId` routing for multi-tab support. When hub mode is enabled, the hub daemon is the sole relay owner and enforces a FIFO lease queue for multi-client safety. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture reference.
 
 ---
 

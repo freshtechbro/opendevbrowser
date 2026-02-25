@@ -34,7 +34,12 @@ function redactText(text: string): string {
 export type ConsoleEvent = {
   seq: number;
   level: string;
+  category: "log" | "warning" | "error" | "debug" | "trace" | "assert" | "other";
   text: string;
+  argsPreview: string;
+  source?: string;
+  line?: number;
+  column?: number;
   ts: number;
 };
 
@@ -47,7 +52,15 @@ export class ConsoleTracker {
   private maxEvents: number;
   private seq: number = 0;
   private page: Page | null = null;
-  private handler?: (msg: { type(): string; text(): string }) => void;
+  private handler?: (msg: {
+    type(): string;
+    text(): string;
+    location?(): {
+      url?: string;
+      lineNumber?: number;
+      columnNumber?: number;
+    };
+  }) => void;
   private showFullConsole: boolean;
 
   constructor(maxEvents = 200, options: ConsoleTrackerOptions = {}) {
@@ -69,11 +82,23 @@ export class ConsoleTracker {
     this.handler = (msg) => {
       const rawText = msg.text();
       const text = this.showFullConsole ? rawText : redactText(rawText);
+      const location = typeof msg.location === "function" ? msg.location() : undefined;
+      const line = Number.isFinite(location?.lineNumber) ? Number(location?.lineNumber) : undefined;
+      const column = Number.isFinite(location?.columnNumber) ? Number(location?.columnNumber) : undefined;
+      const source = typeof location?.url === "string" && location.url.length > 0
+        ? location.url
+        : undefined;
+
       this.seq += 1;
       this.events.push({
         seq: this.seq,
         level: msg.type(),
+        category: classifyConsoleCategory(msg.type()),
         text,
+        argsPreview: buildArgsPreview(text),
+        ...(source ? { source } : {}),
+        ...(typeof line === "number" ? { line } : {}),
+        ...(typeof column === "number" ? { column } : {}),
         ts: Date.now()
       });
       if (this.events.length > this.maxEvents) {
@@ -92,15 +117,38 @@ export class ConsoleTracker {
     this.handler = undefined;
   }
 
-  poll(sinceSeq = 0, max = 50): { events: ConsoleEvent[]; nextSeq: number } {
-    const events = this.events.filter((event) => event.seq > sinceSeq).slice(0, max);
+  poll(sinceSeq = 0, max = 50): { events: ConsoleEvent[]; nextSeq: number; truncated?: boolean } {
+    const pending = this.events.filter((event) => event.seq > sinceSeq);
+    const events = pending.slice(0, max);
     const last = events[events.length - 1];
     const nextSeq = last ? last.seq : sinceSeq;
-    return { events, nextSeq };
+    return {
+      events,
+      nextSeq,
+      truncated: pending.length > events.length
+    };
   }
+}
+
+function classifyConsoleCategory(level: string): ConsoleEvent["category"] {
+  const normalized = level.toLowerCase();
+  if (normalized === "warning" || normalized === "warn") return "warning";
+  if (normalized === "error") return "error";
+  if (normalized === "debug") return "debug";
+  if (normalized === "trace") return "trace";
+  if (normalized === "assert") return "assert";
+  if (normalized === "log" || normalized === "info") return "log";
+  return "other";
+}
+
+function buildArgsPreview(text: string): string {
+  if (text.length <= 240) return text;
+  return `${text.slice(0, 237)}...`;
 }
 
 export const __test__ = {
   redactText,
-  shouldRedactToken
+  shouldRedactToken,
+  classifyConsoleCategory,
+  buildArgsPreview
 };

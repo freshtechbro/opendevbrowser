@@ -1,0 +1,21 @@
+{
+  "session_id": "",
+  "url_before": "",
+  "url_after": "",
+  "auth_element_ref": "",
+  "auth_element_visible": false,
+  "network": {
+    "login_request_seen": false,
+    "status_codes": [],
+    "retry_after_seconds": 0
+  },
+  "frames_seen": 0,
+  "popup_detected": false,
+  "challenge_detected": false,
+  "challenge_type": "none",
+  "challenge_checkpoint_count": 0,
+  "mfa_detected": false,
+  "mfa_method": "unknown",
+  "issue_ids": [],
+  "result": "unknown"
+}

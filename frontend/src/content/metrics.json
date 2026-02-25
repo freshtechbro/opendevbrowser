@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-02-24T19:53:06.186Z",
+  "metrics": [
+    {
+      "label": "CLI command surface",
+      "value": "55 commands",
+      "as_of_utc": "2026-02-23T03:16:29Z",
+      "source_command_or_file": "`src/cli/args.ts` + command extraction",
+      "verification_owner": "maintainer",
+      "verification_status": "verified",
+      "verification_evidence_ref": "command output `CLI=55` from source extraction on 2026-02-23"
+    },
+    {
+      "label": "Tool surface",
+      "value": "48 tools",
+      "as_of_utc": "2026-02-23T03:16:29Z",
+      "source_command_or_file": "`src/tools/index.ts` + command extraction",
+      "verification_owner": "maintainer",
+      "verification_status": "verified",
+      "verification_evidence_ref": "command output `TOOLS=48` from source extraction on 2026-02-23"
+    },
+    {
+      "label": "Branch coverage",
+      "value": "97.03% (6068/6254)",
+      "as_of_utc": "2026-02-23T03:16:29Z",
+      "source_command_or_file": "`coverage/lcov.info` + `awk -F: '/^BRF:/{brf+=$2} /^BRH:/{brh+=$2} END {printf \"BRH=%d BRF=%d BRANCH_PCT=%.2f\\n\", brh, brf, (brh/brf)*100}' coverage/lcov.info`",
+      "verification_owner": "maintainer",
+      "verification_status": "verified",
+      "verification_evidence_ref": "command output `BRH=6068 BRF=6254 BRANCH_PCT=97.03`"
+    },
+    {
+      "label": "Branch coverage gate",
+      "value": ">=97%",
+      "as_of_utc": "2026-02-23T03:16:29Z",
+      "source_command_or_file": "`vitest.config.ts`",
+      "verification_owner": "maintainer",
+      "verification_status": "verified",
+      "verification_evidence_ref": "`vitest.config.ts` thresholds block"
+    }
+  ]
+}

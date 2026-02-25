@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.16] - 2026-02-24
+
+### Added
+- Automation provider runtime and macro execution surfaces for research, shopping, and product-asset workflows.
+- Debug-trace diagnostics snapshots and blocker metadata contracts across runtime outputs.
+- Expanded bundled skill-pack workflows and multi-agent skill target support.
+- Frontend docs site and branded asset pipeline for generated documentation delivery.
+
+### Changed
+- Hardened multitab runtime scheduling, provider orchestration, and Ops matrix execution behavior.
+- Migrated and stabilized skill-pack handling for multitab workflows and legacy alias compatibility.
+- Refreshed architecture/operations/distribution docs and release-readiness guidance.
+- Updated package + extension versions to `0.0.16` and refreshed dependency ranges/lockfile.
+
+### Fixed
+- Preserved blocker resolution outcomes and improved traversal recovery under live matrix pressure.
+- Narrowed native extension ID fallback typing for safer native-host path handling.
+- Corrected legacy skill alias drift (`SKILL 2`) to keep compatibility behavior deterministic.
+
+### Tests
+- Expanded multitab, provider, and CLI regression coverage.
+- Added workflow runtime, skill-installer, blocker-transition, traversal, and live-path guard tests.
+
 ## [0.0.15] - 2026-02-08
 
 ### Added
@@ -99,7 +122,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/eaced1e...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.16...HEAD
+[0.0.16]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.15...v0.0.16
 [0.0.15]: https://github.com/freshtechbro/opendevbrowser/compare/ebb109e...eaced1e
 [0.0.14]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.13...ebb109e
 [0.0.13]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.12...v0.0.13

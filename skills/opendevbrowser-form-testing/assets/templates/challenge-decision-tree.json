@@ -1,0 +1,16 @@
+{
+  "challenge_detected": false,
+  "provider": "unknown",
+  "issue_ids": [
+    "ISSUE-02",
+    "ISSUE-05",
+    "ISSUE-06"
+  ],
+  "action": "manual_checkpoint",
+  "max_challenge_retries": 2,
+  "retry_after_seconds": 0,
+  "resume_conditions": [
+    "challenge_cleared",
+    "new_snapshot_taken"
+  ]
+}

@@ -1,8 +1,23 @@
 # OpenDevBrowser CLI
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
-OpenDevBrowser exposes 41 `opendevbrowser_*` tools; see `README.md` for the full list.
+Status: active  
+Last updated: 2026-02-24
+
+OpenDevBrowser exposes 48 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); use continuity guidance only for long-running handoff/compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
+CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
+
+Dependency inventory: `docs/DEPENDENCIES.md`
+First-run pre-release onboarding: `docs/FIRST_RUN_ONBOARDING.md`
+
+Parity and skill-pack gates:
+
+```bash
+npm run test -- tests/parity-matrix.test.ts
+./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+```
 
 ## Installation
 
@@ -21,17 +36,44 @@ npm install -g opendevbrowser
 opendevbrowser --version
 ```
 
-By default, the CLI installs bundled skills to `~/.config/opencode/skill`. Use `--skills-local` for project-local skills or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+### Pre-release local package onboarding (no npm publish)
 
-### Skill discovery order (OpenCode-native)
+```bash
+cd /Users/bishopdotun/Documents/DevProjects/opendevbrowser
+npm pack
 
-OpenCode discovers skills in this order (first match wins):
+WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
+cd "$WORKDIR"
+npm init -y
+npm install /Users/bishopdotun/Documents/DevProjects/opendevbrowser/opendevbrowser-0.0.15.tgz
+npx --no-install opendevbrowser --help
+```
+
+Load extension unpacked from:
+- `$WORKDIR/node_modules/opendevbrowser/extension`
+
+For isolated daemon tests on machines that already run OpenDevBrowser, set:
+
+```bash
+export OPENCODE_CONFIG_DIR=/tmp/opendevbrowser-first-run-isolated/config
+export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
+```
+
+By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations (legacy `claude`/`amp` labels are still synchronized for compatibility). Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+
+### Skill discovery order
+
+The skill loader discovers skills in this order (first match wins):
 
 1. Project-local: `./.opencode/skill`
 2. Global: `~/.config/opencode/skill` (or `$OPENCODE_CONFIG_DIR/skill`)
-3. Compatibility: `./.claude/skills`
-4. Compatibility: `~/.claude/skills`
-5. Extra paths from `skillPaths` (advanced)
+3. Compatibility (project): `./.codex/skills`
+4. Compatibility (global): `$CODEX_HOME/skills` (fallback `~/.codex/skills`)
+5. Compatibility (project): `./.claude/skills`
+6. Compatibility (global): `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (fallback `~/.claude/skills`)
+7. Compatibility (project): `./.amp/skills`
+8. Compatibility (global): `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
+9. Extra paths from `skillPaths` (advanced)
 
 ---
 
@@ -70,6 +112,28 @@ The CLI validates common flags early and returns a usage error (`exitCode: 1`) w
 - Numeric flags must be positive integers:
   - `--port`, `--cdp-port`
   - `--wait-timeout-ms`, `--timeout-ms`
+
+---
+
+## Surface inventory (source-accurate)
+
+Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
+
+### CLI command surface
+
+- Total commands: `55`.
+- Categories: install/runtime management, session/connection, navigation, interaction, targets/pages, DOM inspection, export/diagnostics/macro/annotation, and internal power (`rpc`).
+
+### Tool surface
+
+- Total tools: `48` (`opendevbrowser_*`).
+- Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
+- CLI-only surface (no tool equivalent): `artifacts`, `rpc`.
+
+### Relay channel surface
+
+- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `38` command names.
+- `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
 
 ---
 
@@ -148,6 +212,20 @@ npx opendevbrowser --version
 npx opendevbrowser -v
 ```
 
+`--help` now prints a complete, agent-oriented inventory:
+- All CLI commands (55) grouped by function, each with one-line descriptions.
+- All supported CLI flags, grouped by install/session/navigation/workflow usage.
+- All `opendevbrowser_*` tools (48), each with one-line descriptions.
+- Macro execute timeout guidance via `--timeout-ms` for slow `macro-resolve --execute` runs.
+- Canonical inventory pointers: `docs/SURFACE_REFERENCE.md`, `src/tools/index.ts`, and this CLI guide.
+
+Operational help parity check:
+
+```bash
+npx opendevbrowser --help
+npx opendevbrowser help
+```
+
 ---
 
 ## Automation commands (daemon)
@@ -167,6 +245,11 @@ npx opendevbrowser serve --stop
 The daemon listens on `127.0.0.1` and starts the relay the extension connects to. Metadata lives in
 `~/.cache/opendevbrowser/daemon.json` (cache only);
 `/status` is the source of truth. The daemon port/token are persisted in `opendevbrowser.jsonc` as `daemonPort`/`daemonToken`.
+`serve` now performs a stale-daemon preflight and terminates orphan `opendevbrowser serve` processes before starting (or before
+returning "already running"), while preserving the active daemon on the requested port.
+
+If you run onboarding tests alongside an existing daemon, isolate config/cache via `OPENCODE_CONFIG_DIR` and `OPENCODE_CACHE_DIR`
+to avoid token/port collisions between sessions.
 
 If `nativeExtensionId` is set in `opendevbrowser.jsonc`, `serve` will auto-install the native messaging host when it is missing.
 If it is not set, `serve` attempts to auto-detect the extension ID from Chrome, Brave, or Chromium profiles; if detection fails it continues startup.
@@ -200,6 +283,7 @@ Behavior:
 - macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute CLI entrypoint.
 - Windows: per-user Task Scheduler logon task targeting an absolute CLI entrypoint.
 - `daemon status` reports `{ installed, running, status? }` and does not throw a usage error when missing.
+- `daemon status` returns exit code `10` when the daemon is not running.
 
 Exit codes align with the CLI:
 - `0`: success
@@ -220,7 +304,7 @@ npx opendevbrowser serve
 npx opendevbrowser serve --stop
 ```
 
-### Native messaging host (Phase 2)
+### Native messaging host
 
 Install the native messaging host for the extension to use as a fallback transport when the relay WebSocket is unavailable.
 
@@ -243,6 +327,108 @@ Notes:
 - `serve` also attempts auto-detection from Chrome, Brave, or Chromium profiles, but explicit config is more reliable.
 - `native status` reports installed state + extension ID from the manifest.
 - Use `--transport native` with `status` to check native host status without requiring the daemon.
+
+### Workflow wrappers
+
+The workflow wrappers expose the finalized research/shopping/product-video surfaces from
+`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md`.
+
+#### Research (`research run`)
+
+```bash
+npx opendevbrowser research run --topic "browser automation" --days 30 --mode compact
+npx opendevbrowser research run --topic "market map" --from 2026-02-01 --to 2026-02-16 --source-selection all --mode json
+npx opendevbrowser research run --topic "creator tools" --sources web,shopping --include-engagement --limit-per-source 5 --mode context
+```
+
+Flags:
+- `--topic` (required)
+- `--days`
+- `--from`
+- `--to`
+- `--source-selection` (`auto|web|community|social|shopping|all`)
+- `--sources` (comma-separated concrete sources)
+- `--mode` (`compact|json|md|context|path`)
+- `--include-engagement`
+- `--limit-per-source`
+- `--output-dir`
+- `--ttl-hours`
+- `--use-cookies` (`true|false`; bare flag means `true`)
+- `--cookie-policy-override` (`off|auto|required`)
+- `--cookie-policy` (alias of `--cookie-policy-override`)
+
+#### Shopping (`shopping run`)
+
+```bash
+npx opendevbrowser shopping run --query "usb microphone" --mode compact
+npx opendevbrowser shopping run --query "portable monitor" --providers shopping/amazon,shopping/newegg --sort lowest_price --mode md
+npx opendevbrowser shopping run --query "desk chair" --budget 250 --region us --mode path
+```
+
+Flags:
+- `--query` (required)
+- `--providers` (comma-separated; defaults to all v1 adapters)
+- `--budget`
+- `--region`
+- `--sort` (`best_deal|lowest_price|highest_rating|fastest_shipping`)
+- `--mode` (`compact|json|md|context|path`)
+- `--output-dir`
+- `--ttl-hours`
+- `--use-cookies` (`true|false`; bare flag means `true`)
+- `--cookie-policy-override` (`off|auto|required`)
+- `--cookie-policy` (alias of `--cookie-policy-override`)
+
+#### Product presentation asset (`product-video run`)
+
+```bash
+npx opendevbrowser product-video run --product-url "https://example.com/p/1" --include-screenshots
+npx opendevbrowser product-video run --product-name "Sample Product" --provider-hint shopping/amazon --output-dir /tmp/product-assets
+```
+
+Flags:
+- `--product-url` (required unless `--product-name` is provided)
+- `--product-name` (required unless `--product-url` is provided)
+- `--provider-hint`
+- `--include-screenshots` (`true|false`; bare flag means `true`)
+- `--include-all-images` (`true|false`; bare flag means `true`)
+- `--include-copy` (`true|false`; bare flag means `true`)
+- `--output-dir`
+- `--ttl-hours`
+- `--use-cookies` (`true|false`; bare flag means `true`)
+- `--cookie-policy-override` (`off|auto|required`)
+- `--cookie-policy` (alias of `--cookie-policy-override`)
+
+Wrapper behavior:
+- Timebox semantics are strict (`--days` is mutually exclusive with `--from/--to`).
+- Render modes for `research` and `shopping` are shared: `compact|json|md|context|path`.
+- `product-video run` always returns a path-based local asset pack.
+- Path-bearing modes persist artifacts under the configured output directory (or default tmp namespace) and include TTL metadata in manifest files.
+- Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
+- Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
+- `auto` attempts injection when cookies are available and continues when cookies are missing/unusable.
+- `required` fails fast with `reasonCode=auth_required` when cookie loading/injection/verification cannot establish a session.
+- Cookie diagnostics are exposed in workflow metrics under `meta.metrics.cookie_diagnostics` and `meta.metrics.cookieDiagnostics`.
+
+### Artifact lifecycle cleanup
+
+Use the artifact cleanup command to remove expired bundles generated by workflow runs:
+
+```bash
+npx opendevbrowser artifacts cleanup --expired-only
+npx opendevbrowser artifacts cleanup --expired-only --output-dir /tmp/opendevbrowser
+```
+
+Script helper:
+
+```bash
+./scripts/artifacts-cleanup.sh
+./scripts/artifacts-cleanup.sh /tmp/opendevbrowser
+```
+
+Notes:
+- `--expired-only` is required.
+- Default cleanup root is `${TMPDIR:-/tmp}/opendevbrowser`.
+- Output includes `removed` and `skipped` run paths.
 
 ### Run (single-shot script)
 
@@ -309,7 +495,8 @@ Flags:
 Default behavior:
 - Extension relay (`extension` mode) is the default when available, using the `/ops` WebSocket.
 - If the extension is not connected, launch fails with guidance and exact commands for the explicit alternatives.
-- Headless is never the default; it is only used when explicitly requested.
+- Headless is never the default.
+- Extension headless is unsupported. `launch --headless` must be paired with `--no-extension`; extension-intent headless requests fail with `unsupported_mode`.
 - When hub mode is enabled, there is no local relay fallback. If the hub is unavailable, commands fail with guidance.
 - Extension relay requires Chrome 125+ (flat CDP sessions).
 
@@ -353,6 +540,18 @@ If you see `RELAY_WAIT_TIMEOUT`, retry after the current binding expires or stop
 
 Relay behavior note: extension uses a single extension websocket, while the relay can serve multiple `/ops` clients. Disconnecting the extension or restarting the relay drops active sessions, including annotation flows. Reconnect via the popup (or restart the daemon) before retrying.
 
+### Concurrency semantics
+
+- Transport-level concurrency: `/ops` supports multi-client access and multiple sessions.
+- Runtime scheduling uses `ExecutionKey = (sessionId, targetId)` with target-scoped queues.
+- Same target stays FIFO; different targets in one session run in parallel up to `effectiveParallelCap`.
+- `session-per-worker` remains the safest baseline for simple operational isolation, but in-session multi-target parallelism is supported on `/ops`, managed, and `cdpConnect`.
+- Use explicit `--target-id` routing for concurrent flows; treat `target-use` as ergonomic fallback only.
+- Use `/ops` as the default concurrent relay channel. Use `--extension-legacy` (`/cdp`) only for compatibility-specific paths.
+- Legacy `/cdp` stays sequential (`effectiveParallelCap=1`) by design.
+- For managed parallel launches with persisted profiles, use unique profile directories per session (or disable persistence) to avoid ProcessSingleton/SingletonLock collisions.
+- Parity divergences are registry-bound in `docs/PARITY_DECLARED_DIVERGENCES.md`.
+
 ### Disconnect
 
 ```bash
@@ -366,7 +565,268 @@ npx opendevbrowser disconnect --session-id <session-id> --close-browser
 npx opendevbrowser status               # daemon status (default)
 npx opendevbrowser status --daemon      # daemon status (explicit)
 npx opendevbrowser status --session-id <session-id>
+npx opendevbrowser status --transport native
 ```
+
+### Cookie import
+
+```bash
+npx opendevbrowser cookie-import \
+  --session-id <session-id> \
+  --cookies '[{"name":"session","value":"abc123","url":"https://example.com"}]'
+
+npx opendevbrowser cookie-import \
+  --session-id <session-id> \
+  --cookies-file ./cookies.json \
+  --strict=false \
+  --request-id req-cookie-001
+```
+
+Notes:
+- Provide exactly one cookies source: `--cookies` or `--cookies-file`.
+- `--strict` defaults to `true`.
+- Supported across `managed`, default extension `/ops`, extension legacy `/cdp`, and direct `cdpConnect` sessions.
+
+### Cookie list
+
+```bash
+npx opendevbrowser cookie-list \
+  --session-id <session-id>
+
+npx opendevbrowser cookie-list \
+  --session-id <session-id> \
+  --url https://example.com \
+  --url https://shop.example.com \
+  --request-id req-cookie-list-001
+```
+
+Notes:
+- `--url` is optional and repeatable; each value is normalized and deduplicated.
+- Supports `managed`, default extension `/ops`, extension legacy `/cdp`, and direct `cdpConnect` sessions.
+
+### Macro resolve
+
+```bash
+npx opendevbrowser macro-resolve --expression '@web.search("openai")'
+npx opendevbrowser macro-resolve --expression '@social.post("x", "ship it")' --default-provider social/x --include-catalog
+npx opendevbrowser macro-resolve --expression '@web.search("opendevbrowser")' --execute --output-format json
+npx opendevbrowser macro-resolve --expression '@media.search("youtube transcript parity", "youtube", 5)' --execute --timeout-ms 120000 --output-format json
+```
+
+Notes:
+- Default mode is resolve-only (returns the resolved action/provenance payload).
+- `--execute` runs the resolved provider action and returns additive execution metadata (`meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, `meta.provenance.retrievedAt`).
+- `--timeout-ms` sets client-side daemon transport timeout for slow `--execute` runs.
+- `opendevbrowser --help` includes this timeout flag in the global flag inventory.
+
+### Blocker contract (v2)
+
+Compatibility rule (v2):
+- Blocker fields are additive-only and live under `meta.blocker` (or `execution.meta.blocker` for `macro-resolve --execute`).
+- Existing success/error fields and codes remain unchanged.
+- Consumers should treat missing blocker fields as backward-compatible `no blocker metadata`.
+
+Canonical placement:
+- `goto`: `data.meta.blockerState` + optional `data.meta.blocker`.
+- `wait`: `data.meta.blockerState` + optional `data.meta.blocker`.
+- `debug-trace-snapshot`: `data.meta.blockerState` + optional `data.meta.blocker` + optional `data.meta.blockerArtifacts`.
+- `macro-resolve --execute`: `data.execution.meta.ok` + optional `data.execution.meta.blocker`.
+- `status`: `data.meta.blockerState` + optional `data.meta.blockerResolution` (`resolved | unresolved | deferred`).
+
+Canonical examples:
+
+```json
+{
+  "command": "goto",
+  "success": true,
+  "data": {
+    "finalUrl": "https://example.com",
+    "status": 200,
+    "timingMs": 412,
+    "meta": {
+      "blockerState": "clear"
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "goto",
+  "success": true,
+  "data": {
+    "finalUrl": "https://x.com/i/flow/login",
+    "status": 200,
+    "timingMs": 588,
+    "meta": {
+      "blockerState": "active",
+      "blocker": {
+        "schemaVersion": "1.0",
+        "type": "auth_required",
+        "source": "navigation",
+        "confidence": 0.97,
+        "retryable": false
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "wait",
+  "success": true,
+  "data": {
+    "timingMs": 221,
+    "meta": {
+      "blockerState": "clear"
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "status",
+  "success": true,
+  "data": {
+    "mode": "managed",
+    "activeTargetId": "target-1",
+    "url": "https://x.com/i/flow/login",
+    "title": "Log in to X / X",
+    "meta": {
+      "blockerState": "active",
+      "blockerResolution": {
+        "status": "unresolved",
+        "reason": "verification_timeout",
+        "updatedAt": "2026-02-15T14:18:28.000Z"
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "wait",
+  "success": true,
+  "data": {
+    "timingMs": 1470,
+    "meta": {
+      "blockerState": "active",
+      "blocker": {
+        "schemaVersion": "1.0",
+        "type": "anti_bot_challenge",
+        "source": "navigation",
+        "confidence": 0.96,
+        "retryable": false
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "debug-trace-snapshot",
+  "success": true,
+  "data": {
+    "requestId": "req-debug-001",
+    "meta": {
+      "blockerState": "clear"
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "debug-trace-snapshot",
+  "success": true,
+  "data": {
+    "requestId": "req-debug-002",
+    "meta": {
+      "blockerState": "active",
+      "blocker": {
+        "schemaVersion": "1.0",
+        "type": "anti_bot_challenge",
+        "source": "network",
+        "confidence": 0.96,
+        "retryable": false
+      },
+      "blockerArtifacts": {
+        "schemaVersion": "1.0",
+        "hosts": ["www.recaptcha.net", "challenges.cloudflare.com"]
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "macro-resolve --execute",
+  "success": true,
+  "data": {
+    "runtime": "macros",
+    "execution": {
+      "meta": {
+        "ok": true,
+        "partial": false
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "command": "macro-resolve --execute",
+  "success": true,
+  "data": {
+    "runtime": "macros",
+    "execution": {
+      "meta": {
+        "ok": false,
+        "partial": true,
+        "blocker": {
+          "schemaVersion": "1.0",
+          "type": "env_limited",
+          "source": "macro_execution",
+          "confidence": 0.9,
+          "retryable": true
+        }
+      }
+    }
+  }
+}
+```
+
+### RPC (power-user, internal)
+
+Execute any daemon command directly. This bypasses the stable CLI command surface, is intentionally unsafe/internal, and requires `--unsafe-internal`.
+
+```bash
+# Minimal call (empty params object)
+npx opendevbrowser rpc --unsafe-internal --name relay.status --output-format json
+
+# With inline JSON params
+npx opendevbrowser rpc --unsafe-internal --name nav.goto \
+  --params '{"sessionId":"<session-id>","url":"https://example.com","waitUntil":"load","timeoutMs":30000}' \
+  --timeout-ms 45000 --output-format json
+
+# With params from file
+npx opendevbrowser rpc --unsafe-internal --name session.status --params-file ./rpc-params.json --output-format json
+```
+
+Notes:
+- Params must be a JSON object.
+- Use `--output-format json` for machine-readable responses.
+- `rpc` is CLI-only by design and is not part of the stable tool parity surface.
+- `rpc` command names/params are internal and may change without compatibility guarantees.
+- A bad `rpc` call can close sessions, navigate logged-in tabs, or trigger unintended side effects.
+- Prefer stable commands (`goto`, `snapshot`, `click`, `type`, and related tool equivalents) whenever possible.
+- Use `rpc` only when necessary, validate params carefully, and test in a disposable session first.
 
 ---
 
@@ -589,7 +1049,11 @@ npx opendevbrowser perf --session-id <session-id>
 ```bash
 npx opendevbrowser screenshot --session-id <session-id>
 npx opendevbrowser screenshot --session-id <session-id> --path ./capture.png
+npx opendevbrowser screenshot --session-id <session-id> --path ./capture.png --timeout-ms 60000
 ```
+
+Notes:
+- `--timeout-ms` sets client-side daemon timeout for screenshot capture.
 
 ### Console poll
 
@@ -601,6 +1065,19 @@ npx opendevbrowser console-poll --session-id <session-id> --since-seq 0 --max 50
 
 ```bash
 npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
+```
+
+### Debug trace snapshot
+
+```bash
+npx opendevbrowser debug-trace-snapshot --session-id <session-id>
+npx opendevbrowser debug-trace-snapshot \
+  --session-id <session-id> \
+  --since-console-seq 100 \
+  --since-network-seq 80 \
+  --since-exception-seq 10 \
+  --max 200 \
+  --request-id req-debug-001
 ```
 
 ---
@@ -621,8 +1098,10 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 | `--no-interactive` | | Alias of `--no-prompt` |
 | `--quiet` | | Suppress output |
 | `--output-format` | | `text`, `json`, or `stream-json` |
-| `--skills-global` | | Install skills to `~/.config/opencode/skill` (default) |
-| `--skills-local` | | Install skills to `./.opencode/skill` |
+| `--transport` | | Transport selector (`relay` or `native`) for transport-aware commands |
+| `--daemon` | | Daemon status selector for `status` |
+| `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
+| `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
 | `--no-skills` | | Skip installing bundled skills |
 | `--help` | `-h` | Show usage information |
 | `--version` | `-v` | Show version number |
@@ -646,11 +1125,24 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 | `--ws-endpoint` | `connect` | Remote debugging websocket URL |
 | `--host` | `connect` | Host for CDP connection (`--cdp-port` required) |
 | `--cdp-port` | `connect` | CDP port for host-based connect |
+| `--daemon` | `status` | Force daemon status mode (mutually exclusive with `--session-id`) |
 | `--no-extension` | `launch` | Force managed mode (ignore extension) |
 | `--extension-only` | `launch` | Fail if extension not connected |
 | `--extension-legacy` | `launch`, `connect` | Use legacy extension relay (`/cdp`) |
 | `--wait-for-extension` | `launch` | Wait for extension handshake |
 | `--wait-timeout-ms` | `launch` | Max wait for extension handshake |
+| `--cookies` | `cookie-import` | Inline JSON array of cookie objects |
+| `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects |
+| `--strict` | `cookie-import` | Reject on invalid cookie entries (`true`/`false`) |
+| `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot` | Optional request correlation id |
+| `--expression` | `macro-resolve` | Macro expression to resolve |
+| `--default-provider` | `macro-resolve` | Provider fallback for shorthand macros |
+| `--include-catalog` | `macro-resolve` | Include macro catalog in response |
+| `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
+| `--timeout-ms` | `macro-resolve` | Client-side daemon call timeout in ms |
+| `--use-cookies` | `research run`, `shopping run`, `product-video run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
+| `--cookie-policy-override` | `research run`, `shopping run`, `product-video run` | Per-run provider cookie policy override (`off|auto|required`) |
+| `--cookie-policy` | `research run`, `shopping run`, `product-video run` | Alias of `--cookie-policy-override` |
 
 **Browser launch (launch/run)**
 
@@ -668,7 +1160,7 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 
 | Flag | Used by | Description |
 |------|---------|-------------|
-| `--url` | `goto`, `page`, `target-new` | URL to navigate/open |
+| `--url` | `goto`, `page`, `target-new`, `cookie-list` | URL to navigate/open or filter cookie listing |
 | `--wait-until` | `goto` | Load state (`load`, `domcontentloaded`, etc.) |
 | `--timeout-ms` | `goto`, `wait` | Timeout in ms |
 | `--ref` | `wait` | Element ref to wait for |
@@ -689,6 +1181,16 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 | `--context` | `annotate` | Optional context text pre-filled in the UI |
 | `--debug` | `annotate` | Include debug metadata in the payload |
 | `--timeout-ms` | `annotate` | Annotation timeout in ms |
+
+**RPC (internal)**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--unsafe-internal` | `rpc` | Required opt-in acknowledging unsafe/internal RPC execution (power-user only) |
+| `--name` | `rpc` | Daemon command name (for example `relay.status`) |
+| `--params` | `rpc` | Inline JSON object command params |
+| `--params-file` | `rpc` | Path to JSON object params file |
+| `--timeout-ms` | `rpc` | Client-side daemon call timeout in ms |
 
 **Interaction**
 
@@ -716,8 +1218,12 @@ npx opendevbrowser network-poll --session-id <session-id> --since-seq 0 --max 50
 |------|---------|-------------|
 | `--attr` | `dom-attr` | Attribute name to read |
 | `--path` | `screenshot` | Output file path |
+| `--timeout-ms` | `screenshot` | Client-side daemon call timeout in ms |
 | `--since-seq` | `console-poll`, `network-poll` | Start sequence number |
-| `--max` | `console-poll`, `network-poll` | Max events to return |
+| `--since-console-seq` | `debug-trace-snapshot` | Resume cursor for console channel |
+| `--since-network-seq` | `debug-trace-snapshot` | Resume cursor for network channel |
+| `--since-exception-seq` | `debug-trace-snapshot` | Resume cursor for exception channel |
+| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot` | Max events to return per channel |
 
 ---
 
@@ -733,17 +1239,77 @@ node scripts/cli-smoke-test.mjs
 The script uses temporary config/cache directories and exercises all CLI commands, including the new interaction and DOM state checks.
 Validate extension mode separately with `launch` + `disconnect` while the extension is connected.
 
-### Latest validation (2026-02-08)
+## Live regression matrix
 
-- Managed mode: PASS (`node scripts/cli-smoke-test.mjs`)
-- Connection modes: PASS (`node /tmp/connection_modes_real_test.mjs` => `22/22`)
-- Extension-only command matrix: PASS (`node /tmp/odb_ext_test_matrix.mjs` => `cli_common 10/10`, `cli_extension_surface 32/32`, `daemon_extension_lease_aware 31/31`)
-- Extension-only low-churn rerun: PASS (`node /tmp/odb_rerun_low_churn.mjs` => `23/23`)
-- Real tool-surface run: PASS (`bun /tmp/opendevbrowser_tools_real_matrix.mjs` => `59/59`)
-- Real admin/native command run: PASS (`node /tmp/opendevbrowser_admin_commands_real.mjs` => `10/10`)
+Run the full real-world matrix (managed + extension `/ops` + extension-legacy `/cdp` + `cdpConnect` + macro/research + annotate probes):
 
-OpenCode prompt-driven background run note:
-- If `opencode run --command` reports `command3.agent`, use explicit shell command routing (`--command shell "..."`), then re-run JSON probe checks.
+```bash
+npm run build
+node scripts/live-regression-matrix.mjs
+```
+
+Behavior:
+- Exits non-zero only for product regressions.
+- Emits explicit extension readiness preflight diagnostics (`infra.extension.ready`) before extension-mode cases.
+- Classifies upstream reachability failures (for example social/community dependencies) as `env_limited`.
+- Classifies unattended annotation timeouts as `expected_timeout`.
+- Captures mode-specific blocker evidence (`goto`/`wait` + `debug-trace-snapshot`) for managed, extension, and cdpConnect comparisons.
+- Emits a JSON summary with per-step status for reproducible CI/manual verification.
+
+## Provider live matrix harness
+
+Run the provider-depth live harness promoted from the `/tmp` validation script:
+
+```bash
+npm run build
+node scripts/provider-live-matrix.mjs --out /tmp/odb-provider-live-matrix.json
+```
+
+CI-safe smoke mode (reduced cases, deterministic gating checks, no long workflow probes by default):
+
+```bash
+npm run build
+node scripts/provider-live-matrix.mjs --smoke --out /tmp/odb-provider-live-matrix-smoke.json
+```
+
+Key checks included in full mode:
+- Social issue probes: search/fetch coverage across platforms plus extension `/ops` timeout/retry behavior on YouTube/Instagram.
+- Shopping issue probes: cross-provider query coverage with explicit timeout budget support.
+- Browser issue probes: real-world navigation on YouTube/Instagram/Facebook across `managed`, `extension`, and `cdpConnect` with blocker metadata.
+- Research-first defaults: auth-gated provider scenarios (`facebook`, `linkedin`, `shopping/costco`, `shopping/macys`), high-friction provider scenarios (`shopping/bestbuy`), and social post probes are skipped unless explicitly enabled.
+
+Key options:
+- `--use-global-env` reuse existing OPENCODE config/cache instead of isolated temp dirs.
+- `--skip-live-regression`, `--skip-browser-probes`, `--skip-workflows` for focused diagnostics.
+- `--include-live-regression`, `--include-browser-probes`, `--include-workflows` to re-enable those probes in `--smoke`.
+- `--include-auth-gated` enables auth-dependent provider scenarios (deferred by default).
+- `--include-high-friction` enables high-friction providers (deferred by default).
+- `--include-social-posts` enables social post scenarios (deferred by default).
+
+Run parity and skill-asset gates as part of release checks:
+
+```bash
+npm run test -- tests/parity-matrix.test.ts
+npm run test -- tests/providers-performance-gate.test.ts
+./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+```
+
+Release gate source of truth: `docs/RELEASE_PARITY_CHECKLIST.md`.
+Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
+
+### Latest validation (2026-02-15)
+
+- `npm run lint` ✅
+- `npx tsc --noEmit` ✅
+- `npm run build` ✅
+- `npm run test` ✅
+- `node scripts/live-regression-matrix.mjs` ✅ (`pass: 21`, `env_limited: 1`, `expected_timeout: 2`, `fail: 0`)
+- Current `env_limited` outcomes are setup/environment-related:
+  - `mode.extension_legacy_cdp` (relay `/cdp` tab/session drift: `No tab with given id`)
+- Current `expected_timeout` outcomes are interaction-related:
+  - `feature.annotate.relay`
+  - `feature.annotate.direct`
+- Operator rollout, rollback triggers, and triage checklist are documented in `docs/TROUBLESHOOTING.md`.
 
 ---
 
@@ -799,7 +1365,7 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
   "skills": {
     "nudge": {
       "enabled": true,
-      "keywords": ["login", "form", "extract"],
+      "keywords": ["quick start", "getting started", "launch", "connect", "setup"],
       "maxAgeMs": 60000
     }
   },
@@ -812,6 +1378,27 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
       "maxAgeMs": 60000
     }
   },
+  "providers": {
+    "antiBotPolicy": {
+      "enabled": true,
+      "cooldownMs": 30000,
+      "maxChallengeRetries": 1,
+      "allowBrowserEscalation": true
+      // "proxyHint": "residential_pool_a",
+      // "sessionHint": "warm_profile"
+    },
+    "transcript": {
+      "modeDefault": "auto",
+      "strategyOrder": ["youtubei", "native_caption_parse", "ytdlp_audio_asr", "apify"],
+      "enableYtdlp": false,
+      "enableAsr": false,
+      "enableYtdlpAudioAsr": true,
+      "enableApify": true,
+      "apifyActorId": "streamers/youtube-scraper",
+      "enableBrowserFallback": true,
+      "ytdlpTimeoutMs": 10000
+    }
+  },
   "daemonPort": 8788,
   "daemonToken": "auto-generated-on-first-run",
   "flags": [],
@@ -820,3 +1407,25 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
 ```
 
 The optional `skills.nudge` section controls the small one-time prompt hint that encourages early `skill(...)` usage on skill-relevant tasks. The optional `continuity` section controls the long-running task nudge and the ledger file path.
+Fingerprint runtime defaults are Tier 1/2/3 enabled, with Tier 2 and Tier 3 driven by continuous signals (debug trace remains readout/reporting).
+Provider runtime anti-bot/transcript controls default to an exhaustive YouTube fallback chain:
+- Transcript mode semantics: `auto | web | no-auto | yt-dlp | apify`.
+- Request filter precedence is `filters.youtube_mode > providers.transcript.modeDefault > auto`.
+- No CLI mode flag is introduced in this phase; mode is configured in `providers.transcript.modeDefault` or per-request `youtube_mode` filter.
+- Auto mode fallback chain is `youtubei -> native_caption_parse -> ytdlp_audio_asr -> apify`, with browser-assisted fallback attempted last when browser escalation is available.
+- `yt-dlp` audio transcription requires `providers.transcript.enableYtdlpAudioAsr=true`.
+- Apify requires `providers.transcript.enableApify=true`, a valid `APIFY_TOKEN`, and legal checklist approval for `apify`.
+- Browser-assisted fallback requires `providers.transcript.enableBrowserFallback=true` and `providers.antiBotPolicy.allowBrowserEscalation=true`.
+
+Provider workflow and execution outputs now include normalized transcript/anti-bot telemetry:
+- Failure reason codes: `meta.metrics.reason_code_distribution` (legacy), `meta.metrics.reasonCodeDistribution` (camelCase alias), and `reasonCode` on provider failures.
+- Transcript fallback diagnostics: `meta.metrics.transcript_strategy_failures` (legacy) and `meta.metrics.transcriptStrategyFailures` (camelCase alias).
+- Strategy-detail diagnostics: `meta.metrics.transcript_strategy_detail_failures`/`meta.metrics.transcriptStrategyDetailFailures` and `meta.metrics.transcript_strategy_detail_distribution`/`meta.metrics.transcriptStrategyDetailDistribution`.
+- Durability/pressure dimensions: `meta.metrics.transcriptDurability` and `meta.metrics.antiBotPressure` (snake_case aliases are also emitted).
+- YouTube fetch metadata: `transcript_strategy` (legacy bucket), `transcript_strategy_detail` (exact strategy), `attempt_chain`, and failure `reasonCode` when transcript retrieval is unavailable.
+
+Provider reliability criteria (resolver/browser fallback):
+- `npm run test -- tests/providers-performance-gate.test.ts` must pass.
+- Latest observation window must satisfy `meta.metrics.transcriptDurability.attempted >= 10` and `meta.metrics.transcriptDurability.success_rate >= 0.85`.
+- Latest observation window must satisfy `meta.metrics.antiBotPressure.anti_bot_failure_ratio <= 0.15`.
+- Trigger remediation immediately if either condition fails in two consecutive windows.

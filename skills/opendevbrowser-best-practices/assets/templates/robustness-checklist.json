@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0",
+  "skill": "",
+  "run_id": "",
+  "issues": [
+    {
+      "id": "ISSUE-01",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-02",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-03",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-04",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-05",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-06",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-07",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-08",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-09",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-10",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-11",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ISSUE-12",
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    }
+  ]
+}

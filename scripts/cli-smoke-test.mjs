@@ -3,6 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import net from "net";
+import { randomUUID } from "crypto";
 import { spawn, spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 
@@ -139,8 +140,24 @@ async function main() {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "opendevbrowser-cli-"));
   const configDir = path.join(tempRoot, "config");
   const cacheDir = path.join(tempRoot, "cache");
+  const daemonPort = await getFreePort();
   fs.mkdirSync(configDir, { recursive: true });
   fs.mkdirSync(cacheDir, { recursive: true });
+
+  const configPath = path.join(configDir, "opendevbrowser.jsonc");
+  const relayToken = randomUUID().replaceAll("-", "");
+  const daemonToken = randomUUID().replaceAll("-", "");
+  fs.writeFileSync(
+    configPath,
+    `{
+  "relayPort": 8787,
+  "relayToken": "${relayToken}",
+  "daemonPort": ${daemonPort},
+  "daemonToken": "${daemonToken}"
+}
+`,
+    { encoding: "utf-8", mode: 0o600 }
+  );
 
   const env = {
     ...process.env,
@@ -156,7 +173,6 @@ async function main() {
   runCli(["install", "--global", "--no-prompt", "--no-skills"], { env });
   runCli(["update"], { env });
 
-  const daemonPort = await getFreePort();
   const daemon = await startDaemon(env, daemonPort);
 
   let sessionId = null;

@@ -1,4 +1,14 @@
+import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
+import { createConfiguredProviderRuntime } from "../providers/runtime-factory";
+import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
+import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
+import {
+  executeMacroResolution,
+  shapeExecutionPayload,
+  type MacroExecutionPayload,
+  type MacroResolution
+} from "../macros/execute";
 import {
   bindRelay,
   waitForBinding,
@@ -153,65 +163,98 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return { ok: true };
     case "nav.goto":
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      return core.manager.goto(
-        requireString(params.sessionId, "sessionId"),
-        requireString(params.url, "url"),
-        requireWaitUntil(params.waitUntil),
-        optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+      {
+        const targetId = optionalString(params.targetId);
+        const sessionId = requireString(params.sessionId, "sessionId");
+      return attachBlockerMetaForNavigation(
+        core,
+          sessionId,
+        await core.manager.goto(
+            sessionId,
+          requireString(params.url, "url"),
+          requireWaitUntil(params.waitUntil),
+            optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000,
+            undefined,
+            targetId
+        )
       );
+      }
     case "nav.wait":
       await authorizeSessionCommand(core, params, request.name, bindingId);
+      {
+        const targetId = optionalString(params.targetId);
+        const sessionId = requireString(params.sessionId, "sessionId");
       if (typeof params.ref === "string") {
-        return core.manager.waitForRef(
-          requireString(params.sessionId, "sessionId"),
-          requireString(params.ref, "ref"),
-          requireState(params.state),
-          optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+        return attachBlockerMetaForNavigation(
+          core,
+            sessionId,
+          await core.manager.waitForRef(
+              sessionId,
+            requireString(params.ref, "ref"),
+            requireState(params.state),
+              optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000,
+              targetId
+          )
         );
       }
-      return core.manager.waitForLoad(
-        requireString(params.sessionId, "sessionId"),
-        requireWaitUntil(params.until),
-        optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000
+      return attachBlockerMetaForNavigation(
+        core,
+          sessionId,
+        await core.manager.waitForLoad(
+            sessionId,
+          requireWaitUntil(params.until),
+            optionalNumber(params.timeoutMs, "timeoutMs") ?? 30000,
+            targetId
+        )
       );
+      }
     case "nav.snapshot":
       await authorizeSessionCommand(core, params, request.name, bindingId);
+      {
+        const targetId = optionalString(params.targetId);
       return core.manager.snapshot(
         requireString(params.sessionId, "sessionId"),
         requireSnapshotMode(params.mode),
         optionalNumber(params.maxChars, "maxChars") ?? 16000,
-        optionalString(params.cursor)
+          optionalString(params.cursor),
+          targetId
       );
+      }
     case "interact.click":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.click(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "interact.hover":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.hover(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "interact.press":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.press(
         requireString(params.sessionId, "sessionId"),
         requireString(params.key, "key"),
-        optionalString(params.ref)
+        optionalString(params.ref),
+        optionalString(params.targetId)
       );
     case "interact.check":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.check(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "interact.uncheck":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.uncheck(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "interact.type":
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -220,90 +263,109 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.ref, "ref"),
         requireString(params.text, "text"),
         optionalBoolean(params.clear) ?? false,
-        optionalBoolean(params.submit) ?? false
+        optionalBoolean(params.submit) ?? false,
+        optionalString(params.targetId)
       );
     case "interact.select":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.select(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        requireStringArray(params.values, "values")
+        requireStringArray(params.values, "values"),
+        optionalString(params.targetId)
       );
     case "interact.scroll":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.scroll(
         requireString(params.sessionId, "sessionId"),
         optionalNumber(params.dy, "dy") ?? 0,
-        optionalString(params.ref)
+        optionalString(params.ref),
+        optionalString(params.targetId)
       );
     case "interact.scrollIntoView":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.scrollIntoView(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "dom.getHtml":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetHtml(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        optionalNumber(params.maxChars, "maxChars") ?? 8000
+        optionalNumber(params.maxChars, "maxChars") ?? 8000,
+        optionalString(params.targetId)
       );
     case "dom.getText":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetText(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        optionalNumber(params.maxChars, "maxChars") ?? 8000
+        optionalNumber(params.maxChars, "maxChars") ?? 8000,
+        optionalString(params.targetId)
       );
     case "dom.getAttr":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetAttr(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        requireString(params.name, "name")
+        requireString(params.name, "name"),
+        optionalString(params.targetId)
       );
     case "dom.getValue":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetValue(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "dom.isVisible":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domIsVisible(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "dom.isEnabled":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domIsEnabled(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "dom.isChecked":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domIsChecked(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "export.clonePage":
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      return core.manager.clonePage(requireString(params.sessionId, "sessionId"));
+      return core.manager.clonePage(
+        requireString(params.sessionId, "sessionId"),
+        optionalString(params.targetId)
+      );
     case "export.cloneComponent":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.cloneComponent(
         requireString(params.sessionId, "sessionId"),
-        requireString(params.ref, "ref")
+        requireString(params.ref, "ref"),
+        optionalString(params.targetId)
       );
     case "devtools.perf":
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      return core.manager.perfMetrics(requireString(params.sessionId, "sessionId"));
+      return core.manager.perfMetrics(
+        requireString(params.sessionId, "sessionId"),
+        optionalString(params.targetId)
+      );
     case "page.screenshot":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.screenshot(
         requireString(params.sessionId, "sessionId"),
-        optionalString(params.path)
+        optionalString(params.path),
+        optionalString(params.targetId)
       );
     case "devtools.consolePoll":
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -318,6 +380,247 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.sessionId, "sessionId"),
         optionalNumber(params.sinceSeq, "sinceSeq"),
         optionalNumber(params.max, "max") ?? 50
+      );
+    case "devtools.debugTraceSnapshot": {
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const sessionId = requireString(params.sessionId, "sessionId");
+      const manager = core.manager as OpenDevBrowserCore["manager"] & {
+        debugTraceSnapshot?: (
+          sessionId: string,
+          options?: {
+            sinceConsoleSeq?: number;
+            sinceNetworkSeq?: number;
+            sinceExceptionSeq?: number;
+            max?: number;
+            requestId?: string;
+          }
+        ) => Promise<unknown>;
+        exceptionPoll?: (
+          sessionId: string,
+          sinceSeq?: number,
+          max?: number
+        ) => Promise<{ events: unknown[]; nextSeq: number }>;
+      };
+
+      const max = optionalNumber(params.max, "max") ?? 50;
+      const requestId = optionalString(params.requestId);
+      const sinceConsoleSeq = optionalNumber(params.sinceConsoleSeq, "sinceConsoleSeq");
+      const sinceNetworkSeq = optionalNumber(params.sinceNetworkSeq, "sinceNetworkSeq");
+      const sinceExceptionSeq = optionalNumber(params.sinceExceptionSeq, "sinceExceptionSeq");
+
+      if (typeof manager.debugTraceSnapshot === "function") {
+        return manager.debugTraceSnapshot(sessionId, {
+          sinceConsoleSeq,
+          sinceNetworkSeq,
+          sinceExceptionSeq,
+          max,
+          requestId
+        });
+      }
+
+      const [page, consoleChannel, networkChannel] = await Promise.all([
+        core.manager.status(sessionId),
+        core.manager.consolePoll(sessionId, sinceConsoleSeq, max),
+        core.manager.networkPoll(sessionId, sinceNetworkSeq, max)
+      ]);
+      const exceptionChannel = typeof manager.exceptionPoll === "function"
+        ? await manager.exceptionPoll(sessionId, sinceExceptionSeq, max)
+        : { events: [], nextSeq: sinceExceptionSeq ?? 0 };
+
+      const fallbackResult = {
+        requestId: requestId ?? randomUUID(),
+        generatedAt: new Date().toISOString(),
+        page,
+        channels: {
+          console: consoleChannel,
+          network: networkChannel,
+          exception: exceptionChannel
+        }
+      };
+      return attachBlockerMetaForTrace(core, fallbackResult);
+    }
+    case "session.cookieImport": {
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const sessionId = requireString(params.sessionId, "sessionId");
+      const manager = core.manager as OpenDevBrowserCore["manager"] & {
+        cookieImport?: (
+          sessionId: string,
+          cookies: CookieImportRecord[],
+          strict?: boolean,
+          requestId?: string
+        ) => Promise<{ requestId: string; imported: number; rejected: Array<{ index: number; reason: string }> }>;
+      };
+
+      const cookies = requireCookieArray(params.cookies, "cookies");
+      const strict = optionalBoolean(params.strict) ?? true;
+      const requestId = optionalString(params.requestId) ?? randomUUID();
+
+      if (typeof manager.cookieImport === "function") {
+        return manager.cookieImport(sessionId, cookies, strict, requestId);
+      }
+
+      const normalized: CookieImportRecord[] = [];
+      const rejected: Array<{ index: number; reason: string }> = [];
+      cookies.forEach((cookie, index) => {
+        const validation = validateCookieRecord(cookie);
+        if (!validation.valid) {
+          rejected.push({ index, reason: validation.reason });
+          return;
+        }
+        normalized.push(validation.cookie);
+      });
+
+      if (strict && rejected.length > 0) {
+        throw new Error(`Cookie import rejected ${rejected.length} entries.`);
+      }
+
+      if (normalized.length > 0) {
+        const targetId = optionalString(params.targetId);
+        await core.manager.withPage(sessionId, targetId ?? null, async (page) => {
+          await page.context().addCookies(normalized);
+          return undefined;
+        });
+      }
+
+      return {
+        requestId,
+        imported: normalized.length,
+        rejected
+      };
+    }
+    case "session.cookieList": {
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const sessionId = requireString(params.sessionId, "sessionId");
+      const manager = core.manager as OpenDevBrowserCore["manager"] & {
+        cookieList?: (
+          sessionId: string,
+          urls?: string[],
+          requestId?: string
+        ) => Promise<{ requestId: string; cookies: CookieListRecord[]; count: number }>;
+      };
+
+      const urls = requireOptionalCookieUrlArray(params.urls, "urls");
+      const requestId = optionalString(params.requestId) ?? randomUUID();
+
+      if (typeof manager.cookieList === "function") {
+        return manager.cookieList(sessionId, urls, requestId);
+      }
+
+      const targetId = optionalString(params.targetId);
+      const cookies = await core.manager.withPage(
+        sessionId,
+        targetId ?? null,
+        async (page) => {
+          const listed = urls ? await page.context().cookies(urls) : await page.context().cookies();
+          return listed.map((cookie) => ({
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path,
+            expires: cookie.expires,
+            httpOnly: cookie.httpOnly,
+            secure: cookie.secure,
+            ...(cookie.sameSite ? { sameSite: cookie.sameSite as "Strict" | "Lax" | "None" } : {})
+          }));
+        }
+      );
+
+      return {
+        requestId,
+        cookies,
+        count: cookies.length
+      };
+    }
+    case "macro.resolve":
+      return resolveMacroExpression(
+        {
+          expression: requireString(params.expression, "expression"),
+          defaultProvider: optionalString(params.defaultProvider),
+          includeCatalog: optionalBoolean(params.includeCatalog) ?? false,
+          execute: optionalBoolean(params.execute) ?? false
+        },
+        core.config,
+        core.manager
+      );
+    case "research.run":
+      return runResearchWorkflow(
+        createConfiguredProviderRuntime({
+          config: core.config,
+          manager: core.manager
+        }),
+        {
+          topic: requireString(params.topic, "topic"),
+          days: optionalNumber(params.days, "days"),
+          from: optionalString(params.from),
+          to: optionalString(params.to),
+          sourceSelection: optionalProviderSelection(params.sourceSelection),
+          sources: optionalProviderSources(params.sources),
+          mode: optionalRenderMode(params.mode) ?? "compact",
+          includeEngagement: optionalBoolean(params.includeEngagement),
+          limitPerSource: optionalNumber(params.limitPerSource, "limitPerSource"),
+          outputDir: optionalString(params.outputDir),
+          ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
+          useCookies: optionalBoolean(params.useCookies),
+          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
+        }
+      );
+    case "shopping.run":
+      return runShoppingWorkflow(
+        createConfiguredProviderRuntime({
+          config: core.config,
+          manager: core.manager
+        }),
+        {
+          query: requireString(params.query, "query"),
+          providers: optionalStringArray(params.providers),
+          budget: optionalNumber(params.budget, "budget"),
+          region: optionalString(params.region),
+          sort: optionalShoppingSort(params.sort),
+          mode: optionalRenderMode(params.mode) ?? "compact",
+          timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
+          outputDir: optionalString(params.outputDir),
+          ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
+          useCookies: optionalBoolean(params.useCookies),
+          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
+        }
+      );
+    case "product.video.run":
+      return runProductVideoWorkflow(
+        createConfiguredProviderRuntime({
+          config: core.config,
+          manager: core.manager
+        }),
+        {
+          product_url: optionalString(params.product_url),
+          product_name: optionalString(params.product_name),
+          provider_hint: optionalString(params.provider_hint),
+          include_screenshots: optionalBoolean(params.include_screenshots),
+          include_all_images: optionalBoolean(params.include_all_images),
+          include_copy: optionalBoolean(params.include_copy),
+          output_dir: optionalString(params.output_dir),
+          ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours"),
+          useCookies: optionalBoolean(params.useCookies),
+          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
+        },
+        {
+          captureScreenshot: async (url: string) => {
+            const session = await core.manager.launch({
+              headless: true,
+              startUrl: url,
+              // Capture sessions are ephemeral; avoid persisted profile lock contention.
+              persistProfile: false
+            });
+            try {
+              const screenshot = await core.manager.screenshot(session.sessionId);
+              if (typeof screenshot.base64 !== "string" || screenshot.base64.length === 0) return null;
+              return Buffer.from(screenshot.base64, "base64");
+            } finally {
+              await core.manager.disconnect(session.sessionId, true).catch(() => {
+                // Best effort cleanup.
+              });
+            }
+          }
+        }
       );
     default:
       throw new Error(`Unknown daemon command: ${request.name}`);
@@ -338,6 +641,11 @@ async function launchWithRelay(
   const extensionOnly = optionalBoolean(params.extensionOnly) ?? false;
   const waitForExtension = optionalBoolean(params.waitForExtension) ?? false;
   const headlessExplicit = optionalBoolean(params.headless) === true;
+  if (headlessExplicit && !noExtension) {
+    throw unsupportedModeError(
+      "Extension mode does not support headless launches. Use --no-extension --headless for managed mode."
+    );
+  }
   const managedExplicit = Boolean(noExtension || headlessExplicit);
   const managedHeadless = headlessExplicit ? true : false;
   const waitTimeoutMs = clampWaitTimeout(optionalNumber(params.waitTimeoutMs, "waitTimeoutMs") ?? 30000);
@@ -454,11 +762,23 @@ async function connectWithRelayRouting(
       : normalizedOpsEndpoint;
 
   const hasExplicitCdp = Boolean(wsEndpoint || params.host || params.port);
+  const headlessExplicit = optionalBoolean(params.headless) === true;
   if (normalizedLegacyEndpoint && !extensionLegacy) {
     throw new Error("Legacy extension relay (/cdp) requires --extension-legacy.");
   }
 
+  if (headlessExplicit && !hasExplicitCdp) {
+    throw unsupportedModeError(
+      "Extension mode does not support headless connect routing. Use launch --no-extension --headless or connect to an explicit CDP endpoint."
+    );
+  }
+
   if (relayEndpoint || (!hasExplicitCdp && relayUrl)) {
+    if (headlessExplicit) {
+      throw unsupportedModeError(
+        "Extension mode does not support headless connect routing. Use launch --no-extension --headless or connect to an explicit CDP endpoint."
+      );
+    }
     if (extensionLegacy) {
       requireBinding(clientId, bindingId);
     }
@@ -562,6 +882,27 @@ function buildExtensionMissingMessage(reason: string): string {
 
 function buildManagedFailureMessage(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
+  const normalized = detail.toLowerCase();
+  const profileLocked = normalized.includes("singletonlock")
+    || normalized.includes("processsingleton")
+    || normalized.includes("profile in use")
+    || normalized.includes("already in use")
+    || normalized.includes("user data directory is already in use")
+    || normalized.includes("profile is locked");
+
+  if (profileLocked) {
+    return [
+      `Managed session failed: ${detail}`,
+      "",
+      "Detected persisted profile lock (another Chrome process is using the same profile).",
+      "Retry options (explicit):",
+      "- Managed with a unique profile: npx opendevbrowser launch --no-extension --profile lock-safe-<timestamp>",
+      "- Managed with a temporary profile: npx opendevbrowser launch --no-extension --persist-profile false",
+      "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
+      "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>"
+    ].join("\n");
+  }
+
   return [
     `Managed session failed: ${detail}`,
     "",
@@ -569,6 +910,131 @@ function buildManagedFailureMessage(error: unknown): string {
     "- CDPConnect (default port): npx opendevbrowser connect --cdp-port 9222",
     "- CDPConnect (explicit WS): npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>"
   ].join("\n");
+}
+
+function unsupportedModeError(message: string): Error {
+  return new Error(`[unsupported_mode] ${message}`);
+}
+
+async function attachBlockerMetaForNavigation(
+  core: OpenDevBrowserCore,
+  sessionId: string,
+  result: unknown
+): Promise<unknown> {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+
+  const record = result as Record<string, unknown>;
+  const existingMeta = (!Array.isArray(record.meta) && typeof record.meta === "object" && record.meta !== null)
+    ? record.meta as Record<string, unknown>
+    : undefined;
+  if (existingMeta && typeof existingMeta.blockerState === "string") {
+    return result;
+  }
+
+  const fallbackStatus = await core.manager.status(sessionId);
+  let networkEvents: { events: Array<{ url?: string; status?: number }> } = { events: [] };
+  try {
+    const polled = await core.manager.networkPoll(
+      sessionId,
+      undefined,
+      core.config.blockerArtifactCaps.maxNetworkEvents
+    );
+    if (polled && Array.isArray(polled.events)) {
+      networkEvents = { events: polled.events as Array<{ url?: string; status?: number }> };
+    }
+  } catch {
+    // Ignore polling failures for fallback blocker enrichment.
+  }
+
+  const blocker = classifyBlockerSignal({
+    source: "navigation",
+    url: typeof record.url === "string" ? record.url : fallbackStatus.url,
+    finalUrl: typeof record.finalUrl === "string" ? record.finalUrl : fallbackStatus.url,
+    title: fallbackStatus.title,
+    status: typeof record.status === "number" ? record.status : findLatestStatus(networkEvents.events),
+    networkHosts: extractHosts(networkEvents.events),
+    threshold: core.config.blockerDetectionThreshold,
+    promptGuardEnabled: core.config.security.promptInjectionGuard?.enabled ?? true
+  });
+
+  return {
+    ...record,
+    meta: {
+      ...(existingMeta ?? {}),
+      blockerState: blocker ? "active" : "clear",
+      ...(blocker ? { blocker } : {})
+    }
+  };
+}
+
+function attachBlockerMetaForTrace(
+  core: OpenDevBrowserCore,
+  result: {
+    requestId: string;
+    generatedAt: string;
+    page: { url?: string; title?: string };
+    channels: {
+      network: { events: Array<{ url?: string; status?: number }> };
+      console: { events: unknown[] };
+      exception: { events: unknown[] };
+    };
+  }
+): unknown {
+  const blocker = classifyBlockerSignal({
+    source: "network",
+    url: result.page.url,
+    finalUrl: result.page.url,
+    title: result.page.title,
+    status: findLatestStatus(result.channels.network.events),
+    networkHosts: extractHosts(result.channels.network.events),
+    traceRequestId: result.requestId,
+    threshold: core.config.blockerDetectionThreshold,
+    promptGuardEnabled: core.config.security.promptInjectionGuard?.enabled ?? true
+  });
+  const blockerArtifacts = blocker
+    ? buildBlockerArtifacts({
+      networkEvents: result.channels.network.events,
+      consoleEvents: result.channels.console.events,
+      exceptionEvents: result.channels.exception.events,
+      promptGuardEnabled: core.config.security.promptInjectionGuard?.enabled ?? true,
+      caps: core.config.blockerArtifactCaps
+    })
+    : undefined;
+  return {
+    ...result,
+    meta: {
+      blockerState: blocker ? "active" : "clear",
+      ...(blocker ? { blocker } : {}),
+      ...(blockerArtifacts ? { blockerArtifacts } : {})
+    }
+  };
+}
+
+function findLatestStatus(events: Array<{ status?: number }>): number | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const status = events[index]?.status;
+    if (typeof status === "number") return status;
+  }
+  return undefined;
+}
+
+function extractHosts(events: Array<{ url?: string }>): string[] {
+  const hosts: string[] = [];
+  const seen = new Set<string>();
+  for (const event of events) {
+    if (typeof event.url !== "string") continue;
+    try {
+      const host = new URL(event.url).hostname.toLowerCase();
+      if (!host || seen.has(host)) continue;
+      seen.add(host);
+      hosts.push(host);
+    } catch {
+      // Ignore invalid URLs.
+    }
+  }
+  return hosts;
 }
 
 function requireString(value: unknown, label: string): string {
@@ -587,6 +1053,175 @@ function requireStringArray(value: unknown, label: string): string[] {
     throw new Error(`Invalid ${label}`);
   }
   return value as string[];
+}
+
+type CookieImportRecord = {
+  name: string;
+  value: string;
+  url?: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+};
+
+type CookieListRecord = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+};
+
+function requireCookieArray(value: unknown, label: string): CookieImportRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid ${label}`);
+  }
+  const parsed: CookieImportRecord[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid ${label}`);
+    }
+    const cookie = entry as Record<string, unknown>;
+    if (typeof cookie.name !== "string" || typeof cookie.value !== "string") {
+      throw new Error(`Invalid ${label}`);
+    }
+    if (typeof cookie.sameSite !== "undefined" && cookie.sameSite !== "Strict" && cookie.sameSite !== "Lax" && cookie.sameSite !== "None") {
+      throw new Error(`Invalid ${label}`);
+    }
+    parsed.push({
+      name: cookie.name,
+      value: cookie.value,
+      ...(typeof cookie.url === "string" ? { url: cookie.url } : {}),
+      ...(typeof cookie.domain === "string" ? { domain: cookie.domain } : {}),
+      ...(typeof cookie.path === "string" ? { path: cookie.path } : {}),
+      ...(typeof cookie.expires === "number" ? { expires: cookie.expires } : {}),
+      ...(typeof cookie.httpOnly === "boolean" ? { httpOnly: cookie.httpOnly } : {}),
+      ...(typeof cookie.secure === "boolean" ? { secure: cookie.secure } : {}),
+      ...(cookie.sameSite ? { sameSite: cookie.sameSite as "Strict" | "Lax" | "None" } : {})
+    });
+  }
+  return parsed;
+}
+
+function requireOptionalCookieUrlArray(value: unknown, label: string): string[] | undefined {
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid ${label}`);
+  }
+
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      throw new Error(`Invalid ${label}`);
+    }
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      throw new Error(`Invalid ${label}`);
+    }
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(trimmed);
+    } catch {
+      throw new Error(`Invalid ${label}`);
+    }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      throw new Error(`Invalid ${label}`);
+    }
+    const normalizedUrl = parsedUrl.toString();
+    if (seen.has(normalizedUrl)) {
+      continue;
+    }
+    seen.add(normalizedUrl);
+    normalized.push(normalizedUrl);
+  }
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function validateCookieRecord(cookie: CookieImportRecord): { valid: boolean; reason: string; cookie: CookieImportRecord } {
+  const name = cookie.name?.trim();
+  if (!name) {
+    return { valid: false, reason: "Cookie name is required.", cookie };
+  }
+  if (!/^[^\s;=]+$/.test(name)) {
+    return { valid: false, reason: `Invalid cookie name: ${cookie.name}.`, cookie };
+  }
+  if (typeof cookie.value !== "string" || /\r|\n|;/.test(cookie.value)) {
+    return { valid: false, reason: `Invalid cookie value for ${name}.`, cookie };
+  }
+
+  const hasUrl = typeof cookie.url === "string" && cookie.url.trim().length > 0;
+  const hasDomain = typeof cookie.domain === "string" && cookie.domain.trim().length > 0;
+  if (!hasUrl && !hasDomain) {
+    return { valid: false, reason: `Cookie ${name} requires url or domain.`, cookie };
+  }
+
+  let normalizedUrl: string | undefined;
+  if (hasUrl) {
+    try {
+      const parsedUrl = new URL(cookie.url as string);
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        return { valid: false, reason: `Cookie ${name} url must be http(s).`, cookie };
+      }
+      normalizedUrl = parsedUrl.toString();
+    } catch {
+      return { valid: false, reason: `Cookie ${name} has invalid url.`, cookie };
+    }
+  }
+
+  let normalizedDomain: string | undefined;
+  if (hasDomain) {
+    normalizedDomain = String(cookie.domain).trim().toLowerCase();
+    if (!/^\.?[a-z0-9.-]+$/.test(normalizedDomain) || normalizedDomain.includes("..")) {
+      return { valid: false, reason: `Cookie ${name} has invalid domain.`, cookie };
+    }
+  }
+
+  const normalizedPath = typeof cookie.path === "string" ? cookie.path.trim() : undefined;
+  if (typeof normalizedPath === "string" && !normalizedPath.startsWith("/")) {
+    return { valid: false, reason: `Cookie ${name} path must start with '/'.`, cookie };
+  }
+
+  if (typeof cookie.expires !== "undefined") {
+    if (!Number.isFinite(cookie.expires) || cookie.expires < -1) {
+      return { valid: false, reason: `Cookie ${name} has invalid expires.`, cookie };
+    }
+  }
+
+  if (cookie.sameSite === "None" && cookie.secure !== true) {
+    return { valid: false, reason: `Cookie ${name} with SameSite=None must set secure=true.`, cookie };
+  }
+
+  const normalizedCookie: CookieImportRecord = {
+    name,
+    value: cookie.value,
+    ...(typeof cookie.expires === "number" ? { expires: cookie.expires } : {}),
+    ...(typeof cookie.httpOnly === "boolean" ? { httpOnly: cookie.httpOnly } : {}),
+    ...(typeof cookie.secure === "boolean" ? { secure: cookie.secure } : {}),
+    ...(cookie.sameSite ? { sameSite: cookie.sameSite } : {})
+  };
+
+  if (normalizedDomain) {
+    normalizedCookie.domain = normalizedDomain;
+    normalizedCookie.path = normalizedPath ?? "/";
+  } else if (normalizedUrl) {
+    normalizedCookie.url = normalizedUrl;
+  }
+
+  return {
+    valid: true,
+    reason: "",
+    cookie: normalizedCookie
+  };
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -611,6 +1246,50 @@ function optionalNumber(value: unknown, label: string): number | undefined {
 
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function optionalRenderMode(value: unknown): "compact" | "json" | "md" | "context" | "path" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "compact" || value === "json" || value === "md" || value === "context" || value === "path") {
+    return value;
+  }
+  throw new Error("Invalid mode");
+}
+
+function optionalProviderSelection(value: unknown): "auto" | "web" | "community" | "social" | "shopping" | "all" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "auto" || value === "web" || value === "community" || value === "social" || value === "shopping" || value === "all") {
+    return value;
+  }
+  throw new Error("Invalid sourceSelection");
+}
+
+function optionalProviderSources(value: unknown): Array<"web" | "community" | "social" | "shopping"> | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid sources");
+  }
+  const valid = value.every((entry) => entry === "web" || entry === "community" || entry === "social" || entry === "shopping");
+  if (!valid) {
+    throw new Error("Invalid sources");
+  }
+  return value as Array<"web" | "community" | "social" | "shopping">;
+}
+
+function optionalCookiePolicy(value: unknown): "off" | "auto" | "required" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "off" || value === "auto" || value === "required") {
+    return value;
+  }
+  throw new Error("Invalid cookiePolicyOverride");
+}
+
+function optionalShoppingSort(value: unknown): "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "best_deal" || value === "lowest_price" || value === "highest_rating" || value === "fastest_shipping") {
+    return value;
+  }
+  throw new Error("Invalid shopping sort");
 }
 
 function requireWaitUntil(value: unknown): "domcontentloaded" | "load" | "networkidle" {
@@ -656,6 +1335,20 @@ type RelayObservedStatus = {
   cdpConnected: boolean;
   opsConnected: boolean;
   pairingRequired: boolean;
+};
+
+type MacroRuntimeModule = {
+  createDefaultMacroRegistry?: () => {
+    resolve: (expression: string, context?: { defaultProvider?: string }) => Promise<MacroResolution>;
+    list: () => Array<{ name: string; pack?: string; description?: string }>;
+  };
+};
+
+type MacroResolveOptions = {
+  expression: string;
+  defaultProvider?: string;
+  includeCatalog: boolean;
+  execute: boolean;
 };
 
 const MIN_WAIT_TIMEOUT_MS = 3000;
@@ -735,4 +1428,129 @@ async function fetchRelayObservedStatus(port: number | null): Promise<RelayObser
   } catch {
     return null;
   }
+}
+
+async function loadMacroRuntime(): Promise<MacroRuntimeModule | null> {
+  try {
+    const module = await import("../macros");
+    return module as MacroRuntimeModule;
+  } catch {
+    return null;
+  }
+}
+
+function parseFallbackMacro(expression: string, defaultProvider?: string): {
+  action: {
+    source: "web";
+    operation: "search";
+    input: { query: string; limit: number; providerId: string };
+  };
+  provenance: {
+    macro: string;
+    provider: string;
+    resolvedQuery: string;
+    pack: string;
+    args: { positional: string[]; named: Record<string, string> };
+  };
+} {
+  const raw = expression.trim();
+  if (!raw.startsWith("@")) {
+    throw new Error("Macro expressions must start with '@'");
+  }
+
+  const body = raw.slice(1).trim();
+  if (!body) {
+    throw new Error("Macro name is required");
+  }
+
+  const openParen = body.indexOf("(");
+  const closeParen = body.endsWith(")") ? body.length - 1 : -1;
+  const macroName = openParen >= 0 ? body.slice(0, openParen).trim() : body;
+  const argsBody = openParen >= 0 && closeParen > openParen
+    ? body.slice(openParen + 1, closeParen).trim()
+    : "";
+  const positional = argsBody
+    ? argsBody.split(",").map((part) => part.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean)
+    : [];
+  const query = positional[0] ?? macroName;
+  const provider = defaultProvider ?? "web/default";
+
+  return {
+    action: {
+      source: "web",
+      operation: "search",
+      input: {
+        query,
+        limit: 10,
+        providerId: provider
+      }
+    },
+    provenance: {
+      macro: macroName,
+      provider,
+      resolvedQuery: query,
+      pack: "fallback",
+      args: {
+        positional,
+        named: {}
+      }
+    }
+  };
+}
+
+async function resolveMacroExpression(
+  options: MacroResolveOptions,
+  config: Pick<OpenDevBrowserCore["config"], "blockerDetectionThreshold" | "security" | "providers">,
+  manager: OpenDevBrowserCore["manager"]
+): Promise<{
+  runtime: "macros" | "fallback";
+  resolution: MacroResolution;
+  catalog?: Array<{ name: string; pack?: string; description?: string }>;
+  execution?: MacroExecutionPayload;
+}> {
+  const runtime = await loadMacroRuntime();
+  const registry = runtime?.createDefaultMacroRegistry?.();
+  let resolvedRuntime: "macros" | "fallback" = "fallback";
+  let resolution: MacroResolution;
+  let catalog: Array<{ name: string; pack?: string; description?: string }> | undefined;
+
+  if (registry) {
+    resolvedRuntime = "macros";
+    resolution = await registry.resolve(options.expression, {
+      defaultProvider: options.defaultProvider
+    });
+    catalog = options.includeCatalog
+      ? registry.list().map((entry) => ({
+        name: entry.name,
+        pack: entry.pack,
+        description: entry.description
+      }))
+      : undefined;
+  } else {
+    resolution = parseFallbackMacro(options.expression, options.defaultProvider);
+  }
+
+  if (!options.execute) {
+    return {
+      runtime: resolvedRuntime,
+      resolution,
+      ...(catalog ? { catalog } : {})
+    };
+  }
+
+  const execution = shapeExecutionPayload(
+    await executeMacroResolution(
+      resolution,
+      createConfiguredProviderRuntime({
+        config,
+        manager
+      })
+    )
+  );
+  return {
+    runtime: resolvedRuntime,
+    resolution,
+    ...(catalog ? { catalog } : {}),
+    execution
+  };
 }

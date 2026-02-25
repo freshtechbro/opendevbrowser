@@ -1,0 +1,8 @@
+{
+  "high_percent_threshold": 40,
+  "high_absolute_threshold": 100,
+  "min_market_gap_percent": 5,
+  "min_offer_count_for_confidence": 3,
+  "max_price_age_hours_for_freshness": 24,
+  "min_anchor_coverage_for_confidence": 0.5
+}

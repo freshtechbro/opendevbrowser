@@ -30,7 +30,9 @@ pnpm-debug.log*
 
 # Temporary files
 *.tmp
+tmp/
 .cache/
+artifacts/
 
 # Playwright
 test-results/
@@ -43,8 +45,12 @@ playwright/.cache/
 # Build artifacts (do not commit)
 *.tgz
 opendevbrowser-extension.zip
+frontend/.next/
+frontend/.next-dev/
+frontend/.validation/
 
 # Continuity ledger (local-only)
+CONTINUITY*.md
 
 # Auto Claude data directory
 .auto-claude/

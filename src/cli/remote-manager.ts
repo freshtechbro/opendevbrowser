@@ -6,7 +6,23 @@ import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
 import { DaemonClient } from "./daemon-client";
 
-type CallResult<K extends keyof BrowserManagerLike> = Awaited<ReturnType<BrowserManagerLike[K]>>;
+type CookieImportRecord = {
+  name: string;
+  value: string;
+  url?: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+};
+
+type BrowserManagerMethodKey = {
+  [K in keyof BrowserManagerLike]: BrowserManagerLike[K] extends (...args: never[]) => unknown ? K : never;
+}[keyof BrowserManagerLike];
+
+type CallResult<K extends BrowserManagerMethodKey> = Awaited<ReturnType<BrowserManagerLike[K]>>;
 
 function isLegacyRelayEndpoint(wsEndpoint: string): boolean {
   try {
@@ -48,114 +64,267 @@ export class RemoteManager implements BrowserManagerLike {
     return this.client.call<CallResult<"status">>("session.status", { sessionId });
   }
 
+  cookieImport(
+    sessionId: string,
+    cookies: CookieImportRecord[],
+    strict = true,
+    requestId?: string
+  ): ReturnType<BrowserManagerLike["cookieImport"]> {
+    return this.client.call<CallResult<"cookieImport">>("session.cookieImport", {
+      sessionId,
+      cookies,
+      strict,
+      requestId
+    });
+  }
+
+  cookieList(
+    sessionId: string,
+    urls?: string[],
+    requestId?: string
+  ): ReturnType<BrowserManagerLike["cookieList"]> {
+    return this.client.call<CallResult<"cookieList">>("session.cookieList", {
+      sessionId,
+      ...(urls && urls.length > 0 ? { urls } : {}),
+      requestId
+    });
+  }
+
   goto(
     sessionId: string,
     url: string,
     waitUntil: "domcontentloaded" | "load" | "networkidle" = "load",
-    timeoutMs = 30000
+    timeoutMs = 30000,
+    _sessionOverride?: { browser: unknown; context: unknown; targets: unknown },
+    targetId?: string | null
   ): ReturnType<BrowserManagerLike["goto"]> {
-    return this.client.call<CallResult<"goto">>("nav.goto", { sessionId, url, waitUntil, timeoutMs });
+    return this.client.call<CallResult<"goto">>("nav.goto", {
+      sessionId,
+      url,
+      waitUntil,
+      timeoutMs,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
   waitForLoad(
     sessionId: string,
     until: "domcontentloaded" | "load" | "networkidle",
-    timeoutMs = 30000
+    timeoutMs = 30000,
+    targetId?: string | null
   ): ReturnType<BrowserManagerLike["waitForLoad"]> {
-    return this.client.call<CallResult<"waitForLoad">>("nav.wait", { sessionId, until, timeoutMs });
+    return this.client.call<CallResult<"waitForLoad">>("nav.wait", {
+      sessionId,
+      until,
+      timeoutMs,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
   waitForRef(
     sessionId: string,
     ref: string,
     state: "attached" | "visible" | "hidden" = "attached",
-    timeoutMs = 30000
+    timeoutMs = 30000,
+    targetId?: string | null
   ): ReturnType<BrowserManagerLike["waitForRef"]> {
-    return this.client.call<CallResult<"waitForRef">>("nav.wait", { sessionId, ref, state, timeoutMs });
+    return this.client.call<CallResult<"waitForRef">>("nav.wait", {
+      sessionId,
+      ref,
+      state,
+      timeoutMs,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  snapshot(sessionId: string, mode: "outline" | "actionables", maxChars: number, cursor?: string): ReturnType<BrowserManagerLike["snapshot"]> {
-    return this.client.call<CallResult<"snapshot">>("nav.snapshot", { sessionId, mode, maxChars, cursor });
+  snapshot(
+    sessionId: string,
+    mode: "outline" | "actionables",
+    maxChars: number,
+    cursor?: string,
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["snapshot"]> {
+    return this.client.call<CallResult<"snapshot">>("nav.snapshot", {
+      sessionId,
+      mode,
+      maxChars,
+      cursor,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  click(sessionId: string, ref: string): ReturnType<BrowserManagerLike["click"]> {
-    return this.client.call<CallResult<"click">>("interact.click", { sessionId, ref });
+  click(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["click"]> {
+    return this.client.call<CallResult<"click">>("interact.click", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  hover(sessionId: string, ref: string): ReturnType<BrowserManagerLike["hover"]> {
-    return this.client.call<CallResult<"hover">>("interact.hover", { sessionId, ref });
+  hover(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["hover"]> {
+    return this.client.call<CallResult<"hover">>("interact.hover", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  press(sessionId: string, key: string, ref?: string): ReturnType<BrowserManagerLike["press"]> {
-    return this.client.call<CallResult<"press">>("interact.press", { sessionId, key, ref });
+  press(sessionId: string, key: string, ref?: string, targetId?: string | null): ReturnType<BrowserManagerLike["press"]> {
+    return this.client.call<CallResult<"press">>("interact.press", {
+      sessionId,
+      key,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  check(sessionId: string, ref: string): ReturnType<BrowserManagerLike["check"]> {
-    return this.client.call<CallResult<"check">>("interact.check", { sessionId, ref });
+  check(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["check"]> {
+    return this.client.call<CallResult<"check">>("interact.check", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  uncheck(sessionId: string, ref: string): ReturnType<BrowserManagerLike["uncheck"]> {
-    return this.client.call<CallResult<"uncheck">>("interact.uncheck", { sessionId, ref });
+  uncheck(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["uncheck"]> {
+    return this.client.call<CallResult<"uncheck">>("interact.uncheck", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  type(sessionId: string, ref: string, text: string, clear = false, submit = false): ReturnType<BrowserManagerLike["type"]> {
-    return this.client.call<CallResult<"type">>("interact.type", { sessionId, ref, text, clear, submit });
+  type(
+    sessionId: string,
+    ref: string,
+    text: string,
+    clear = false,
+    submit = false,
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["type"]> {
+    return this.client.call<CallResult<"type">>("interact.type", {
+      sessionId,
+      ref,
+      text,
+      clear,
+      submit,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  select(sessionId: string, ref: string, values: string[]): ReturnType<BrowserManagerLike["select"]> {
-    return this.client.call<CallResult<"select">>("interact.select", { sessionId, ref, values });
+  select(sessionId: string, ref: string, values: string[], targetId?: string | null): ReturnType<BrowserManagerLike["select"]> {
+    return this.client.call<CallResult<"select">>("interact.select", {
+      sessionId,
+      ref,
+      values,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  scroll(sessionId: string, dy: number, ref?: string): ReturnType<BrowserManagerLike["scroll"]> {
-    return this.client.call<CallResult<"scroll">>("interact.scroll", { sessionId, dy, ref });
+  scroll(sessionId: string, dy: number, ref?: string, targetId?: string | null): ReturnType<BrowserManagerLike["scroll"]> {
+    return this.client.call<CallResult<"scroll">>("interact.scroll", {
+      sessionId,
+      dy,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  scrollIntoView(sessionId: string, ref: string): ReturnType<BrowserManagerLike["scrollIntoView"]> {
-    return this.client.call<CallResult<"scrollIntoView">>("interact.scrollIntoView", { sessionId, ref });
+  scrollIntoView(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["scrollIntoView"]> {
+    return this.client.call<CallResult<"scrollIntoView">>("interact.scrollIntoView", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  domGetHtml(sessionId: string, ref: string, maxChars = 8000): ReturnType<BrowserManagerLike["domGetHtml"]> {
-    return this.client.call<CallResult<"domGetHtml">>("dom.getHtml", { sessionId, ref, maxChars });
+  domGetHtml(sessionId: string, ref: string, maxChars = 8000, targetId?: string | null): ReturnType<BrowserManagerLike["domGetHtml"]> {
+    return this.client.call<CallResult<"domGetHtml">>("dom.getHtml", {
+      sessionId,
+      ref,
+      maxChars,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  domGetText(sessionId: string, ref: string, maxChars = 8000): ReturnType<BrowserManagerLike["domGetText"]> {
-    return this.client.call<CallResult<"domGetText">>("dom.getText", { sessionId, ref, maxChars });
+  domGetText(sessionId: string, ref: string, maxChars = 8000, targetId?: string | null): ReturnType<BrowserManagerLike["domGetText"]> {
+    return this.client.call<CallResult<"domGetText">>("dom.getText", {
+      sessionId,
+      ref,
+      maxChars,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  domGetAttr(sessionId: string, ref: string, name: string): ReturnType<BrowserManagerLike["domGetAttr"]> {
-    return this.client.call<CallResult<"domGetAttr">>("dom.getAttr", { sessionId, ref, name });
+  domGetAttr(sessionId: string, ref: string, name: string, targetId?: string | null): ReturnType<BrowserManagerLike["domGetAttr"]> {
+    return this.client.call<CallResult<"domGetAttr">>("dom.getAttr", {
+      sessionId,
+      ref,
+      name,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  domGetValue(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domGetValue"]> {
-    return this.client.call<CallResult<"domGetValue">>("dom.getValue", { sessionId, ref });
+  domGetValue(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["domGetValue"]> {
+    return this.client.call<CallResult<"domGetValue">>("dom.getValue", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  domIsVisible(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domIsVisible"]> {
-    return this.client.call<CallResult<"domIsVisible">>("dom.isVisible", { sessionId, ref });
+  domIsVisible(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["domIsVisible"]> {
+    return this.client.call<CallResult<"domIsVisible">>("dom.isVisible", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  domIsEnabled(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domIsEnabled"]> {
-    return this.client.call<CallResult<"domIsEnabled">>("dom.isEnabled", { sessionId, ref });
+  domIsEnabled(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["domIsEnabled"]> {
+    return this.client.call<CallResult<"domIsEnabled">>("dom.isEnabled", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  domIsChecked(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domIsChecked"]> {
-    return this.client.call<CallResult<"domIsChecked">>("dom.isChecked", { sessionId, ref });
+  domIsChecked(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["domIsChecked"]> {
+    return this.client.call<CallResult<"domIsChecked">>("dom.isChecked", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  clonePage(sessionId: string): Promise<ReactExport> {
-    return this.client.call("export.clonePage", { sessionId }) as Promise<ReactExport>;
+  clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {
+    return this.client.call("export.clonePage", {
+      sessionId,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    }) as Promise<ReactExport>;
   }
 
-  cloneComponent(sessionId: string, ref: string): Promise<ReactExport> {
-    return this.client.call("export.cloneComponent", { sessionId, ref }) as Promise<ReactExport>;
+  cloneComponent(sessionId: string, ref: string, targetId?: string | null): Promise<ReactExport> {
+    return this.client.call("export.cloneComponent", {
+      sessionId,
+      ref,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    }) as Promise<ReactExport>;
   }
 
-  perfMetrics(sessionId: string): ReturnType<BrowserManagerLike["perfMetrics"]> {
-    return this.client.call<CallResult<"perfMetrics">>("devtools.perf", { sessionId });
+  perfMetrics(sessionId: string, targetId?: string | null): ReturnType<BrowserManagerLike["perfMetrics"]> {
+    return this.client.call<CallResult<"perfMetrics">>("devtools.perf", {
+      sessionId,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
-  screenshot(sessionId: string, path?: string): ReturnType<BrowserManagerLike["screenshot"]> {
-    return this.client.call<CallResult<"screenshot">>("page.screenshot", { sessionId, path });
+  screenshot(sessionId: string, path?: string, targetId?: string | null): ReturnType<BrowserManagerLike["screenshot"]> {
+    return this.client.call<CallResult<"screenshot">>("page.screenshot", {
+      sessionId,
+      path,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
   consolePoll(sessionId: string, sinceSeq?: number, max = 50): Promise<{ events: ReturnType<ConsoleTracker["poll"]>["events"]; nextSeq: number }> {

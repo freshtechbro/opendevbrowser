@@ -51,6 +51,12 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
           const headlessExplicit = args.headless === true;
           const managedExplicit = Boolean(args.noExtension || headlessExplicit);
           const managedHeadless = headlessExplicit ? true : false;
+          if (headlessExplicit && !args.noExtension) {
+            return failure(
+              "Extension mode does not support headless launches. Use noExtension=true with headless=true for managed mode.",
+              "unsupported_mode"
+            );
+          }
 
           if (args.waitForExtension && !managedExplicit) {
             const observedPort = resolveObservedPort(relayStatus, config.relayPort);

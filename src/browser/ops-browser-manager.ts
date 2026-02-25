@@ -1,7 +1,9 @@
 import { writeFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import type { OpenDevBrowserConfig } from "../config";
+import { createRequestId } from "../core/logging";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
+import type { ParallelismGovernorPolicyPayload } from "../relay/protocol";
 import type { BrowserManagerLike } from "./manager-types";
 import type { ConnectOptions, LaunchOptions } from "./browser-manager";
 import type { BrowserMode } from "./session-store";
@@ -14,6 +16,29 @@ import { OpsClient } from "./ops-client";
 import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
 import { BrowserManager } from "./browser-manager";
+
+type CookieImportRecord = {
+  name: string;
+  value: string;
+  url?: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+};
+
+type CookieListRecord = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+};
 
 export class OpsBrowserManager implements BrowserManagerLike {
   private readonly base: BrowserManager;
@@ -52,7 +77,9 @@ export class OpsBrowserManager implements BrowserManagerLike {
     const leaseId = randomUUID();
     const result = await client.request<{ opsSessionId: string; activeTargetId?: string | null; url?: string; title?: string; leaseId?: string }>(
       "session.connect",
-      {},
+      {
+        parallelismPolicy: this.buildParallelismPolicyPayload()
+      },
       undefined,
       30000,
       leaseId
@@ -68,6 +95,33 @@ export class OpsBrowserManager implements BrowserManagerLike {
       warnings: [],
       leaseId: result.leaseId ?? leaseId,
       wsEndpoint: sanitizeWsEndpoint(reportedEndpoint)
+    };
+  }
+
+  private buildParallelismPolicyPayload(): ParallelismGovernorPolicyPayload {
+    const policy = this.config.parallelism;
+    return {
+      floor: policy.floor,
+      backpressureTimeoutMs: policy.backpressureTimeoutMs,
+      sampleIntervalMs: policy.sampleIntervalMs,
+      recoveryStableWindows: policy.recoveryStableWindows,
+      hostFreeMemMediumPct: policy.hostFreeMemMediumPct,
+      hostFreeMemHighPct: policy.hostFreeMemHighPct,
+      hostFreeMemCriticalPct: policy.hostFreeMemCriticalPct,
+      rssBudgetMb: policy.rssBudgetMb,
+      rssSoftPct: policy.rssSoftPct,
+      rssHighPct: policy.rssHighPct,
+      rssCriticalPct: policy.rssCriticalPct,
+      queueAgeHighMs: policy.queueAgeHighMs,
+      queueAgeCriticalMs: policy.queueAgeCriticalMs,
+      modeCaps: {
+        managedHeaded: policy.modeCaps.managedHeaded,
+        managedHeadless: policy.modeCaps.managedHeadless,
+        cdpConnectHeaded: policy.modeCaps.cdpConnectHeaded,
+        cdpConnectHeadless: policy.modeCaps.cdpConnectHeadless,
+        extensionOpsHeaded: policy.modeCaps.extensionOpsHeaded,
+        extensionLegacyCdpHeaded: policy.modeCaps.extensionLegacyCdpHeaded
+      }
     };
   }
 
@@ -112,194 +166,275 @@ export class OpsBrowserManager implements BrowserManagerLike {
     throw new Error("Direct annotate is unavailable via extension ops sessions.");
   }
 
-  async goto(sessionId: string, url: string, waitUntil: "domcontentloaded" | "load" | "networkidle" = "load", timeoutMs = 30000): ReturnType<BrowserManagerLike["goto"]> {
+  async cookieImport(
+    sessionId: string,
+    cookies: CookieImportRecord[],
+    strict = true,
+    requestId = createRequestId()
+  ): Promise<{ requestId: string; imported: number; rejected: Array<{ index: number; reason: string }> }> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.goto(sessionId, url, waitUntil, timeoutMs);
+      return this.base.cookieImport(sessionId, cookies, strict, requestId);
     }
-    return await this.requestOps(sessionId, "nav.goto", { url, waitUntil, timeoutMs });
+    return await this.requestOps(
+      sessionId,
+      "storage.setCookies",
+      { cookies, strict, requestId }
+    );
   }
 
-  async waitForLoad(sessionId: string, until: "domcontentloaded" | "load" | "networkidle", timeoutMs = 30000): ReturnType<BrowserManagerLike["waitForLoad"]> {
+  async cookieList(
+    sessionId: string,
+    urls?: string[],
+    requestId = createRequestId()
+  ): Promise<{ requestId: string; cookies: CookieListRecord[]; count: number }> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.waitForLoad(sessionId, until, timeoutMs);
+      return this.base.cookieList(sessionId, urls, requestId);
     }
-    return await this.requestOps(sessionId, "nav.wait", { until, timeoutMs });
+    return await this.requestOps(
+      sessionId,
+      "storage.getCookies",
+      { urls, requestId }
+    );
   }
 
-  async waitForRef(sessionId: string, ref: string, state: "attached" | "visible" | "hidden" = "attached", timeoutMs = 30000): ReturnType<BrowserManagerLike["waitForRef"]> {
+  async goto(
+    sessionId: string,
+    url: string,
+    waitUntil: "domcontentloaded" | "load" | "networkidle" = "load",
+    timeoutMs = 30000,
+    _sessionOverride?: { browser: unknown; context: unknown; targets: unknown },
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["goto"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.waitForRef(sessionId, ref, state, timeoutMs);
+      return this.base.goto(sessionId, url, waitUntil, timeoutMs, undefined, targetId);
     }
-    return await this.requestOps(sessionId, "nav.wait", { ref, state, timeoutMs });
+    return await this.requestOps(sessionId, "nav.goto", this.withTarget({ url, waitUntil, timeoutMs }, targetId));
   }
 
-  async snapshot(sessionId: string, mode: "outline" | "actionables", maxChars: number, cursor?: string): ReturnType<BrowserManagerLike["snapshot"]> {
+  async waitForLoad(
+    sessionId: string,
+    until: "domcontentloaded" | "load" | "networkidle",
+    timeoutMs = 30000,
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["waitForLoad"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.snapshot(sessionId, mode, maxChars, cursor);
+      return this.base.waitForLoad(sessionId, until, timeoutMs, targetId);
     }
-    return await this.requestOps(sessionId, "nav.snapshot", {
+    return await this.requestOps(sessionId, "nav.wait", this.withTarget({ until, timeoutMs }, targetId));
+  }
+
+  async waitForRef(
+    sessionId: string,
+    ref: string,
+    state: "attached" | "visible" | "hidden" = "attached",
+    timeoutMs = 30000,
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["waitForRef"]> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.waitForRef(sessionId, ref, state, timeoutMs, targetId);
+    }
+    return await this.requestOps(sessionId, "nav.wait", this.withTarget({ ref, state, timeoutMs }, targetId));
+  }
+
+  async snapshot(
+    sessionId: string,
+    mode: "outline" | "actionables",
+    maxChars: number,
+    cursor?: string,
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["snapshot"]> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.snapshot(sessionId, mode, maxChars, cursor, targetId);
+    }
+    return await this.requestOps(sessionId, "nav.snapshot", this.withTarget({
       mode,
       maxChars,
       cursor,
       maxNodes: this.config.snapshot.maxNodes
-    });
+    }, targetId));
   }
 
-  async click(sessionId: string, ref: string): ReturnType<BrowserManagerLike["click"]> {
+  async click(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["click"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.click(sessionId, ref);
+      return this.base.click(sessionId, ref, targetId);
     }
-    return await this.requestOps(sessionId, "interact.click", { ref });
+    return await this.requestOps(sessionId, "interact.click", this.withTarget({ ref }, targetId));
   }
 
-  async hover(sessionId: string, ref: string): ReturnType<BrowserManagerLike["hover"]> {
+  async hover(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["hover"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.hover(sessionId, ref);
+      return this.base.hover(sessionId, ref, targetId);
     }
-    return await this.requestOps(sessionId, "interact.hover", { ref });
+    return await this.requestOps(sessionId, "interact.hover", this.withTarget({ ref }, targetId));
   }
 
-  async press(sessionId: string, key: string, ref?: string): ReturnType<BrowserManagerLike["press"]> {
+  async press(sessionId: string, key: string, ref?: string, targetId?: string | null): ReturnType<BrowserManagerLike["press"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.press(sessionId, key, ref);
+      return this.base.press(sessionId, key, ref, targetId);
     }
-    return await this.requestOps(sessionId, "interact.press", { key, ref });
+    return await this.requestOps(sessionId, "interact.press", this.withTarget({ key, ref }, targetId));
   }
 
-  async check(sessionId: string, ref: string): ReturnType<BrowserManagerLike["check"]> {
+  async check(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["check"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.check(sessionId, ref);
+      return this.base.check(sessionId, ref, targetId);
     }
-    return await this.requestOps(sessionId, "interact.check", { ref });
+    return await this.requestOps(sessionId, "interact.check", this.withTarget({ ref }, targetId));
   }
 
-  async uncheck(sessionId: string, ref: string): ReturnType<BrowserManagerLike["uncheck"]> {
+  async uncheck(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["uncheck"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.uncheck(sessionId, ref);
+      return this.base.uncheck(sessionId, ref, targetId);
     }
-    return await this.requestOps(sessionId, "interact.uncheck", { ref });
+    return await this.requestOps(sessionId, "interact.uncheck", this.withTarget({ ref }, targetId));
   }
 
-  async type(sessionId: string, ref: string, text: string, clear = false, submit = false): ReturnType<BrowserManagerLike["type"]> {
+  async type(
+    sessionId: string,
+    ref: string,
+    text: string,
+    clear = false,
+    submit = false,
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["type"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.type(sessionId, ref, text, clear, submit);
+      return this.base.type(sessionId, ref, text, clear, submit, targetId);
     }
-    return await this.requestOps(sessionId, "interact.type", { ref, text, clear, submit });
+    return await this.requestOps(sessionId, "interact.type", this.withTarget({ ref, text, clear, submit }, targetId));
   }
 
-  async select(sessionId: string, ref: string, values: string[]): ReturnType<BrowserManagerLike["select"]> {
+  async select(sessionId: string, ref: string, values: string[], targetId?: string | null): ReturnType<BrowserManagerLike["select"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.select(sessionId, ref, values);
+      return this.base.select(sessionId, ref, values, targetId);
     }
-    return await this.requestOps(sessionId, "interact.select", { ref, values });
+    return await this.requestOps(sessionId, "interact.select", this.withTarget({ ref, values }, targetId));
   }
 
-  async scroll(sessionId: string, dy: number, ref?: string): ReturnType<BrowserManagerLike["scroll"]> {
+  async scroll(sessionId: string, dy: number, ref?: string, targetId?: string | null): ReturnType<BrowserManagerLike["scroll"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.scroll(sessionId, dy, ref);
+      return this.base.scroll(sessionId, dy, ref, targetId);
     }
-    return await this.requestOps(sessionId, "interact.scroll", { dy, ref });
+    return await this.requestOps(sessionId, "interact.scroll", this.withTarget({ dy, ref }, targetId));
   }
 
-  async scrollIntoView(sessionId: string, ref: string): ReturnType<BrowserManagerLike["scrollIntoView"]> {
+  async scrollIntoView(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["scrollIntoView"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.scrollIntoView(sessionId, ref);
+      return this.base.scrollIntoView(sessionId, ref, targetId);
     }
-    return await this.requestOps(sessionId, "interact.scrollIntoView", { ref });
+    return await this.requestOps(sessionId, "interact.scrollIntoView", this.withTarget({ ref }, targetId));
   }
 
-  async domGetHtml(sessionId: string, ref: string, maxChars = 8000): ReturnType<BrowserManagerLike["domGetHtml"]> {
+  async domGetHtml(
+    sessionId: string,
+    ref: string,
+    maxChars = 8000,
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["domGetHtml"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.domGetHtml(sessionId, ref, maxChars);
+      return this.base.domGetHtml(sessionId, ref, maxChars, targetId);
     }
-    return await this.requestOps(sessionId, "dom.getHtml", { ref, maxChars });
+    return await this.requestOps(sessionId, "dom.getHtml", this.withTarget({ ref, maxChars }, targetId));
   }
 
-  async domGetText(sessionId: string, ref: string, maxChars = 8000): ReturnType<BrowserManagerLike["domGetText"]> {
+  async domGetText(
+    sessionId: string,
+    ref: string,
+    maxChars = 8000,
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["domGetText"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.domGetText(sessionId, ref, maxChars);
+      return this.base.domGetText(sessionId, ref, maxChars, targetId);
     }
-    return await this.requestOps(sessionId, "dom.getText", { ref, maxChars });
+    return await this.requestOps(sessionId, "dom.getText", this.withTarget({ ref, maxChars }, targetId));
   }
 
-  async domGetAttr(sessionId: string, ref: string, name: string): ReturnType<BrowserManagerLike["domGetAttr"]> {
+  async domGetAttr(
+    sessionId: string,
+    ref: string,
+    name: string,
+    targetId?: string | null
+  ): ReturnType<BrowserManagerLike["domGetAttr"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.domGetAttr(sessionId, ref, name);
+      return this.base.domGetAttr(sessionId, ref, name, targetId);
     }
-    return await this.requestOps(sessionId, "dom.getAttr", { ref, name });
+    return await this.requestOps(sessionId, "dom.getAttr", this.withTarget({ ref, name }, targetId));
   }
 
-  async domGetValue(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domGetValue"]> {
+  async domGetValue(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["domGetValue"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.domGetValue(sessionId, ref);
+      return this.base.domGetValue(sessionId, ref, targetId);
     }
-    return await this.requestOps(sessionId, "dom.getValue", { ref });
+    return await this.requestOps(sessionId, "dom.getValue", this.withTarget({ ref }, targetId));
   }
 
-  async domIsVisible(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domIsVisible"]> {
+  async domIsVisible(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["domIsVisible"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.domIsVisible(sessionId, ref);
+      return this.base.domIsVisible(sessionId, ref, targetId);
     }
-    return await this.requestOps(sessionId, "dom.isVisible", { ref });
+    return await this.requestOps(sessionId, "dom.isVisible", this.withTarget({ ref }, targetId));
   }
 
-  async domIsEnabled(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domIsEnabled"]> {
+  async domIsEnabled(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["domIsEnabled"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.domIsEnabled(sessionId, ref);
+      return this.base.domIsEnabled(sessionId, ref, targetId);
     }
-    return await this.requestOps(sessionId, "dom.isEnabled", { ref });
+    return await this.requestOps(sessionId, "dom.isEnabled", this.withTarget({ ref }, targetId));
   }
 
-  async domIsChecked(sessionId: string, ref: string): ReturnType<BrowserManagerLike["domIsChecked"]> {
+  async domIsChecked(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["domIsChecked"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.domIsChecked(sessionId, ref);
+      return this.base.domIsChecked(sessionId, ref, targetId);
     }
-    return await this.requestOps(sessionId, "dom.isChecked", { ref });
+    return await this.requestOps(sessionId, "dom.isChecked", this.withTarget({ ref }, targetId));
   }
 
-  async clonePage(sessionId: string): Promise<ReactExport> {
+  async clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.clonePage(sessionId);
+      return this.base.clonePage(sessionId, targetId);
     }
-    const capture = await this.requestOps<{ capture: DomCapture }>(sessionId, "export.clonePage", {
+    const capture = await this.requestOps<{ capture: DomCapture }>(sessionId, "export.clonePage", this.withTarget({
       sanitize: !this.config.security.allowUnsafeExport,
       maxNodes: this.config.export.maxNodes,
       inlineStyles: this.config.export.inlineStyles,
       styleAllowlist: Array.from(STYLE_ALLOWLIST),
       skipStyleValues: Array.from(SKIP_STYLE_VALUES)
-    });
+    }, targetId));
     const css = extractCss(capture.capture);
     return emitReactComponent(capture.capture, css, { allowUnsafeExport: this.config.security.allowUnsafeExport });
   }
 
-  async cloneComponent(sessionId: string, ref: string): Promise<ReactExport> {
+  async cloneComponent(sessionId: string, ref: string, targetId?: string | null): Promise<ReactExport> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.cloneComponent(sessionId, ref);
+      return this.base.cloneComponent(sessionId, ref, targetId);
     }
-    const capture = await this.requestOps<{ capture: DomCapture }>(sessionId, "export.cloneComponent", {
+    const capture = await this.requestOps<{ capture: DomCapture }>(sessionId, "export.cloneComponent", this.withTarget({
       ref,
       sanitize: !this.config.security.allowUnsafeExport,
       maxNodes: this.config.export.maxNodes,
       inlineStyles: this.config.export.inlineStyles,
       styleAllowlist: Array.from(STYLE_ALLOWLIST),
       skipStyleValues: Array.from(SKIP_STYLE_VALUES)
-    });
+    }, targetId));
     const css = extractCss(capture.capture);
     return emitReactComponent(capture.capture, css, { allowUnsafeExport: this.config.security.allowUnsafeExport });
   }
 
-  async perfMetrics(sessionId: string): ReturnType<BrowserManagerLike["perfMetrics"]> {
+  async perfMetrics(sessionId: string, targetId?: string | null): ReturnType<BrowserManagerLike["perfMetrics"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.perfMetrics(sessionId);
+      return this.base.perfMetrics(sessionId, targetId);
     }
-    return await this.requestOps(sessionId, "devtools.perf", {});
+    return await this.requestOps(sessionId, "devtools.perf", this.withTarget({}, targetId));
   }
 
-  async screenshot(sessionId: string, path?: string): ReturnType<BrowserManagerLike["screenshot"]> {
+  async screenshot(sessionId: string, path?: string, targetId?: string | null): ReturnType<BrowserManagerLike["screenshot"]> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.screenshot(sessionId, path);
+      return this.base.screenshot(sessionId, path, targetId);
     }
-    const result = await this.requestOps<{ base64?: string; warning?: string }>(sessionId, "page.screenshot", {});
+    const result = await this.requestOps<{ base64?: string; warning?: string }>(
+      sessionId,
+      "page.screenshot",
+      this.withTarget({}, targetId)
+    );
     if (!result.base64) {
       throw new Error("Screenshot failed");
     }
@@ -392,6 +527,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.opsClient = client;
     this.opsEndpoint = wsEndpoint;
     return client;
+  }
+
+  private withTarget(
+    payload: Record<string, unknown>,
+    targetId?: string | null
+  ): Record<string, unknown> {
+    if (typeof targetId !== "string" || targetId.trim().length === 0) {
+      return payload;
+    }
+    return {
+      ...payload,
+      targetId: targetId.trim()
+    };
   }
 
   private async requestOps<T>(sessionId: string, command: string, payload: Record<string, unknown>): Promise<T> {

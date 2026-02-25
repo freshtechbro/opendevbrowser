@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseArgs } from "../src/cli/args";
 import { parseAnnotateArgs } from "../src/cli/commands/annotate";
+import { __test__ as macroResolveTest } from "../src/cli/commands/macro-resolve";
 import { parseNumberFlag } from "../src/cli/utils/parse";
 
 describe("parseNumberFlag", () => {
@@ -46,6 +47,106 @@ describe("parseArgs", () => {
     expect(parsed.rawArgs).toEqual([]);
   });
 
+  it("accepts rpc command with internal flags", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "rpc",
+      "--unsafe-internal",
+      "--name",
+      "nav.snapshot",
+      "--params",
+      "{\"sessionId\":\"s1\"}",
+      "--timeout-ms",
+      "45000"
+    ]);
+    expect(parsed.command).toBe("rpc");
+    expect(parsed.rawArgs).toEqual([
+      "--unsafe-internal",
+      "--name",
+      "nav.snapshot",
+      "--params",
+      "{\"sessionId\":\"s1\"}",
+      "--timeout-ms",
+      "45000"
+    ]);
+  });
+
+  it("accepts debug-trace-snapshot command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "debug-trace-snapshot",
+      "--session-id",
+      "s1",
+      "--since-console-seq=1",
+      "--since-network-seq=2",
+      "--since-exception-seq=3",
+      "--max=20",
+      "--request-id=req-1"
+    ]);
+    expect(parsed.command).toBe("debug-trace-snapshot");
+  });
+
+  it("accepts cookie-import command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "cookie-import",
+      "--session-id",
+      "s1",
+      "--cookies",
+      "[]",
+      "--strict=false"
+    ]);
+    expect(parsed.command).toBe("cookie-import");
+  });
+
+  it("accepts cookie-list command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "cookie-list",
+      "--session-id",
+      "s1",
+      "--url",
+      "https://example.com"
+    ]);
+    expect(parsed.command).toBe("cookie-list");
+  });
+
+  it("accepts macro-resolve command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "macro-resolve",
+      "--expression=@web.search(\"openai\")",
+      "--default-provider=web/default",
+      "--include-catalog",
+      "--execute"
+    ]);
+    expect(parsed.command).toBe("macro-resolve");
+    expect(parsed.rawArgs).toContain("--execute");
+  });
+
+  it("accepts research/shopping/product-video commands", () => {
+    const research = parseArgs(["node", "cli", "research", "run", "--topic=agent workflows", "--days=30", "--mode=context"]);
+    expect(research.command).toBe("research");
+    expect(research.rawArgs).toEqual(["run", "--topic=agent workflows", "--days=30", "--mode=context"]);
+
+    const shopping = parseArgs(["node", "cli", "shopping", "run", "--query=usb hub", "--providers=shopping/amazon,shopping/others"]);
+    expect(shopping.command).toBe("shopping");
+    expect(shopping.rawArgs).toEqual(["run", "--query=usb hub", "--providers=shopping/amazon,shopping/others"]);
+
+    const productVideo = parseArgs(["node", "cli", "product-video", "run", "--product-url=https://example.com/p/1"]);
+    expect(productVideo.command).toBe("product-video");
+    expect(productVideo.rawArgs).toEqual(["run", "--product-url=https://example.com/p/1"]);
+
+    const artifacts = parseArgs(["node", "cli", "artifacts", "cleanup", "--expired-only", "--output-dir=/tmp/odb"]);
+    expect(artifacts.command).toBe("artifacts");
+    expect(artifacts.rawArgs).toEqual(["cleanup", "--expired-only", "--output-dir=/tmp/odb"]);
+  });
+
   it("accepts --extension-legacy for launch/connect command parsing", () => {
     const launchParsed = parseArgs(["node", "cli", "launch", "--extension-only", "--extension-legacy"]);
     expect(launchParsed.command).toBe("launch");
@@ -54,6 +155,12 @@ describe("parseArgs", () => {
     const connectParsed = parseArgs(["node", "cli", "connect", "--ws-endpoint", "ws://127.0.0.1:8787", "--extension-legacy"]);
     expect(connectParsed.command).toBe("connect");
     expect(connectParsed.rawArgs).toEqual(["--ws-endpoint", "ws://127.0.0.1:8787", "--extension-legacy"]);
+  });
+
+  it("accepts --persist-profile in equals form for launch parsing", () => {
+    const parsed = parseArgs(["node", "cli", "launch", "--persist-profile=false"]);
+    expect(parsed.command).toBe("launch");
+    expect(parsed.rawArgs).toEqual(["--persist-profile=false"]);
   });
 
   it("accepts annotate flags (space-separated)", () => {
@@ -214,5 +321,35 @@ describe("parseAnnotateArgs", () => {
   it("parses tab-id", () => {
     const parsed = parseAnnotateArgs(["--tab-id", "123"]);
     expect(parsed.tabId).toBe(123);
+  });
+});
+
+describe("parseMacroResolveArgs", () => {
+  it("parses execute flag", () => {
+    const parsed = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--execute"
+    ]);
+    expect(parsed.execute).toBe(true);
+  });
+
+  it("parses timeout-ms", () => {
+    const parsed = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--timeout-ms",
+      "120000"
+    ]);
+    expect(parsed.timeoutMs).toBe(120000);
+  });
+
+  it("rejects invalid timeout-ms", () => {
+    expect(() => macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--timeout-ms",
+      "nope"
+    ])).toThrow("Invalid --timeout-ms");
   });
 });

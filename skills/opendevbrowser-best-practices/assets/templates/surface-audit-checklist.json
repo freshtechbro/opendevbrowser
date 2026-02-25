@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0",
+  "expectedCounts": {
+    "cliCommands": 50,
+    "tools": 44,
+    "opsCommands": 36
+  },
+  "docsMustCover": [
+    "README.md",
+    "docs/CLI.md",
+    "docs/ARCHITECTURE.md",
+    "docs/SURFACE_REFERENCE.md",
+    "AGENTS.md",
+    "skills/opendevbrowser-best-practices/SKILL.md"
+  ],
+  "checks": [
+    "CLI command names documented by category",
+    "Tool names documented by category",
+    "Ops command namespaces documented",
+    "CDP envelope contract documented",
+    "Global and command-specific flags documented",
+    "Mode semantics documented"
+  ]
+}

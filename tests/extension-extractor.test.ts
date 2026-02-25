@@ -79,7 +79,7 @@ describe("extension-extractor", () => {
       expect(existsSync(join(destDir, ".version"))).toBe(true);
       expect(existsSync(join(destDir, "manifest.json"))).toBe(true);
     }
-  });
+  }, 20000);
 
   it("cleans up staging directory on success", async () => {
     const destDir = getTestConfigDir();

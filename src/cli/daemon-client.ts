@@ -11,6 +11,9 @@ import { fetchWithTimeout } from "./utils/http";
 const CLIENT_ID_FILE = "client.json";
 const DEFAULT_RENEW_AFTER_MS = 20_000;
 const MIN_RENEW_AFTER_MS = 5_000;
+const TRANSPORT_TIMEOUT_BUFFER_MS = 5_000;
+const MAX_DERIVED_TRANSPORT_TIMEOUT_MS = 300_000;
+const TRANSPORT_TIMEOUT_HINT_KEYS = ["timeoutMs", "waitTimeoutMs"] as const;
 
 type DaemonResponse<T> = { ok?: boolean; data?: T; error?: string };
 
@@ -166,7 +169,7 @@ export class DaemonClient {
       ...(bindingId ? { bindingId } : {}),
       ...(leaseId ? { leaseId } : {})
     };
-    return await this.callRaw<T>(name, payload, options.timeoutMs);
+    return await this.callRaw<T>(name, payload, deriveTransportTimeoutMs(params, options.timeoutMs));
   }
 
   private maybeTrackLease<T>(name: string, params: Record<string, unknown>, result: T): void {
@@ -283,7 +286,7 @@ export class DaemonClient {
         // Ignore JSON parse errors; fall back to raw text/status.
       }
       if (message.includes("Unauthorized") || response.status === 401) {
-        response = await retryWithRefreshedConnection(name, params);
+        response = await retryWithRefreshedConnection(name, params, timeoutMs);
         if (!response.ok) {
           throw new CliError(message, EXIT_EXECUTION);
         }
@@ -301,11 +304,36 @@ export class DaemonClient {
   }
 }
 
+const asPositiveNumber = (value: unknown): number | undefined => {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+};
+
+const deriveTransportTimeoutMs = (
+  params: Record<string, unknown>,
+  explicitTimeoutMs?: number
+): number | undefined => {
+  const explicit = asPositiveNumber(explicitTimeoutMs);
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  for (const key of TRANSPORT_TIMEOUT_HINT_KEYS) {
+    const value = asPositiveNumber(params[key]);
+    if (value !== undefined) {
+      return Math.min(value + TRANSPORT_TIMEOUT_BUFFER_MS, MAX_DERIVED_TRANSPORT_TIMEOUT_MS);
+    }
+  }
+  return undefined;
+};
+
 const cliClient = new DaemonClient({ autoRenew: false });
 
 export async function callDaemon(command: string, params?: Record<string, unknown>, options?: CallOptions): Promise<unknown> {
   return cliClient.call(command, params ?? {}, options);
 }
+
+export const __test__ = {
+  deriveTransportTimeoutMs
+};
 
 type DaemonConnection = {
   port: number;

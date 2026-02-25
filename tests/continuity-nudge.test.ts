@@ -44,6 +44,7 @@ describe("continuity nudge", () => {
   it("includes marker and file path in the nudge message", () => {
     const message = buildContinuityNudgeMessage("opendevbrowser_continuity.md");
     expect(message).toContain(CONTINUITY_NUDGE_MARKER);
+    expect(message).toContain('skill("opendevbrowser-continuity-ledger")');
     expect(message).toContain("opendevbrowser_continuity.md");
   });
 
