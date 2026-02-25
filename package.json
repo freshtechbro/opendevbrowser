@@ -1,6 +1,6 @@
 {
   "name": "opendevbrowser",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "description": "OpenCode plugin for browser automation via CDP with snapshot-refs-actions workflow",
   "type": "module",
   "main": "dist/index.js",
@@ -39,7 +39,7 @@
   "scripts": {
     "build": "tsup src/index.ts src/cli/index.ts --format esm --clean --sourcemap && tsc --emitDeclarationOnly --declaration --declarationMap -p tsconfig.json && node --input-type=module -e \"import { copyFileSync, existsSync } from 'node:fs';\nimport { resolve } from 'node:path';\nconst dist = resolve('dist');\nconst pairs = [\n  ['index.js', 'opendevbrowser.js'],\n  ['index.js.map', 'opendevbrowser.js.map'],\n  ['index.d.ts', 'opendevbrowser.d.ts'],\n  ['index.d.ts.map', 'opendevbrowser.d.ts.map'],\n];\nfor (const [src, dst] of pairs) {\n  const from = resolve(dist, src);\n  const to = resolve(dist, dst);\n  if (existsSync(from)) copyFileSync(from, to);\n}\"",
     "dev": "tsup src/index.ts src/cli/index.ts --format esm --dts --watch",
-    "lint": "eslint \"{src,tests}/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "test": "vitest run --coverage",
     "extension:sync": "node scripts/sync-extension-version.mjs",
     "extension:build": "npm run extension:sync && tsc -p extension/tsconfig.json && node scripts/copy-extension-assets.mjs",
@@ -48,25 +48,25 @@
     "prepack": "npm run version:check && npm run build && npm run extension:build"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.0.203",
-    "@puppeteer/browsers": "^2.2.0",
+    "@opencode-ai/plugin": "^1.2.11",
+    "@puppeteer/browsers": "^2.13.0",
     "async-mutex": "^0.5.0",
     "jsonc-parser": "^3.2.0",
-    "playwright-core": "^1.49.1",
-    "ws": "^8.17.1",
+    "playwright-core": "^1.58.2",
+    "ws": "^8.19.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.270",
-    "@types/node": "^20.19.27",
+    "@types/chrome": "^0.1.37",
+    "@types/node": "^20.19.33",
     "@types/ws": "^8.18.1",
-    "@typescript-eslint/eslint-plugin": "^8.9.0",
-    "@typescript-eslint/parser": "^8.9.0",
-    "@vitest/coverage-v8": "^4.0.16",
-    "eslint": "^9.12.0",
-    "happy-dom": "^20.0.11",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^9.39.3",
+    "happy-dom": "^20.7.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.18"
   }
 }
