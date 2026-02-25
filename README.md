@@ -82,7 +82,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install /Users/bishopdotun/Documents/DevProjects/opendevbrowser/opendevbrowser-0.0.15.tgz
+npm install /Users/bishopdotun/Documents/DevProjects/opendevbrowser/opendevbrowser-0.0.16.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -230,7 +230,13 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ## Recent Features
 
-### v0.0.15 (Latest)
+### v0.0.16 (Latest)
+
+- **Dependency refresh for distribution readiness** with updates to runtime and development packages.
+- **Release hardening for root configs** with stricter TypeScript emit safety and deterministic test timeouts.
+- **Documentation alignment** for the new package version and local pre-release install flow.
+
+### v0.0.15
 
 - **Documentation and release readiness refresh** across README/CLI/extension guidance.
 - **Extension mode stabilization** with stronger native host flow and recovery paths.
