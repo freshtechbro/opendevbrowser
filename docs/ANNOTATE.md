@@ -42,7 +42,7 @@ CLI output:
 - JSON/stream-json returns `{ success, message, data }`, where `data.details` is the redacted payload and `data.screenshots` lists local file paths.
 
 For first-run pre-release onboarding and extension connection steps, see:
-- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/FIRST_RUN_ONBOARDING.md`
+- `<public-repo-root>/docs/FIRST_RUN_ONBOARDING.md`
 
 ## Extension UI
 

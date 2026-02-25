@@ -1,7 +1,7 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-02-24
+Last updated: 2026-02-25
 
 This document tracks runtime and build dependencies across the repository.
 
@@ -30,26 +30,14 @@ This document tracks runtime and build dependencies across the repository.
 | `happy-dom` | `^20.0.11` | DOM test environment |
 | `@types/*` | see `package.json` | Type definitions |
 
-## Frontend package (`/frontend/package.json`)
+## Private website package (separate repository)
 
-### Runtime dependencies
+The website dependency graph is maintained in the private repository:
+- repo: `opendevbrowser-website-deploy`
+- manifest: `frontend/package.json`
+- lockfile: `frontend/package-lock.json`
 
-| Package | Version | Purpose |
-|---|---|---|
-| `next` | `^15.0.0` | App framework and routing |
-| `react` | `^19.0.0` | UI runtime |
-| `react-dom` | `^19.0.0` | DOM renderer |
-| `three` | `^0.170.0` | 3D rendering primitives |
-| `@react-three/fiber` | `^9.5.0` | React renderer for Three.js |
-| `@react-three/drei` | `^10.7.7` | R3F helpers/components |
-
-### Dev dependencies
-
-| Package | Version | Purpose |
-|---|---|---|
-| `typescript` | `^5.9.3` | Type checking |
-| `eslint` + `eslint-config-next` | `^9.12.0`, `^15.0.0` | Frontend linting |
-| `@types/node`, `@types/react`, `@types/react-dom` | see `frontend/package.json` | Type definitions |
+This public repository no longer tracks website package manifests or lockfiles.
 
 ## Extension package (`/extension`)
 
@@ -59,13 +47,15 @@ Version synchronization is handled by `npm run extension:sync`.
 ## Dependency update workflow
 
 1. Update package manifests.
-2. Re-run lockfile updates (`npm install` and/or `cd frontend && npm install`).
+2. Re-run lockfile updates:
+   - public repo: `npm install`
+   - private website repo: `npm install --prefix frontend`
 3. Run validation gates:
    - Root: `npm run lint`, `npx tsc --noEmit`, `npm run build`, `npm run extension:build`, `npm run test`
-   - Frontend: `cd frontend && npm run lint && npm run typecheck && npm run build`
+   - Private website repo: `npm run lint --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend`
 4. Update this document when dependency purpose or versions change.
 
 Related operational references:
-- Install/onboarding: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/FIRST_RUN_ONBOARDING.md`
-- Runtime/flags/help: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CLI.md`
-- Config schema behavior: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/config.ts`
+- Install/onboarding: `<public-repo-root>/docs/FIRST_RUN_ONBOARDING.md`
+- Runtime/flags/help: `<public-repo-root>/docs/CLI.md`
+- Config schema behavior: `<public-repo-root>/src/config.ts`

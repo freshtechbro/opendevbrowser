@@ -2,18 +2,18 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-02-24
+Last updated: 2026-02-25
 
 ---
 
 ## System overview
 
-OpenDevBrowser provides four primary entry points:
+OpenDevBrowser provides four primary runtime entry points:
 
 - **Plugin**: OpenCode runtime entry that exposes `opendevbrowser_*` tools.
 - **CLI**: Installer + automation commands (daemon or single-shot `run`), plus guarded internal `rpc` passthrough for power users (unsafe, use with caution).
 - **Extension**: Relay mode for attaching to existing logged-in tabs.
-- **Frontend**: Next.js website and generated docs viewer (`frontend/`).
+- **Website (private repo)**: Next.js website and generated docs viewer maintained in `opendevbrowser-website-deploy/frontend/`.
 - **Hub daemon**: `opendevbrowser serve` process that owns the relay and enforces FIFO leases when hub mode is enabled.
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
@@ -83,7 +83,7 @@ flowchart LR
     CLI[CLI]
     Hub[Hub Daemon]
     Extension[Chrome Extension]
-    Frontend[Next.js Frontend]
+    Frontend[Private Website Repo]
   end
 
   subgraph Core
@@ -191,14 +191,14 @@ sequenceDiagram
   Relay-->>Tools: forward events/results
 ```
 
-### 4) Frontend docs/content generation
+### 4) Website docs/content generation (private repo)
 
 ```mermaid
 sequenceDiagram
   participant Sources as docs/* + CHANGELOG + skills/*/SKILL.md
-  participant Generator as frontend/scripts/generate-docs.mjs
-  participant Content as frontend/src/content/*
-  participant Next as frontend/src/app/docs/*
+  participant Generator as private frontend/scripts/generate-docs.mjs
+  participant Content as private frontend/src/content/*
+  participant Next as private frontend/src/app/docs/*
 
   Sources->>Generator: markdown and metadata inputs
   Generator->>Content: pages.json + docs-manifest.json + metrics.json + roadmap.json
@@ -275,7 +275,7 @@ sequenceDiagram
 - **Daemon status**: `/status` is the source of truth; cached metadata may be stale.
 - **Daemon config**: `daemonPort`/`daemonToken` persisted in `opendevbrowser.jsonc` for hub discovery.
 - **Extension storage**: `chrome.storage.local` (relay port, token, auto-connect).
-- **Frontend generated content**: `frontend/src/content/*` (generated docs/metrics/roadmap JSON).
+- **Frontend generated content (private repo)**: `opendevbrowser-website-deploy/frontend/src/content/*` (generated docs/metrics/roadmap JSON).
 
 Default extension values:
 - `relayPort`: `8787`
@@ -323,7 +323,7 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 - **Unit/integration tests** via Vitest (`npm run test`), coverage >=97%.
 - **Extension build** via `npm run extension:build`.
 - **CLI build** via `npm run build`.
-- **Frontend checks** via `cd frontend && npm run lint && npm run typecheck && npm run build`.
+- **Private website checks** via `npm run lint --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend` in `opendevbrowser-website-deploy`.
 - **CLI inventory/help parity check** via `npx opendevbrowser --help` and `npx opendevbrowser help`.
 - **Parity gate** via `tests/parity-matrix.test.ts` (CLI/tool/runtime surface checks + mode coverage).
 - **Provider performance gate** via `tests/providers-performance-gate.test.ts` (deterministic fixture SLO checks).
@@ -374,5 +374,5 @@ Validation script:
 - `src/cli/`: CLI commands, daemon, and installers.
 - `src/cli/commands/artifacts.ts`: artifact lifecycle cleanup (`artifacts cleanup --expired-only`).
 - `extension/`: Chrome extension UI and background logic.
-- `frontend/`: marketing/docs website and generated content pipeline.
+- `opendevbrowser-website-deploy/frontend/`: private website app and generated content pipeline.
 - `docs/`: plans, architecture, and operational guidance.

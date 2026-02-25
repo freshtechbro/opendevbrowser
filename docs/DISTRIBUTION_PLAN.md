@@ -4,7 +4,7 @@ Last updated: 2026-02-25
 
 This document is the active distribution plan for the split model:
 - public repo for runtime + release artifacts
-- private repo for website deployment
+- private repo for website source + deployment
 
 ## Overview
 
@@ -12,6 +12,8 @@ This document is the active distribution plan for the split model:
 - npm package: `opendevbrowser` (public repo release)
 - GitHub release artifacts: extension zip + checksum (public repo release)
 - Website deploy: private repo `website-production` branch
+
+Public repo no longer carries the `frontend/` application directory.
 
 ### Public workflow inventory
 - `.github/workflows/release-public.yml`
@@ -107,6 +109,7 @@ npm run build --prefix frontend
 - [x] Public release workflow exists and validates version alignment.
 - [x] Public dispatch workflow exists and targets private sync pipeline.
 - [x] Private sync + promotion workflows are live.
+- [x] Public repo frontend source was extracted after private validation baseline.
 - [ ] Hosting production branch is enforced to `website-production`.
 - [ ] Public first tagged release completed through new workflow path.
 

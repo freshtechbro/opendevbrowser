@@ -22,7 +22,7 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 ## 1) Build a local install artifact
 
 ```bash
-cd /Users/bishopdotun/Documents/DevProjects/opendevbrowser
+cd <public-repo-root>
 npm pack
 # -> opendevbrowser-0.0.15.tgz
 ```
@@ -33,7 +33,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install /Users/bishopdotun/Documents/DevProjects/opendevbrowser/opendevbrowser-0.0.15.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.15.tgz
 npx --no-install opendevbrowser version --output-format json
 ```
 

@@ -48,8 +48,16 @@ Completed in execution:
 - Private repo rollout executed in `freshtechbro/opendevbrowser-website-deploy`:
   - bootstrap commit: `12d18b4`
   - sync hardening commit: `bddc141`
+  - validated frontend baseline + private sync guard commit: `c694860`
   - sync workflow success: <https://github.com/freshtechbro/opendevbrowser-website-deploy/actions/runs/22397870085>
   - promotion workflow success: <https://github.com/freshtechbro/opendevbrowser-website-deploy/actions/runs/22397913124>
+- Private frontend replica validation completed before public removal:
+  - parity sync completed from public to private
+  - private gates passed (`sync:assets`, `generate:docs`, `lint`, `typecheck`, `build`)
+  - private dev server QA completed on `/`, `/docs`, `/docs/quickstart/index`
+- Public extraction completed:
+  - removed `frontend/` from public repo
+  - removed frontend-coupled tests (`tests/frontend-docs-links.test.ts`, `tests/frontend-focus-trap.test.ts`)
 
 Open operational items:
 - Hosting branch enforcement (`website-production`) must be finalized in provider settings.
@@ -357,38 +365,38 @@ Both pipelines are production-ready with tested rollback procedures.
 ## Execution-Ready Checklist by Phase
 
 ### Phase 0 — Governance and repo setup
-- [ ] Confirm target repo names and owners.
-- [ ] Create private repo `opendevbrowser-website-deploy`.
+- [x] Confirm target repo names and owners.
+- [x] Create private repo `opendevbrowser-website-deploy`.
 - [ ] Configure branch protections in both repos.
-- [ ] Create required CI bot/service account credentials.
-- [ ] Document permissions matrix for maintainers and CI.
+- [x] Create required CI bot/service account credentials.
+- [x] Document permissions matrix for maintainers and CI.
 - [ ] Exit gate: both repos show enforced branch protection and CI-only push for deploy branch.
 - [ ] Evidence: screenshot/export of branch protection settings and repo collaborators.
 
 ### Phase 1 — Website migration to private repo
-- [ ] Copy `frontend/` into private repo.
-- [ ] Add private repo setup docs.
-- [ ] Validate `lint`, `typecheck`, `build` in private repo.
-- [ ] Confirm production routes and metadata parity.
-- [ ] Commands: `npm install && npm run lint && npm run typecheck && npm run build` in private repo.
-- [ ] Exit gate: no private repo build path reads outside private repo workspace.
-- [ ] Evidence: workflow log + build output artifact hash.
+- [x] Copy `frontend/` into private repo.
+- [x] Add private repo setup docs.
+- [x] Validate `lint`, `typecheck`, `build` in private repo.
+- [x] Confirm production routes and metadata parity.
+- [x] Commands: `npm install && npm run lint && npm run typecheck && npm run build` in private repo.
+- [x] Exit gate: no private repo build path reads outside private repo workspace.
+- [x] Evidence: workflow log + build output artifact hash.
 
 ### Phase 2 — Public-to-private sync automation
-- [ ] Implement `sync-from-public` workflow.
-- [ ] Implement sync script for `docs/`, `skills/`, `assets/`, `CHANGELOG.md`, `src/tools/index.ts`.
-- [ ] Implement dispatch trigger from public repo.
-- [ ] Add nightly fallback sync schedule.
-- [ ] Validate idempotent sync behavior.
-- [ ] Commands: run `workflow_dispatch` twice with identical source SHA and verify no second diff.
-- [ ] Exit gate: deterministic generation with stable output ordering.
-- [ ] Evidence: two workflow runs with identical output checksums.
+- [x] Implement `sync-from-public` workflow.
+- [x] Implement sync script for `docs/`, `skills/`, `assets/`, `CHANGELOG.md`, `src/tools/index.ts`.
+- [x] Implement dispatch trigger from public repo.
+- [x] Add nightly fallback sync schedule.
+- [x] Validate idempotent sync behavior.
+- [x] Commands: run `workflow_dispatch` twice with identical source SHA and verify no second diff.
+- [x] Exit gate: deterministic generation with stable output ordering.
+- [x] Evidence: two workflow runs with identical output checksums.
 
 ### Phase 3 — Deploy branch promotion
-- [ ] Implement `promote-website-production` workflow.
-- [ ] Ensure promotion gated by website quality checks.
+- [x] Implement `promote-website-production` workflow.
+- [x] Ensure promotion gated by website quality checks.
 - [ ] Block manual pushes to `website-production`.
-- [ ] Add promotion metadata output and logs.
+- [x] Add promotion metadata output and logs.
 - [ ] Commands: fail one check intentionally in PR branch and confirm promotion is blocked.
 - [ ] Exit gate: only passing pipeline can update `website-production`.
 - [ ] Evidence: blocked run + successful run with promotion commit SHA.
@@ -403,9 +411,9 @@ Both pipelines are production-ready with tested rollback procedures.
 - [ ] Evidence: deployment IDs for forward deploy and rollback.
 
 ### Phase 5 — Public release automation
-- [ ] Implement/validate release workflow in public repo.
-- [ ] Enforce version sync checks.
-- [ ] Enforce release quality gates.
+- [x] Implement/validate release workflow in public repo.
+- [x] Enforce version sync checks.
+- [x] Enforce release quality gates.
 - [ ] Publish npm package from tag.
 - [ ] Publish GitHub release with extension artifact.
 - [ ] Commands: `npm run lint && npx tsc --noEmit && npm run build && npm run extension:build && npm run test`.
