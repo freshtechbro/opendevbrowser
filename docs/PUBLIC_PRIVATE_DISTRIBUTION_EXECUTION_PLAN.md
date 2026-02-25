@@ -33,6 +33,29 @@ Detailed execution plan to keep OpenDevBrowser core and extension public while m
 - Vercel project ownership or team permission to set production branch and protection.
 - Optional Chrome Web Store publisher access if Stage 2 extension publishing is enabled.
 
+### Implementation status (2026-02-25)
+
+Completed in execution:
+- Public repo release/sync/store workflows were implemented:
+  - `.github/workflows/release-public.yml`
+  - `.github/workflows/dispatch-private-sync.yml`
+  - `.github/workflows/chrome-store-publish.yml` (optional lane)
+- Public repo release/store tooling implemented:
+  - `scripts/chrome-store-publish.mjs`
+  - `package.json` script `extension:store`
+- Private repo template pack implemented in public repo:
+  - `templates/website-deploy/**`
+- Private repo rollout executed in `freshtechbro/opendevbrowser-website-deploy`:
+  - bootstrap commit: `12d18b4`
+  - sync hardening commit: `bddc141`
+  - sync workflow success: <https://github.com/freshtechbro/opendevbrowser-website-deploy/actions/runs/22397870085>
+  - promotion workflow success: <https://github.com/freshtechbro/opendevbrowser-website-deploy/actions/runs/22397913124>
+
+Open operational items:
+- Hosting branch enforcement (`website-production`) must be finalized in provider settings.
+- Private branch protection is constrained by current GitHub plan (`HTTP 403` when enforcing private branch protection via API).
+- First production public tag release through `release-public.yml` is still pending.
+
 ---
 
 ## Task 1 — Architecture Boundary and Branch Governance
@@ -57,9 +80,9 @@ Define explicit ownership for public and private repos, release branches, and de
 A stable governance model where public distribution and private website deployment are isolated and auditable.
 
 ### Acceptance criteria
-- [ ] Branch model is documented and approved.
-- [ ] Protected branch rules are active on both repos.
-- [ ] Manual pushes to `website-production` are blocked.
+- [x] Branch model is documented and approved.
+- [ ] Protected branch rules are active on both repos. (Private repo branch protection is plan-limited on current GitHub tier.)
+- [ ] Manual pushes to `website-production` are blocked. (Pending branch-protection controls.)
 
 ---
 
@@ -87,9 +110,9 @@ Create private repo and migrate website app and supporting scripts.
 Website is independently buildable and deployable from the private repo.
 
 ### Acceptance criteria
-- [ ] Private repo can run website dev/build locally.
-- [ ] No required runtime dependency on public repo checkout path.
-- [ ] Frontend route behavior matches existing production intent.
+- [x] Private repo can run website dev/build locally.
+- [x] No required runtime dependency on public repo checkout path.
+- [x] Frontend route behavior matches existing production intent.
 
 ---
 
@@ -118,9 +141,9 @@ Implement private-repo CI to pull selected public artifacts, regenerate content,
 Private repo remains current with public content sources through automated, reproducible sync.
 
 ### Acceptance criteria
-- [ ] Sync workflow completes successfully on dispatch and schedule.
-- [ ] Generated content updates are deterministic (no unrelated churn).
-- [ ] Sync commit message includes upstream SHA for traceability.
+- [x] Sync workflow completes successfully on dispatch and schedule.
+- [x] Generated content updates are deterministic (no unrelated churn).
+- [x] Sync commit message includes upstream SHA for traceability.
 
 ---
 
@@ -146,9 +169,9 @@ Promote private `main` to private `website-production` only after gates pass.
 `website-production` is always validated and deploy-ready.
 
 ### Acceptance criteria
-- [ ] Promotion occurs only when checks pass.
-- [ ] Promotion writes metadata for traceability.
-- [ ] Failed checks prevent deploy branch updates.
+- [x] Promotion occurs only when checks pass.
+- [x] Promotion writes metadata for traceability.
+- [x] Failed checks prevent deploy branch updates.
 
 ---
 
@@ -244,9 +267,9 @@ Run a two-stage extension distribution strategy: release artifact first, store p
 Extension delivery is reliable whether operating via GitHub artifact only or store publication.
 
 ### Acceptance criteria
-- [ ] Extension zip can be installed as unpacked/side-loaded artifact.
-- [ ] Store publish procedure is documented and validated.
-- [ ] Optional automation is gated and auditable.
+- [x] Extension zip can be installed as unpacked/side-loaded artifact.
+- [x] Store publish procedure is documented and validated.
+- [x] Optional automation is gated and auditable.
 
 ---
 
@@ -456,3 +479,7 @@ Both pipelines are production-ready with tested rollback procedures.
 | 1.0 | 2026-02-24 | Initial complete plan with all phases, checklists, and distribution channels. |
 | 1.1 | 2026-02-24 | Audit pass 1 fixes: added execution prerequisites, secrets matrix, go/no-go gates, ownership timeline, and expanded phase checklists with commands/evidence. |
 | 1.2 | 2026-02-24 | Audit pass 2 fixes: removed ambiguous numbered placeholders, clarified cross-repo file paths, and added concurrency/failure control safeguards. |
+| 1.3 | 2026-02-25 | Added deterministic generated-content strategy and upstream snapshot retention controls for private sync operations. |
+| 1.4 | 2026-02-25 | Added public workflow inventory for release + private sync dispatch + optional store publish lanes. |
+| 1.5 | 2026-02-25 | Fixed private command-path assumptions and aligned no-op sync behavior with normalized generated payload policy. |
+| 1.6 | 2026-02-25 | Execution update: recorded implemented assets, live private rollout evidence, and remaining external blockers. |

@@ -1,212 +1,118 @@
 # OpenDevBrowser Distribution Plan
 
-This plan prepares and ships a release to all distribution channels: npm, GitHub repository history, and GitHub Releases.
+Last updated: 2026-02-25
 
----
+This document is the active distribution plan for the split model:
+- public repo for runtime + release artifacts
+- private repo for website deployment
 
 ## Overview
 
 ### Distribution channels
-- npm package: `opendevbrowser`
-- GitHub code changes: branch + pull request into `main`
-- GitHub Release: version tag + release notes + extension zip asset
+- npm package: `opendevbrowser` (public repo release)
+- GitHub release artifacts: extension zip + checksum (public repo release)
+- Website deploy: private repo `website-production` branch
 
-### Key decisions
-- Source of truth for version is root `package.json`.
-- `extension/manifest.json` must be synced to the same version before publishing.
-- `main` is protected; release changes must be merged via pull request.
+### Public workflow inventory
+- `.github/workflows/release-public.yml`
+  - tag/manual release workflow
+  - validates version alignment
+  - runs quality gates
+  - publishes npm package and GitHub release assets
+- `.github/workflows/dispatch-private-sync.yml`
+  - dispatches `repository_dispatch` to private website repo on docs/skills/assets/changelog/tool index updates
+- `.github/workflows/chrome-store-publish.yml` (optional lane)
+  - manual Chrome Web Store upload/publish workflow
 
----
+### Private workflow inventory (in `opendevbrowser-website-deploy`)
+- `.github/workflows/sync-from-public.yml`
+- `.github/workflows/promote-website-production.yml`
 
-## Task 1 — Release Preflight
+## Release sequence (public)
 
-### Reasoning
-Publishing from inconsistent or unverified state causes broken artifacts and rollback overhead.
+1. Prepare release branch:
+- bump `package.json` version
+- sync extension version (`npm run extension:sync`)
+- update release notes/docs as needed
 
-### What to do
-Confirm repo state, auth, and branch strategy before changing version.
+2. Validate locally:
 
-### How
-1. Verify git status and active branch.
-2. Confirm remote push strategy (PR-required workflow for `main`).
-3. Confirm npm auth with `npm whoami`.
+```bash
+npm run version:check
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+npm run extension:build
+```
 
-### Files impacted
-- None.
+3. Merge to `main`.
 
-### End goal
-Release operator has a valid authenticated environment and known git path to merge release changes.
+4. Tag release:
 
-### Acceptance criteria
-- [ ] Git state is known and documented.
-- [ ] Push target branch is available remotely.
-- [ ] npm authentication is valid.
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
 
----
+5. `release-public.yml` publishes:
+- npm package (`npm publish --access public`)
+- GitHub release with:
+  - `opendevbrowser-extension.zip`
+  - `opendevbrowser-extension.zip.sha256`
 
-## Task 2 — Version Bump and Alignment
+6. `dispatch-private-sync.yml` triggers private website sync for mirrored public content.
 
-### Reasoning
-Release artifacts across package and extension must carry exactly the same version.
+## Website deployment sequence (private)
 
-### What to do
-Bump semver and sync extension manifest to that value.
+1. `sync-from-public.yml` mirrors:
+- `docs/`
+- `skills/`
+- `assets/`
+- `CHANGELOG.md`
+- `src/tools/index.ts`
 
-### How
-1. Run one of:
-   - Patch: `npm version patch --no-git-tag-version`
-   - Minor: `npm version minor --no-git-tag-version`
-   - Major: `npm version major --no-git-tag-version`
-2. Run `npm run extension:sync`.
-3. Run `npm run version:check`.
+2. Private workflow regenerates frontend content and validates:
 
-### Files impacted
-- `package.json`
-- `package-lock.json`
-- `extension/manifest.json`
+```bash
+npm run sync:assets --prefix frontend
+npm run generate:docs --prefix frontend
+npm run lint --prefix frontend
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+```
 
-### End goal
-All version-bearing files match the new semver.
+3. `promote-website-production.yml` revalidates and force-updates `website-production`.
 
-### Acceptance criteria
-- [ ] `package.json` contains new version.
-- [ ] `extension/manifest.json` matches `package.json` version.
-- [ ] `npm run version:check` exits successfully.
+4. Hosting provider deploys production from `website-production` only.
 
----
+## Required secrets and variables
 
-## Task 3 — Build, Test, and Package Artifacts
+### Public repo
+- `NPM_TOKEN`
+- `PRIVATE_REPO_DISPATCH_TOKEN`
+- `PRIVATE_WEBSITE_REPO` (repository variable)
 
-### Reasoning
-Publishing unvalidated outputs risks broken installs and extension payload failures.
+### Public repo (optional store lane)
+- `CWS_CLIENT_ID`
+- `CWS_CLIENT_SECRET`
+- `CWS_REFRESH_TOKEN`
+- `CWS_EXTENSION_ID`
 
-### What to do
-Run quality gates and build both npm and extension artifacts.
+### Private repo
+- `PUBLIC_REPO_URL` (repository variable)
 
-### How
-1. Run `npm run lint`.
-2. Run `npm run test`.
-3. Run `npm run build`.
-4. Run `npm run extension:build`.
-5. Run `npm run extension:pack` and keep generated zip for release assets.
+## Acceptance criteria
 
-### Files impacted
-- `dist/**` (generated)
-- `extension/dist/**` (generated)
-- `opendevbrowser-extension.zip` (generated)
+- [x] Public release workflow exists and validates version alignment.
+- [x] Public dispatch workflow exists and targets private sync pipeline.
+- [x] Private sync + promotion workflows are live.
+- [ ] Hosting production branch is enforced to `website-production`.
+- [ ] Public first tagged release completed through new workflow path.
 
-### End goal
-Validated, releasable package and extension artifacts exist locally.
+## Operational references
 
-### Acceptance criteria
-- [ ] Lint/test/build commands pass.
-- [ ] Extension build and pack commands pass.
-- [ ] Extension zip artifact exists.
-
----
-
-## Task 4 — GitHub Branch and Pull Request
-
-### Reasoning
-Protected `main` requires a reviewable, auditable merge path.
-
-### What to do
-Commit version changes, push branch, and open PR to `main`.
-
-### How
-1. Commit release-prep files with a conventional commit message.
-2. Push to remote release branch.
-3. Open PR targeting `main`.
-4. Merge after checks pass.
-
-### Files impacted
-- `package.json`
-- `package-lock.json`
-- `extension/manifest.json`
-- `docs/DISTRIBUTION_PLAN.md`
-
-### End goal
-Release version changes are merged into `main` through required repository policy.
-
-### Acceptance criteria
-- [ ] Release PR exists and targets `main`.
-- [ ] Required checks pass.
-- [ ] PR merged to `main`.
-
----
-
-## Task 5 — Publish to npm
-
-### Reasoning
-npm is the canonical install channel; publish must map exactly to merged git state.
-
-### What to do
-Publish the new package version from the merged commit.
-
-### How
-1. Checkout merged `main` commit.
-2. Verify package version one final time.
-3. Run `npm publish --access public`.
-4. Confirm published version on npm registry.
-
-### Files impacted
-- None (registry operation).
-
-### End goal
-New version is installable via npm.
-
-### Acceptance criteria
-- [ ] `npm publish` succeeds.
-- [ ] `npm view opendevbrowser version` returns released version.
-
----
-
-## Task 6 — Create GitHub Release
-
-### Reasoning
-GitHub Release provides changelog visibility and extension binary distribution.
-
-### What to do
-Create version tag, publish release notes, and attach extension zip artifact.
-
-### How
-1. Create tag `vX.Y.Z` on merged `main` commit.
-2. Push tag to origin.
-3. Create GitHub Release from that tag.
-4. Attach `opendevbrowser-extension.zip`.
-5. Include highlights and breaking-change notes (if any).
-
-### Files impacted
-- Git tag: `vX.Y.Z`
-- GitHub Release assets/notes
-
-### End goal
-GitHub users can discover release notes and download extension artifact from the release page.
-
-### Acceptance criteria
-- [ ] Tag exists on remote.
-- [ ] GitHub Release is published.
-- [ ] Extension zip is attached and downloadable.
-
----
-
-## File-by-file implementation sequence
-
-1. `package.json` — set new semver
-2. `package-lock.json` — lockfile version update from npm
-3. `extension/manifest.json` — sync extension version
-4. `docs/DISTRIBUTION_PLAN.md` — maintain release workflow
-
----
-
-## Dependencies to add
-
-No new dependencies are required for release workflow.
-
----
-
-## Version history
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0 | 2026-02-09 | Initial distribution plan for npm + GitHub + GitHub Releases |
+- `docs/RELEASE_RUNBOOK.md`
+- `docs/EXTENSION_RELEASE_RUNBOOK.md`
+- `docs/CUTOVER_CHECKLIST.md`
+- `docs/PUBLIC_PRIVATE_DISTRIBUTION_EXECUTION_PLAN.md`

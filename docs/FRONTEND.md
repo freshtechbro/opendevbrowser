@@ -1,7 +1,7 @@
 # OpenDevBrowser Frontend
 
 Status: active  
-Last updated: 2026-02-24
+Last updated: 2026-02-25
 
 ## Overview
 
@@ -10,6 +10,12 @@ The frontend (`frontend/`) is a Next.js 15 application that serves:
 - marketing pages for product, workflows, and operations messaging
 - a docs gateway plus generated reference pages by category
 - surfaced metrics and roadmap data derived from repository source-of-truth docs
+
+## Deployment ownership split
+
+- Public repo (`opendevbrowser`) currently keeps the `frontend/` source and generated docs content.
+- Private repo (`opendevbrowser-website-deploy`) is the deployment target and mirrors required public inputs through CI sync.
+- Production website hosting should deploy from private `website-production` branch only.
 
 ## Route map
 

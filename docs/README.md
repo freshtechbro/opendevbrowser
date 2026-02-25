@@ -16,6 +16,10 @@ Canonical documentation map for OpenDevBrowser runtime, extension, and frontend 
 - `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/LANDING_METRICS_SOURCE_OF_TRUTH.md` - landing metrics verification register
 - `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/OPEN_SOURCE_ROADMAP.md` - public roadmap register
 - `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/DEPENDENCIES.md` - dependency inventory and update policy
+- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/DISTRIBUTION_PLAN.md` - active public/private distribution strategy
+- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/RELEASE_RUNBOOK.md` - public npm + GitHub release operations
+- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/EXTENSION_RELEASE_RUNBOOK.md` - extension artifact/store publication operations
+- `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CUTOVER_CHECKLIST.md` - public/private cutover and rollback checklist
 
 ## Frontend and design docs
 

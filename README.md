@@ -10,7 +10,7 @@
 
 > **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
-OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions. The repository also includes a production frontend app (`frontend/`) for the public product site and generated docs experience.
+OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions. The repository currently includes a production frontend app (`frontend/`) while website deployment is being migrated to a private repo.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
@@ -29,6 +29,10 @@ OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it a
 
 All core automation flows are available through the CLI command surface and the plugin tool surface.
 Frontend docs routes are generated from repository source-of-truth docs and skill packs.
+
+Distribution split (current target state):
+- Public repo (`opendevbrowser`): runtime, CLI, extension, docs, npm, release artifacts.
+- Private repo (`opendevbrowser-website-deploy`): website deployment (`website-production` branch).
 
 ## Why OpenDevBrowser?
 
@@ -777,7 +781,7 @@ npm run version:check    # Verify package/extension version alignment
 npm run extension:pack   # Build extension zip for releases
 ```
 
-### Packaging & Distribution (NPM + GitHub + Extension)
+### Packaging & Distribution (Public + Private)
 
 Uniform versioning is required (source of truth: `package.json`):
 
@@ -787,9 +791,14 @@ Uniform versioning is required (source of truth: `package.json`):
 4. Run: `npm run build`
 5. Run: `npm run extension:build`
 6. Run: `npm run extension:pack` (outputs `./opendevbrowser-extension.zip`)
-7. Publish to NPM and attach the zip to the GitHub release tag (`vX.Y.Z`).
+7. Tag `vX.Y.Z` and let `.github/workflows/release-public.yml` publish npm + GitHub release artifacts.
+8. Dispatch website content sync to private repo through `.github/workflows/dispatch-private-sync.yml`.
 
-Release checklist: `docs/DISTRIBUTION_PLAN.md`
+Runbooks:
+- `docs/DISTRIBUTION_PLAN.md`
+- `docs/RELEASE_RUNBOOK.md`
+- `docs/EXTENSION_RELEASE_RUNBOOK.md`
+- `docs/CUTOVER_CHECKLIST.md`
 
 ---
 
