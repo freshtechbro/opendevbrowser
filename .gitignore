@@ -46,6 +46,7 @@ playwright/.cache/
 *.tgz
 opendevbrowser-extension.zip
 frontend/.next/
+frontend/.next-dev/
 frontend/.validation/
 
 # Continuity ledger (local-only)
