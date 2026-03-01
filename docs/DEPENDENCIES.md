@@ -1,7 +1,7 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-02-25
+Last updated: 2026-02-28
 
 This document tracks runtime and build dependencies across the repository.
 
@@ -11,13 +11,13 @@ This document tracks runtime and build dependencies across the repository.
 
 | Package | Version | Purpose |
 |---|---|---|
-| `@opencode-ai/plugin` | `^1.0.203` | OpenCode plugin runtime integration |
-| `@puppeteer/browsers` | `^2.2.0` | Chrome for Testing resolution/download |
+| `@opencode-ai/plugin` | `^1.2.11` | OpenCode plugin runtime integration |
+| `@puppeteer/browsers` | `^2.13.0` | Chrome for Testing resolution/download |
 | `async-mutex` | `^0.5.0` | Session/relay concurrency controls |
 | `jsonc-parser` | `^3.2.0` | JSONC config parsing |
-| `playwright-core` | `^1.49.1` | Browser control + CDP sessions |
-| `ws` | `^8.17.1` | Relay and daemon websocket transport |
-| `zod` | `^3.23.8` | Runtime input/config validation |
+| `playwright-core` | `^1.58.2` | Browser control + CDP sessions |
+| `ws` | `^8.19.0` | Relay and daemon websocket transport |
+| `zod` | `^3.25.76` | Runtime input/config validation |
 
 ### Dev dependencies
 
@@ -25,10 +25,12 @@ This document tracks runtime and build dependencies across the repository.
 |---|---|---|
 | `typescript` | `^5.9.3` | TypeScript compiler |
 | `tsup` | `^8.5.1` | ESM bundling |
-| `eslint` + `@typescript-eslint/*` | `^9.12.0`, `^8.9.0` | Linting |
-| `vitest` + `@vitest/coverage-v8` | `^4.0.16` | Test runner + coverage |
-| `happy-dom` | `^20.0.11` | DOM test environment |
-| `@types/*` | see `package.json` | Type definitions |
+| `eslint` + `@typescript-eslint/*` | `^9.39.3`, `^8.56.1` | Linting |
+| `vitest` + `@vitest/coverage-v8` | `^4.0.18` | Test runner + coverage |
+| `happy-dom` | `^20.7.0` | DOM test environment |
+| `@types/node` | `^20.19.35` | Node.js type definitions |
+| `@types/chrome` | `^0.1.37` | Chrome extension API types |
+| `@types/ws` | `^8.18.1` | WebSocket type definitions |
 
 ## Private website package (separate repository)
 
@@ -51,7 +53,7 @@ Version synchronization is handled by `npm run extension:sync`.
    - public repo: `npm install`
    - private website repo: `npm install --prefix frontend`
 3. Run validation gates:
-   - Root: `npm run lint`, `npx tsc --noEmit`, `npm run build`, `npm run extension:build`, `npm run test`
+   - Root: `npm run lint`, `npm run typecheck`, `npm run build`, `npm run extension:build`, `npm run test`
    - Private website repo: `npm run lint --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend`
 4. Update this document when dependency purpose or versions change.
 

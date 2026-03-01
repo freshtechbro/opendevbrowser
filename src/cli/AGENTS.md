@@ -122,5 +122,12 @@ src/cli/
 
 - Run `node scripts/cli-smoke-test.mjs` for managed CLI surface validation.
 - Run `npm run test -- tests/parity-matrix.test.ts tests/providers-performance-gate.test.ts` before release.
-- Follow `docs/RELEASE_PARITY_CHECKLIST.md` for final sign-off.
+- Run release audits before tagging:
+  - `node scripts/audit-zombie-files.mjs`
+  - `node scripts/docs-drift-check.mjs`
+  - `node scripts/chrome-store-compliance-check.mjs`
+- Run strict live release gates:
+  - `node scripts/provider-live-matrix.mjs --release-gate`
+  - `node scripts/live-regression-matrix.mjs --release-gate`
+- Follow `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.16_EVIDENCE.md` for final sign-off.
 - Keep command/flag/channel inventories synchronized with `docs/CLI.md` and `docs/SURFACE_REFERENCE.md`.

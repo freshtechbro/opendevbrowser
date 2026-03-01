@@ -13,7 +13,7 @@ Branch model:
 ## Bootstrap Steps
 
 1. Create private repo `opendevbrowser-website-deploy`.
-2. Copy `frontend/` from the public repo into this private repo.
+2. Seed `frontend/` from your preserved private baseline/snapshot (the public repo no longer contains `frontend/`).
 3. Copy this template content into the private repo root:
 - `.github/workflows/sync-from-public.yml`
 - `.github/workflows/promote-website-production.yml`

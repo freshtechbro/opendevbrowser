@@ -29,6 +29,7 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
   - `publish_npm`
   - `publish_github_release`
   - `draft_release`
+  - `run_release_live_gates`
 
 ## Preflight checklist
 
@@ -36,11 +37,16 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
 - [ ] `extension/manifest.json` is synced (`npm run extension:sync`).
 - [ ] Local quality gates pass:
   - `npm run version:check`
+  - `npm run test:release-gate` (grouped release-gate units; rerun only failed group with `npm run test:release-gate:g<N>`)
+  - `node scripts/audit-zombie-files.mjs`
+  - `node scripts/docs-drift-check.mjs`
+  - `node scripts/chrome-store-compliance-check.mjs`
   - `npm run lint`
   - `npm run typecheck`
   - `npm run test`
   - `npm run build`
   - `npm run extension:build`
+- [ ] First-time global install dry run passes (`docs/FIRST_RUN_ONBOARDING.md`) with daemon + extension + mode validation evidence captured.
 - [ ] Release branch is merged to `main`.
 
 ## Release execution
@@ -61,6 +67,7 @@ git push origin vX.Y.Z
 - validates `release_tag` format (`vX.Y.Z`)
 - validates `package.json` version matches the tag
 - runs release quality gates
+- optionally runs strict live gates when `run_release_live_gates=true`
 - builds and packs extension zip
 - computes checksum (`opendevbrowser-extension.zip.sha256`)
 - publishes npm package

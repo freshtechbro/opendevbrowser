@@ -182,7 +182,7 @@ OpenDevBrowser uses the same automation model across plugin tools and CLI comman
 Shipping checklist for first-time users (local-package install, daemon, extension, first task, multi-tab auth/cookies):
 - [`docs/FIRST_RUN_ONBOARDING.md`](docs/FIRST_RUN_ONBOARDING.md)
 
-Parallel execution is target-scoped (`ExecutionKey = (sessionId,targetId)`): same target is FIFO, different targets can run concurrently up to the governor cap. `session-per-worker` remains the safest baseline for strict isolation. See [`docs/CLI.md`](docs/CLI.md) (Concurrency semantics), [`docs/MULTITAB_PARALLEL_OPERATIONS_SPEC.md`](docs/MULTITAB_PARALLEL_OPERATIONS_SPEC.md), and [`skills/opendevbrowser-best-practices/artifacts/provider-workflows.md`](skills/opendevbrowser-best-practices/artifacts/provider-workflows.md) (Workflow E).
+Parallel execution is target-scoped (`ExecutionKey = (sessionId,targetId)`): same target is FIFO, different targets can run concurrently up to the governor cap. `session-per-worker` remains the safest baseline for strict isolation. See [`docs/CLI.md`](docs/CLI.md) (Concurrency semantics) and [`skills/opendevbrowser-best-practices/artifacts/provider-workflows.md`](skills/opendevbrowser-best-practices/artifacts/provider-workflows.md) (Workflow E).
 
 ### Core Workflow (Plugin Tools)
 
@@ -237,9 +237,11 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ### v0.0.16 (Latest)
 
-- **Dependency refresh for distribution readiness** with updates to runtime and development packages.
-- **Release hardening for root configs** with stricter TypeScript emit safety and deterministic test timeouts.
-- **Documentation alignment** for the new package version and local pre-release install flow.
+- **Release-gate hardening** with dedicated audit/compliance scripts (`audit-zombie-files`, `docs-drift-check`, `chrome-store-compliance-check`) and grouped release-gate tests.
+- **Live matrix robustness upgrades** across `live-regression-matrix` and `provider-live-matrix` (strict `--release-gate`, extension/CDP recovery paths, deterministic strict-mode semantics).
+- **CLI/runtime reliability fixes** including launch RPC timeout derivation from wait hints, bounded macro execute timeouts, and stale extension `/cdp` attach retry handling.
+- **Version/distribution integrity checks** now enforce parity across `package.json`, `extension/manifest.json`, and `extension/package.json`.
+- **Dependency and docs refresh** for v0.0.16 release readiness, onboarding parity, and public/private distribution operations.
 
 ### v0.0.15
 
@@ -790,9 +792,17 @@ Uniform versioning is required (source of truth: `package.json`):
 3. Run: `npm run version:check`
 4. Run: `npm run build`
 5. Run: `npm run extension:build`
-6. Run: `npm run extension:pack` (outputs `./opendevbrowser-extension.zip`)
-7. Tag `vX.Y.Z` and let `.github/workflows/release-public.yml` publish npm + GitHub release artifacts.
-8. Dispatch website content sync to private repo through `.github/workflows/dispatch-private-sync.yml`.
+6. Run release audits:
+   - `node scripts/audit-zombie-files.mjs`
+   - `node scripts/docs-drift-check.mjs`
+   - `node scripts/chrome-store-compliance-check.mjs`
+7. Run strict live release gates:
+   - `node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/v0.0.16/provider-live-matrix.json`
+   - `node scripts/live-regression-matrix.mjs --release-gate`
+8. Run first-time global install dry run checklist from `docs/FIRST_RUN_ONBOARDING.md`.
+9. Run: `npm run extension:pack` (outputs `./opendevbrowser-extension.zip`)
+10. Tag `vX.Y.Z` and let `.github/workflows/release-public.yml` publish npm + GitHub release artifacts.
+11. Dispatch website content sync to private repo through `.github/workflows/dispatch-private-sync.yml`.
 
 Runbooks:
 - `docs/DISTRIBUTION_PLAN.md`

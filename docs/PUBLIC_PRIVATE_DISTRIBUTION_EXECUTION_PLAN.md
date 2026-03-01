@@ -225,7 +225,7 @@ Define and automate release process in public repo for npm package, extension zi
 1. On release prep branch, bump `package.json` version and sync extension manifest version.
 2. Run release branch quality gates:
 3. `npm run lint`
-4. `npx tsc --noEmit`
+4. `npm run typecheck`
 5. `npm run build`
 6. `npm run extension:build`
 7. `npm run test`
@@ -416,7 +416,7 @@ Both pipelines are production-ready with tested rollback procedures.
 - [x] Enforce release quality gates.
 - [ ] Publish npm package from tag.
 - [ ] Publish GitHub release with extension artifact.
-- [ ] Commands: `npm run lint && npx tsc --noEmit && npm run build && npm run extension:build && npm run test`.
+- [ ] Commands: `npm run lint && npm run typecheck && npm run build && npm run extension:build && npm run test`.
 - [ ] Commands: `npm publish --access public` on signed release tag context.
 - [ ] Exit gate: npm version, git tag, and GitHub release artifact versions all match.
 - [ ] Evidence: `npm view opendevbrowser version`, release URL, attached artifact checksums.

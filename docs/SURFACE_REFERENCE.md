@@ -304,7 +304,7 @@ For complete argument and flag coverage by command, see `docs/CLI.md`.
 
 ```bash
 npm run lint
-npx tsc --noEmit
+npm run typecheck
 npm run build
 npm run test
 npm run test -- tests/parity-matrix.test.ts

@@ -8,10 +8,11 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 ## What this validates
 
 1. Install command from a local package artifact.
-2. Daemon start/stop command.
-3. Extension load path + connection checks.
-4. First task execution command chain.
-5. Multi-tab + cookie-injection auth mechanism checks.
+2. First-time global install path (`--global --full --no-prompt`).
+3. Daemon start/stop command.
+4. Extension load path + connection checks.
+5. First task execution command chain.
+6. Multi-tab + cookie-injection auth mechanism checks.
 
 ## 0) Preconditions
 
@@ -24,7 +25,7 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 ```bash
 cd <public-repo-root>
 npm pack
-# -> opendevbrowser-0.0.15.tgz
+# -> opendevbrowser-0.0.16.tgz
 ```
 
 ## 2) Simulate a brand-new user workspace
@@ -33,7 +34,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.15.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.16.tgz
 npx --no-install opendevbrowser version --output-format json
 ```
 
@@ -66,6 +67,20 @@ Minimal isolated config:
 
 Write it to:
 - `$OPENCODE_CONFIG_DIR/opendevbrowser.jsonc`
+
+## 3b) First-time global install simulation
+
+Run the installer path exactly as first-time users do (global + full + no prompt):
+
+```bash
+cd "$WORKDIR"
+npx --no-install opendevbrowser --global --full --no-prompt
+```
+
+Expected:
+- global OpenCode config is created/updated under `$OPENCODE_CONFIG_DIR`
+- bundled skills sync runs without errors
+- extension assets are available at `~/.config/opencode/opendevbrowser/extension` (or isolated equivalent when `OPENCODE_CONFIG_DIR` is set)
 
 ## 4) Start daemon
 

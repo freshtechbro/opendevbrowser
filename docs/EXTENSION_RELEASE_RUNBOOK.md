@@ -34,7 +34,9 @@ Configure in public GitHub repo secrets:
 
 - [ ] `package.json` version equals intended release version.
 - [ ] `extension/manifest.json` version is synced.
+- [ ] `extension/package.json` version is synced.
 - [ ] `npm run extension:build` passes.
+- [ ] `node scripts/chrome-store-compliance-check.mjs` passes.
 - [ ] `npm run extension:pack` creates `opendevbrowser-extension.zip`.
 - [ ] `npm run version:check` passes.
 

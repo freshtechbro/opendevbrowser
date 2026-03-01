@@ -51,6 +51,7 @@ frontend/.validation/
 
 # Continuity ledger (local-only)
 CONTINUITY*.md
+sub_continuity.md
 
 # Auto Claude data directory
 .auto-claude/
@@ -63,5 +64,3 @@ progress.txt
 # Local docs scratch
 docs/RELAY_CDP_TOKEN_PLAN.md
 docs/UI_references/
-CONTINUITY.md
-sub_continuity.md

@@ -44,7 +44,7 @@ Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changi
 1. Extension checks `http://127.0.0.1:8787/config`
 2. Fetches token from `/pair` if auto-pair enabled
 3. Connects to `ws://127.0.0.1:<port>/extension`
-4. Badge shows ON/OFF status
+4. Badge shows dot status (`green` connected, `red` disconnected)
 5. Ops relay (when requested by CLI/tools) connects to `ws://127.0.0.1:<port>/ops`
 6. Annotation relay (when requested) connects to `ws://127.0.0.1:<port>/annotation`
 
@@ -71,6 +71,7 @@ Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changi
 npm run extension:build    # tsc -p extension/tsconfig.json
 npm run extension:sync     # Sync version from package.json
 npm run extension:pack     # Create .zip for release
+node scripts/chrome-store-compliance-check.mjs  # Verify store/compliance invariants
 ```
 
 ## Testing

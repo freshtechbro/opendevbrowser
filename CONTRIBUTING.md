@@ -55,6 +55,9 @@ npm run dev
 # Run linting
 npm run lint
 
+# Run type checks
+npm run typecheck
+
 # Run tests with coverage
 npm run test
 
@@ -128,6 +131,27 @@ npm run test -- --watch
 
 See [tests/AGENTS.md](tests/AGENTS.md) for detailed testing conventions.
 
+### Release-Gate Validation (for release-affecting changes)
+
+Run these checks when touching release workflows, docs surface inventories, extension store assets, or live matrix scripts:
+
+```bash
+npm run test:release-gate
+node scripts/audit-zombie-files.mjs
+node scripts/docs-drift-check.mjs
+node scripts/chrome-store-compliance-check.mjs
+```
+
+If a grouped release-gate test fails, rerun only the failed group:
+
+```bash
+npm run test:release-gate:g1
+npm run test:release-gate:g2
+npm run test:release-gate:g3
+npm run test:release-gate:g4
+npm run test:release-gate:g5
+```
+
 ## Commit Guidelines
 
 We follow [Conventional Commits](https://www.conventionalcommits.org/):
@@ -173,7 +197,9 @@ fix: resolve race condition in target manager
 
 1. **Pre-commit Checklist**:
    ```bash
+   npm run version:check  # package + extension versions must match
    npm run lint      # Must pass with no errors
+   npm run typecheck # Must pass strict TypeScript checks
    npm run build     # Must compile successfully
    npm run test      # All tests must pass (97% coverage)
    ```
@@ -241,6 +267,7 @@ When making changes, update relevant documentation:
 - **docs/CLI.md**: CLI commands and options
 - **docs/ARCHITECTURE.md**: System design changes
 - **docs/TROUBLESHOOTING.md**: Common issues and solutions
+- **docs/RELEASE_RUNBOOK.md** and **docs/RELEASE_0.0.16_EVIDENCE.md**: Release-gate or release process changes
 - **AGENTS.md**: Development conventions (nearest to changed code)
 
 ### Documentation Standards

@@ -46,6 +46,7 @@ Covers `src/**/*.ts` with explicit exclusions from `vitest.config.ts` (including
 ## Documentation Sync
 
 Update `docs/CLI.md` when CLI output or exit codes change.
+Update release docs/runbooks when release-gate script behavior changes (`docs/RELEASE_RUNBOOK.md`, `docs/EXTENSION_RELEASE_RUNBOOK.md`, `docs/RELEASE_0.0.16_EVIDENCE.md`).
 
 ## CLI Smoke Tests
 
@@ -54,3 +55,13 @@ Use `node scripts/cli-smoke-test.mjs` for managed-mode coverage; document extens
 ## Performance Gate
 
 Run `npm run test -- tests/providers-performance-gate.test.ts` to enforce deterministic provider SLO baselines from `docs/benchmarks/provider-fixtures.md`.
+
+## Release Audit Tests
+
+Keep release audit test coverage green for:
+- `tests/audit-zombie-files.test.ts`
+- `tests/docs-drift-check.test.ts`
+- `tests/chrome-store-compliance-check.test.ts`
+- `tests/provider-live-scenarios.test.ts`
+- `tests/provider-live-matrix-script.test.ts`
+- `tests/live-regression-release-gate.test.ts`
