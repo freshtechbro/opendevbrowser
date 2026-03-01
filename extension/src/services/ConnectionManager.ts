@@ -607,7 +607,7 @@ export class ConnectionManager {
     }
   };
 
-  private handleTabUpdated = (_tabId: number, _changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
+  private handleTabUpdated = (_tabId: number, _changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => {
     if (!this.trackedTab || tab.id !== this.trackedTab.id) {
       return;
     }

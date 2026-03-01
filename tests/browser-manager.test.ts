@@ -850,6 +850,30 @@ describe("BrowserManager", () => {
       .rejects.toThrow("Unexpected server response: 500");
   });
 
+  it("retries stale extension tab attach failures before failing relay connect", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+    connectOverCDP.mockReset();
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP
+      .mockRejectedValueOnce(new Error("Protocol error (Target.setAutoAttach): Chrome 125+ required for extension relay (flat sessions). (No tab with given id 123.)"))
+      .mockResolvedValueOnce(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    expect(result.mode).toBe("extension");
+    expect(connectOverCDP).toHaveBeenCalledTimes(2);
+  });
+
   it("wraps non-Error connectOverCDP failures", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

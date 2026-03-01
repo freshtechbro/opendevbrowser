@@ -66,8 +66,9 @@ import { writeOutput } from "./output";
 import type { InstallMode } from "./args";
 import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_USAGE } from "./errors";
 import type { CliError } from "./errors";
+import packageJson from "../../package.json";
 
-const VERSION = "0.1.0";
+const VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.0.0";
 
 async function promptInstallMode(): Promise<InstallMode> {
   if (!process.stdin.isTTY) {

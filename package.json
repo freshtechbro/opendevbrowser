@@ -42,6 +42,12 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --coverage",
+    "test:release-gate": "node scripts/release-gate-test-groups.mjs",
+    "test:release-gate:g1": "node scripts/release-gate-test-groups.mjs --group 1",
+    "test:release-gate:g2": "node scripts/release-gate-test-groups.mjs --group 2",
+    "test:release-gate:g3": "node scripts/release-gate-test-groups.mjs --group 3",
+    "test:release-gate:g4": "node scripts/release-gate-test-groups.mjs --group 4",
+    "test:release-gate:g5": "node scripts/release-gate-test-groups.mjs --group 5",
     "extension:sync": "node scripts/sync-extension-version.mjs",
     "extension:build": "npm run extension:sync && tsc -p extension/tsconfig.json && node scripts/copy-extension-assets.mjs",
     "extension:pack": "cd extension && zip -r ../opendevbrowser-extension.zip manifest.json popup.html dist/ icons/",
@@ -56,11 +62,11 @@
     "jsonc-parser": "^3.2.0",
     "playwright-core": "^1.58.2",
     "ws": "^8.19.0",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.37",
-    "@types/node": "^20.19.33",
+    "@types/node": "^20.19.35",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",

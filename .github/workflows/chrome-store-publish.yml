@@ -76,6 +76,7 @@ jobs:
       - name: Build extension artifact
         run: |
           npm run extension:build
+          node scripts/chrome-store-compliance-check.mjs
           npm run extension:pack
 
       - name: Upload package to Chrome Web Store

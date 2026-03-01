@@ -30,7 +30,7 @@ export type RouterCommandContext = {
   attach: (tabId: number) => Promise<void>;
   registerRootTab: (tabId: number) => Promise<TargetInfo>;
   applyAutoAttach: (debuggee: chrome.debugger.Debuggee) => Promise<void>;
-  sendCommand: (debuggee: DebuggerSession, method: string, params: object) => Promise<unknown>;
+  sendCommand: (debuggee: DebuggerSession, method: string, params: Record<string, unknown>) => Promise<unknown>;
   getPrimaryDebuggee: () => DebuggerSession | null;
 };
 

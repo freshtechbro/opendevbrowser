@@ -17,6 +17,9 @@ type LaunchArgs = {
   extensionLegacy?: boolean;
 };
 
+const MIN_LAUNCH_CALL_TIMEOUT_MS = 30_000;
+const LAUNCH_CALL_TIMEOUT_BUFFER_MS = 5_000;
+
 const parseBooleanFlag = (value: string, flag: string): boolean => {
   const normalized = value.trim().toLowerCase();
   if (normalized === "true" || normalized === "1") return true;
@@ -127,12 +130,20 @@ function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
   return parsed;
 }
 
-export const __test__ = { parseLaunchArgs };
+function deriveLaunchCallTimeoutMs(launchArgs: LaunchArgs): number {
+  const waitHintMs = typeof launchArgs.waitTimeoutMs === "number"
+    ? launchArgs.waitTimeoutMs + LAUNCH_CALL_TIMEOUT_BUFFER_MS
+    : 0;
+  return Math.max(MIN_LAUNCH_CALL_TIMEOUT_MS, waitHintMs);
+}
+
+export const __test__ = { parseLaunchArgs, deriveLaunchCallTimeoutMs };
 
 export async function runSessionLaunch(args: ParsedArgs) {
   const launchArgs = parseLaunchArgs(args.rawArgs);
+  const launchCallTimeoutMs = deriveLaunchCallTimeoutMs(launchArgs);
   try {
-    const result = await callDaemon("session.launch", launchArgs) as { sessionId: string };
+    const result = await callDaemon("session.launch", launchArgs, { timeoutMs: launchCallTimeoutMs }) as { sessionId: string };
     return {
       success: true,
       message: `Session launched: ${result.sessionId}`,
@@ -159,7 +170,8 @@ export async function runSessionLaunch(args: ParsedArgs) {
     );
     if (retry) {
       try {
-        const result = await callDaemon("session.launch", { ...launchArgs, waitForExtension: true }) as { sessionId: string };
+        const retryArgs = { ...launchArgs, waitForExtension: true };
+        const result = await callDaemon("session.launch", retryArgs, { timeoutMs: deriveLaunchCallTimeoutMs(retryArgs) }) as { sessionId: string };
         return {
           success: true,
           message: `Session launched: ${result.sessionId}`,
@@ -173,11 +185,12 @@ export async function runSessionLaunch(args: ParsedArgs) {
     const proceedManaged = await promptYesNo("Proceed with a managed session (headed)?", false);
     if (proceedManaged) {
       const useHeadless = await promptYesNo("Run headless instead?", false);
-      const result = await callDaemon("session.launch", {
+      const managedArgs = {
         ...launchArgs,
         noExtension: true,
         headless: useHeadless ? true : false
-      }) as { sessionId: string };
+      };
+      const result = await callDaemon("session.launch", managedArgs, { timeoutMs: deriveLaunchCallTimeoutMs(managedArgs) }) as { sessionId: string };
       return {
         success: true,
         message: `Session launched: ${result.sessionId}`,

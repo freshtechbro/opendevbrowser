@@ -537,7 +537,8 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           expression: requireString(params.expression, "expression"),
           defaultProvider: optionalString(params.defaultProvider),
           includeCatalog: optionalBoolean(params.includeCatalog) ?? false,
-          execute: optionalBoolean(params.execute) ?? false
+          execute: optionalBoolean(params.execute) ?? false,
+          timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs")
         },
         core.config,
         core.manager
@@ -1349,12 +1350,23 @@ type MacroResolveOptions = {
   defaultProvider?: string;
   includeCatalog: boolean;
   execute: boolean;
+  timeoutMs?: number;
 };
 
 const MIN_WAIT_TIMEOUT_MS = 3000;
 const WAIT_MIN_DELAY_MS = 250;
 const WAIT_MAX_DELAY_MS = 2000;
 const RELAY_STATUS_TIMEOUT_MS = 1500;
+const MACRO_TIMEOUT_MIN_MS = 1_000;
+const MACRO_TIMEOUT_MAX_MS = 300_000;
+
+function clampMacroRuntimeTimeout(timeoutMs: number | undefined): number | null {
+  if (!Number.isFinite(timeoutMs ?? NaN)) {
+    return null;
+  }
+  const parsed = Math.floor(timeoutMs as number);
+  return Math.max(MACRO_TIMEOUT_MIN_MS, Math.min(MACRO_TIMEOUT_MAX_MS, parsed));
+}
 
 function clampWaitTimeout(timeoutMs: number): number {
   if (!Number.isFinite(timeoutMs)) {
@@ -1538,12 +1550,27 @@ async function resolveMacroExpression(
     };
   }
 
+  const macroTimeoutMs = clampMacroRuntimeTimeout(options.timeoutMs);
   const execution = shapeExecutionPayload(
     await executeMacroResolution(
       resolution,
       createConfiguredProviderRuntime({
         config,
-        manager
+        manager,
+        ...(macroTimeoutMs !== null
+          ? {
+            init: {
+              budgets: {
+                timeoutMs: {
+                  search: macroTimeoutMs,
+                  fetch: macroTimeoutMs,
+                  crawl: macroTimeoutMs,
+                  post: macroTimeoutMs
+                }
+              }
+            }
+          }
+          : {})
       })
     )
   );
