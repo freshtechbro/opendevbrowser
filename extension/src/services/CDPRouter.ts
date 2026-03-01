@@ -580,7 +580,7 @@ export class CDPRouter {
     return sessionId;
   }
 
-  async sendCommand(debuggee: DebuggerSession, method: string, params: object): Promise<unknown> {
+  async sendCommand(debuggee: DebuggerSession, method: string, params: Record<string, unknown>): Promise<unknown> {
     try {
       return await this.sendCommandOnce(debuggee, method, params);
     } catch (error) {
@@ -597,7 +597,7 @@ export class CDPRouter {
     }
   }
 
-  private async sendCommandOnce(debuggee: DebuggerSession, method: string, params: object): Promise<unknown> {
+  private async sendCommandOnce(debuggee: DebuggerSession, method: string, params: Record<string, unknown>): Promise<unknown> {
     return await new Promise((resolve, reject) => {
       chrome.debugger.sendCommand(debuggee as chrome.debugger.Debuggee, method, params, (result) => {
         const lastError = chrome.runtime.lastError;

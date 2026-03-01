@@ -2,7 +2,7 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-02-24
+Last updated: 2026-03-01
 
 OpenDevBrowser exposes 48 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); use continuity guidance only for long-running handoff/compaction.
@@ -45,7 +45,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.15.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.16.tgz
 npx --no-install opendevbrowser --help
 ```
 
@@ -1248,8 +1248,15 @@ npm run build
 node scripts/live-regression-matrix.mjs
 ```
 
+Strict release gate mode:
+
+```bash
+node scripts/live-regression-matrix.mjs --release-gate
+```
+
 Behavior:
 - Exits non-zero only for product regressions.
+- In `--release-gate` mode, exits non-zero on any `env_limited`, `expected_timeout`, or `fail` outcome.
 - Emits explicit extension readiness preflight diagnostics (`infra.extension.ready`) before extension-mode cases.
 - Classifies upstream reachability failures (for example social/community dependencies) as `env_limited`.
 - Classifies unattended annotation timeouts as `expected_timeout`.
@@ -1263,6 +1270,13 @@ Run the provider-depth live harness promoted from the `/tmp` validation script:
 ```bash
 npm run build
 node scripts/provider-live-matrix.mjs --out /tmp/odb-provider-live-matrix.json
+```
+
+Strict release gate mode (forces auth-gated + high-friction + social-post scenarios and rejects non-pass statuses):
+
+```bash
+npm run build
+node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/v0.0.16/provider-live-matrix.json
 ```
 
 CI-safe smoke mode (reduced cases, deterministic gating checks, no long workflow probes by default):
@@ -1285,6 +1299,10 @@ Key options:
 - `--include-auth-gated` enables auth-dependent provider scenarios (deferred by default).
 - `--include-high-friction` enables high-friction providers (deferred by default).
 - `--include-social-posts` enables social post scenarios (deferred by default).
+- `--release-gate` enforces strict release semantics:
+  - enables auth-gated + high-friction + social-post scenarios,
+  - fails on any non-`pass` status,
+  - emits provider coverage summary (`infra.provider_scenario_coverage`) and fails when scenario coverage does not include all registered providers.
 
 Run parity and skill-asset gates as part of release checks:
 
@@ -1294,21 +1312,21 @@ npm run test -- tests/providers-performance-gate.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ```
 
-Release gate source of truth: `docs/RELEASE_PARITY_CHECKLIST.md`.
+Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.16_EVIDENCE.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
-### Latest validation (2026-02-15)
+### Latest validation (2026-03-01)
 
+- `npm run version:check` ✅
 - `npm run lint` ✅
-- `npx tsc --noEmit` ✅
+- `npm run typecheck` ✅
 - `npm run build` ✅
 - `npm run test` ✅
-- `node scripts/live-regression-matrix.mjs` ✅ (`pass: 21`, `env_limited: 1`, `expected_timeout: 2`, `fail: 0`)
-- Current `env_limited` outcomes are setup/environment-related:
-  - `mode.extension_legacy_cdp` (relay `/cdp` tab/session drift: `No tab with given id`)
-- Current `expected_timeout` outcomes are interaction-related:
-  - `feature.annotate.relay`
-  - `feature.annotate.direct`
+- `npm run test:release-gate` ✅ (groups 1-5)
+- `node scripts/audit-zombie-files.mjs` ✅
+- `node scripts/docs-drift-check.mjs` ✅
+- `node scripts/chrome-store-compliance-check.mjs` ✅
+- Strict live regression gate (`node scripts/live-regression-matrix.mjs --release-gate`) ✅
 - Operator rollout, rollback triggers, and triage checklist are documented in `docs/TROUBLESHOOTING.md`.
 
 ---

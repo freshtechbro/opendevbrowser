@@ -82,6 +82,7 @@ Readiness checks:
 ```bash
 npx opendevbrowser status --daemon --output-format json
 npx opendevbrowser --help
+node scripts/chrome-store-compliance-check.mjs
 ```
 
 Expected extension-ready daemon fields:

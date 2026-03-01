@@ -30,6 +30,16 @@ When extension behavior changes:
 - `docs/EXTENSION.md`
 - `docs/TROUBLESHOOTING.md`
 - `docs/privacy.md` (if permissions/data-handling claims change)
+- `docs/EXTENSION_RELEASE_RUNBOOK.md`
+
+When release-gate automation changes:
+- `docs/RELEASE_RUNBOOK.md`
+- `docs/DISTRIBUTION_PLAN.md`
+- `docs/RELEASE_0.0.16_EVIDENCE.md`
+- automation scripts:
+  - `scripts/audit-zombie-files.mjs`
+  - `scripts/docs-drift-check.mjs`
+  - `scripts/chrome-store-compliance-check.mjs`
 
 When mirrored website inputs change (`docs/`, `skills/`, `assets/`, `CHANGELOG.md`, `src/tools/index.ts`):
 - dispatch private sync via `.github/workflows/dispatch-private-sync.yml`

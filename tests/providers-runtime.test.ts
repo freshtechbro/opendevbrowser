@@ -261,7 +261,7 @@ describe("provider runtime branches", () => {
     const runtime = new ProviderRuntime({
       budgets: {
         retries: { read: 0, write: 0 },
-        circuitBreaker: { failureThreshold: 1, cooldownMs: 25 }
+        circuitBreaker: { failureThreshold: 1, cooldownMs: 150 }
       }
     });
 
@@ -281,7 +281,7 @@ describe("provider runtime branches", () => {
     expect(second.failures[0]?.error.code).toBe("circuit_open");
     expect(calls).toBe(1);
 
-    await wait(30);
+    await wait(170);
     await runtime.search({ query: "circuit" }, { source: "all" });
     expect(calls).toBe(2);
   });

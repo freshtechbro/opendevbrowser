@@ -31,7 +31,7 @@ export class TabManager {
         reject(new Error("Tab load timeout"));
       }, timeoutMs);
 
-      const listener = (updatedId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+      const listener = (updatedId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
         if (updatedId !== tabId) {
           return;
         }

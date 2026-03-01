@@ -170,7 +170,7 @@ export class OpsRuntime {
     this.handleClosedTarget(tabId, "ops_tab_closed");
   };
 
-  private handleTabUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab): void => {
+  private handleTabUpdated = (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab): void => {
     const session = this.sessions.getByTabId(tabId);
     if (!session) return;
     if (changeInfo.discarded === true || tab.discarded === true) {
@@ -714,7 +714,7 @@ export class OpsRuntime {
 
     const start = Date.now();
     const entriesData = await buildSnapshot(
-      (method, params) => this.cdp.sendCommand({ tabId: target.tabId }, method, params),
+      (method, params) => this.cdp.sendCommand({ tabId: target.tabId }, method, params as Record<string, unknown>),
       mode as SnapshotMode,
       true,
       maxNodes

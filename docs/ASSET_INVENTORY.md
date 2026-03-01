@@ -1,7 +1,7 @@
 # OpenDevBrowser Asset Inventory
 
 Status: active  
-Last updated: 2026-02-25
+Last updated: 2026-02-28
 
 This inventory reflects the current `assets/` tree used by README, extension packaging, and private website branding flows.
 
@@ -67,4 +67,6 @@ shasum assets/extension-icons/icon16.png assets/extension-icons/icon32.png \
   assets/extension-icons/icon48.png assets/extension-icons/icon128.png \
   extension/icons/icon16.png extension/icons/icon32.png \
   extension/icons/icon48.png extension/icons/icon128.png
+
+node scripts/chrome-store-compliance-check.mjs
 ```

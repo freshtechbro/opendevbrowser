@@ -30,6 +30,11 @@ on:
         required: true
         default: true
         type: boolean
+      run_release_live_gates:
+        description: "Run strict live provider/regression release gates"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -55,12 +60,14 @@ jobs:
             publish_npm="true"
             publish_release="true"
             draft_release="false"
+            run_live_gates="false"
           else
             release_ref="${{ inputs.release_ref }}"
             release_tag="${{ inputs.release_tag }}"
             publish_npm="${{ inputs.publish_npm }}"
             publish_release="${{ inputs.publish_github_release }}"
             draft_release="${{ inputs.draft_release }}"
+            run_live_gates="${{ inputs.run_release_live_gates }}"
           fi
 
           if [[ ! "${release_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -77,6 +84,7 @@ jobs:
             echo "publish_npm=${publish_npm}"
             echo "publish_release=${publish_release}"
             echo "draft_release=${draft_release}"
+            echo "run_live_gates=${run_live_gates}"
           } >>"${GITHUB_OUTPUT}"
 
       - name: Checkout
@@ -112,11 +120,21 @@ jobs:
       - name: Run release quality gates
         run: |
           npm run version:check
+          node scripts/audit-zombie-files.mjs
+          node scripts/docs-drift-check.mjs
+          node scripts/chrome-store-compliance-check.mjs
           npm run lint
           npm run typecheck
           npm run test
           npm run build
           npm run extension:build
+
+      - name: Run strict live release gates
+        if: steps.meta.outputs.run_live_gates == 'true'
+        run: |
+          mkdir -p artifacts/release/v0.0.16
+          node scripts/provider-live-matrix.mjs --release-gate --use-global-env --out artifacts/release/v0.0.16/provider-live-matrix.json
+          node scripts/live-regression-matrix.mjs --release-gate
 
       - name: Pack extension artifact
         run: npm run extension:pack

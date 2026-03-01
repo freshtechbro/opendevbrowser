@@ -1,7 +1,7 @@
 # Annotate
 
 Status: active  
-Last updated: 2026-02-24
+Last updated: 2026-02-28
 
 OpenDevBrowser can capture interactive annotations either directly via CDP/Playwright or through the extension relay, and
 return a markdown summary plus structured data and screenshots. This is exposed via the `opendevbrowser_annotate` tool.
@@ -113,6 +113,7 @@ Use `details` for inspection; avoid shipping raw output without review.
 
 - **Relay behavior**: the extension websocket is singular, but the relay can serve multiple `/ops` clients. Disconnecting the extension or restarting the relay drops active annotation sessions. If annotations stall, reconnect in the popup (or restart the daemon) before retrying.
 - **Restricted URL**: `chrome://` and Chrome Web Store pages cannot be annotated. Use a normal `http(s)` URL.
+- **Release matrix behavior**: strict release-gate runs treat restricted-URL failures as expected boundary checks, not product regressions.
 - **Relay unavailable**: start the daemon and confirm the popup shows **Connected**.
 - **Injection failed**: reload the tab and retry; ensure the extension has `<all_urls>` host permissions.
 - **Capture failed**: switch to `visible` or `none` for very long pages or heavy canvas content.

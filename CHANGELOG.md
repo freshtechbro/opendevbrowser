@@ -7,28 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.0.16] - 2026-02-24
+## [0.0.16] - 2026-02-28
 
 ### Added
-- Automation provider runtime and macro execution surfaces for research, shopping, and product-asset workflows.
-- Debug-trace diagnostics snapshots and blocker metadata contracts across runtime outputs.
-- Expanded bundled skill-pack workflows and multi-agent skill target support.
-- Frontend docs site and branded asset pipeline for generated documentation delivery.
+- Release hardening automation scripts for preflight and compliance:
+  - `scripts/audit-zombie-files.mjs`
+  - `scripts/docs-drift-check.mjs`
+  - `scripts/chrome-store-compliance-check.mjs`
+  - `scripts/provider-live-scenarios.mjs`
+  - `scripts/release-gate-test-groups.mjs`
+- PR and release workflow gates for zombie-file audit, docs drift, extension-store compliance, and optional strict live release lanes.
+- Grouped release-gate npm scripts (`test:release-gate`, `test:release-gate:g1..g5`) for deterministic reruns.
 
 ### Changed
-- Hardened multitab runtime scheduling, provider orchestration, and Ops matrix execution behavior.
-- Migrated and stabilized skill-pack handling for multitab workflows and legacy alias compatibility.
-- Refreshed architecture/operations/distribution docs and release-readiness guidance.
-- Updated package + extension versions to `0.0.16` and refreshed dependency ranges/lockfile.
+- Compared to `v0.0.15`, this release consolidates automation platform/runtime work (provider workflows, macro execute, blocker envelopes, debug-trace surfaces), multitab governance hardening, and release governance/documentation upgrades.
+- `live-regression-matrix` now supports strict `--release-gate` mode, extension readiness recovery, stale worker cleanup, declared-divergence handling, and stronger scenario summarization semantics.
+- `provider-live-matrix` now supports strict release-gate mode with provider coverage assertions, nested live-matrix orchestration controls, extension-launch recovery, and deterministic high-friction/auth-gated handling.
+- CLI launch behavior now derives daemon RPC timeout from `--wait-timeout-ms` hints to prevent premature timeout failures during extension waits.
+- Macro execute daemon path now accepts bounded runtime timeout overrides and maps them into provider operation budgets.
+- CLI `--version` output is sourced from `package.json` (removed stale hardcoded version path).
+- Version verification now enforces parity across `package.json`, `extension/manifest.json`, and `extension/package.json`.
 
 ### Fixed
-- Preserved blocker resolution outcomes and improved traversal recovery under live matrix pressure.
-- Narrowed native extension ID fallback typing for safer native-host path handling.
-- Corrected legacy skill alias drift (`SKILL 2`) to keep compatibility behavior deterministic.
+- Relay extension-mode CDP connect now retries known stale-tab `Target.setAutoAttach` failure paths before failing.
+- Extension TypeScript event typing drift (`TabChangeInfo` -> `OnUpdatedInfo`) and CDP command param typing were tightened to avoid compile/runtime mismatch edges.
+- Provider runtime circuit-breaker timing assertions were stabilized in tests to reduce flaky cooldown-window checks.
+
+### Removed
+- Stale planning/design artifacts and prototypes that are no longer release sources of truth.
+- Legacy/unneeded local artifacts and stale helper scripts superseded by explicit release-gate automation.
+
+### Documentation
+- Swept and refreshed release-facing docs and runbooks across architecture, CLI, troubleshooting, onboarding, extension release, distribution, asset inventory, and dependency inventory surfaces.
+- Updated release evidence ledger and strict gate references for v0.0.16 operations.
 
 ### Tests
-- Expanded multitab, provider, and CLI regression coverage.
-- Added workflow runtime, skill-installer, blocker-transition, traversal, and live-path guard tests.
+- Added regression coverage for:
+  - launch timeout derivation and daemon call timeout forwarding
+  - relay stale-tab attach retry behavior
+  - release audit scripts and grouped release-gate orchestration
+- Preserved full-repo coverage threshold expectations (`>=97%`) while expanding release-governance checks.
 
 ## [0.0.15] - 2026-02-08
 

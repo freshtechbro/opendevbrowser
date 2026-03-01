@@ -57,6 +57,7 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 **Tools NEVER own business logic.** They delegate.
 
 Keep tool names and counts in sync with `src/tools/index.ts`, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md`.
+When inventory-affecting tools change, re-run `node scripts/docs-drift-check.mjs` and update release evidence docs.
 
 ## Response Pattern
 

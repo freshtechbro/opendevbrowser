@@ -14,6 +14,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  audit-zombie-files:
+    name: audit-zombie-files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit zombie duplicate files
+        run: node scripts/audit-zombie-files.mjs
+
+  docs-drift-check:
+    name: docs-drift-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate docs drift invariants
+        run: node scripts/docs-drift-check.mjs
+
+  chrome-store-compliance-check:
+    name: chrome-store-compliance-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate extension compliance invariants
+        run: node scripts/chrome-store-compliance-check.mjs
+
   lint:
     name: lint
     runs-on: ubuntu-latest

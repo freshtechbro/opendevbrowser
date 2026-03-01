@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-02-25
+Last updated: 2026-02-28
 
 ---
 
@@ -225,7 +225,7 @@ sequenceDiagram
 
 ### Multi-tab concurrency contract
 
-- Canonical spec: `docs/MULTITAB_PARALLEL_OPERATIONS_SPEC.md`.
+- Canonical contract: `docs/CLI.md` (concurrency semantics) and `src/config.ts` (`parallelism` settings).
 - Execution key: `ExecutionKey = (sessionId, targetId)`.
 - Command taxonomy:
   - `TargetScoped`: `goto`, `wait`, `snapshot`, interaction commands, DOM commands, `page.screenshot`, export/devtools target-bound commands.
@@ -325,9 +325,13 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 - **CLI build** via `npm run build`.
 - **Private website checks** via `npm run lint --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend` in `opendevbrowser-website-deploy`.
 - **CLI inventory/help parity check** via `npx opendevbrowser --help` and `npx opendevbrowser help`.
+- **Docs drift gate** via `node scripts/docs-drift-check.mjs`.
+- **Zombie duplicate audit** via `node scripts/audit-zombie-files.mjs`.
+- **Chrome extension compliance gate** via `node scripts/chrome-store-compliance-check.mjs`.
 - **Parity gate** via `tests/parity-matrix.test.ts` (CLI/tool/runtime surface checks + mode coverage).
 - **Provider performance gate** via `tests/providers-performance-gate.test.ts` (deterministic fixture SLO checks).
-- **Release checklist** in `docs/RELEASE_PARITY_CHECKLIST.md`.
+- **Strict live release gates** via `node scripts/provider-live-matrix.mjs --release-gate` and `node scripts/live-regression-matrix.mjs --release-gate`.
+- **Release checklist** in `docs/RELEASE_RUNBOOK.md` with evidence tracking in `docs/RELEASE_0.0.16_EVIDENCE.md`.
 - **Benchmark fixture manifest** in `docs/benchmarks/provider-fixtures.md`.
 - **First-run onboarding checklist** in `docs/FIRST_RUN_ONBOARDING.md`.
 

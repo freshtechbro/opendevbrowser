@@ -22,6 +22,7 @@ Run from repo root:
 ```bash
 npm run extension:sync
 npm run extension:build
+node scripts/chrome-store-compliance-check.mjs
 npm run extension:pack
 ```
 

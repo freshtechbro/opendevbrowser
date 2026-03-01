@@ -45,6 +45,11 @@ describe("launch CLI command", () => {
     expect(() => __test__.parseLaunchArgs(["--persist-profile", "maybe"])).toThrow("Invalid --persist-profile");
   });
 
+  it("derives launch call timeout from wait-timeout hint", () => {
+    expect(__test__.deriveLaunchCallTimeoutMs({ flags: [] })).toBe(30000);
+    expect(__test__.deriveLaunchCallTimeoutMs({ flags: [], waitTimeoutMs: 60000 })).toBe(65000);
+  });
+
   it("forwards persistProfile=false to daemon launch", async () => {
     callDaemon.mockResolvedValue({ sessionId: "session-temp" });
 
@@ -57,12 +62,16 @@ describe("launch CLI command", () => {
       "https://www.youtube.com"
     ]));
 
-    expect(callDaemon).toHaveBeenCalledWith("session.launch", expect.objectContaining({
-      noExtension: true,
-      headless: true,
-      persistProfile: false,
-      startUrl: "https://www.youtube.com"
-    }));
+    expect(callDaemon).toHaveBeenCalledWith(
+      "session.launch",
+      expect.objectContaining({
+        noExtension: true,
+        headless: true,
+        persistProfile: false,
+        startUrl: "https://www.youtube.com"
+      }),
+      { timeoutMs: 30000 }
+    );
     expect(result).toEqual({
       success: true,
       message: "Session launched: session-temp",

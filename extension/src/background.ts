@@ -510,7 +510,7 @@ const waitForTabComplete = async (tabId: number, timeoutMs = 10000): Promise<voi
       reject(new Error("Tab load timeout"));
     }, timeoutMs);
 
-    const listener = (updatedId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+    const listener = (updatedId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
       if (updatedId !== tabId) return;
       if (changeInfo.status === "complete") {
         if (settled) return;

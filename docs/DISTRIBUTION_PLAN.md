@@ -41,11 +41,34 @@ Public repo no longer carries the `frontend/` application directory.
 
 ```bash
 npm run version:check
+npm run test:release-gate
+node scripts/audit-zombie-files.mjs
+node scripts/docs-drift-check.mjs
+node scripts/chrome-store-compliance-check.mjs
 npm run lint
 npm run typecheck
 npm run test
 npm run build
 npm run extension:build
+node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/v0.0.16/provider-live-matrix.json
+node scripts/live-regression-matrix.mjs --release-gate
+```
+
+If one grouped release-gate unit fails, rerun only that unit:
+
+```bash
+npm run test:release-gate:g1
+npm run test:release-gate:g2
+npm run test:release-gate:g3
+npm run test:release-gate:g4
+npm run test:release-gate:g5
+```
+
+First-time global install dry run is mandatory before tagging:
+
+```bash
+# follow docs/FIRST_RUN_ONBOARDING.md global-install simulation
+npx opendevbrowser --global --full --no-prompt
 ```
 
 3. Merge to `main`.

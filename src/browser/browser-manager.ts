@@ -2870,20 +2870,32 @@ export class BrowserManager {
     mode: BrowserMode,
     reportedWsEndpoint?: string
   ): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
-    let browser: Browser;
-    const connectStart = Date.now();
+    let browser: Browser | null = null;
+    const connectAttempts = mode === "extension" ? 3 : 1;
     const sanitizedEndpoint = this.sanitizeWsEndpointForOutput(connectWsEndpoint);
-    try {
-      browser = await chromium.connectOverCDP(connectWsEndpoint);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("401") || message.toLowerCase().includes("unauthorized")) {
-        throw new Error("Relay /cdp rejected the connection (unauthorized). Check relayToken configuration and ensure clients use the current token.");
+    for (let attempt = 1; attempt <= connectAttempts; attempt += 1) {
+      const connectStart = Date.now();
+      try {
+        browser = await chromium.connectOverCDP(connectWsEndpoint);
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("401") || message.toLowerCase().includes("unauthorized")) {
+          throw new Error("Relay /cdp rejected the connection (unauthorized). Check relayToken configuration and ensure clients use the current token.");
+        }
+        const staleExtensionTab = mode === "extension" && isExtensionStaleTabAttachError(message);
+        if (staleExtensionTab && attempt < connectAttempts) {
+          await delay(attempt * 250);
+          continue;
+        }
+        throw new Error(
+          `Relay /cdp connectOverCDP failed after ${Date.now() - connectStart}ms (mode=${mode}, endpoint=${sanitizedEndpoint}): ${message}`,
+          { cause: error }
+        );
       }
-      throw new Error(
-        `Relay /cdp connectOverCDP failed after ${Date.now() - connectStart}ms (mode=${mode}, endpoint=${sanitizedEndpoint}): ${message}`,
-        { cause: error }
-      );
+    }
+    if (!browser) {
+      throw new Error(`Relay /cdp connectOverCDP failed (mode=${mode}, endpoint=${sanitizedEndpoint}).`);
     }
     try {
       const contexts = browser.contexts();
@@ -3031,6 +3043,11 @@ function readFlagValue(flags: string[], key: string): string | undefined {
 
 function resolveTier3FallbackTarget(tier: "tier1" | "tier2"): "tier1" | "tier2" {
   return tier;
+}
+
+function isExtensionStaleTabAttachError(detail: string): boolean {
+  const message = detail.toLowerCase();
+  return message.includes("target.setautoattach") && message.includes("no tab with given id");
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
