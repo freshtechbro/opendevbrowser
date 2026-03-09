@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "../src/cli/args";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { createMockProviderRuntime } from "./provider-runtime-mock";
 
 vi.mock("@opencode-ai/plugin", async () => {
   const { z } = await import("zod");
@@ -206,8 +207,9 @@ const createDeps = () => {
 
   const baseConfig = resolveConfig({});
   const config = new ConfigStore({ ...baseConfig, relayToken: false });
+  const providerRuntime = createMockProviderRuntime();
 
-  return { manager, runner, annotationManager, config, skills };
+  return { manager, runner, annotationManager, config, skills, providerRuntime };
 };
 
 describe("parity matrix", () => {

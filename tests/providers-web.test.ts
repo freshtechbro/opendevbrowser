@@ -185,6 +185,16 @@ describe("web provider + crawler", () => {
     expect(toSnippet("abc", 5)).toBe("abc");
   });
 
+  it("ignores selector matches that do not expose capture groups", () => {
+    const htmlLike = {
+      matchAll: (_pattern: RegExp) => [[undefined, undefined]]
+    };
+
+    expect(extractSelectors(htmlLike as unknown as string, ["section"])).toEqual({
+      section: []
+    });
+  });
+
   it("enforces crawl budgets with dedupe + policy", async () => {
     const result = await crawlWeb({
       fetcher,

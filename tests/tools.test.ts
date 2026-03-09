@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as os from "os";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { createMockProviderRuntime } from "./provider-runtime-mock";
 
 vi.mock("@opencode-ai/plugin", async () => {
   const { z } = await import("zod");
@@ -131,8 +132,9 @@ const createDeps = () => {
   const config = new ConfigStore({ ...baseConfig, relayToken: false });
   const skills = { loadBestPractices: vi.fn().mockResolvedValue("guide") };
   const getExtensionPath = vi.fn().mockReturnValue("/path/to/extension");
+  const providerRuntime = createMockProviderRuntime();
 
-  return { manager, runner, config, skills, getExtensionPath };
+  return { manager, runner, config, skills, getExtensionPath, providerRuntime };
 };
 
 const parse = (value: string) => JSON.parse(value) as { ok: boolean } & Record<string, unknown>;
