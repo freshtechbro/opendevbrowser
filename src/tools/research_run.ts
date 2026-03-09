@@ -1,6 +1,5 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
-import { runResearchWorkflow } from "../providers";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
@@ -31,7 +30,8 @@ export function createResearchRunTool(deps: ToolDeps): ToolDefinition {
     },
     async execute(args) {
       try {
-        const runtime = resolveProviderRuntime(deps);
+        const runtime = await resolveProviderRuntime(deps);
+        const { runResearchWorkflow } = await import("../providers");
         const result = await runResearchWorkflow(runtime, {
           topic: args.topic,
           days: args.days,

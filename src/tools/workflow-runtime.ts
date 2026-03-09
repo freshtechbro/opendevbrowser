@@ -1,12 +1,11 @@
-import type { ProviderExecutor } from "../providers";
-import { createConfiguredProviderRuntime } from "../providers/runtime-factory";
 import type { ToolDeps } from "./deps";
 
-export const resolveProviderRuntime = (deps: ToolDeps): ProviderExecutor => {
+export const resolveProviderRuntime = async (deps: ToolDeps): Promise<NonNullable<ToolDeps["providerRuntime"]>> => {
   if (deps.providerRuntime) {
-    return deps.providerRuntime as ProviderExecutor;
+    return deps.providerRuntime;
   }
 
+  const { createConfiguredProviderRuntime } = await import("../providers/runtime-factory");
   return createConfiguredProviderRuntime({
     config: deps.config?.get?.(),
     manager: deps.manager,
