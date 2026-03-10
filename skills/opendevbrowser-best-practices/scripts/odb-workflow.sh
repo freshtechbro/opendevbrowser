@@ -14,6 +14,8 @@ Workflows:
   parallel-multipage-safe
   qa-debug
   social-readonly-check
+  canvas-preflight
+  canvas-feedback-eval
   parity-check
   surface-audit
   ops-channel-check
@@ -86,6 +88,30 @@ EOF
 opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
 opendevbrowser_debug_trace_snapshot sessionId="<session-id>" maxEvents=50
 opendevbrowser_network_poll sessionId="<session-id>" max=100
+EOF
+    ;;
+  canvas-preflight)
+    cat <<'EOF'
+cat skills/opendevbrowser-best-practices/assets/templates/canvas-handshake-example.json
+cat skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
+npx opendevbrowser canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
+# Read handshake before any mutation. Require preflightState=handshake_read.
+npx opendevbrowser canvas --command canvas.plan.set --params-file skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
+# Replace placeholders in the plan file with canvasSessionId, leaseId, and documentId from the open response.
+npx opendevbrowser canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
+# Require planStatus=accepted or preflightState=plan_accepted before canvas.document.patch.
+EOF
+    ;;
+  canvas-feedback-eval)
+    cat <<'EOF'
+cat skills/opendevbrowser-best-practices/artifacts/canvas-governance-playbook.md
+cat skills/opendevbrowser-best-practices/assets/templates/canvas-feedback-eval.json
+cat skills/opendevbrowser-best-practices/assets/templates/canvas-blocker-checklist.json
+npx opendevbrowser canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'
+# Verify every feedback item is target-attributed and uses approved categories.
+npx opendevbrowser canvas --command canvas.preview.refresh --params '{"requestId":"req_refresh_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","refreshMode":"full"}'
+npx opendevbrowser canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}'
+# Save should fail or warn when requiredBeforeSave governance blocks remain unresolved.
 EOF
     ;;
   parity-check)

@@ -101,7 +101,8 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 - Target discovery (`Target.getTargets`) includes top-level tabs and child targets.
 - Child targets are auto-attached recursively for session-aware routing.
 - A single **primary tab** is used for relay handshake/status; switching tabs updates the handshake without disconnecting others.
-- Design-canvas live-preview flows can open dedicated design tabs and mount overlays on existing tabs through the `/canvas` runtime.
+- Design-canvas flows can open dedicated extension-hosted design tabs (`canvas.html`) and mount overlays on existing tabs through the `/canvas` runtime.
+- The extension design tab is a same-origin infinite-canvas editor: it persists full `CanvasPageState` snapshots in `IndexedDB`, fans out same-origin convergence over `BroadcastChannel`, sends editor-originated patch requests back through `/canvas`, and keeps arbitrary page overlays in sync through the same runtime.
 
 ## Security notes
 

@@ -202,6 +202,7 @@ describe("CanvasClient", () => {
   it("fails the handshake on protocol errors or timeouts", async () => {
     server?.removeAllListeners("connection");
     let mode: "error" | "timeout" = "error";
+    const handshakeTimeoutMs = 250;
     server?.on("connection", (socket) => {
       socket.on("message", (data) => {
         const message = JSON.parse(String(data)) as Record<string, unknown>;
@@ -224,7 +225,7 @@ describe("CanvasClient", () => {
 
     const errorClient = new CanvasClient(baseUrl, {
       autoReconnect: false,
-      handshakeTimeoutMs: 25
+      handshakeTimeoutMs
     });
     await expect(errorClient.connect()).rejects.toThrow("[canvas_denied] Denied by relay");
     errorClient.disconnect();
@@ -232,7 +233,7 @@ describe("CanvasClient", () => {
     mode = "timeout";
     const timeoutClient = new CanvasClient(baseUrl, {
       autoReconnect: false,
-      handshakeTimeoutMs: 25
+      handshakeTimeoutMs
     });
     await expect(timeoutClient.connect()).rejects.toThrow("Canvas handshake timeout");
     timeoutClient.disconnect();

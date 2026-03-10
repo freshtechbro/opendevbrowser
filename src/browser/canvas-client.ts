@@ -97,6 +97,15 @@ export class CanvasClient {
             reject(new Error("Canvas socket not created"));
             return;
           }
+          const timeoutId = setTimeout(() => {
+            cleanup();
+            try {
+              this.socket?.close(1000, "Canvas handshake timeout");
+            } catch {
+              // ignore
+            }
+            reject(new Error("Canvas handshake timeout"));
+          }, this.handshakeTimeoutMs);
           const onOpen = () => {
             cleanup();
             resolve();
@@ -105,12 +114,20 @@ export class CanvasClient {
             cleanup();
             reject(error);
           };
+          const onClose = () => {
+            cleanup();
+            reject(new Error("Canvas socket closed before handshake"));
+          };
           const cleanup = () => {
+            clearTimeout(timeoutId);
             this.socket?.removeListener("open", onOpen);
             this.socket?.removeListener("error", onError);
+            this.socket?.removeListener("close", onClose);
           };
+          timeoutId.unref?.();
           this.socket.once("open", onOpen);
           this.socket.once("error", onError);
+          this.socket.once("close", onClose);
         });
 
         this.socket.on("message", (data) => {
@@ -128,26 +145,41 @@ export class CanvasClient {
       };
 
       const ack = await new Promise<CanvasHelloAck>((resolve, reject) => {
-        const timeoutId = setTimeout(() => reject(new Error("Canvas handshake timeout")), this.handshakeTimeoutMs);
-        const onAck = (message: CanvasHelloAck) => {
+        const cleanup = () => {
           clearTimeout(timeoutId);
+          this.socket?.removeListener("canvas_hello_ack", onAck as unknown as (...args: unknown[]) => void);
+          this.socket?.removeListener("canvas_hello_error", onError as unknown as (...args: unknown[]) => void);
+          this.socket?.removeListener("close", onClose);
+        };
+        const timeoutId = setTimeout(() => {
+          cleanup();
+          try {
+            this.socket?.close(1000, "Canvas handshake timeout");
+          } catch {
+            // ignore
+          }
+          reject(new Error("Canvas handshake timeout"));
+        }, this.handshakeTimeoutMs);
+        const onAck = (message: CanvasHelloAck) => {
+          cleanup();
           resolve(message);
         };
         const onError = (message: CanvasErrorResponse) => {
-          clearTimeout(timeoutId);
+          cleanup();
           reject(buildCanvasError(message.error));
         };
         const onClose = () => {
-          clearTimeout(timeoutId);
+          cleanup();
           reject(new Error("Canvas socket closed before handshake"));
         };
+        timeoutId.unref?.();
         this.socket?.once("canvas_hello_ack", onAck as unknown as (...args: unknown[]) => void);
         this.socket?.once("canvas_hello_error", onError as unknown as (...args: unknown[]) => void);
         this.socket?.once("close", onClose);
         try {
           this.send(hello);
         } catch (error) {
-          clearTimeout(timeoutId);
+          cleanup();
           reject(error instanceof Error ? error : new Error("Canvas handshake failed"));
         }
       });
@@ -219,6 +251,7 @@ export class CanvasClient {
         this.pendingRequests.delete(requestId);
         reject(new Error("Canvas request timed out"));
       }, timeoutMs);
+      timeoutId.unref?.();
       this.pendingRequests.set(requestId, { resolve: (value) => resolve(value as T), reject, timeoutId });
       try {
         this.sendRaw(serialized);
@@ -329,6 +362,7 @@ export class CanvasClient {
       this.reconnectTimer = null;
       void this.connect().catch(() => {});
     }, delay);
+    this.reconnectTimer.unref?.();
   }
 
   private startHeartbeat(): void {
@@ -336,6 +370,7 @@ export class CanvasClient {
     this.heartbeatTimer = setInterval(() => {
       void this.sendPing().catch(() => {});
     }, this.pingIntervalMs);
+    this.heartbeatTimer.unref?.();
   }
 
   private stopHeartbeat(): void {
@@ -359,6 +394,7 @@ export class CanvasClient {
         }
         reject(new Error("Canvas ping timed out"));
       }, this.pingTimeoutMs);
+      timeoutId.unref?.();
       this.pendingPings.set(id, { resolve, reject, timeoutId });
       try {
         this.send(ping);

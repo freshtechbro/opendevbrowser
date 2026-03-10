@@ -2,21 +2,22 @@
 
 ## Purpose
 
-Provide a compact, operationally useful map of OpenDevBrowser command surfaces and relay channels for parity checks.
+Compact operational map of the current OpenDevBrowser surfaces, with the `/canvas` handshake and blocker paths called out explicitly for preflight audits.
 
 ## Current coverage snapshot
 
-- CLI commands: `55`
-- Plugin tools: `48`
+- CLI commands: `56`
+- Plugin tools: `49`
 - `/ops` command names: `38`
+- `/canvas` command names: `19`
 - Legacy `/cdp` relay: generic CDP forwarding (method-level)
 
 Canonical exhaustive reference: `docs/SURFACE_REFERENCE.md`.
-CLI help mirror: `npx opendevbrowser --help` (surfaces CLI + tools + `/ops` + `/cdp` controls).
+CLI help mirror: `npx opendevbrowser --help`.
 
 ## Agent skill-sync coverage
 
-Skill-pack installation/discovery is synchronized for:
+Skill-pack installation and discovery are synchronized for:
 - `opencode`: `~/.config/opencode/skill` and `./.opencode/skill`
 - `codex`: `$CODEX_HOME/skills` (fallback `~/.codex/skills`) and `./.codex/skills`
 - `claudecode`: `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (fallback `~/.claude/skills`) and `./.claude/skills`
@@ -26,17 +27,16 @@ Legacy aliases `claude` and `amp` remain present in installer target metadata fo
 
 ## CLI surface categories
 
-- Install/runtime: install, update, uninstall, help, version, serve, daemon, native, run
-- Session/connection: launch, connect, disconnect, status, cookie-import, cookie-list
-- Navigation: goto, wait, snapshot
-- Interaction: click, hover, press, check, uncheck, type, select, scroll, scroll-into-view
-- Targets/pages: targets-list, target-use, target-new, target-close, page, pages, page-close
-- DOM: dom-html, dom-text, dom-attr, dom-value, dom-visible, dom-enabled, dom-checked
-- Export/diagnostics/macro/annotation/power: clone-page, clone-component, perf, screenshot, console-poll, network-poll, debug-trace-snapshot, macro-resolve, annotate, rpc
+- Install/runtime: `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run`, `artifacts`
+- Session/connection/workflow: `launch`, `connect`, `disconnect`, `status`, `cookie-import`, `cookie-list`, `research`, `shopping`, `product-video`
+- Navigation/interaction: `goto`, `wait`, `snapshot`, `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`
+- Targets/pages/DOM: `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close`, `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked`
+- Design canvas: `canvas`
+- Export/diagnostics/power: `clone-page`, `clone-component`, `perf`, `screenshot`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `macro-resolve`, `annotate`, `rpc`
 
 ## Tool surface categories
 
-- Runtime parity tools map to the CLI runtime categories.
+- Runtime parity tools map to the CLI runtime categories, including `opendevbrowser_canvas`.
 - Tool-only: `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only: `rpc`.
 
@@ -55,7 +55,7 @@ Namespace groups:
 - `export.*`
 - `devtools.*`
 
-Handshake/liveness envelope types:
+Envelope types:
 - `ops_hello`, `ops_hello_ack`
 - `ops_ping`, `ops_pong`
 - `ops_request`, `ops_response`, `ops_error`
@@ -64,14 +64,78 @@ Handshake/liveness envelope types:
 Concurrency policy:
 - `/ops` supports multiple clients and multiple sessions.
 - Reliable parallel execution is session-scoped (`session-per-worker`).
-- Avoid concurrent independent streams that switch targets inside one session (`targets.use` races can cross-wire active target state).
+- Avoid concurrent independent streams that switch targets inside one session.
+
+### `/canvas`
+
+Command families:
+- Session and governance: `canvas.session.open`, `canvas.session.status`, `canvas.session.close`, `canvas.capabilities.get`, `canvas.plan.set`, `canvas.plan.get`
+- Document: `canvas.document.load`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`
+- Live targets and overlay: `canvas.tab.open`, `canvas.tab.close`, `canvas.overlay.mount`, `canvas.overlay.unmount`, `canvas.overlay.select`
+- Preview and feedback: `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.feedback.subscribe`
+
+Envelope types:
+- `canvas_request`, `canvas_response`, `canvas_error`
+- `canvas_event`, `canvas_chunk`
+- `canvas_ping`, `canvas_pong`
+
+Minimum handshake payload shape:
+
+```json
+{
+  "canvasSessionId": "canvas_session_01",
+  "browserSessionId": "browser_session_01",
+  "documentId": "dc_01",
+  "leaseId": "lease_01",
+  "preflightState": "handshake_read",
+  "requiredBeforeMutation": [
+    "designGovernance.intent",
+    "designGovernance.libraryPolicy",
+    "generationPlan"
+  ],
+  "requiredBeforeSave": [
+    "designGovernance.responsiveSystem",
+    "designGovernance.runtimeBudgets"
+  ]
+}
+```
+
+Preflight state machine:
+- `handshake_read`
+- `plan_submitted`
+- `plan_accepted`
+- `patching_enabled`
+
+The first mutation path must stay blocked until `canvas.plan.set` has been accepted. The canonical blocker is `plan_required` and should carry `details.auditId: "CANVAS-01"`.
+
+Recommended blocker envelope:
+
+```json
+{
+  "code": "plan_required",
+  "blockingCommand": "canvas.document.patch",
+  "requiredNextCommands": ["canvas.plan.set"],
+  "message": "generationPlan must be accepted before mutation.",
+  "details": { "auditId": "CANVAS-01" }
+}
+```
+
+Feedback contract markers:
+- Poll categories: `render`, `console`, `network`, `validation`, `performance`, `asset`, `export`
+- Feedback items must preserve `documentId`, `pageId`, `prototypeId`, `targetId`, `documentRevision`, `severity`, `class`, and `evidenceRefs`
+- Subscribe event types: `feedback.item`, `feedback.heartbeat`, `feedback.complete`
+
+Operational rule:
+- Read `canvas.session.open` or `canvas.capabilities.get` before mutation.
+- Use `canvas.feedback.poll` after each patch/render loop.
+- Do not save if `requiredBeforeSave` still reports missing governance blocks.
 
 ### `/cdp` (legacy)
 
 - Opt-in via `--extension-legacy`.
-- Forwards raw CDP commands through relay command envelopes (`id`, `method`, `params`, optional `sessionId`).
+- Forwards raw CDP command envelopes (`id`, `method`, `params`, optional `sessionId`).
 - Use for compatibility-specific paths only.
-- Treat as a legacy/single-writer path; do not use as the primary route for concurrent automation.
+- Treat as a legacy single-writer route, not the primary concurrent path.
 
 ## Mode and flag checkpoints
 
@@ -84,6 +148,7 @@ Required readiness/status checks:
 - `extensionConnected`
 - `extensionHandshakeComplete`
 - `opsConnected`
+- `canvasConnected`
 - `cdpConnected`
 - `pairingRequired`
 
@@ -91,5 +156,7 @@ Required readiness/status checks:
 
 ```bash
 npm run test -- tests/parity-matrix.test.ts
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh canvas-preflight
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh canvas-feedback-eval
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ```

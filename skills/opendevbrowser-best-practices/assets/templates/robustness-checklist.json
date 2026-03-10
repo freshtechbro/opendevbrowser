@@ -2,6 +2,63 @@
   "schemaVersion": "1.0",
   "skill": "",
   "run_id": "",
+  "canvas": {
+    "enabled": false,
+    "canvasSessionId": "",
+    "documentId": "",
+    "targetIds": [],
+    "issueClasses": [
+      {
+        "auditId": "CANVAS-01",
+        "status": "pending",
+        "command": "canvas.document.patch",
+        "evidence": [],
+        "notes": ""
+      },
+      {
+        "auditId": "CANVAS-02",
+        "status": "pending",
+        "command": "canvas.document.save",
+        "evidence": [],
+        "notes": ""
+      },
+      {
+        "auditId": "CANVAS-03",
+        "status": "pending",
+        "command": "canvas.plan.set",
+        "evidence": [],
+        "notes": ""
+      },
+      {
+        "auditId": "CANVAS-04",
+        "status": "pending",
+        "command": "canvas.document.patch",
+        "evidence": [],
+        "notes": ""
+      },
+      {
+        "auditId": "CANVAS-05",
+        "status": "pending",
+        "command": "canvas.overlay.mount",
+        "evidence": [],
+        "notes": ""
+      },
+      {
+        "auditId": "CANVAS-06",
+        "status": "pending",
+        "command": "canvas.preview.render",
+        "evidence": [],
+        "notes": ""
+      },
+      {
+        "auditId": "CANVAS-07",
+        "status": "pending",
+        "command": "canvas.feedback.poll",
+        "evidence": [],
+        "notes": ""
+      }
+    ]
+  },
   "issues": [
     {
       "id": "ISSUE-01",

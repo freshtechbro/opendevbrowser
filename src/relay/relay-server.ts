@@ -105,6 +105,8 @@ export class RelayServer {
   private static readonly RATE_LIMIT_WINDOW_MS = 60_000;
   private static readonly MAX_HTTP_ATTEMPTS = 60;
   private static readonly MAX_ANNOTATION_PAYLOAD_BYTES = 12 * 1024 * 1024;
+  private static readonly MAX_OPS_PAYLOAD_BYTES = MAX_OPS_PAYLOAD_BYTES;
+  private static readonly MAX_CANVAS_PAYLOAD_BYTES = MAX_CANVAS_PAYLOAD_BYTES;
   private static readonly ANNOTATION_REQUEST_TIMEOUT_MS = 120_000;
 
   constructor(options: RelayServerOptions = {}) {
@@ -1043,12 +1045,12 @@ export class RelayServer {
 
     if (isOpsHello(message) || isOpsRequest(message) || isOpsPing(message)) {
       const sizeBytes = Buffer.byteLength(JSON.stringify(message));
-      if (sizeBytes > MAX_OPS_PAYLOAD_BYTES) {
+      if (sizeBytes > RelayServer.MAX_OPS_PAYLOAD_BYTES) {
         this.sendOpsError(clientId, {
           code: "invalid_request",
           message: "Ops payload exceeded relay limits.",
           retryable: false,
-          details: { maxPayloadBytes: MAX_OPS_PAYLOAD_BYTES }
+          details: { maxPayloadBytes: RelayServer.MAX_OPS_PAYLOAD_BYTES }
         }, getOpsRequestId(message), getOpsSessionId(message));
         return;
       }
@@ -1081,12 +1083,12 @@ export class RelayServer {
 
     if (isCanvasHello(message) || isCanvasRequest(message) || isCanvasPing(message)) {
       const sizeBytes = Buffer.byteLength(JSON.stringify(message));
-      if (sizeBytes > MAX_CANVAS_PAYLOAD_BYTES) {
+      if (sizeBytes > RelayServer.MAX_CANVAS_PAYLOAD_BYTES) {
         this.sendCanvasError(clientId, {
           code: "invalid_request",
           message: "Canvas payload exceeded relay limits.",
           retryable: false,
-          details: { maxPayloadBytes: MAX_CANVAS_PAYLOAD_BYTES }
+          details: { maxPayloadBytes: RelayServer.MAX_CANVAS_PAYLOAD_BYTES }
         }, getCanvasRequestId(message), getCanvasSessionId(message));
         return;
       }

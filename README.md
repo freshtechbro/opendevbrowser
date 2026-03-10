@@ -46,7 +46,7 @@ Distribution split (current target state):
 | **Ops + Canvas + CDP channels** | High-level multi-client `/ops`, dedicated `/canvas`, plus legacy `/cdp` compatibility |
 | **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
-| **Design canvas vertical slice** | Persist repo-native design documents, drive preview tabs, and mount live overlay selections |
+| **Design canvas vertical slice** | Persist repo-native design documents, drive preview tabs, enforce governance saves, and run an extension-hosted infinite canvas editor with converged local state |
 | **Loop-closure diagnostics** | Console/network polling + unified debug trace snapshots for verification workflows |
 | **8 bundled skill packs** | Best practices plus login, forms, data extraction, research, shopping, and product asset workflows |
 | **49 tools** | Complete browser automation coverage, including the design-canvas command surface |
@@ -437,7 +437,7 @@ Extension relay relies on **flat CDP sessions (Chrome 125+)** and uses DebuggerS
 
 Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`.
 The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/ops`.
-Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for design-canvas preview and overlay flows.
+Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for design-canvas editor, preview, feedback, and overlay flows.
 Legacy relay `/cdp` remains available with explicit opt-in (`--extension-legacy`).
 When pairing is enabled, `/ops`, `/canvas`, and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
 
@@ -446,7 +446,7 @@ When pairing is enabled, `/ops`, `/canvas`, and `/cdp` require a relay token (`?
 | Channel | What It Does | When to Use It |
 |---------|---------------|----------------|
 | **`/ops` (default)** | High-level automation protocol with session ownership, event streaming, and multi-client handling | Preferred extension relay path for modern workflows |
-| **`/canvas`** | Typed design-canvas protocol for design-session handshakes, live preview tabs, and overlay selection | Use with `opendevbrowser_canvas` or `opendevbrowser canvas` during design-canvas workflows |
+| **`/canvas`** | Typed design-canvas protocol for design-session handshakes, live editor sync, preview tabs, feedback streams, and overlay selection | Use with `opendevbrowser_canvas` or `opendevbrowser canvas` during design-canvas workflows |
 | **`/cdp` (legacy)** | Low-level CDP relay path with compatibility-focused behavior | Opt-in compatibility mode (`--extension-legacy`) |
 | **Direct CDP connect** | Attach to Chrome started with `--remote-debugging-port` | Existing debug/browser setups without extension relay |
 

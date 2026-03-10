@@ -12,21 +12,27 @@ import {
   CANVAS_PROJECT_DEFAULTS,
   CanvasDocumentStore,
   createDefaultCanvasDocument,
+  evaluateCanvasWarnings,
+  missingRequiredSaveBlocks,
   normalizeCanvasDocument,
+  validateCanvasSave,
   validateGenerationPlan
 } from "../canvas/document-store";
 import { renderCanvasDocumentComponent, renderCanvasDocumentHtml } from "../canvas/export";
-import { loadCanvasDocument, resolveCanvasRepoPath, saveCanvasDocument } from "../canvas/repo-store";
+import { loadCanvasDocument, loadCanvasDocumentById, resolveCanvasRepoPath, saveCanvasDocument } from "../canvas/repo-store";
 import type {
   CanvasBlocker,
+  CanvasDegradeReason,
   CanvasDocument,
   CanvasFeedbackItem,
   CanvasPatch,
   CanvasPlanStatus,
   CanvasPreflightState,
+  CanvasPreviewState,
   CanvasSessionMode,
   CanvasSessionSummary,
-  CanvasTargetState
+  CanvasTargetState,
+  CanvasValidationWarning
 } from "../canvas/types";
 import { CANVAS_SCHEMA_VERSION } from "../canvas/types";
 
@@ -45,14 +51,52 @@ type CanvasSession = {
   designTabTargetId: string | null;
   feedback: CanvasFeedbackItem[];
   nextFeedbackSeq: number;
+  editorSelection: {
+    pageId: string | null;
+    nodeId: string | null;
+    targetId: string | null;
+    updatedAt: string | null;
+  };
+  feedbackSubscriptions: Map<string, CanvasFeedbackSubscription>;
+};
+
+type CanvasFeedbackStreamEvent =
+  | {
+    eventType: "feedback.item";
+    item: CanvasFeedbackItem;
+  }
+  | {
+    eventType: "feedback.heartbeat";
+    cursor: string | null;
+    ts: string;
+    activeTargetIds: string[];
+  }
+  | {
+    eventType: "feedback.complete";
+    cursor: string | null;
+    ts: string;
+    reason: "session_closed" | "lease_revoked" | "subscription_replaced" | "document_unloaded";
+  };
+
+type CanvasFeedbackSubscription = {
+  id: string;
+  categories: Set<string>;
+  targetIds: Set<string>;
+  queue: CanvasFeedbackStreamEvent[];
+  waiters: Array<(event: CanvasFeedbackStreamEvent | null) => void>;
+  cursor: string | null;
+  heartbeatTimer: NodeJS.Timeout;
+  active: boolean;
 };
 
 type ExtensionOverlayResult = {
   mountId?: string;
   targetId?: string;
-  previewState?: string;
+  overlayState?: string;
+  previewState?: CanvasPreviewState;
   capabilities?: Record<string, unknown>;
   selection?: Record<string, unknown>;
+  warnings?: CanvasValidationWarning[];
   ok?: boolean;
 };
 
@@ -82,6 +126,9 @@ const DIRECT_OVERLAY_STYLE = `
   outline-offset: 3px !important;
 }
 `;
+
+const FEEDBACK_BATCH_SIZE = 25;
+const FEEDBACK_RETENTION_LIMIT = 200;
 
 export type CanvasManagerLike = {
   execute: (command: string, params?: CanvasCommandParams) => Promise<unknown>;
@@ -175,7 +222,14 @@ export class CanvasManager implements CanvasManagerLike {
       overlayMounts: new Map(),
       designTabTargetId: null,
       feedback: [],
-      nextFeedbackSeq: 1
+      nextFeedbackSeq: 1,
+      editorSelection: {
+        pageId: document.pages[0]?.id ?? null,
+        nodeId: null,
+        targetId: null,
+        updatedAt: null
+      },
+      feedbackSubscriptions: new Map()
     };
     this.sessions.set(sessionId, session);
     return this.buildHandshake(session);
@@ -200,6 +254,7 @@ export class CanvasManager implements CanvasManagerLike {
         targetId: session.designTabTargetId
       });
     }
+    this.completeFeedbackSubscriptions(session, "session_closed");
     this.sessions.delete(session.canvasSessionId);
     return { ok: true, releasedTargets, releasedOverlays: true };
   }
@@ -213,6 +268,8 @@ export class CanvasManager implements CanvasManagerLike {
     const session = this.requireSession(params);
     this.assertLease(session, params);
     const plan = requireRecord(params.generationPlan, "generationPlan");
+    session.planStatus = "submitted";
+    session.preflightState = "plan_submitted";
     const validation = validateGenerationPlan(plan);
     if (!validation.ok) {
       throw new Error(`Generation plan missing fields: ${validation.missing.join(", ")}`);
@@ -220,11 +277,13 @@ export class CanvasManager implements CanvasManagerLike {
     const result = session.store.setGenerationPlan(plan);
     session.planStatus = result.planStatus;
     session.preflightState = "plan_accepted";
+    this.emitWarnings(session, result.warnings, { category: "validation" });
+    void this.syncLiveViews(session).catch(() => {});
     return {
       planStatus: result.planStatus,
       documentRevision: result.documentRevision,
       preflightState: session.preflightState,
-      warnings: []
+      warnings: result.warnings
     };
   }
 
@@ -249,10 +308,17 @@ export class CanvasManager implements CanvasManagerLike {
     }
     const document = repoPath
       ? normalizeCanvasDocument(await loadCanvasDocument(this.worktree, repoPath))
-      : createDefaultCanvasDocument(documentId as string);
+      : normalizeCanvasDocument(await loadCanvasDocumentById(this.worktree, documentId as string) ?? createDefaultCanvasDocument(documentId as string));
     session.store.loadDocument(document);
     session.planStatus = isNonEmptyRecord(document.designGovernance.generationPlan) ? "accepted" : "missing";
     session.preflightState = session.planStatus === "accepted" ? "plan_accepted" : "handshake_read";
+    session.editorSelection = {
+      pageId: document.pages[0]?.id ?? null,
+      nodeId: null,
+      targetId: null,
+      updatedAt: new Date().toISOString()
+    };
+    await this.syncLiveViews(session);
     return {
       documentId: session.store.getDocumentId(),
       documentRevision: session.store.getRevision(),
@@ -270,20 +336,7 @@ export class CanvasManager implements CanvasManagerLike {
     const baseRevision = requireNumber(params.baseRevision, "baseRevision");
     const patches = requirePatches(params.patches);
     try {
-      const result = session.store.applyPatches(baseRevision, patches);
-      session.preflightState = "patching_enabled";
-      this.pushFeedback(session, {
-        category: "validation",
-        class: "document-patched",
-        severity: "info",
-        message: `Applied ${patches.length} canvas patch${patches.length === 1 ? "" : "es"}.`,
-        pageId: null,
-        prototypeId: null,
-        targetId: null,
-        evidenceRefs: []
-      });
-      await this.syncDesignTab(session);
-      return result;
+      return await this.applyDocumentPatches(session, baseRevision, patches, "agent");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.startsWith("Revision conflict")) {
@@ -293,16 +346,51 @@ export class CanvasManager implements CanvasManagerLike {
     }
   }
 
+  private async applyDocumentPatches(
+    session: CanvasSession,
+    baseRevision: number,
+    patches: CanvasPatch[],
+    source: "agent" | "editor"
+  ): Promise<{
+    transactionId: string;
+    appliedRevision: number;
+    warnings: CanvasValidationWarning[];
+    evidenceRefs: string[];
+  }> {
+    const result = session.store.applyPatches(baseRevision, patches);
+    session.preflightState = "patching_enabled";
+    this.pushFeedback(session, {
+      category: "validation",
+      class: source === "editor" ? "editor-document-patched" : "document-patched",
+      severity: "info",
+      message: `Applied ${patches.length} canvas patch${patches.length === 1 ? "" : "es"} from ${source}.`,
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: [],
+      details: { source }
+    });
+    this.emitWarnings(session, result.warnings, { category: "validation" });
+    await this.syncLiveViews(session);
+    return result;
+  }
+
   private async saveDocument(params: CanvasCommandParams): Promise<unknown> {
     const session = this.requireSession(params);
     this.assertLease(session, params);
     const document = session.store.getDocument();
+    const validation = validateCanvasSave(document);
+    if (validation.missingBlocks.length > 0) {
+      throw this.policyViolation("canvas.document.save", session, validation.missingBlocks, validation.warnings);
+    }
     const repoPath = await saveCanvasDocument(this.worktree, document, optionalString(params.repoPath));
+    this.emitWarnings(session, validation.warnings, { category: "validation" });
     return {
       repoPath,
       documentRevision: session.store.getRevision(),
       schemaVersion: document.schemaVersion,
-      warnings: []
+      migrationWarnings: [],
+      warnings: validation.warnings
     };
   }
 
@@ -311,36 +399,48 @@ export class CanvasManager implements CanvasManagerLike {
     this.assertLease(session, params);
     const exportTarget = requireString(params.exportTarget, "exportTarget");
     const document = session.store.getDocument();
+    const warnings = evaluateCanvasWarnings(document, { forSave: exportTarget === "design_document" });
     const exportBase = resolveCanvasRepoPath(this.worktree, document.documentId, ".opendevbrowser/canvas/exports");
     await mkdir(dirname(exportBase), { recursive: true });
     if (exportTarget === "design_document") {
+      const validation = validateCanvasSave(document);
+      if (validation.missingBlocks.length > 0) {
+        throw this.policyViolation("canvas.document.export", session, validation.missingBlocks, validation.warnings);
+      }
       const repoPath = await saveCanvasDocument(this.worktree, document, optionalString(params.repoPath));
+      this.emitWarnings(session, validation.warnings, { category: "validation" });
       return {
         exportTarget,
         documentRevision: session.store.getRevision(),
         artifactRefs: [repoPath],
         resolvedSavePath: repoPath,
-        warnings: []
+        schemaVersion: document.schemaVersion,
+        migrationWarnings: [],
+        warnings: validation.warnings
       };
     }
     if (exportTarget === "react_component") {
       const repoPath = `${exportBase}-${session.canvasSessionId}.tsx`;
       await saveText(repoPath, renderCanvasDocumentComponent(document));
+      this.emitWarnings(session, warnings, { category: "export" });
       return {
         exportTarget,
         documentRevision: session.store.getRevision(),
         artifactRefs: [repoPath],
-        warnings: []
+        exportMetadata: { format: "tsx", documentId: document.documentId },
+        warnings
       };
     }
     if (exportTarget === "html_bundle") {
       const repoPath = `${exportBase}-${session.canvasSessionId}.html`;
       await saveText(repoPath, renderCanvasDocumentHtml(document));
+      this.emitWarnings(session, warnings, { category: "export" });
       return {
         exportTarget,
         documentRevision: session.store.getRevision(),
         artifactRefs: [repoPath],
-        warnings: []
+        exportMetadata: { format: "html", documentId: document.documentId },
+        warnings
       };
     }
     throw new Error(`Unsupported exportTarget: ${exportTarget}`);
@@ -350,7 +450,7 @@ export class CanvasManager implements CanvasManagerLike {
     const session = this.requireSession(params);
     this.assertLease(session, params);
     const prototypeId = requireString(params.prototypeId, "prototypeId");
-    const previewMode = (requireString(params.previewMode, "previewMode") as CanvasTargetState["previewMode"]);
+    const previewMode = requireTabPreviewMode(params.previewMode, "previewMode");
     if (session.browserSessionId) {
       const status = await this.browserManager.status(session.browserSessionId);
       if (status.mode === "extension") {
@@ -358,13 +458,19 @@ export class CanvasManager implements CanvasManagerLike {
           prototypeId,
           previewMode,
           document: session.store.getDocument(),
-          documentRevision: session.store.getRevision()
+          documentRevision: session.store.getRevision(),
+          summary: this.buildSessionSummary(session),
+          targets: [...session.activeTargets.values()],
+          overlayMounts: [...session.overlayMounts.values()],
+          feedback: this.buildFeedbackSnapshot(session),
+          feedbackCursor: this.getLatestFeedbackCursor(session),
+          selection: session.editorSelection
         });
         session.designTabTargetId = typeof result.targetId === "string" ? result.targetId : null;
         return {
           targetId: session.designTabTargetId,
           targetIds: session.designTabTargetId ? [session.designTabTargetId] : [],
-          previewState: result.previewState ?? "design_tab_open",
+          previewState: result.previewState ?? previewMode,
           designTab: true
         };
       }
@@ -375,7 +481,7 @@ export class CanvasManager implements CanvasManagerLike {
       return {
         targetId: page.targetId,
         targetIds: [page.targetId],
-        previewState: "design_tab_open",
+        previewState: previewMode,
         designTab: true
       };
     }
@@ -399,7 +505,13 @@ export class CanvasManager implements CanvasManagerLike {
       session.designTabTargetId = null;
     }
     session.activeTargets.delete(targetId);
-    return { ok: true, targetIds: [...session.activeTargets.keys()] };
+    return {
+      ok: true,
+      targetId,
+      targetIds: [...session.activeTargets.keys()],
+      releasedTargetIds: [targetId],
+      previewState: "background"
+    };
   }
 
   private async mountOverlay(params: CanvasCommandParams): Promise<unknown> {
@@ -424,10 +536,13 @@ export class CanvasManager implements CanvasManagerLike {
     }
     const mountId = typeof result.mountId === "string" ? result.mountId : `mount_${randomUUID()}`;
     session.overlayMounts.set(mountId, { mountId, targetId, mountedAt: new Date().toISOString() });
+    const previewState = session.activeTargets.get(targetId)?.previewState ?? "background";
+    await this.syncLiveViews(session);
     return {
       mountId,
       targetId,
-      previewState: result.previewState ?? "overlay_mounted",
+      previewState,
+      overlayState: result.overlayState ?? "mounted",
       capabilities: result.capabilities ?? { selection: true, guides: true }
     };
   }
@@ -436,9 +551,10 @@ export class CanvasManager implements CanvasManagerLike {
     const session = this.requireSession(params);
     this.assertLease(session, params);
     const mountId = requireString(params.mountId, "mountId");
+    const targetId = optionalString(params.targetId);
     const mount = session.overlayMounts.get(mountId);
     if (!mount || !session.browserSessionId) {
-      return { ok: true, mountId, previewState: "overlay_idle" };
+      return { ok: true, mountId, previewState: (targetId ? session.activeTargets.get(targetId)?.previewState : null) ?? "background", overlayState: "idle" };
     }
     const status = await this.browserManager.status(session.browserSessionId);
     if (status.mode === "extension") {
@@ -447,7 +563,8 @@ export class CanvasManager implements CanvasManagerLike {
       await this.unmountDirectOverlay(session.browserSessionId, mount.targetId);
     }
     session.overlayMounts.delete(mountId);
-    return { ok: true, mountId, previewState: "overlay_idle" };
+    await this.syncLiveViews(session);
+    return { ok: true, mountId, previewState: session.activeTargets.get(mount.targetId)?.previewState ?? "background", overlayState: "idle" };
   }
 
   private async selectOverlay(params: CanvasCommandParams): Promise<unknown> {
@@ -455,14 +572,27 @@ export class CanvasManager implements CanvasManagerLike {
     this.assertLease(session, params);
     const mountId = requireString(params.mountId, "mountId");
     const targetId = requireString(params.targetId, "targetId");
-    const hint = requireRecord(params.selectionHint, "selectionHint");
+    const nodeId = optionalString(params.nodeId);
+    const hint = isRecord(params.selectionHint) ? params.selectionHint : {};
+    if (!nodeId && !isNonEmptyRecord(hint)) {
+      throw new Error("canvas.overlay.select requires nodeId or selectionHint.");
+    }
     if (!session.browserSessionId) {
       throw new Error("canvas.overlay.select requires a browserSessionId.");
     }
     const status = await this.browserManager.status(session.browserSessionId);
     const selection = status.mode === "extension"
-      ? await this.requestCanvasExtension(session, "canvas.overlay.select", { mountId, targetId, selectionHint: hint })
-      : { selection: await this.selectDirectOverlay(session.browserSessionId, targetId, hint) };
+      ? await this.requestCanvasExtension(session, "canvas.overlay.select", { mountId, targetId, nodeId, selectionHint: hint })
+      : { selection: await this.selectDirectOverlay(session.browserSessionId, targetId, nodeId, hint) };
+    if (nodeId) {
+      session.editorSelection = {
+        pageId: session.editorSelection.pageId ?? session.store.getDocument().pages[0]?.id ?? null,
+        nodeId,
+        targetId,
+        updatedAt: new Date().toISOString()
+      };
+      await this.syncLiveViews(session);
+    }
     return {
       targetId,
       selection: selection.selection ?? selection,
@@ -485,21 +615,36 @@ export class CanvasManager implements CanvasManagerLike {
     if (!prototype) {
       throw new Error(`Unknown prototype: ${prototypeId}`);
     }
+    const document = session.store.getDocument();
     const status = await this.browserManager.status(session.browserSessionId);
     const url = resolvePreviewUrl(status.url, prototype.route);
     if (!url) {
-      throw new Error("Unable to resolve preview target URL.");
+      throw this.unsupportedTarget("canvas.preview.render", session, targetId);
     }
+    const previewTarget = this.allocatePreviewTarget(session, targetId, status.activeTargetId);
+    const telemetryMode = previewTarget.previewState === "degraded"
+      ? "paused"
+      : previewTarget.previewState === "background"
+        ? "sampled"
+        : "full";
     await this.browserManager.goto(session.browserSessionId, url, "load", 30000, undefined, targetId);
     const screenshot = await this.browserManager.screenshot(session.browserSessionId, targetId);
-    const consoleData = await this.browserManager.consolePoll(session.browserSessionId, 0, 25);
-    const networkData = await this.browserManager.networkPoll(session.browserSessionId, 0, 25);
+    const consoleData = telemetryMode === "paused"
+      ? { events: [], nextSeq: 0 }
+      : await this.browserManager.consolePoll(session.browserSessionId, 0, telemetryMode === "sampled" ? 5 : 25);
+    const networkData = telemetryMode === "paused"
+      ? { events: [], nextSeq: 0 }
+      : await this.browserManager.networkPoll(session.browserSessionId, 0, telemetryMode === "sampled" ? 5 : 25);
+    const perfData = telemetryMode === "paused"
+      ? { metrics: [] }
+      : await this.collectPerfMetrics(session.browserSessionId, targetId);
     const previewState: CanvasTargetState = {
       targetId,
       prototypeId,
-      previewMode: "focused",
-      previewState: "rendered",
-      renderStatus: "rendered",
+      previewMode: previewTarget.previewMode,
+      previewState: previewTarget.previewState,
+      renderStatus: previewTarget.previewState === "degraded" ? "degraded" : "rendered",
+      degradeReason: previewTarget.degradeReason,
       lastRenderedAt: new Date().toISOString()
     };
     session.activeTargets.set(targetId, previewState);
@@ -527,23 +672,54 @@ export class CanvasManager implements CanvasManagerLike {
         evidenceRefs: []
       });
     }
+    if (perfData.metrics.length > 0) {
+      this.pushFeedback(session, {
+        category: "performance",
+        class: "perf-summary",
+        severity: "info",
+        message: `Captured ${perfData.metrics.length} performance metrics for ${previewState.previewState} preview.`,
+        pageId: prototype.pageId,
+        prototypeId,
+        targetId,
+        evidenceRefs: [],
+        details: {
+          previewState: previewState.previewState,
+          metrics: perfData.metrics
+        }
+      });
+    }
+    const warnings = evaluateCanvasWarnings(document, { degradeReason: previewState.degradeReason ?? null });
+    this.emitWarnings(session, warnings, {
+      pageId: prototype.pageId,
+      prototypeId,
+      targetId
+    });
     this.pushFeedback(session, {
       category: "render",
-      class: "render-complete",
-      severity: "info",
-      message: "Preview render completed.",
+      class: previewState.renderStatus === "degraded" ? "render-degraded" : "render-complete",
+      severity: previewState.renderStatus === "degraded" ? "warning" : "info",
+      message: previewState.renderStatus === "degraded"
+        ? "Preview render completed in degraded thumbnail-only mode."
+        : "Preview render completed.",
       pageId: prototype.pageId,
       prototypeId,
       targetId,
-      evidenceRefs: screenshot.path ? [screenshot.path] : []
+      evidenceRefs: screenshot.path ? [screenshot.path] : [],
+      details: {
+        previewState: previewState.previewState,
+        degradeReason: previewState.degradeReason ?? null
+      }
     });
-    await this.syncDesignTab(session);
+    await this.syncLiveViews(session);
     return {
-      renderStatus: "rendered",
+      renderStatus: previewState.renderStatus,
       targetId,
       prototypeId,
-      previewState: "rendered",
-      documentRevision: session.store.getRevision()
+      previewState: previewState.previewState,
+      previewMode: previewState.previewMode,
+      documentRevision: session.store.getRevision(),
+      degradeReason: previewState.degradeReason ?? null,
+      warnings
     };
   }
 
@@ -551,10 +727,10 @@ export class CanvasManager implements CanvasManagerLike {
     const session = this.requireSession(params);
     this.assertLease(session, params);
     const targetId = requireString(params.targetId, "targetId");
-    const refreshMode = requireString(params.refreshMode, "refreshMode");
+    const refreshMode = requireRefreshMode(params.refreshMode, "refreshMode");
     const existing = session.activeTargets.get(targetId);
     if (!existing) {
-      throw new Error(`Unknown preview target: ${targetId}`);
+      throw this.unsupportedTarget("canvas.preview.refresh", session, targetId);
     }
     if (refreshMode === "full") {
       return await this.renderPreview({
@@ -575,6 +751,7 @@ export class CanvasManager implements CanvasManagerLike {
       targetId,
       evidenceRefs: screenshot.path ? [screenshot.path] : []
     });
+    await this.syncLiveViews(session);
     return {
       targetId,
       previewState: existing.previewState,
@@ -587,30 +764,162 @@ export class CanvasManager implements CanvasManagerLike {
   private pollFeedback(params: CanvasCommandParams): unknown {
     const session = this.requireSession(params);
     const afterCursor = optionalString(params.afterCursor);
-    const startIndex = afterCursor ? session.feedback.findIndex((item) => item.cursor === afterCursor) + 1 : 0;
-    const items = session.feedback.slice(Math.max(startIndex, 0), Math.max(startIndex, 0) + 25);
-    const nextCursor = items.length > 0 ? items[items.length - 1]!.cursor : afterCursor;
+    const items = this.filterFeedback(session, params);
+    const startIndex = afterCursor ? items.findIndex((item) => item.cursor === afterCursor) + 1 : 0;
+    const batch = items.slice(Math.max(startIndex, 0), Math.max(startIndex, 0) + FEEDBACK_BATCH_SIZE);
+    const nextCursor = batch.length > 0 ? batch[batch.length - 1]!.cursor : afterCursor;
+    const retentionByTarget: Record<string, number> = {};
+    for (const item of session.feedback) {
+      const targetKey = item.targetId ?? "session";
+      retentionByTarget[targetKey] = (retentionByTarget[targetKey] ?? 0) + 1;
+    }
+    const targetIds = normalizeStringArray(params.targetIds);
+    const singleTarget = optionalString(params.targetId);
+    if (singleTarget) {
+      targetIds.push(singleTarget);
+    }
+    const activeTargetIds = [...session.activeTargets.keys()];
     return {
-      items,
+      items: batch,
       nextCursor: nextCursor ?? null,
-      retention: { total: session.feedback.length }
+      retention: {
+        total: session.feedback.length,
+        filteredTotal: items.length,
+        byTarget: targetIds.length > 0
+          ? Object.fromEntries(Object.entries(retentionByTarget).filter(([key]) => key === "session" || targetIds.includes(key)))
+          : retentionByTarget,
+        activeTargetIds
+      }
     };
   }
 
   private subscribeFeedback(params: CanvasCommandParams): unknown {
     const session = this.requireSession(params);
     const polled = this.pollFeedback(params) as { items: CanvasFeedbackItem[]; nextCursor: string | null };
-    return {
-      subscriptionId: `canvas_sub_${randomUUID()}`,
+    const subscriptionId = `canvas_sub_${randomUUID()}`;
+    const subscription: CanvasFeedbackSubscription = {
+      id: subscriptionId,
+      categories: new Set(normalizeStringArray(params.categories)),
+      targetIds: new Set([...normalizeStringArray(params.targetIds), ...normalizeOptionalString(optionalString(params.targetId))]),
+      queue: [],
+      waiters: [],
+      cursor: polled.nextCursor,
+      heartbeatTimer: setInterval(() => {
+        if (!subscription.active) {
+          return;
+        }
+        this.enqueueFeedbackEvent(subscription, {
+          eventType: "feedback.heartbeat",
+          cursor: subscription.cursor,
+          ts: new Date().toISOString(),
+          activeTargetIds: [...session.activeTargets.keys()]
+        });
+      }, 15000),
+      active: true
+    };
+    subscription.heartbeatTimer.unref?.();
+    session.feedbackSubscriptions.set(subscriptionId, subscription);
+    const response: Record<string, unknown> = {
+      subscriptionId,
       items: polled.items,
       cursor: polled.nextCursor,
-      eventTypes: ["feedback.item", "feedback.heartbeat", "feedback.complete"]
+      eventTypes: ["feedback.item", "feedback.heartbeat", "feedback.complete"],
+      heartbeatMs: 15000,
+      activeTargetIds: [...session.activeTargets.keys()],
+      completeReason: null
     };
+    Object.defineProperty(response, "stream", {
+      enumerable: false,
+      value: this.createFeedbackStream(subscription)
+    });
+    Object.defineProperty(response, "unsubscribe", {
+      enumerable: false,
+      value: () => {
+        this.completeFeedbackSubscription(session, subscriptionId, "subscription_replaced");
+      }
+    });
+    return response;
+  }
+
+  private createFeedbackStream(subscription: CanvasFeedbackSubscription): AsyncIterable<CanvasFeedbackStreamEvent> {
+    const self = this;
+    return {
+      async *[Symbol.asyncIterator]() {
+        while (subscription.active || subscription.queue.length > 0) {
+          if (subscription.queue.length > 0) {
+            const next = subscription.queue.shift();
+            if (next) {
+              yield next;
+            }
+            continue;
+          }
+          const awaited = await new Promise<CanvasFeedbackStreamEvent | null>((resolve) => {
+            subscription.waiters.push(resolve);
+          });
+          if (awaited) {
+            yield awaited;
+          }
+        }
+        self.flushSubscriptionWaiters(subscription, null);
+      }
+    };
+  }
+
+  private enqueueFeedbackEvent(subscription: CanvasFeedbackSubscription, event: CanvasFeedbackStreamEvent): void {
+    if (!subscription.active && event.eventType !== "feedback.complete") {
+      return;
+    }
+    subscription.cursor = event.eventType === "feedback.item"
+      ? event.item.cursor
+      : event.cursor;
+    const waiter = subscription.waiters.shift();
+    if (waiter) {
+      waiter(event);
+      return;
+    }
+    subscription.queue.push(event);
+  }
+
+  private flushSubscriptionWaiters(subscription: CanvasFeedbackSubscription, event: CanvasFeedbackStreamEvent | null): void {
+    while (subscription.waiters.length > 0) {
+      const waiter = subscription.waiters.shift();
+      waiter?.(event);
+    }
+  }
+
+  private completeFeedbackSubscription(
+    session: CanvasSession,
+    subscriptionId: string,
+    reason: "session_closed" | "lease_revoked" | "subscription_replaced" | "document_unloaded"
+  ): void {
+    const subscription = session.feedbackSubscriptions.get(subscriptionId);
+    if (!subscription || !subscription.active) {
+      return;
+    }
+    subscription.active = false;
+    clearInterval(subscription.heartbeatTimer);
+    this.enqueueFeedbackEvent(subscription, {
+      eventType: "feedback.complete",
+      cursor: subscription.cursor,
+      ts: new Date().toISOString(),
+      reason
+    });
+    session.feedbackSubscriptions.delete(subscriptionId);
+  }
+
+  private completeFeedbackSubscriptions(
+    session: CanvasSession,
+    reason: "session_closed" | "lease_revoked" | "subscription_replaced" | "document_unloaded"
+  ): void {
+    for (const subscriptionId of [...session.feedbackSubscriptions.keys()]) {
+      this.completeFeedbackSubscription(session, subscriptionId, reason);
+    }
   }
 
   private buildHandshake(session: CanvasSession): Record<string, unknown> {
     const document = session.store.getDocument();
     const governanceBlockStates = buildGovernanceBlockStates(document);
+    const runtimeBudgets = getRuntimeBudgets(document);
     return {
       canvasSessionId: session.canvasSessionId,
       browserSessionId: session.browserSessionId,
@@ -665,8 +974,27 @@ export class CanvasManager implements CanvasManagerLike {
       supportedVariantDimensions: ["viewport", "theme", "interaction", "content"],
       allowedLibraries: CANVAS_PROJECT_DEFAULTS.libraryPolicy,
       governanceBlockStates,
-      runtimeBudgets: CANVAS_PROJECT_DEFAULTS.runtimeBudgets,
-      warningClasses: ["missing-generation-plan", "missing-intent", "runtime-budget-exceeded"],
+      runtimeBudgets,
+      warningClasses: [
+        "missing-generation-plan",
+        "missing-governance-block",
+        "missing-intent",
+        "missing-typography-system",
+        "hierarchy-weak",
+        "overflow",
+        "token-missing",
+        "contrast-failure",
+        "broken-asset-reference",
+        "font-policy-missing",
+        "font-load-failure",
+        "missing-state-coverage",
+        "reduced-motion-violation",
+        "unresolved-component-binding",
+        "library-policy-violation",
+        "responsive-mismatch",
+        "runtime-budget-exceeded",
+        "unsupported-target"
+      ],
       mutationPolicy: {
         planRequiredBeforePatch: true,
         allowedBeforePlan: [
@@ -709,7 +1037,7 @@ export class CanvasManager implements CanvasManagerLike {
   private assertLease(session: CanvasSession, params: CanvasCommandParams): void {
     const leaseId = requireString(params.leaseId, "leaseId");
     if (leaseId !== session.leaseId) {
-      throw new Error(`Lease mismatch for ${session.canvasSessionId}`);
+      throw this.leaseReclaimRequired(session);
     }
   }
 
@@ -721,7 +1049,7 @@ export class CanvasManager implements CanvasManagerLike {
       latestRevision: session.store.getRevision(),
       message: "generationPlan must be accepted before mutation."
     };
-    return attachDetails(new Error(blocker.message), { code: blocker.code, blocker });
+    return attachDetails(new Error(blocker.message), { code: blocker.code, blocker, details: { auditId: "CANVAS-01" } });
   }
 
   private revisionConflict(command: string, session: CanvasSession): Error {
@@ -732,7 +1060,143 @@ export class CanvasManager implements CanvasManagerLike {
       latestRevision: session.store.getRevision(),
       message: "The canvas document revision changed before this patch batch was applied."
     };
-    return attachDetails(new Error(blocker.message), { code: blocker.code, blocker });
+    return attachDetails(new Error(blocker.message), { code: blocker.code, blocker, details: { auditId: "CANVAS-07" } });
+  }
+
+  private policyViolation(
+    command: string,
+    session: CanvasSession,
+    missingBlocks: string[],
+    warnings: CanvasValidationWarning[]
+  ): Error {
+    const blocker: CanvasBlocker = {
+      code: "policy_violation",
+      blockingCommand: command,
+      requiredNextCommands: ["canvas.plan.get", "canvas.document.load"],
+      latestRevision: session.store.getRevision(),
+      message: `Required save governance blocks are missing: ${missingBlocks.join(", ")}.`
+    };
+    return attachDetails(new Error(blocker.message), {
+      code: blocker.code,
+      blocker,
+      details: {
+        auditId: "CANVAS-02",
+        missingBlocks,
+        warnings
+      }
+    });
+  }
+
+  private unsupportedTarget(command: string, session: CanvasSession, targetId: string): Error {
+    const blocker: CanvasBlocker = {
+      code: "unsupported_target",
+      blockingCommand: command,
+      requiredNextCommands: ["canvas.session.status"],
+      latestRevision: session.store.getRevision(),
+      message: `Canvas target is unavailable: ${targetId}.`
+    };
+    return attachDetails(new Error(blocker.message), {
+      code: blocker.code,
+      blocker,
+      details: {
+        auditId: "CANVAS-05",
+        targetId
+      }
+    });
+  }
+
+  private leaseReclaimRequired(session: CanvasSession): Error {
+    const blocker: CanvasBlocker = {
+      code: "lease_reclaim_required",
+      blockingCommand: "canvas.session.status",
+      requiredNextCommands: ["canvas.session.status"],
+      latestRevision: session.store.getRevision(),
+      message: "The canvas lease was reclaimed or replaced."
+    };
+    return attachDetails(new Error(blocker.message), {
+      code: blocker.code,
+      blocker,
+      details: {
+        auditId: "CANVAS-08",
+        leaseId: session.leaseId
+      }
+    });
+  }
+
+  private emitWarnings(
+    session: CanvasSession,
+    warnings: CanvasValidationWarning[],
+    context: {
+      category?: CanvasFeedbackItem["category"];
+      pageId?: string | null;
+      prototypeId?: string | null;
+      targetId?: string | null;
+    } = {}
+  ): void {
+    for (const warning of warnings) {
+      this.pushFeedback(session, {
+        category: context.category ?? categoryForWarning(warning),
+        class: warning.code,
+        severity: warning.severity,
+        message: warning.message,
+        pageId: context.pageId ?? null,
+        prototypeId: context.prototypeId ?? null,
+        targetId: context.targetId ?? null,
+        evidenceRefs: [],
+        details: {
+          ...(warning.details ?? {}),
+          auditId: warning.auditId ?? null
+        }
+      });
+    }
+  }
+
+  private filterFeedback(session: CanvasSession, params: CanvasCommandParams): CanvasFeedbackItem[] {
+    const categoryFilter = new Set(normalizeStringArray(params.categories));
+    const targetFilter = new Set(normalizeStringArray(params.targetIds));
+    const singleTarget = optionalString(params.targetId);
+    if (singleTarget) {
+      targetFilter.add(singleTarget);
+    }
+    const filtered = session.feedback.filter((item) => {
+      if (categoryFilter.size > 0 && !categoryFilter.has(item.category)) {
+        return false;
+      }
+      if (targetFilter.size > 0 && item.targetId && !targetFilter.has(item.targetId)) {
+        return false;
+      }
+      return targetFilter.size === 0 || item.targetId === null || targetFilter.has(item.targetId);
+    });
+    const blocker = session.planStatus === "accepted" ? null : this.buildPreflightFeedback(session);
+    return blocker ? dedupeFeedback([blocker, ...filtered]) : filtered;
+  }
+
+  private buildPreflightFeedback(session: CanvasSession): CanvasFeedbackItem {
+    const blocker = {
+      code: "plan_required",
+      blockingCommand: "canvas.feedback.poll",
+      requiredNextCommands: ["canvas.plan.set"],
+      latestRevision: session.store.getRevision(),
+      message: "generationPlan must be accepted before the live design loop is ready."
+    } satisfies CanvasBlocker;
+    return {
+      id: `fb_preflight_${session.store.getRevision()}`,
+      cursor: `fb_preflight_${session.store.getRevision()}`,
+      severity: "warning",
+      category: "validation",
+      class: "preflight-blocker",
+      documentId: session.store.getDocumentId(),
+      pageId: null,
+      prototypeId: null,
+      targetId: null,
+      documentRevision: session.store.getRevision(),
+      message: blocker.message,
+      evidenceRefs: [],
+      details: {
+        blocker,
+        auditId: "CANVAS-01"
+      }
+    };
   }
 
   private pushFeedback(
@@ -749,9 +1213,94 @@ export class CanvasManager implements CanvasManagerLike {
       ...payload
     };
     session.feedback.push(item);
-    if (session.feedback.length > 200) {
+    if (session.feedback.length > FEEDBACK_RETENTION_LIMIT) {
       session.feedback.shift();
     }
+    for (const subscription of session.feedbackSubscriptions.values()) {
+      if (!this.subscriptionMatchesItem(subscription, item)) {
+        continue;
+      }
+      this.enqueueFeedbackEvent(subscription, {
+        eventType: "feedback.item",
+        item
+      });
+    }
+  }
+
+  private subscriptionMatchesItem(subscription: CanvasFeedbackSubscription, item: CanvasFeedbackItem): boolean {
+    if (subscription.categories.size > 0 && !subscription.categories.has(item.category)) {
+      return false;
+    }
+    if (subscription.targetIds.size === 0) {
+      return true;
+    }
+    return item.targetId === null || subscription.targetIds.has(item.targetId);
+  }
+
+  private buildFeedbackSnapshot(session: CanvasSession): CanvasFeedbackStreamEvent[] {
+    const items = this.filterFeedback(session, {}).slice(-Math.min(FEEDBACK_BATCH_SIZE, 20));
+    const snapshot: CanvasFeedbackStreamEvent[] = items.map((item) => ({
+      eventType: "feedback.item" as const,
+      item
+    }));
+    snapshot.push({
+      eventType: "feedback.heartbeat",
+      cursor: items.at(-1)?.cursor ?? null,
+      ts: new Date().toISOString(),
+      activeTargetIds: [...session.activeTargets.keys()]
+    });
+    return snapshot;
+  }
+
+  private getLatestFeedbackCursor(session: CanvasSession): string | null {
+    return session.feedback.at(-1)?.cursor ?? null;
+  }
+
+  private allocatePreviewTarget(
+    session: CanvasSession,
+    targetId: string,
+    activeTargetId: string | null | undefined
+  ): { previewMode: CanvasPreviewState; previewState: CanvasPreviewState; degradeReason?: CanvasDegradeReason } {
+    const existing = session.activeTargets.get(targetId);
+    if (existing) {
+      return {
+        previewMode: existing.previewMode,
+        previewState: existing.previewState,
+        degradeReason: existing.degradeReason
+      };
+    }
+    const budgets = getRuntimeBudgets(session.store.getDocument());
+    const nonDesignTargets = [...session.activeTargets.values()].filter((entry) => entry.targetId !== session.designTabTargetId);
+    const limit = budgets.defaultLivePreviewLimit + budgets.maxPinnedFullPreviewExtra;
+    const previewMode: CanvasPreviewState = targetId === activeTargetId ? "focused" : "background";
+    if (nonDesignTargets.length >= limit) {
+      return {
+        previewMode: "degraded",
+        previewState: "degraded",
+        degradeReason: "overflow"
+      };
+    }
+    return {
+      previewMode,
+      previewState: previewMode
+    };
+  }
+
+  private async collectPerfMetrics(sessionId: string, targetId: string): Promise<{ metrics: Array<{ name: string; value: number }> }> {
+    const perfMetrics = (this.browserManager as { perfMetrics?: (sessionId: string, targetId?: string | null) => Promise<{ metrics: Array<{ name: string; value: number }> }> }).perfMetrics;
+    if (typeof perfMetrics !== "function") {
+      return { metrics: [] };
+    }
+    try {
+      return await perfMetrics.call(this.browserManager, sessionId, targetId);
+    } catch {
+      return { metrics: [] };
+    }
+  }
+
+  private async syncLiveViews(session: CanvasSession): Promise<void> {
+    await this.syncDesignTab(session);
+    await this.syncOverlays(session);
   }
 
   private async syncDesignTab(session: CanvasSession): Promise<void> {
@@ -760,13 +1309,39 @@ export class CanvasManager implements CanvasManagerLike {
     }
     const status = await this.browserManager.status(session.browserSessionId);
     if (status.mode !== "extension") {
+      const html = renderCanvasDocumentHtml(session.store.getDocument());
+      const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      await this.browserManager.goto(session.browserSessionId, url, "load", 30000, undefined, session.designTabTargetId).catch(() => {});
       return;
     }
     await this.requestCanvasExtension(session, "canvas.tab.sync", {
       targetId: session.designTabTargetId,
       document: session.store.getDocument(),
-      summary: this.buildSessionSummary(session)
+      documentRevision: session.store.getRevision(),
+      summary: this.buildSessionSummary(session),
+      targets: [...session.activeTargets.values()],
+      overlayMounts: [...session.overlayMounts.values()],
+      feedback: this.buildFeedbackSnapshot(session),
+      feedbackCursor: this.getLatestFeedbackCursor(session),
+      selection: session.editorSelection
     }).catch(() => {});
+  }
+
+  private async syncOverlays(session: CanvasSession): Promise<void> {
+    if (!session.browserSessionId || session.overlayMounts.size === 0) {
+      return;
+    }
+    const status = await this.browserManager.status(session.browserSessionId);
+    if (status.mode !== "extension") {
+      return;
+    }
+    for (const mount of session.overlayMounts.values()) {
+      await this.requestCanvasExtension(session, "canvas.overlay.sync", {
+        mountId: mount.mountId,
+        targetId: mount.targetId,
+        selection: session.editorSelection
+      }).catch(() => {});
+    }
   }
 
   private async requestCanvasExtension(
@@ -790,11 +1365,56 @@ export class CanvasManager implements CanvasManagerLike {
         config: this.config
       });
       this.canvasClient?.disconnect();
-      this.canvasClient = new CanvasClient(connectEndpoint);
+      this.canvasClient = new CanvasClient(connectEndpoint, {
+        onEvent: (event) => {
+          void this.handleCanvasEvent(event).catch(() => {});
+        }
+      });
       this.canvasEndpoint = url;
       await this.canvasClient.connect();
     }
     return this.canvasClient;
+  }
+
+  private async handleCanvasEvent(event: { event: string; canvasSessionId?: string; payload?: unknown }): Promise<void> {
+    if (event.event !== "canvas_patch_requested" || typeof event.canvasSessionId !== "string") {
+      return;
+    }
+    const session = this.sessions.get(event.canvasSessionId);
+    if (!session) {
+      return;
+    }
+    const payload = isRecord(event.payload) ? event.payload : null;
+    if (!payload) {
+      return;
+    }
+    const baseRevision = requireNumber(payload.baseRevision, "baseRevision");
+    const patches = requirePatches(payload.patches);
+    if (isRecord(payload.selection)) {
+      session.editorSelection = {
+        pageId: optionalString(payload.selection.pageId) ?? session.editorSelection.pageId,
+        nodeId: optionalString(payload.selection.nodeId),
+        targetId: optionalString(payload.selection.targetId),
+        updatedAt: new Date().toISOString()
+      };
+    }
+    try {
+      await this.applyDocumentPatches(session, baseRevision, patches, "editor");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.pushFeedback(session, {
+        category: "validation",
+        class: "editor-patch-rejected",
+        severity: "warning",
+        message,
+        pageId: session.editorSelection.pageId,
+        prototypeId: null,
+        targetId: session.editorSelection.targetId,
+        evidenceRefs: [],
+        details: { source: "editor" }
+      });
+      await this.syncLiveViews(session);
+    }
   }
 
   private async mountDirectOverlay(
@@ -815,7 +1435,8 @@ export class CanvasManager implements CanvasManagerLike {
         return {
           mountId: `mount_${crypto.randomUUID()}`,
           targetId: pageTargetId,
-          previewState: "overlay_mounted",
+          previewState: "background",
+          overlayState: "mounted",
           capabilities: { selection: true, guides: true }
         };
       }, { title: canvasDocument.title, prototype: prototypeId, targetId });
@@ -837,14 +1458,17 @@ export class CanvasManager implements CanvasManagerLike {
   private async selectDirectOverlay(
     sessionId: string,
     targetId: string,
+    nodeId: string | null,
     selectionHint: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
     return await this.browserManager.withPage(sessionId, targetId, async (page: DirectPageLike) => {
-      return await page.evaluate((hint) => {
+      return await page.evaluate((input) => {
         document.querySelectorAll(".opendevbrowser-canvas-highlight").forEach((element) => {
           element.classList.remove("opendevbrowser-canvas-highlight");
         });
-        const selector = typeof hint.selector === "string" ? hint.selector : null;
+        const selector = typeof input.selectionHint.selector === "string"
+          ? input.selectionHint.selector
+          : (input.nodeId ? `[data-node-id="${input.nodeId}"]` : null);
         const element = selector ? document.querySelector(selector) : null;
         if (!(element instanceof HTMLElement)) {
           return { matched: false };
@@ -859,7 +1483,7 @@ export class CanvasManager implements CanvasManagerLike {
           /* c8 ignore next -- the highlight class is always added immediately above */
           className: element.className || null
         };
-      }, selectionHint);
+      }, { nodeId, selectionHint });
     }) as Record<string, unknown>;
   }
 }
@@ -906,6 +1530,14 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function normalizeOptionalString(value: string | null): string[] {
+  return value ? [value] : [];
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0) : [];
+}
+
 function requireRecord(value: unknown, name: string): Record<string, unknown> {
   if (!isRecord(value)) {
     throw new Error(`Missing ${name}`);
@@ -926,6 +1558,69 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyRecord(value: unknown): value is Record<string, unknown> {
   return isRecord(value) && Object.keys(value).length > 0;
+}
+
+function requireTabPreviewMode(value: unknown, name: string): "focused" | "pinned" | "background" {
+  if (value === "focused" || value === "pinned" || value === "background") {
+    return value;
+  }
+  throw new Error(`Missing ${name}`);
+}
+
+function requireRefreshMode(value: unknown, name: string): "full" | "thumbnail" {
+  if (value === "full" || value === "thumbnail") {
+    return value;
+  }
+  throw new Error(`Missing ${name}`);
+}
+
+function categoryForWarning(warning: CanvasValidationWarning): CanvasFeedbackItem["category"] {
+  switch (warning.code) {
+    case "broken-asset-reference":
+    case "asset-provenance-missing":
+      return "asset";
+    case "export-warning":
+      return "export";
+    default:
+      return "validation";
+  }
+}
+
+function dedupeFeedback(items: CanvasFeedbackItem[]): CanvasFeedbackItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) {
+      return false;
+    }
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function getRuntimeBudgets(document: CanvasDocument): {
+  defaultLivePreviewLimit: number;
+  maxPinnedFullPreviewExtra: number;
+  reconnectGraceMs: number;
+  overflowRenderMode: string;
+  backgroundTelemetryMode: string;
+} {
+  const raw = document.designGovernance.runtimeBudgets;
+  const runtimeBudgets = isRecord(raw) ? raw : {};
+  return {
+    defaultLivePreviewLimit: readNumber(runtimeBudgets.defaultLivePreviewLimit, CANVAS_PROJECT_DEFAULTS.runtimeBudgets.defaultLivePreviewLimit),
+    maxPinnedFullPreviewExtra: readNumber(runtimeBudgets.maxPinnedFullPreviewExtra, CANVAS_PROJECT_DEFAULTS.runtimeBudgets.maxPinnedFullPreviewExtra),
+    reconnectGraceMs: readNumber(runtimeBudgets.reconnectGraceMs, CANVAS_PROJECT_DEFAULTS.runtimeBudgets.reconnectGraceMs),
+    overflowRenderMode: typeof runtimeBudgets.overflowRenderMode === "string"
+      ? runtimeBudgets.overflowRenderMode
+      : CANVAS_PROJECT_DEFAULTS.runtimeBudgets.overflowRenderMode,
+    backgroundTelemetryMode: typeof runtimeBudgets.backgroundTelemetryMode === "string"
+      ? runtimeBudgets.backgroundTelemetryMode
+      : CANVAS_PROJECT_DEFAULTS.runtimeBudgets.backgroundTelemetryMode
+  };
+}
+
+function readNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function attachDetails(error: Error, details: Record<string, unknown>): Error {

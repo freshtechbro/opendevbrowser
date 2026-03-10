@@ -231,7 +231,7 @@ Envelope contract:
 
 ### `/canvas` command names (19)
 
-`/canvas` is the typed design-canvas relay protocol used by `opendevbrowser_canvas` and the `canvas` CLI command. Canonical document mutations execute in core; extension runtime support is used for live design-tab and overlay commands.
+`/canvas` is the typed design-canvas relay protocol used by `opendevbrowser_canvas` and the `canvas` CLI command. Canonical document mutations execute in core; extension runtime support is used for the extension-hosted `canvas.html` infinite-canvas editor, converged design-tab state sync, and overlay commands.
 
 #### Session and governance (6)
 - `canvas.session.open`
@@ -267,6 +267,12 @@ Extension runtime subset:
 - `canvas.overlay.mount`
 - `canvas.overlay.unmount`
 - `canvas.overlay.select`
+
+Behavior notes:
+- `canvas.document.patch` supports governance completion through `governance.update` patch batches in addition to scene/node operations.
+- `canvas.document.save` and `canvas.document.export` can fail with `policy_violation` when `requiredBeforeSave` governance blocks are still missing.
+- Extension-hosted design tabs persist full same-origin editor state in `IndexedDB`, rebroadcast converged state over `BroadcastChannel`, and forward editor-originated patch requests through `canvas_event` payloads.
+- `canvas.feedback.subscribe` returns the initial filtered batch plus a live async stream that emits `feedback.item`, `feedback.heartbeat`, and `feedback.complete` events.
 
 Envelope contract:
 - request: `canvas_request` (`requestId`, `canvasSessionId`, `leaseId`, `command`, `payload`)

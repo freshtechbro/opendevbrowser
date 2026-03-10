@@ -226,7 +226,7 @@ sequenceDiagram
 
 - `/ops` is the default high-level extension channel with explicit commands (`session.*`, `targets.*`, `page.*`, `nav.*`, `interact.*`, `dom.*`, `export.*`, `devtools.*`).
 - `/ops` envelopes: `ops_hello`, `ops_request`, `ops_response`, `ops_error`, `ops_event`, `ops_chunk`, `ops_ping`, `ops_pong`.
-- `/canvas` is a dedicated design-canvas channel for session handshakes, governance-plan gating, document mutation requests, live design-tab control, overlay selection, preview refresh, and feedback events.
+- `/canvas` is a dedicated design-canvas channel for session handshakes, governance-plan gating, canonical document mutation requests, extension-hosted design-tab editor sync, overlay selection, preview refresh, and feedback events.
 - `/canvas` envelopes: `canvas_hello`, `canvas_request`, `canvas_response`, `canvas_error`, `canvas_event`, `canvas_chunk`, `canvas_ping`, `canvas_pong`.
 - `/cdp` is legacy and forwards raw CDP commands via `forwardCDPCommand` envelopes (`id`, `method`, `params`, optional `sessionId`) and relays events/responses back.
 - `/annotation` remains a dedicated channel for annotation command/event/response flow.
@@ -265,9 +265,9 @@ sequenceDiagram
 - Diagnostics include console/network/exception trackers and a combined debug bundle endpoint (`debug_trace_snapshot`, `debug-trace-snapshot`, `devtools.debugTraceSnapshot`).
 - Design canvas surfaces expose `canvas.execute` / `opendevbrowser_canvas` / `opendevbrowser canvas` and are layered as:
   - `session handshake` (`canvas.session.open`, `canvas.capabilities.get`) for governance and plan requirements
-  - `document store` (`canvas.document.load`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`) for repo-native JSON artifacts
-  - `live preview + overlay` (`canvas.tab.open`, `canvas.overlay.mount`, `canvas.preview.render`, `canvas.preview.refresh`) for browser-backed iteration
-  - `feedback` (`canvas.feedback.poll`, `canvas.feedback.subscribe`) for render/validation signals
+  - `document store` (`canvas.document.load`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`) for repo-native JSON artifacts, typed Yjs-backed document state, governance completion, and save/export policy gates
+  - `live editor + preview + overlay` (`canvas.tab.open`, `canvas.overlay.mount`, `canvas.preview.render`, `canvas.preview.refresh`) for browser-backed iteration; extension mode uses `extension/canvas.html` as the same-origin infinite-canvas host and converges editor state through `IndexedDB`, `BroadcastChannel`, and `/canvas`
+  - `feedback` (`canvas.feedback.poll`, `canvas.feedback.subscribe`) for render, validation, export, editor-patch, and target-filtered feedback signals; subscriptions expose an async live stream in addition to the initial batch response
 - Legal/compliance gating for scrape-first adapters is enforced with per-provider review checklists (review date, allowed surfaces, prohibited flows, reviewer, expiry, signed-off status) and blocks expired/invalid enablement.
 - Session coherence includes cookie import validation and tiered fingerprint controls:
   - Provider cookie policy defaults are configurable via `providers.cookiePolicy` (`off|auto|required`) and `providers.cookieSource` (`file|env|inline`).

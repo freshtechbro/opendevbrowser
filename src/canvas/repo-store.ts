@@ -1,23 +1,20 @@
-import { mkdir, readFile } from "fs/promises";
+import { access, mkdir, readFile } from "fs/promises";
 import { join, dirname, isAbsolute, resolve } from "path";
 import { writeFileAtomic } from "../utils/fs";
 import type { CanvasDocument } from "./types";
 
-function stableStringify(value: unknown): string {
-  if (value === null) return "null";
-  if (typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
+    return value.map((entry) => stableValue(entry));
   }
-  /* v8 ignore next -- persisted CanvasDocument data is JSON-shaped and should not contain non-object fallbacks here */
   if (!value || typeof value !== "object") {
-    return JSON.stringify(value);
+    return value;
   }
-  const entries = Object.entries(value)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`);
-  return `{${entries.join(",")}}`;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entryValue]) => [key, stableValue(entryValue)])
+  );
 }
 
 export function resolveCanvasRepoPath(worktree: string, documentId: string, repoPath?: string | null): string {
@@ -30,7 +27,7 @@ export function resolveCanvasRepoPath(worktree: string, documentId: string, repo
 export async function saveCanvasDocument(worktree: string, document: CanvasDocument, repoPath?: string | null): Promise<string> {
   const resolvedPath = resolveCanvasRepoPath(worktree, document.documentId, repoPath);
   await mkdir(dirname(resolvedPath), { recursive: true });
-  writeFileAtomic(resolvedPath, `${stableStringify(document)}\n`, { encoding: "utf-8" });
+  writeFileAtomic(resolvedPath, `${JSON.stringify(stableValue(document), null, 2)}\n`, { encoding: "utf-8" });
   return resolvedPath;
 }
 
@@ -39,4 +36,14 @@ export async function loadCanvasDocument(worktree: string, repoPath: string): Pr
   const raw = await readFile(resolvedPath, "utf-8");
   const parsed = JSON.parse(raw) as CanvasDocument;
   return parsed;
+}
+
+export async function loadCanvasDocumentById(worktree: string, documentId: string): Promise<CanvasDocument | null> {
+  const resolvedPath = resolveCanvasRepoPath(worktree, documentId);
+  try {
+    await access(resolvedPath);
+  } catch {
+    return null;
+  }
+  return await loadCanvasDocument(worktree, resolvedPath);
 }

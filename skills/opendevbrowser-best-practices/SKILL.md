@@ -1,7 +1,7 @@
 ---
 name: opendevbrowser-best-practices
 description: This skill should be used when the user asks to design or run OpenDevBrowser provider workflows, scraping pipelines, QA/debug automation, parity checks across modes, or resilient browser operations with codified scripts and artifacts.
-version: 2.3.0
+version: 2.4.0
 ---
 
 # OpenDevBrowser Best Practices
@@ -24,11 +24,16 @@ Use this skill when you need:
 - `artifacts/macro-workflows.md` — macro design and expansion standards.
 - `artifacts/browser-agent-known-issues-matrix.md` — known browser-agent failure modes mapped to required controls.
 - `artifacts/command-channel-reference.md` — CLI/tool/`/ops`/`/cdp` surface map plus cross-agent skill-sync targets.
+- `artifacts/canvas-governance-playbook.md` — `/canvas` preflight, blocker, and feedback-evaluation guidance.
 - `assets/templates/mode-flag-matrix.json` — mode + flag verification template.
 - `assets/templates/ops-request-envelope.json` — `/ops` request envelope template.
 - `assets/templates/cdp-forward-envelope.json` — `/cdp` relay envelope template.
 - `assets/templates/robustness-checklist.json` — shared issue-status checklist for workflow robustness audits.
 - `assets/templates/surface-audit-checklist.json` — docs/surface audit checklist template.
+- `assets/templates/canvas-handshake-example.json` — canonical `/canvas` handshake example.
+- `assets/templates/canvas-generation-plan.v1.json` — required `canvas.plan.set` request skeleton.
+- `assets/templates/canvas-feedback-eval.json` — target-attributed feedback evaluation checklist.
+- `assets/templates/canvas-blocker-checklist.json` — machine-readable blocker and warning audit map.
 - `scripts/odb-workflow.sh` — prints codified command sequences by workflow.
 - `scripts/run-robustness-audit.sh` — validates workflow skill coverage against known issue IDs.
 - `scripts/validate-skill-assets.sh` — validates required artifacts/templates.
@@ -170,6 +175,8 @@ Use the router script to avoid retyping flows:
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh cdp-channel-check
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh mode-flag-matrix
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh robustness-audit
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh canvas-preflight
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh canvas-feedback-eval
 ```
 
 ## Modes and Surface Parity
@@ -226,6 +233,13 @@ Failure handling:
 - `plan_required`: immediately call `canvas.plan.set`.
 - `revision_conflict`: reload with `canvas.document.load` and replay the patch batch against the latest revision.
 - `unsupported_target` or `restricted_url`: move the preview to a normal http(s) tab or fall back to managed mode.
+
+Operational references:
+- `artifacts/canvas-governance-playbook.md`
+- `assets/templates/canvas-handshake-example.json`
+- `assets/templates/canvas-generation-plan.v1.json`
+- `assets/templates/canvas-feedback-eval.json`
+- `assets/templates/canvas-blocker-checklist.json`
 
 ## Diagnostics and Traceability
 

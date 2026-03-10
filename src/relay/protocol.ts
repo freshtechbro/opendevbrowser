@@ -314,6 +314,7 @@ export type CanvasEventType =
   | "canvas_session_expired"
   | "canvas_target_closed"
   | "canvas_feedback_item"
+  | "canvas_patch_requested"
   | "canvas_client_disconnected";
 
 export type CanvasEvent = {

@@ -26,7 +26,8 @@ export function createCanvasTool(deps: ToolDeps): ToolDefinition {
         }
         return ok({ result });
       } catch (error) {
-        return failure(serializeError(error).message, "canvas_failed");
+        const serialized = serializeError(error);
+        return failure(serialized.message, serialized.code ?? "canvas_failed", serialized.details);
       }
     }
   });

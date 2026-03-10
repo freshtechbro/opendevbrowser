@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenDevBrowser Canvas</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #06101a;
+      --panel: rgba(10, 20, 32, 0.9);
+      --panel-border: rgba(148, 163, 184, 0.14);
+      --text: #e6eef8;
+      --muted: #8fa4bb;
+      --accent: #20d5c6;
+      --accent-strong: #0ea5e9;
+      --danger: #fb7185;
+      --shadow: 0 24px 64px rgba(0, 0, 0, 0.32);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(32, 213, 198, 0.12), transparent 26rem),
+        radial-gradient(circle at top right, rgba(14, 165, 233, 0.16), transparent 22rem),
+        linear-gradient(180deg, #06101a 0%, #08131f 100%);
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    .canvas-shell {
+      display: grid;
+      gap: 18px;
+      min-height: 100vh;
+      padding: 22px;
+    }
+
+    .canvas-header,
+    .canvas-toolbar,
+    .canvas-sidebar,
+    .canvas-stage-card,
+    .canvas-preview-card {
+      border: 1px solid var(--panel-border);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .canvas-header {
+      display: grid;
+      gap: 14px;
+      padding: 18px 20px;
+      border-radius: 22px;
+    }
+
+    .canvas-title-row,
+    .canvas-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .canvas-title {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .canvas-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .canvas-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(32, 213, 198, 0.22);
+      background: rgba(32, 213, 198, 0.08);
+      color: #d7fbf7;
+      font-size: 0.82rem;
+      text-transform: capitalize;
+    }
+
+    .canvas-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 18px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .canvas-toolbar {
+      padding: 12px 16px;
+      border-radius: 18px;
+    }
+
+    .canvas-actions,
+    .canvas-toolbar-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .canvas-button {
+      border: 1px solid rgba(143, 164, 187, 0.24);
+      background: rgba(143, 164, 187, 0.08);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 12px;
+      cursor: pointer;
+    }
+
+    .canvas-button:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
+    .canvas-button-primary {
+      border-color: rgba(32, 213, 198, 0.26);
+      background: rgba(32, 213, 198, 0.12);
+    }
+
+    .canvas-button-danger {
+      border-color: rgba(251, 113, 133, 0.26);
+      background: rgba(251, 113, 133, 0.12);
+      color: #ffd7dd;
+    }
+
+    .canvas-layout {
+      display: grid;
+      grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(300px, 380px);
+      gap: 18px;
+      min-height: 0;
+      flex: 1 1 auto;
+    }
+
+    .canvas-sidebar,
+    .canvas-preview-card {
+      display: grid;
+      gap: 18px;
+      align-content: start;
+      padding: 18px;
+      border-radius: 24px;
+    }
+
+    .canvas-stage-card {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border-radius: 28px;
+      min-height: 70vh;
+      overflow: hidden;
+    }
+
+    .canvas-stage-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .canvas-stage {
+      position: relative;
+      min-height: 64vh;
+      border-radius: 20px;
+      background:
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px),
+        radial-gradient(circle at top, rgba(32, 213, 198, 0.06), transparent 38rem),
+        #07111d;
+      background-size: 32px 32px, 32px 32px, auto;
+      overflow: hidden;
+      cursor: grab;
+    }
+
+    .canvas-stage[data-mode="panning"] {
+      cursor: grabbing;
+    }
+
+    .canvas-stage-inner {
+      position: absolute;
+      inset: 0;
+      transform-origin: 0 0;
+    }
+
+    .canvas-node {
+      position: absolute;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+      padding: 12px;
+      border-radius: 18px;
+      border: 1px solid rgba(143, 164, 187, 0.16);
+      background: rgba(9, 18, 29, 0.92);
+      color: var(--text);
+      box-shadow: 0 16px 28px rgba(0, 0, 0, 0.16);
+      user-select: none;
+    }
+
+    .canvas-node[data-selected="true"] {
+      border-color: rgba(32, 213, 198, 0.42);
+      box-shadow: 0 0 0 1px rgba(32, 213, 198, 0.38), 0 18px 36px rgba(0, 0, 0, 0.22);
+    }
+
+    .canvas-node-kind {
+      color: var(--muted);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .canvas-node-name {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .canvas-node-body {
+      font-size: 0.85rem;
+      line-height: 1.45;
+      color: #c7d6e6;
+      overflow: hidden;
+    }
+
+    .canvas-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .canvas-panel h2 {
+      margin: 0;
+      font-size: 0.82rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .canvas-summary-list,
+    .canvas-feedback-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .canvas-summary-item,
+    .canvas-feedback-item {
+      display: grid;
+      gap: 4px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .canvas-summary-item:last-child,
+    .canvas-feedback-item:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .canvas-summary-label,
+    .canvas-feedback-meta {
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .canvas-summary-value,
+    .canvas-feedback-message {
+      font-size: 0.92rem;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .canvas-feedback-severity-warning {
+      color: #facc15;
+    }
+
+    .canvas-feedback-severity-error {
+      color: #fb7185;
+    }
+
+    .canvas-field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .canvas-field label {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .canvas-input,
+    .canvas-textarea {
+      width: 100%;
+      border: 1px solid rgba(143, 164, 187, 0.18);
+      background: rgba(4, 11, 18, 0.64);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+    }
+
+    .canvas-textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
+    .canvas-preview-frame {
+      width: 100%;
+      min-height: 42vh;
+      border: 0;
+      border-radius: 18px;
+      background: #ffffff;
+    }
+
+    .canvas-empty {
+      display: grid;
+      place-items: center;
+      min-height: 42vh;
+      border-radius: 18px;
+      border: 1px dashed rgba(148, 163, 184, 0.24);
+      color: var(--muted);
+      text-align: center;
+      padding: 24px;
+    }
+
+    @media (max-width: 1180px) {
+      .canvas-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .canvas-stage-card,
+      .canvas-stage {
+        min-height: 52vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas-shell">
+    <section class="canvas-header">
+      <div class="canvas-title-row">
+        <h1 class="canvas-title" id="canvas-title">OpenDevBrowser Canvas</h1>
+        <div class="canvas-badges" id="canvas-badges"></div>
+      </div>
+      <div class="canvas-meta" id="canvas-meta"></div>
+    </section>
+
+    <section class="canvas-toolbar">
+      <div class="canvas-actions">
+        <button class="canvas-button canvas-button-primary" id="canvas-add-note" type="button">Add Note</button>
+        <button class="canvas-button" id="canvas-reset-view" type="button">Reset View</button>
+        <button class="canvas-button canvas-button-danger" id="canvas-delete-node" type="button">Delete Selected</button>
+      </div>
+      <div class="canvas-toolbar-meta" id="canvas-toolbar-meta"></div>
+    </section>
+
+    <section class="canvas-layout">
+      <aside class="canvas-sidebar">
+        <section class="canvas-panel">
+          <h2>Session Summary</h2>
+          <div class="canvas-summary-list" id="canvas-summary"></div>
+        </section>
+        <section class="canvas-panel">
+          <h2>Inspector</h2>
+          <div class="canvas-field">
+            <label for="canvas-node-name">Node Name</label>
+            <input class="canvas-input" id="canvas-node-name" type="text" />
+          </div>
+          <div class="canvas-field">
+            <label for="canvas-node-text">Node Text</label>
+            <textarea class="canvas-textarea" id="canvas-node-text"></textarea>
+          </div>
+          <div class="canvas-summary-list" id="canvas-selection-meta"></div>
+        </section>
+        <section class="canvas-panel">
+          <h2>Feedback</h2>
+          <div class="canvas-feedback-list" id="canvas-feedback"></div>
+        </section>
+      </aside>
+
+      <section class="canvas-stage-card">
+        <div class="canvas-stage-meta">
+          <div id="canvas-stage-meta">No canvas loaded.</div>
+          <div id="canvas-stage-hint">Drag to pan. Scroll to zoom. Drag nodes to move them.</div>
+        </div>
+        <div class="canvas-stage" id="canvas-stage">
+          <div class="canvas-stage-inner" id="canvas-stage-inner"></div>
+        </div>
+      </section>
+
+      <section class="canvas-preview-card">
+        <section class="canvas-panel">
+          <h2>Live Preview</h2>
+          <iframe
+            class="canvas-preview-frame"
+            id="canvas-preview"
+            sandbox=""
+            referrerpolicy="no-referrer"
+            title="OpenDevBrowser Canvas Preview"></iframe>
+          <div class="canvas-empty" id="canvas-empty">Waiting for canvas state...</div>
+        </section>
+      </section>
+    </section>
+  </main>
+  <script type="module" src="./dist/canvas-page.js"></script>
+</body>
+</html>

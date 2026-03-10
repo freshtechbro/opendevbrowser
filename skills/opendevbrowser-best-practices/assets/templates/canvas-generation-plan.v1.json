@@ -1,0 +1,64 @@
+{
+  "requestId": "req_plan_01",
+  "canvasSessionId": "<canvas-session-id>",
+  "leaseId": "<lease-id>",
+  "documentId": "<document-id>",
+  "generationPlan": {
+    "targetOutcome": {
+      "mode": "high-fi-live-edit",
+      "summary": "Refine hero hierarchy and CTA clarity"
+    },
+    "visualDirection": {
+      "profile": "cinematic-minimal",
+      "styleAxes": {
+        "contrast": "high",
+        "density": "airy"
+      }
+    },
+    "layoutStrategy": {
+      "approach": "hero-led-grid"
+    },
+    "contentStrategy": {
+      "source": "document-context"
+    },
+    "componentStrategy": {
+      "mode": "reuse-first"
+    },
+    "motionPosture": {
+      "level": "subtle",
+      "allow3D": false,
+      "allowParallax": false,
+      "allowCustomSmoothScroll": false
+    },
+    "responsivePosture": {
+      "primaryViewport": "desktop",
+      "requiredViewports": [
+        "desktop",
+        "tablet",
+        "mobile"
+      ]
+    },
+    "accessibilityPosture": {
+      "target": "WCAG_2_2_AA",
+      "reducedMotion": "required",
+      "keyboardParity": true
+    },
+    "validationTargets": {
+      "blockOn": [
+        "contrast-failure"
+      ],
+      "warnOn": [
+        "responsive-mismatch"
+      ]
+    }
+  },
+  "requiredIssueClasses": [
+    "CANVAS-01",
+    "CANVAS-02",
+    "CANVAS-03",
+    "CANVAS-04",
+    "CANVAS-05",
+    "CANVAS-06",
+    "CANVAS-07"
+  ]
+}

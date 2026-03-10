@@ -1498,3 +1498,9 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
 
   return false;
 });
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "canvas-page") {
+    canvasRuntime.attachPort(port);
+  }
+});

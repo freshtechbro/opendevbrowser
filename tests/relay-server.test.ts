@@ -4,7 +4,6 @@ import http from "http";
 import type { IncomingMessage, ServerResponse } from "http";
 import type { AddressInfo } from "net";
 import { RelayServer } from "../src/relay/relay-server";
-import { MAX_OPS_PAYLOAD_BYTES } from "../src/relay/protocol";
 
 const getAvailablePort = async (): Promise<number> => {
   const tempServer = http.createServer();
@@ -324,6 +323,120 @@ describe("RelayServer", () => {
     });
 
     canvas.close();
+    extension.close();
+  });
+
+  it("drops canvas hello acknowledgements for unknown clients", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const canvas = await connect(`${started.url}/canvas`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 2 } }));
+    await waitForHandshakeAck(extension);
+
+    canvas.send(JSON.stringify({ type: "canvas_hello", version: "1" }));
+    const forwarded = await nextMessage(extension);
+    expect(forwarded.type).toBe("canvas_hello");
+
+    extension.send(JSON.stringify({
+      type: "canvas_hello_ack",
+      version: "1",
+      clientId: "missing-client",
+      maxPayloadBytes: 1024
+    }));
+
+    expect(server.status().canvasConnected).toBe(true);
+    canvas.close();
+    extension.close();
+  });
+
+  it("rejects invalid canvas messages", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const canvas = await connect(`${started.url}/canvas`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 26 } }));
+    await waitForHandshakeAck(extension);
+
+    canvas.send(JSON.stringify({ type: "canvas_bad_payload" }));
+    const response = await nextMessage(canvas);
+    expect(response.type).toBe("canvas_error");
+    expect(response.error).toMatchObject({ code: "invalid_request" });
+
+    canvas.close();
+    extension.close();
+  });
+
+  it("ignores non-object canvas messages", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const canvas = await connect(`${started.url}/canvas`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 27 } }));
+    await waitForHandshakeAck(extension);
+
+    canvas.send("null");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    canvas.close();
+    extension.close();
+  });
+
+  it("rejects oversized canvas payloads", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const canvas = await connect(`${started.url}/canvas`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 28 } }));
+    await waitForHandshakeAck(extension);
+
+    const relay = RelayServer as unknown as { MAX_CANVAS_PAYLOAD_BYTES: number };
+    const originalLimit = relay.MAX_CANVAS_PAYLOAD_BYTES;
+    relay.MAX_CANVAS_PAYLOAD_BYTES = 128;
+    try {
+      canvas.send(JSON.stringify({
+        type: "canvas_request",
+        requestId: "canvas-big",
+        command: "canvas.preview.render",
+        payload: { data: "x".repeat(256) }
+      }));
+      const response = await nextMessage(canvas);
+      expect(response.type).toBe("canvas_error");
+      expect(response.error).toMatchObject({
+        code: "invalid_request",
+        details: { maxPayloadBytes: 128 }
+      });
+    } finally {
+      relay.MAX_CANVAS_PAYLOAD_BYTES = originalLimit;
+    }
+
+    canvas.close();
+    extension.close();
+  }, 15000);
+
+  it("sends canvas_client_disconnected when canvas socket closes", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const canvas = await connect(`${started.url}/canvas`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 29 } }));
+    await waitForHandshakeAck(extension);
+
+    canvas.close();
+    const message = await nextMessage(extension);
+    expect(message.type).toBe("canvas_event");
+    expect(message.event).toBe("canvas_client_disconnected");
+
     extension.close();
   });
 
@@ -720,16 +833,25 @@ describe("RelayServer", () => {
     extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 22 } }));
     await waitForHandshakeAck(extension);
 
-    const oversized = "x".repeat(MAX_OPS_PAYLOAD_BYTES);
-    ops.send(JSON.stringify({
-      type: "ops_request",
-      requestId: "req-big",
-      command: "session.status",
-      payload: { data: oversized }
-    }));
-    const response = await nextMessage(ops);
-    expect(response.type).toBe("ops_error");
-    expect(response.error).toMatchObject({ code: "invalid_request" });
+    const relay = RelayServer as unknown as { MAX_OPS_PAYLOAD_BYTES: number };
+    const originalLimit = relay.MAX_OPS_PAYLOAD_BYTES;
+    relay.MAX_OPS_PAYLOAD_BYTES = 128;
+    try {
+      ops.send(JSON.stringify({
+        type: "ops_request",
+        requestId: "req-big",
+        command: "session.status",
+        payload: { data: "x".repeat(256) }
+      }));
+      const response = await nextMessage(ops);
+      expect(response.type).toBe("ops_error");
+      expect(response.error).toMatchObject({
+        code: "invalid_request",
+        details: { maxPayloadBytes: 128 }
+      });
+    } finally {
+      relay.MAX_OPS_PAYLOAD_BYTES = originalLimit;
+    }
 
     ops.close();
     extension.close();

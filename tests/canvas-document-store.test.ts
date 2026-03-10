@@ -1,3 +1,4 @@
+import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
 import {
   buildDocumentContext,
@@ -5,7 +6,10 @@ import {
   CANVAS_PROJECT_DEFAULTS,
   CanvasDocumentStore,
   createDefaultCanvasDocument,
+  evaluateCanvasWarnings,
+  missingRequiredSaveBlocks,
   normalizeCanvasDocument,
+  validateCanvasSave,
   validateGenerationPlan
 } from "../src/canvas/document-store";
 import type { CanvasDocument, CanvasGenerationPlan } from "../src/canvas/types";
@@ -57,11 +61,17 @@ describe("canvas document store", () => {
   it("builds governance block states and document context", () => {
     const document = createDefaultCanvasDocument("dc_context");
     document.designGovernance.intent = { product: "marketing-site" };
+    document.designGovernance.colorSystem = { roles: { primary: "#0055ff" } };
+    document.designGovernance.surfaceSystem = { panels: { elevation: "medium" } };
+    document.designGovernance.iconSystem = { primary: "tabler" };
     document.tokens.brand = "teal";
     document.componentInventory.push({ componentName: "HeroCard" });
 
     const states = buildGovernanceBlockStates(document);
     expect(states.intent.status).toBe("present");
+    expect(states.colorSystem.status).toBe("present");
+    expect(states.surfaceSystem.status).toBe("present");
+    expect(states.iconSystem.status).toBe("present");
     expect(states.libraryPolicy.status).toBe("inherited");
     expect(states.runtimeBudgets.status).toBe("inherited");
     expect(states.designLanguage.status).toBe("missing");
@@ -182,6 +192,147 @@ describe("canvas document store", () => {
     expect(minimal.prototypes).toEqual([]);
   });
 
+  it("normalizes sparse asset fields into stable defaults", () => {
+    const normalized = normalizeCanvasDocument({
+      assets: [
+        {
+          id: 99,
+          sourceType: 42,
+          kind: null,
+          repoPath: false,
+          url: false,
+          mime: 10,
+          width: "wide",
+          height: "tall",
+          hash: [],
+          status: {},
+          variants: null,
+          metadata: null
+        },
+        {
+          id: "asset_remote",
+          sourceType: "remote",
+          kind: "image",
+          repoPath: "assets/logo.svg",
+          url: "https://example.com/logo.svg",
+          mime: "image/svg+xml",
+          width: 320,
+          height: 180,
+          hash: "sha256-logo",
+          status: "ready",
+          variants: [{ density: 2 }],
+          metadata: { provenance: { sourceUrl: "https://example.com/logo.svg" } }
+        }
+      ]
+    } as unknown as CanvasDocument);
+
+    expect(normalized.assets[0]).toMatchObject({
+      id: expect.stringMatching(/^asset_/),
+      repoPath: null,
+      url: null,
+      variants: [],
+      metadata: {}
+    });
+    expect(normalized.assets[0]?.sourceType).toBeUndefined();
+    expect(normalized.assets[0]?.kind).toBeUndefined();
+    expect(normalized.assets[0]?.mime).toBeUndefined();
+    expect(normalized.assets[0]?.width).toBeUndefined();
+    expect(normalized.assets[0]?.height).toBeUndefined();
+    expect(normalized.assets[0]?.hash).toBeUndefined();
+    expect(normalized.assets[0]?.status).toBeUndefined();
+    expect(normalized.assets[1]).toMatchObject({
+      id: "asset_remote",
+      sourceType: "remote",
+      kind: "image",
+      repoPath: "assets/logo.svg",
+      url: "https://example.com/logo.svg",
+      mime: "image/svg+xml",
+      width: 320,
+      height: 180,
+      hash: "sha256-logo",
+      status: "ready",
+      variants: [{ density: 2 }],
+      metadata: { provenance: { sourceUrl: "https://example.com/logo.svg" } }
+    });
+  });
+
+  it("publishes typed Yjs updates and applies encoded state round-trip", () => {
+    const source = new CanvasDocumentStore(createDefaultCanvasDocument("dc_sync"));
+    const updates: Array<{ documentId: string; revision: number; origin: unknown; encodedState: string }> = [];
+    const unsubscribe = source.observe((update) => {
+      updates.push(update);
+    });
+
+    const planResult = source.setGenerationPlan(validPlan as CanvasGenerationPlan);
+    expect(planResult.documentRevision).toBe(2);
+    expect(updates.at(-1)).toMatchObject({
+      documentId: "dc_sync",
+      revision: 2,
+      origin: "canvas.store.set-generation-plan",
+      encodedState: expect.any(String)
+    });
+
+    const mirror = new CanvasDocumentStore(createDefaultCanvasDocument("dc_mirror"));
+    mirror.applyEncodedState(source.getEncodedState());
+
+    expect(mirror.getDocument().documentId).toBe("dc_sync");
+    expect(mirror.getRevision()).toBe(2);
+    expect(mirror.getDocument().designGovernance.generationPlan).toEqual(validPlan);
+
+    unsubscribe();
+  });
+
+  it("replaces existing array-backed state when applying encoded updates", () => {
+    const source = new CanvasDocumentStore(createDefaultCanvasDocument("dc_sync_source"));
+    source.setGenerationPlan(validPlan as CanvasGenerationPlan);
+    source.applyPatches(2, [
+      {
+        op: "page.create",
+        page: {
+          id: "page_marketing",
+          name: "Marketing",
+          path: "/marketing",
+          prototypeIds: []
+        }
+      }
+    ]);
+
+    const target = new CanvasDocumentStore(createDefaultCanvasDocument("dc_sync_target"));
+    target.setGenerationPlan(validPlan as CanvasGenerationPlan);
+    expect(target.getDocument().pages).toHaveLength(1);
+
+    target.applyEncodedState(source.getEncodedState());
+
+    expect(target.getDocument().documentId).toBe("dc_sync_source");
+    expect(target.getDocument().pages.map((page) => page.id)).toEqual(["page_home", "page_marketing"]);
+  });
+
+  it("falls back when remote encoded state omits a revision and local y-root revision is invalid", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_revision_fallback"));
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    const internal = store as unknown as {
+      ydoc: Y.Doc;
+      root: Y.Map<unknown>;
+    };
+    internal.ydoc.transact(() => {
+      internal.root.set("revision", "invalid");
+    }, "test.invalid-revision");
+    expect(store.getRevision()).toBe(2);
+
+    const remote = new Y.Doc();
+    const remoteRoot = remote.getMap<unknown>("canvas");
+    remoteRoot.set("schemaVersion", "design-canvas.v1");
+    remoteRoot.set("documentId", "dc_remote_replace");
+    remoteRoot.set("title", "Remote Snapshot");
+
+    store.applyEncodedState(Buffer.from(Y.encodeStateAsUpdate(remote)).toString("base64"));
+
+    expect(store.getDocument().documentId).toBe("dc_remote_replace");
+    expect(store.getDocument().title).toBe("Remote Snapshot");
+    expect(store.getRevision()).toBe(2);
+  });
+
   it("applies additive canvas patches and tracks revisions", () => {
     const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_store"));
     const homeRootId = store.getDocument().pages[0]?.rootNodeId;
@@ -286,7 +437,15 @@ describe("canvas document store", () => {
     const document = store.getDocument();
     expect(document.pages.find((page) => page.id === "page_marketing")?.metadata.channel).toBe("growth");
     expect(document.designGovernance.colorSystem.surface.default).toBe("#07111d");
-    expect(document.assets).toEqual([{ id: "asset_brand", metadata: {} }]);
+    expect(document.assets).toEqual([{
+      id: "asset_brand",
+      sourceType: "transient",
+      repoPath: null,
+      url: null,
+      status: "attached",
+      variants: [],
+      metadata: {}
+    }]);
     expect(document.bindings[0]).toMatchObject({ id: "binding_copy", nodeId: "node_copy" });
     expect(document.prototypes.find((prototype) => prototype.id === "proto_marketing_default")?.route).toBe("/marketing");
 
@@ -330,6 +489,15 @@ describe("canvas document store", () => {
         value: "#fff"
       }
     ])).toThrow("Policy violation for token path");
+    expect(() => store.applyPatches(2, [
+      {
+        op: "node.update",
+        nodeId: rootNodeId as string,
+        changes: {
+          "description.text": "blocked"
+        }
+      }
+    ])).toThrow("Policy violation for change root");
   });
 
   it("upserts variant patches, bindings, assets, and prototypes", () => {
@@ -423,7 +591,15 @@ describe("canvas document store", () => {
     })]);
     expect(rootNode?.bindingRefs.primary).toBe("binding_primary");
     expect(document.prototypes.find((prototype) => prototype.id === "proto_home_default")?.route).toBe("/updated");
-    expect(document.assets).toEqual([{ id: "asset_logo", metadata: {} }]);
+    expect(document.assets).toEqual([{
+      id: "asset_logo",
+      sourceType: "transient",
+      repoPath: null,
+      url: null,
+      status: "attached",
+      variants: [],
+      metadata: {}
+    }]);
     expect(rootNode?.metadata.assetIds).toEqual(["asset_logo"]);
   });
 
@@ -500,15 +676,16 @@ describe("canvas document store", () => {
       }
     ])).toThrow("Invalid path: props.bad-key");
 
-    expect(() => store.applyPatches(rootInsert.appliedRevision, [
+    const rectUpdate = store.applyPatches(rootInsert.appliedRevision, [
       {
         op: "node.update",
         nodeId: "node_new_root",
         changes: { "rect.width": 100 }
       }
-    ])).toThrow("Policy violation for change root: rect.width");
+    ]);
+    expect(store.getDocument().pages[0]?.nodes.find((node) => node.id === "node_new_root")?.rect.width).toBe(100);
 
-    expect(() => store.applyPatches(rootInsert.appliedRevision, [
+    expect(() => store.applyPatches(rectUpdate.appliedRevision, [
       {
         op: "node.remove",
         nodeId: "node_missing"
@@ -633,5 +810,225 @@ describe("canvas document store", () => {
       }
     ]);
     expect(store.getDocument().pages.find((entry) => entry.id === "page_secondary")?.rootNodeId).toBeNull();
+  });
+
+  it("reports rich governance, asset, and runtime warnings for save-time validation", () => {
+    const document = createDefaultCanvasDocument("dc_warning_matrix");
+    const rootNode = document.pages[0]?.nodes.find((node) => node.id === document.pages[0]?.rootNodeId);
+    expect(rootNode).toBeTruthy();
+    if (!rootNode) {
+      throw new Error("Expected default root node");
+    }
+
+    document.designGovernance.generationPlan = structuredClone(validPlan);
+    document.designGovernance.intent = { summary: "Governed preview document" };
+    document.designGovernance.designLanguage = { profile: "clean-room" };
+    document.designGovernance.contentModel = { requiredStates: ["default", "loading"] };
+    document.designGovernance.layoutSystem = { grid: { columns: 12 } };
+    document.designGovernance.typographySystem = { hierarchy: { display: "display-01" }, fontPolicy: "Local Sans" };
+    document.designGovernance.colorSystem = { roles: { primary: "#0055ff" } };
+    document.designGovernance.iconSystem = { primary: "rogue-icons" };
+    document.designGovernance.motionSystem = {};
+    document.designGovernance.accessibilityPolicy = {};
+    document.designGovernance.libraryPolicy = {
+      icons: ["lucide-react"],
+      components: ["unknown:kit"],
+      motion: [],
+      threeD: []
+    };
+    document.designGovernance.runtimeBudgets = {
+      defaultLivePreviewLimit: 1,
+      maxPinnedFullPreviewExtra: 0,
+      reconnectGraceMs: 12_000,
+      overflowRenderMode: "thumbnail_only",
+      backgroundTelemetryMode: "sampled"
+    };
+    document.viewports = [{ id: "desktop" }, { id: "tablet" }] as CanvasDocument["viewports"];
+    document.themes = [{ id: "light" }] as CanvasDocument["themes"];
+
+    rootNode.bindingRefs.primary = "binding_missing";
+    rootNode.tokenRefs.color = "tokens.missing";
+
+    document.assets = [
+      { id: "asset_repo", sourceType: "repo", repoPath: null, metadata: {} } as CanvasDocument["assets"][number],
+      { id: "asset_remote", sourceType: "remote", url: null, metadata: {} } as CanvasDocument["assets"][number],
+      { id: "asset_page", sourceType: "page-derived", url: "https://example.com/asset.png", metadata: {} } as CanvasDocument["assets"][number],
+      { id: "asset_generated", sourceType: "generated", metadata: {} } as CanvasDocument["assets"][number]
+    ];
+
+    const warnings = evaluateCanvasWarnings(document, {
+      forSave: true,
+      degradeReason: "overflow",
+      unsupportedTarget: "tab-missing"
+    });
+    const codes = new Set(warnings.map((warning) => warning.code));
+
+    expect([...codes]).toEqual(expect.arrayContaining([
+      "missing-responsive-policy",
+      "missing-reduced-motion-policy",
+      "missing-state-coverage",
+      "responsive-mismatch",
+      "missing-governance-block",
+      "library-policy-violation",
+      "icon-policy-violation",
+      "unresolved-component-binding",
+      "token-missing",
+      "broken-asset-reference",
+      "asset-provenance-missing",
+      "runtime-budget-exceeded",
+      "unsupported-target"
+    ]));
+
+    expect(missingRequiredSaveBlocks(document)).toEqual(expect.arrayContaining([
+      "motionSystem",
+      "accessibilityPolicy",
+      "responsiveSystem"
+    ]));
+
+    const validation = validateCanvasSave(document);
+    expect(validation.missingBlocks).toEqual(expect.arrayContaining([
+      "motionSystem",
+      "accessibilityPolicy",
+      "responsiveSystem"
+    ]));
+    expect(validation.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "missing-responsive-policy" }),
+      expect.objectContaining({
+        code: "missing-governance-block",
+        details: expect.objectContaining({ block: "motionSystem" })
+      }),
+      expect.objectContaining({
+        code: "broken-asset-reference",
+        details: expect.objectContaining({ assetId: "asset_repo" })
+      }),
+      expect.objectContaining({
+        code: "asset-provenance-missing",
+        details: expect.objectContaining({ assetId: "asset_generated" })
+      })
+    ]));
+  });
+
+  it("covers inherited-governance warning branches with resolved tokens and valid repo assets", () => {
+    const document = createDefaultCanvasDocument("dc_warning_resolution");
+    const rootNode = document.pages[0]?.nodes.find((node) => node.id === document.pages[0]?.rootNodeId);
+    expect(rootNode).toBeTruthy();
+    if (!rootNode) {
+      throw new Error("Expected default root node");
+    }
+
+    document.designGovernance.generationPlan = structuredClone(validPlan);
+    document.designGovernance.intent = { summary: "Governed warning resolution" };
+    document.designGovernance.designLanguage = { profile: "clean-room" };
+    document.designGovernance.contentModel = [] as unknown as CanvasDocument["designGovernance"]["contentModel"];
+    document.designGovernance.layoutSystem = { grid: { columns: 12 } };
+    document.designGovernance.typographySystem = { hierarchy: { display: "display-01" }, fontPolicy: "Local Sans" };
+    document.designGovernance.motionSystem = { reducedMotion: "respect-user-preference" };
+    document.designGovernance.responsiveSystem = { breakpoints: { mobile: 390, tablet: 1024, desktop: 1440 } };
+    document.designGovernance.accessibilityPolicy = { reducedMotion: "respect-user-preference" };
+    document.designGovernance.libraryPolicy = {
+      icons: ["tabler"],
+      components: [],
+      motion: [],
+      threeD: []
+    };
+    document.viewports = [
+      { id: "desktop" },
+      { id: 1024 as unknown as string },
+      { id: "mobile" }
+    ] as CanvasDocument["viewports"];
+    document.themes = [{ id: 1 as unknown as string }] as CanvasDocument["themes"];
+    document.tokens = { theme: { primary: "#ffffff" } };
+    rootNode.tokenRefs = {
+      color: "theme.primary",
+      accent: 7 as unknown as string
+    } as typeof rootNode.tokenRefs;
+    document.assets = [{
+      id: "asset_repo_ok",
+      sourceType: "repo",
+      repoPath: "assets/logo.svg",
+      metadata: {}
+    } as CanvasDocument["assets"][number]];
+
+    const warnings = evaluateCanvasWarnings(document, { forSave: true });
+    const codes = warnings.map((warning) => warning.code);
+
+    expect(codes).toEqual(expect.arrayContaining([
+      "missing-content-model",
+      "missing-state-coverage",
+      "responsive-mismatch"
+    ]));
+    expect(codes).not.toContain("token-missing");
+    expect(codes).not.toContain("broken-asset-reference");
+
+    const validation = validateCanvasSave(document);
+    expect(validation.missingBlocks).toEqual(["contentModel"]);
+  });
+
+  it("dedupes duplicate asset warnings and preserves explicit page payloads", () => {
+    const warningDocument = createDefaultCanvasDocument("dc_duplicate_assets");
+    warningDocument.designGovernance.generationPlan = structuredClone(validPlan);
+    warningDocument.designGovernance.intent = { summary: "Duplicate asset coverage" };
+    warningDocument.designGovernance.designLanguage = { profile: "clean-room" };
+    warningDocument.designGovernance.contentModel = { requiredStates: ["default", "loading", "empty", "error"] };
+    warningDocument.designGovernance.layoutSystem = { grid: { columns: 12 } };
+    warningDocument.designGovernance.typographySystem = { hierarchy: { display: "display-01" }, fontPolicy: "Local Sans" };
+    warningDocument.designGovernance.colorSystem = { roles: { primary: "#0055ff" } };
+    warningDocument.designGovernance.surfaceSystem = { panels: { elevation: "medium" } };
+    warningDocument.designGovernance.iconSystem = { primary: "tabler" };
+    warningDocument.designGovernance.motionSystem = { reducedMotion: "respect-user-preference" };
+    warningDocument.designGovernance.responsiveSystem = { breakpoints: { mobile: 390, tablet: 1024, desktop: 1440 } };
+    warningDocument.designGovernance.accessibilityPolicy = { reducedMotion: "respect-user-preference" };
+    warningDocument.designGovernance.libraryPolicy = {
+      icons: ["tabler"],
+      components: [],
+      motion: [],
+      threeD: []
+    };
+    warningDocument.viewports = [{ id: "desktop" }, { id: "tablet" }, { id: "mobile" }] as CanvasDocument["viewports"];
+    warningDocument.themes = [{ id: "light" }] as CanvasDocument["themes"];
+    warningDocument.assets = [
+      { id: "asset_dup", sourceType: "repo", repoPath: null, metadata: {} } as CanvasDocument["assets"][number],
+      { id: "asset_dup", sourceType: "repo", repoPath: null, metadata: {} } as CanvasDocument["assets"][number]
+    ];
+
+    const warnings = evaluateCanvasWarnings(warningDocument);
+    expect(warnings.filter((warning) => warning.code === "broken-asset-reference")).toHaveLength(1);
+
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_explicit_page_payload"));
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    store.applyPatches(2, [{
+      op: "page.create",
+      page: {
+        id: "page_explicit",
+        name: "Explicit",
+        path: "/explicit",
+        nodes: [{
+          id: "node_explicit",
+          kind: "text",
+          name: "Explicit Node",
+          pageId: "page_explicit",
+          parentId: null,
+          childIds: [],
+          rect: { x: 12, y: 18, width: 320, height: 120 },
+          props: { text: "Explicit payload" },
+          style: { color: "#ffffff" },
+          tokenRefs: {},
+          bindingRefs: {},
+          variantPatches: [],
+          metadata: { source: "test" }
+        }],
+        metadata: { source: "test" }
+      }
+    }]);
+
+    expect(store.getDocument().pages.find((page) => page.id === "page_explicit")).toMatchObject({
+      nodes: [expect.objectContaining({
+        id: "node_explicit",
+        metadata: { source: "test" },
+        props: { text: "Explicit payload" }
+      })],
+      metadata: { source: "test" }
+    });
   });
 });

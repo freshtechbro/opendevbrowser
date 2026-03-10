@@ -808,7 +808,7 @@ Canonical examples:
 ### Design Canvas
 
 Use `canvas` to call the typed `canvas.*` surface through the daemon. The normal sequence is:
-`canvas.session.open` -> inspect the handshake -> `canvas.plan.set` -> `canvas.document.patch` -> `canvas.preview.render` or `canvas.feedback.poll`.
+`canvas.session.open` -> inspect the handshake -> `canvas.plan.set` -> `canvas.document.patch` (including `governance.update` blocks) -> `canvas.preview.render` or `canvas.feedback.poll`.
 
 ```bash
 # Open a canvas session bound to an existing browser session
@@ -819,9 +819,9 @@ npx opendevbrowser canvas --command canvas.session.open \
 # Submit a generation plan (required before patching)
 npx opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.json --output-format json
 
-# Apply a patch batch against a specific revision
+# Apply a patch batch against a specific revision, including governance blocks required before save
 npx opendevbrowser canvas --command canvas.document.patch \
-  --params '{"canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","baseRevision":1,"patches":[{"op":"page.create","page":{"id":"page_home","rootNodeId":null,"name":"Home","path":"/","description":"Marketing landing page"}}]}' \
+  --params '{"canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","baseRevision":1,"patches":[{"op":"governance.update","block":"intent","changes":{"summary":"Marketing landing page refresh"}},{"op":"governance.update","block":"designLanguage","changes":{"profile":"clean-room"}},{"op":"page.create","page":{"id":"page_home","rootNodeId":null,"name":"Home","path":"/","description":"Marketing landing page"}}]}' \
   --output-format json
 
 # Save the canonical design document back into the repo
@@ -830,7 +830,7 @@ npx opendevbrowser canvas --command canvas.document.save \
   --output-format json
 ```
 
-`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, and required generation-plan fields. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. Live design-tab and overlay commands (`canvas.tab.open`, `canvas.overlay.mount`, `canvas.overlay.select`) require a browser-backed canvas session and use the dedicated `/canvas` relay channel in extension mode.
+`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, required generation-plan fields, runtime budgets, and warning classes. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. `canvas.document.save` and `canvas.document.export` return `policy_violation` until all `requiredBeforeSave` governance blocks are present. In extension mode, `canvas.tab.open` opens an extension-hosted `canvas.html` infinite-canvas editor that persists full page state in `IndexedDB`, converges same-origin tabs through `BroadcastChannel`, and forwards editor-originated patch requests through `/canvas`; `canvas.feedback.poll` and `canvas.feedback.subscribe` support target/category filtering, structured preflight blockers, and a live async feedback stream.
 
 ### RPC (power-user, internal)
 

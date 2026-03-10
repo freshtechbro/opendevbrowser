@@ -7,7 +7,7 @@ export type CanvasPreflightState =
   | "plan_accepted"
   | "patching_enabled";
 
-export type CanvasPlanStatus = "missing" | "accepted";
+export type CanvasPlanStatus = "missing" | "submitted" | "accepted";
 
 export type CanvasSessionMode = "low-fi-wireframe" | "high-fi-live-edit" | "dual-track";
 
@@ -51,6 +51,39 @@ export type CanvasFeedbackCategory =
 
 export type CanvasFeedbackSeverity = "info" | "warning" | "error";
 
+export type CanvasValidationWarningCode =
+  | "missing-generation-plan"
+  | "missing-governance-block"
+  | "missing-intent"
+  | "missing-design-language"
+  | "missing-content-model"
+  | "missing-typography-system"
+  | "missing-color-role"
+  | "missing-surface-policy"
+  | "missing-state-coverage"
+  | "missing-reduced-motion-policy"
+  | "missing-responsive-policy"
+  | "overflow"
+  | "token-missing"
+  | "broken-asset-reference"
+  | "contrast-failure"
+  | "hierarchy-weak"
+  | "asset-provenance-missing"
+  | "font-policy-missing"
+  | "font-load-failure"
+  | "reduced-motion-violation"
+  | "unresolved-component-binding"
+  | "icon-policy-violation"
+  | "library-policy-violation"
+  | "responsive-mismatch"
+  | "runtime-budget-exceeded"
+  | "unsupported-target"
+  | "export-warning";
+
+export type CanvasPreviewState = "focused" | "pinned" | "background" | "degraded";
+
+export type CanvasDegradeReason = "overflow" | "memory_pressure" | "queue_pressure" | "frozen" | "discarded";
+
 export type CanvasBlockerCode =
   | "plan_required"
   | "revision_conflict"
@@ -89,8 +122,16 @@ export type CanvasBinding = {
 
 export type CanvasAsset = {
   id: string;
+  sourceType?: "repo" | "remote" | "page-derived" | "generated" | "transient";
   kind?: string;
-  path?: string;
+  repoPath?: string | null;
+  url?: string | null;
+  mime?: string;
+  width?: number;
+  height?: number;
+  hash?: string;
+  status?: string;
+  variants?: Array<Record<string, unknown>>;
   metadata?: Record<string, unknown>;
 };
 
@@ -189,6 +230,11 @@ export type CanvasPatch =
     value: unknown;
   }
   | {
+    op: "governance.update";
+    block: CanvasGovernanceBlockKey;
+    changes: Record<string, unknown>;
+  }
+  | {
     op: "asset.attach";
     nodeId: string;
     assetId: string;
@@ -219,6 +265,14 @@ export type CanvasFeedbackItem = {
   details: Record<string, unknown>;
 };
 
+export type CanvasValidationWarning = {
+  code: CanvasValidationWarningCode;
+  severity: CanvasFeedbackSeverity;
+  message: string;
+  details?: Record<string, unknown>;
+  auditId?: string;
+};
+
 export type CanvasBlocker = {
   code: CanvasBlockerCode;
   blockingCommand: string;
@@ -231,10 +285,10 @@ export type CanvasBlocker = {
 export type CanvasTargetState = {
   targetId: string;
   prototypeId: string | null;
-  previewMode: "focused" | "pinned" | "background";
-  previewState: string;
+  previewMode: CanvasPreviewState;
+  previewState: CanvasPreviewState;
   renderStatus: "idle" | "rendered" | "degraded";
-  degradeReason?: string;
+  degradeReason?: CanvasDegradeReason;
   lastRenderedAt?: string;
 };
 
