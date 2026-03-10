@@ -1273,6 +1273,70 @@ describe("provider runtime branches", () => {
     expect(fallbackResolve).not.toHaveBeenCalled();
   });
 
+  it("generates a fallback trace for default web fetches and preserves the original failure when fallback rejects", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false as const,
+      reasonCode: "env_limited" as const,
+      details: { message: "challenge still active" }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.fetch(
+        { url: "https://example.com/runtime-fallback" },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "web/default",
+        source: "web",
+        operation: "fetch",
+        trace: expect.objectContaining({
+          provider: "web/default",
+          requestId: expect.stringMatching(/^runtime-fallback-/)
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("adds inferred reason codes onto provider failures that omit them", async () => {
+    const runtime = new ProviderRuntime({
+      budgets: {
+        retries: { read: 0, write: 0 },
+        circuitBreaker: { failureThreshold: 99, cooldownMs: 1000 }
+      }
+    });
+    runtime.register(makeProvider("web/auth-normalized", "web", {
+      search: async () => {
+        throw new ProviderRuntimeError("auth", "credentials required", {
+          retryable: false
+        });
+      }
+    }));
+
+    const result = await runtime.search({ query: "auth" }, {
+      source: "web",
+      providerIds: ["web/auth-normalized"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]?.error.reasonCode).toBe("token_required");
+    expect(result.failures[0]?.error.details).toMatchObject({
+      reasonCode: "token_required"
+    });
+  });
+
   it("filters non-http links from web defaults while preserving http links", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({
       status: 200,

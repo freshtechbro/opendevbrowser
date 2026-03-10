@@ -266,8 +266,7 @@ const fallbackReasonCodeForError = (error: {
     details: error.details
   });
   if (normalized) return normalized;
-  if (error.code === "auth") return "token_required";
-  if (error.code === "rate_limited") return "rate_limited";
+  // auth/rate_limited normalize directly from the provider error code above.
   if (error.code === "upstream") return "ip_blocked";
   if (error.code === "timeout" || error.code === "network" || error.code === "unavailable") return "env_limited";
   return undefined;

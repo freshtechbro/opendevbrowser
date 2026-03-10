@@ -127,6 +127,9 @@ const createDeps = () => {
   const runner = {
     run: vi.fn().mockResolvedValue({ results: [], timingMs: 1 })
   };
+  const canvasManager = {
+    execute: vi.fn().mockResolvedValue({ canvasSessionId: "canvas-1", leaseId: "lease-1" })
+  };
 
   const baseConfig = resolveConfig({});
   const config = new ConfigStore({ ...baseConfig, relayToken: false });
@@ -134,7 +137,7 @@ const createDeps = () => {
   const getExtensionPath = vi.fn().mockReturnValue("/path/to/extension");
   const providerRuntime = createMockProviderRuntime();
 
-  return { manager, runner, config, skills, getExtensionPath, providerRuntime };
+  return { manager, canvasManager, runner, config, skills, getExtensionPath, providerRuntime };
 };
 
 const parse = (value: string) => JSON.parse(value) as { ok: boolean } & Record<string, unknown>;
@@ -228,6 +231,10 @@ describe("tools", () => {
     });
     expect(((macroExecution.execution as { records: unknown[] } | undefined)?.records.length ?? 0)).toBeGreaterThan(0);
     expect((macroExecution.execution as { meta?: { ok?: boolean } } | undefined)?.meta?.ok).toBe(true);
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.session.open",
+      params: { browserSessionId: "s1" }
+    } as never))).toMatchObject({ ok: true, canvasSessionId: "canvas-1" });
     expect(parse(await tools.opendevbrowser_clone_page.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
@@ -256,6 +263,52 @@ describe("tools", () => {
     expect(statusResult.ok).toBe(true);
     expect(ensureHub).toHaveBeenCalledTimes(1);
     expect(deps.manager.status).toHaveBeenCalled();
+  });
+
+  it("rejects invalid canvas command prefixes", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "session.open"
+    } as never))).toMatchObject({
+      ok: false,
+      error: { code: "canvas_invalid_command" }
+    });
+  });
+
+  it("covers canvas tool unavailable, scalar, and failure branches", async () => {
+    const { createTools } = await import("../src/tools");
+    const deps = createDeps();
+
+    const unavailableTools = createTools({ ...deps, canvasManager: undefined } as never);
+    expect(parse(await unavailableTools.opendevbrowser_canvas.execute({
+      command: "canvas.session.open"
+    } as never))).toMatchObject({
+      ok: false,
+      error: { code: "canvas_unavailable" }
+    });
+
+    deps.canvasManager.execute.mockResolvedValueOnce("scalar-value");
+    const tools = createTools(deps as never);
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.capabilities.get"
+    } as never))).toMatchObject({
+      ok: true,
+      result: "scalar-value"
+    });
+
+    deps.canvasManager.execute.mockRejectedValueOnce(new Error("canvas boom"));
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.plan.set"
+    } as never))).toMatchObject({
+      ok: false,
+      error: {
+        code: "canvas_failed",
+        message: "canvas boom"
+      }
+    });
   });
 
   it("falls back to composed trace snapshot when manager capability is missing", async () => {
@@ -1000,6 +1053,98 @@ describe("tools", () => {
     const launchResult = parse(await tools.opendevbrowser_launch.execute({} as never));
     expect(launchResult.mode).toBe("extension");
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:9999/ops");
+  });
+
+  it("uses relay status port for legacy /cdp launches when the relay omits a cdp url", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
+      getCdpUrl: () => null
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionLegacy: true } as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("uses observed status port for legacy /cdp launches when the relay urls stay unavailable", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), relayPort: 8787 });
+    const relay = {
+      status: () => ({ extensionConnected: false, extensionHandshakeComplete: false }),
+      getCdpUrl: () => null
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-legacy-9999",
+        running: true,
+        port: 9999,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        opsConnected: false,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionLegacy: true } as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:9999/cdp");
+  });
+
+  it("keeps the legacy fallback /cdp url after wait when a status refresh returns undefined", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: vi.fn()
+        .mockReturnValueOnce({ extensionConnected: false, extensionHandshakeComplete: false, port: 8787 })
+        .mockReturnValueOnce({ extensionConnected: false, extensionHandshakeComplete: false, port: 8787 })
+        .mockReturnValueOnce(undefined),
+      getCdpUrl: () => null
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-legacy-wait",
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        opsConnected: false,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({
+      extensionLegacy: true,
+      waitForExtension: true,
+      waitTimeoutMs: 1000
+    } as never));
+
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("surfaces legacy relay authorization failures against /cdp", async () => {
+    const deps = createDeps();
+    deps.manager.connectRelay.mockRejectedValue(new Error("401 unauthorized"));
+    const relay = {
+      status: () => ({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
+      getCdpUrl: () => "ws://relay-cdp"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionLegacy: true } as never));
+    expect(launchResult.ok).toBe(false);
+    expect(String(launchResult.error?.message)).toContain("relay /cdp unauthorized");
   });
 
   it("falls back to relayUrl after wait when relay URL remains null", async () => {

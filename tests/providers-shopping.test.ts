@@ -332,6 +332,86 @@ describe("shopping providers", () => {
     }
   });
 
+  it("generates shopping fallback traces and forwards cookie overrides for generic retrieval failures", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.amazon.com/s?k=wireless%20mouse",
+        html: "<html><body><main>upstream fallback</main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 503,
+      url: String(input),
+      text: async () => "server down"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          timeoutMs: 1000,
+          attempt: 1,
+          useCookies: true,
+          cookiePolicyOverride: "required",
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        } as never
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/amazon",
+        operation: "search",
+        reasonCode: "env_limited",
+        useCookies: true,
+        cookiePolicyOverride: "required",
+        trace: expect.objectContaining({
+          provider: "shopping/amazon",
+          requestId: expect.stringMatching(/^shopping-fallback-/)
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("skips shopping browser fallback for non-recoverable fetcher failures", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async () => {
+        throw new ProviderRuntimeError("invalid_input", "bad query", {
+          retryable: false
+        });
+      }
+    });
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      mode: "managed_headed" as const,
+      output: {},
+      details: {}
+    }));
+
+    await expect(provider.search?.(
+      { query: "wireless mouse" },
+      {
+        ...context,
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      }
+    )).rejects.toMatchObject({
+      code: "invalid_input"
+    });
+    expect(fallbackResolve).not.toHaveBeenCalled();
+  });
+
   it("validates required queries", async () => {
     const provider = createShoppingProvider(amazonProfile, {
       fetcher: async ({ url }) => ({ status: 200, url, html: "<html></html>" })
