@@ -33,7 +33,7 @@ interface ReferenceEntry {
 }
 
 const LABEL_WIDTH = 42;
-const EXPECTED_TOOL_COUNT = 48;
+const EXPECTED_TOOL_COUNT = 49;
 const COMMAND_SET = new Set<string>(CLI_COMMANDS);
 const FLAG_SET = new Set<string>(VALID_FLAGS);
 
@@ -57,6 +57,11 @@ export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = [
     title: "Provider Workflows",
     summary: "Run research/shopping/media workflows and macro plans.",
     commands: ["research", "shopping", "product-video", "artifacts", "macro-resolve"]
+  },
+  {
+    title: "Design Canvas",
+    summary: "Execute design-canvas session, document, overlay, and preview commands.",
+    commands: ["canvas"]
   },
   {
     title: "Navigation",
@@ -152,7 +157,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
     flags: [
       { flag: "--url", description: "Target URL for navigation, connect, or workflow commands." },
       { flag: "--wait-until", description: "Navigation wait strategy (load, domcontentloaded, etc.)." },
-      { flag: "--timeout-ms", description: "Operation timeout in milliseconds (for example goto, wait, screenshot, annotate, rpc, and macro-resolve)." },
+      { flag: "--timeout-ms", description: "Operation timeout in milliseconds (for example goto, wait, screenshot, annotate, canvas, rpc, and macro-resolve)." },
       { flag: "--ref", description: "Snapshot ref id for element-targeted commands." },
       { flag: "--state", description: "Wait state selector for wait-style commands." },
       { flag: "--until", description: "Wait condition selector for wait-style commands." },
@@ -193,8 +198,9 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--default-provider", description: "Provider fallback for shorthand macro expressions." },
       { flag: "--include-catalog", description: "Include macro catalog metadata in response." },
       { flag: "--execute", description: "Execute resolved macro action after planning (pair with --timeout-ms on slow runs)." },
-      { flag: "--params", description: "Inline JSON params for rpc command." },
-      { flag: "--params-file", description: "Path to JSON params file for rpc command." },
+      { flag: "--command", description: "Canvas command name for the canvas CLI command." },
+      { flag: "--params", description: "Inline JSON params for canvas or rpc commands." },
+      { flag: "--params-file", description: "Path to JSON params file for canvas or rpc commands." },
       { flag: "--unsafe-internal", description: "Required safety gate for rpc command." },
       { flag: "--topic", description: "Research topic input." },
       { flag: "--days", description: "Lookback window in days for research commands." },
@@ -264,6 +270,7 @@ export const HELP_TOOL_ENTRIES: readonly ToolEntry[] = [
   { name: "opendevbrowser_research_run", description: "Run research workflow directly." },
   { name: "opendevbrowser_shopping_run", description: "Run shopping workflow directly." },
   { name: "opendevbrowser_product_video_run", description: "Run product-video asset workflow directly." },
+  { name: "opendevbrowser_canvas", description: "Execute a design-canvas command surface call." },
   { name: "opendevbrowser_clone_page", description: "Export active page into React code." },
   { name: "opendevbrowser_clone_component", description: "Export component by ref into React code." },
   { name: "opendevbrowser_perf", description: "Collect browser performance metrics." },

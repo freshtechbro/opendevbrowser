@@ -14,6 +14,6 @@ describe("cli help parity", () => {
     const names = HELP_TOOL_ENTRIES.map((entry) => entry.name);
 
     expect(new Set(names).size).toBe(HELP_TOOL_ENTRIES.length);
-    expect(HELP_TOOL_ENTRIES.length).toBe(48);
+    expect(HELP_TOOL_ENTRIES.length).toBe(49);
   });
 });

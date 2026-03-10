@@ -4,6 +4,7 @@ import { ScriptRunner } from "./browser/script-runner";
 import { startDaemon } from "./cli/daemon";
 import { DaemonClient } from "./cli/daemon-client";
 import { RemoteManager } from "./cli/remote-manager";
+import { RemoteCanvasManager } from "./cli/remote-canvas-manager";
 import { RemoteRelay } from "./cli/remote-relay";
 import { fetchDaemonStatusFromMetadata } from "./cli/daemon-status";
 import {
@@ -40,6 +41,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const { config, configStore, skills, ensureRelay, cleanup, getExtensionPath } = core;
   let relay: RelayLike = core.relay;
   let manager = core.manager;
+  let canvasManager = core.canvasManager;
   let runner = core.runner;
   let annotationManager = core.annotationManager;
   let providerRuntime = core.providerRuntime;
@@ -64,6 +66,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
 
   const toolDeps: ToolDeps = {
     manager,
+    canvasManager,
     annotationManager,
     runner,
     config: configStore,
@@ -79,6 +82,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
       daemonClient = new DaemonClient({ autoRenew: true });
     }
     manager = new RemoteManager(daemonClient);
+    canvasManager = new RemoteCanvasManager(daemonClient);
     relay = new RemoteRelay(daemonClient);
     annotationManager.setRelay(relay);
     annotationManager.setBrowserManager(manager);
@@ -90,6 +94,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
       browserFallbackPort
     });
     toolDeps.manager = manager;
+    toolDeps.canvasManager = canvasManager;
     toolDeps.relay = relay;
     toolDeps.runner = runner;
     toolDeps.providerRuntime = providerRuntime;

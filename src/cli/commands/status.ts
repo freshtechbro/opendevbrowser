@@ -75,13 +75,14 @@ export async function runStatus(args: ParsedArgs) {
       `cdp=${daemonStatus.relay.cdpConnected ? "on" : "off"} ` +
       `annotate=${daemonStatus.relay.annotationConnected ? "on" : "off"} ` +
       `ops=${daemonStatus.relay.opsConnected ? "on" : "off"} ` +
+      `canvas=${daemonStatus.relay.canvasConnected ? "on" : "off"} ` +
       `pairing=${daemonStatus.relay.pairingRequired ? "on" : "off"} ` +
       `health=${daemonStatus.relay.health?.reason ?? "n/a"}`,
     `Native: ${nativeStatus.installed ? "installed" : "not installed"}${nativeStatus.extensionId ? ` (${nativeStatus.extensionId})` : ""}`,
     daemonStatus.relay.lastHandshakeError
       ? `Relay last handshake error: ${daemonStatus.relay.lastHandshakeError.code} (${daemonStatus.relay.lastHandshakeError.message})`
       : "Relay last handshake error: none",
-    "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, annotate=annotation channel, ops=ops clients, pairing=token required, health=relay status"
+    "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, annotate=annotation channel, ops=ops clients, canvas=canvas clients, pairing=token required, health=relay status"
   ].join("\n");
 
   const message = daemon || args.outputFormat !== "text"

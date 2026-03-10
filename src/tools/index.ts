@@ -46,6 +46,7 @@ import { createAnnotateTool } from "./annotate";
 import { createResearchRunTool } from "./research_run";
 import { createShoppingRunTool } from "./shopping_run";
 import { createProductVideoRunTool } from "./product_video_run";
+import { createCanvasTool } from "./canvas";
 import { createSkillListTool } from "./skill_list";
 import { createSkillLoadTool } from "./skill_load";
 
@@ -107,6 +108,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_research_run: wrap(createResearchRunTool(deps)),
     opendevbrowser_shopping_run: wrap(createShoppingRunTool(deps)),
     opendevbrowser_product_video_run: wrap(createProductVideoRunTool(deps)),
+    opendevbrowser_canvas: wrap(createCanvasTool(deps)),
     opendevbrowser_clone_page: wrap(createClonePageTool(deps)),
     opendevbrowser_clone_component: wrap(createCloneComponentTool(deps)),
     opendevbrowser_perf: wrap(createPerfTool(deps)),

@@ -42,6 +42,13 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return core.relay.getAnnotationUrl?.() ?? null;
     case "relay.opsUrl":
       return core.relay.getOpsUrl?.() ?? null;
+    case "relay.canvasUrl":
+      return core.relay.getCanvasUrl?.() ?? null;
+    case "canvas.execute":
+      return core.canvasManager.execute(
+        requireString(params.command, "command"),
+        requireRecord(params.params ?? {}, "params")
+      );
     case "relay.bind": {
       const clientId = requireClientId(params);
       const binding = bindRelay(clientId);
@@ -1043,6 +1050,13 @@ function requireString(value: unknown, label: string): string {
     throw new Error(`Missing ${label}`);
   }
   return value;
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid ${label}`);
+  }
+  return value as Record<string, unknown>;
 }
 
 function requireClientId(params: Record<string, unknown>): string {

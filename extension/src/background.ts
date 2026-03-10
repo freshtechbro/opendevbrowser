@@ -10,6 +10,7 @@ import {
 } from "./relay-settings.js";
 import { logError } from "./logging.js";
 import { OpsRuntime } from "./ops/ops-runtime.js";
+import { CanvasRuntime } from "./canvas/canvas-runtime.js";
 import type {
   AnnotationCommand,
   AnnotationErrorCode,
@@ -34,6 +35,9 @@ const connection = new ConnectionManager();
 const opsRuntime = new OpsRuntime({
   send: (message) => connection.sendOpsMessage(message),
   cdp: connection.getCdpRouter()
+});
+const canvasRuntime = new CanvasRuntime({
+  send: (message) => connection.sendCanvasMessage(message)
 });
 const nativePort = new NativePortManager({
   onMessage: (payload) => {
@@ -84,6 +88,10 @@ connection.onAnnotationCommand((command) => {
 
 connection.onOpsMessage((message) => {
   opsRuntime.handleMessage(message);
+});
+
+connection.onCanvasMessage((message) => {
+  canvasRuntime.handleMessage(message);
 });
 
 const RESTRICTED_PROTOCOLS = new Set([
@@ -236,6 +244,8 @@ const buildRelayHealthNote = (health: RelayHealthStatus | null): string => {
       return "Annotation channel disconnected. Keep the extension open and retry.";
     case "ops_disconnected":
       return "Ops channel disconnected. Start a new session and retry.";
+    case "canvas_disconnected":
+      return "Canvas channel disconnected. Reopen the design canvas command and retry.";
     case "cdp_disconnected":
       return "No CDP clients connected. Start a session and retry.";
     case "relay_down":
@@ -393,6 +403,7 @@ const fetchRelayHealth = async (port: number): Promise<RelayHealthStatus | null>
     const cdpConnected = data.cdpConnected === true;
     const annotationConnected = data.annotationConnected === true;
     const opsConnected = data.opsConnected === true;
+    const canvasConnected = data.canvasConnected === true;
     const pairingRequired = data.pairingRequired === true;
     const ok = extensionConnected && handshake;
     return {
@@ -403,6 +414,7 @@ const fetchRelayHealth = async (port: number): Promise<RelayHealthStatus | null>
       cdpConnected,
       annotationConnected,
       opsConnected,
+      canvasConnected,
       pairingRequired
     };
   } catch (error) {

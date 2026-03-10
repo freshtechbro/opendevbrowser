@@ -1,4 +1,5 @@
 import type { BrowserManagerLike } from "../browser/manager-types";
+import type { CanvasManagerLike } from "../browser/canvas-manager";
 import type { AnnotationManager } from "../browser/annotation-manager";
 import type { ScriptRunner } from "../browser/script-runner";
 import type { ConfigStore } from "../config";
@@ -32,6 +33,7 @@ export type ProviderRuntimeLike = {
 
 export type ToolDeps = {
   manager: BrowserManagerLike;
+  canvasManager?: CanvasManagerLike;
   annotationManager: AnnotationManager;
   runner: ScriptRunner;
   config: ConfigStore;

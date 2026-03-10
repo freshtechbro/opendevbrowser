@@ -9,6 +9,7 @@ const emptyStatus: RelayStatus = {
   cdpConnected: false,
   annotationConnected: false,
   opsConnected: false,
+  canvasConnected: false,
   pairingRequired: false,
   instanceId: "",
   epoch: 0,
@@ -20,6 +21,7 @@ const emptyStatus: RelayStatus = {
     cdpConnected: false,
     annotationConnected: false,
     opsConnected: false,
+    canvasConnected: false,
     pairingRequired: false
   }
 };
@@ -30,6 +32,7 @@ export class RemoteRelay implements RelayLike {
   private lastCdpUrl: string | null = null;
   private lastAnnotationUrl: string | null = null;
   private lastOpsUrl: string | null = null;
+  private lastCanvasUrl: string | null = null;
 
   constructor(client: DaemonClient) {
     this.client = client;
@@ -45,11 +48,14 @@ export class RemoteRelay implements RelayLike {
       this.lastAnnotationUrl = typeof annotationUrl === "string" ? annotationUrl : null;
       const opsUrl = await this.client.call<string | null>("relay.opsUrl");
       this.lastOpsUrl = typeof opsUrl === "string" ? opsUrl : null;
+      const canvasUrl = await this.client.call<string | null>("relay.canvasUrl");
+      this.lastCanvasUrl = typeof canvasUrl === "string" ? canvasUrl : null;
     } catch {
       this.lastStatus = emptyStatus;
       this.lastCdpUrl = null;
       this.lastAnnotationUrl = null;
       this.lastOpsUrl = null;
+      this.lastCanvasUrl = null;
     }
   }
 
@@ -67,5 +73,9 @@ export class RemoteRelay implements RelayLike {
 
   getOpsUrl(): string | null {
     return this.lastOpsUrl;
+  }
+
+  getCanvasUrl(): string | null {
+    return this.lastCanvasUrl;
   }
 }

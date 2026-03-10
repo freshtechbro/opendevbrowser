@@ -6,5 +6,6 @@ export type RelayLike = {
   getCdpUrl: () => string | null;
   getAnnotationUrl?: () => string | null;
   getOpsUrl?: () => string | null;
+  getCanvasUrl?: () => string | null;
   refresh?: () => Promise<void>;
 };

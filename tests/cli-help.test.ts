@@ -55,7 +55,7 @@ describe("CLI help surface", () => {
       seen.add(entry.name);
     }
 
-    expect(seen.size).toBe(48);
+    expect(seen.size).toBe(49);
   });
 
   it("prints complete command, flag, and tool inventories with descriptions", () => {
@@ -64,7 +64,7 @@ describe("CLI help surface", () => {
 
     expect(output).toContain(`Command Inventory (all ${CLI_COMMANDS.length} commands):`);
     expect(output).toContain("Flag Inventory (all supported flags):");
-    expect(output).toContain("Tool Inventory (all 48 opendevbrowser_* tools):");
+    expect(output).toContain("Tool Inventory (all 49 opendevbrowser_* tools):");
 
     for (const command of CLI_COMMANDS) {
       expect(output).toContain(command);

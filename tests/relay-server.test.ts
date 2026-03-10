@@ -152,6 +152,12 @@ describe("RelayServer", () => {
     expect(server.getOpsUrl()).toBe(`${started.url}/ops`);
   });
 
+  it("returns canvas url when running", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    expect(server.getCanvasUrl()).toBe(`${started.url}/canvas`);
+  });
+
   it("treats empty loopback addresses as non-loopback", () => {
     const internal = new RelayServer() as unknown as { isLoopbackAddress: (ip: string) => boolean };
     expect(internal.isLoopbackAddress("")).toBe(false);
@@ -258,6 +264,67 @@ describe("RelayServer", () => {
     );
     expect(write).toHaveBeenCalledWith("HTTP/1.1 403 Forbidden\r\n\r\n");
     expect(destroy).toHaveBeenCalled();
+  });
+
+  it("returns canvas_unavailable when no extension is connected", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    const canvas = await connect(`${started.url}/canvas`);
+
+    canvas.send(JSON.stringify({
+      type: "canvas_hello",
+      version: "1"
+    }));
+
+    await expect(nextMessage(canvas)).resolves.toMatchObject({
+      type: "canvas_error",
+      error: { code: "canvas_unavailable" }
+    });
+    canvas.close();
+  });
+
+  it("forwards canvas hello/ack through the extension socket", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({
+      type: "handshake",
+      payload: {
+        tabId: 1,
+        url: "https://example.com",
+        title: "Example"
+      }
+    }));
+    await waitForHandshakeAck(extension);
+
+    const canvas = await connect(`${started.url}/canvas`);
+    canvas.send(JSON.stringify({
+      type: "canvas_hello",
+      version: "1"
+    }));
+
+    const forwarded = await nextMessage(extension);
+    expect(forwarded).toMatchObject({
+      type: "canvas_hello",
+      version: "1",
+      clientId: expect.any(String)
+    });
+
+    extension.send(JSON.stringify({
+      type: "canvas_hello_ack",
+      version: "1",
+      clientId: forwarded.clientId,
+      maxPayloadBytes: 1024
+    }));
+
+    await expect(nextMessage(canvas)).resolves.toMatchObject({
+      type: "canvas_hello_ack",
+      version: "1",
+      maxPayloadBytes: 1024
+    });
+
+    canvas.close();
+    extension.close();
   });
 
   it("rate limits ops upgrades", async () => {
