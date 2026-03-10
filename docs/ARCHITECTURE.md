@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-02-28
+Last updated: 2026-03-10
 
 ---
 
@@ -18,11 +18,12 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `55`
-- Plugin tools: `48`
+- CLI commands: `56`
+- Plugin tools: `49`
 - `/ops` command names: `38`
+- `/canvas` command names: `19`
 
-The shared runtime core is in `src/core/` and wires `BrowserManager`, `AnnotationManager`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
+The shared runtime core is in `src/core/` and wires `BrowserManager`, `CanvasManager`, `AnnotationManager`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
 Canonical inventory and channel contracts: `docs/SURFACE_REFERENCE.md`.
 Frontend architecture and generation flow are documented in `docs/FRONTEND.md`.
 
@@ -50,12 +51,12 @@ The CLI installer attempts to set up daemon auto-start on first successful insta
 │  bootstrap.ts → wires managers, injects ToolDeps              │
 └────────┬────────────────────────────────────────────────────────┘
          │
-    ┌────┴────┬─────────────┬──────────────┬──────────────┬──────────────┐
-    ▼         ▼             ▼              ▼              ▼              ▼
-┌────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
-│Browser │ │Script  │ │Snapshot  │ │ Annotation │ │  Relay     │ │  Skills    │
-│Manager │ │Runner  │ │Pipeline  │ │  Manager   │ │  Server    │ │  Loader    │
-└───┬────┘ └────────┘ └──────────┘ └────────────┘ └─────┬──────┘ └────────────┘
+    ┌────┴────┬─────────────┬──────────────┬──────────┬────────────┬────────────┬────────────┐
+    ▼         ▼             ▼              ▼          ▼            ▼            ▼
+┌────────┐ ┌────────┐ ┌──────────┐ ┌────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+│Browser │ │Script  │ │Snapshot  │ │ Canvas │ │ Annotation │ │  Relay     │ │  Skills    │
+│Manager │ │Runner  │ │Pipeline  │ │Manager │ │  Manager   │ │  Server    │ │  Loader    │
+└───┬────┘ └────────┘ └──────────┘ └────┬───┘ └────────────┘ └─────┬──────┘ └────────────┘
     │                                                  │
     ▼                                                  ▼
 ┌────────┐                                        ┌────────────┐
@@ -93,6 +94,7 @@ flowchart LR
     ProviderRuntime[Provider Runtime]
     MacroRegistry[Macro Registry]
     Fingerprint[Fingerprint Tiers]
+    CanvasManager[Canvas Manager]
     AnnotationManager[AnnotationManager]
     ScriptRunner[ScriptRunner]
     Snapshotter[Snapshot Pipeline]
@@ -110,6 +112,9 @@ flowchart LR
 
   CoreBootstrap --> BrowserManager
   BrowserManager --> TargetManager
+  CoreBootstrap --> CanvasManager
+  CanvasManager --> BrowserManager
+  CanvasManager --> Relay
   CoreBootstrap --> ProviderRuntime
   CoreBootstrap --> MacroRegistry
   BrowserManager --> Fingerprint
@@ -183,8 +188,10 @@ sequenceDiagram
   Tools->>Relay: GET /pair (when pairing required, loopback)
   Tools->>Hub: acquire binding/lease when required
   Tools->>Relay: WS /ops?token=...
+  Tools->>Relay: WS /canvas?token=... (design canvas relay)
   Tools->>Relay: WS /annotation?token=... (annotate relay)
   Relay->>Extension: forward ops envelopes
+  Relay->>Extension: forward canvas envelopes
   Extension->>Browser: execute CDP/debugger commands
   Browser-->>Extension: CDP events/results
   Extension-->>Relay: relay events/results
@@ -219,6 +226,8 @@ sequenceDiagram
 
 - `/ops` is the default high-level extension channel with explicit commands (`session.*`, `targets.*`, `page.*`, `nav.*`, `interact.*`, `dom.*`, `export.*`, `devtools.*`).
 - `/ops` envelopes: `ops_hello`, `ops_request`, `ops_response`, `ops_error`, `ops_event`, `ops_chunk`, `ops_ping`, `ops_pong`.
+- `/canvas` is a dedicated design-canvas channel for session handshakes, governance-plan gating, document mutation requests, live design-tab control, overlay selection, preview refresh, and feedback events.
+- `/canvas` envelopes: `canvas_hello`, `canvas_request`, `canvas_response`, `canvas_error`, `canvas_event`, `canvas_chunk`, `canvas_ping`, `canvas_pong`.
 - `/cdp` is legacy and forwards raw CDP commands via `forwardCDPCommand` envelopes (`id`, `method`, `params`, optional `sessionId`) and relays events/responses back.
 - `/annotation` remains a dedicated channel for annotation command/event/response flow.
 - Full command names and payload examples are documented in `docs/SURFACE_REFERENCE.md`.
@@ -254,6 +263,11 @@ sequenceDiagram
 - Macro engine resolves `@macro(...)` expressions into provider operations (`src/macros/*`) and is exposed through tool/CLI/daemon (`macro_resolve`, `macro-resolve`, `macro.resolve`) with resolve-only and execute modes.
 - Execute-mode macro responses keep existing shapes and add metadata fields: `meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, and `meta.provenance.retrievedAt`.
 - Diagnostics include console/network/exception trackers and a combined debug bundle endpoint (`debug_trace_snapshot`, `debug-trace-snapshot`, `devtools.debugTraceSnapshot`).
+- Design canvas surfaces expose `canvas.execute` / `opendevbrowser_canvas` / `opendevbrowser canvas` and are layered as:
+  - `session handshake` (`canvas.session.open`, `canvas.capabilities.get`) for governance and plan requirements
+  - `document store` (`canvas.document.load`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`) for repo-native JSON artifacts
+  - `live preview + overlay` (`canvas.tab.open`, `canvas.overlay.mount`, `canvas.preview.render`, `canvas.preview.refresh`) for browser-backed iteration
+  - `feedback` (`canvas.feedback.poll`, `canvas.feedback.subscribe`) for render/validation signals
 - Legal/compliance gating for scrape-first adapters is enforced with per-provider review checklists (review date, allowed surfaces, prohibited flows, reviewer, expiry, signed-off status) and blocks expired/invalid enablement.
 - Session coherence includes cookie import validation and tiered fingerprint controls:
   - Provider cookie policy defaults are configurable via `providers.cookiePolicy` (`off|auto|required`) and `providers.cookieSource` (`file|env|inline`).
@@ -292,6 +306,7 @@ Default extension values:
 - **Local-only CDP** by default; non-local requires opt-in config.
 - **Relay binding**: `127.0.0.1` only, with token-based pairing.
 - **Ops auth**: `/ops` requires `?token=<relayToken>` when pairing is enabled.
+- **Canvas auth**: `/canvas` requires `?token=<relayToken>` when pairing is enabled.
 - **CDP auth**: `/cdp` requires `?token=<relayToken>` when pairing is enabled (legacy).
 - **Annotation auth**: `/annotation` requires `?token=<relayToken>` when pairing is enabled.
 - **Origin enforcement**: `/extension` requires `chrome-extension://` origin; `/config`, `/status`, `/pair` allow extension origins and loopback no-Origin (including `Origin: null`), and reject explicit non-extension origins.
@@ -313,6 +328,7 @@ Extension relay mode uses **flat CDP sessions (Chrome 125+)**. The extension CDP
 - Maintains root vs child mappings in `TargetSessionMap` to route each `sessionId` to the correct `tabId`.
 - Tracks a primary tab for relay handshake/diagnostics without disconnecting other tabs.
 - Annotation relay uses a dedicated `/annotation` websocket and `annotationCommand`/`annotationResponse` messages.
+- Design-canvas relay uses a dedicated `/canvas` websocket and `canvas_*` envelopes for design-tab and overlay operations.
 
 When hub mode is enabled, the hub daemon is the **sole relay owner** and enforces a FIFO lease queue for multi-client safety. There is no local relay fallback in hub mode.
 

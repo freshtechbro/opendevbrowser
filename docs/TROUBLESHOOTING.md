@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Status: active  
-Last updated: 2026-02-24
+Last updated: 2026-03-10
 
 ## Hub daemon status
 
@@ -23,12 +23,14 @@ The daemon port/token are persisted in `opendevbrowser.jsonc` as `daemonPort`/`d
 - `extensionConnected` – popup websocket connected
 - `extensionHandshakeComplete` – extension handshake finished
 - `opsConnected` – any `/ops` client attached (expected **false** until a relay client launches/connects)
+- `canvasConnected` – any `/canvas` client attached (expected **false** unless design-canvas preview or overlay flows are active)
 - `cdpConnected` – any `/cdp` client attached (legacy path, expected **false** unless `--extension-legacy` is used)
 - `annotationConnected` – annotation websocket attached (expected **false** unless annotate relay transport is active)
-- `pairingRequired` – relay token required for `/ops` and `/cdp`
+- `pairingRequired` – relay token required for `/ops`, `/canvas`, and `/cdp`
 - `health.reason` – relay health summary (`ok`, `no_extension`, `extension_no_handshake`, etc.)
 
 If `opsConnected` stays `false` after extension-mode `launch`/`connect`, restart the daemon and reconnect the extension.
+If `canvasConnected` stays `false` during `opendevbrowser canvas` preview/overlay work, confirm the extension is connected and retry the canvas command after `status --daemon`.
 `cdpConnected` remaining `false` is normal for default `/ops` sessions.
 
 ## First-run daemon collisions in shared environments

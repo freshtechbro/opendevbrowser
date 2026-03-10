@@ -2,9 +2,9 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-01
+Last updated: 2026-03-10
 
-OpenDevBrowser exposes 48 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+OpenDevBrowser exposes 49 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); use continuity guidance only for long-running handoff/compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
@@ -121,18 +121,19 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `55`.
-- Categories: install/runtime management, session/connection, navigation, interaction, targets/pages, DOM inspection, export/diagnostics/macro/annotation, and internal power (`rpc`).
+- Total commands: `56`.
+- Categories: install/runtime management, session/connection, navigation, interaction, targets/pages, DOM inspection, design canvas, export/diagnostics/macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `48` (`opendevbrowser_*`).
+- Total tools: `49` (`opendevbrowser_*`).
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `artifacts`, `rpc`.
 
 ### Relay channel surface
 
 - `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `38` command names.
+- `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `19` command names and envelope contracts.
 - `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
 
 ---
@@ -213,10 +214,10 @@ npx opendevbrowser -v
 ```
 
 `--help` now prints a complete, agent-oriented inventory:
-- All CLI commands (55) grouped by function, each with one-line descriptions.
+- All CLI commands (56) grouped by function, each with one-line descriptions.
 - All supported CLI flags, grouped by install/session/navigation/workflow usage.
-- All `opendevbrowser_*` tools (48), each with one-line descriptions.
-- Macro execute timeout guidance via `--timeout-ms` for slow `macro-resolve --execute` runs.
+- All `opendevbrowser_*` tools (49), each with one-line descriptions.
+- Macro and design-canvas timeout guidance via `--timeout-ms`.
 - Canonical inventory pointers: `docs/SURFACE_REFERENCE.md`, `src/tools/index.ts`, and this CLI guide.
 
 Operational help parity check:
@@ -515,9 +516,11 @@ Interactive vs non-interactive:
 | `--wait-timeout-ms` | Max wait for extension | Defaults to 30s. |
 | `extensionConnected` | Extension websocket connected | `false` means popup isn’t connected to relay. |
 | `extensionHandshakeComplete` | Extension handshake done | `false` means reconnect/repair from popup. |
+| `annotationConnected` | Active `/annotation` client attached | Expected `false` unless annotate relay transport is active. |
 | `opsConnected` | Active `/ops` client attached | `false` means no ops client is connected. |
+| `canvasConnected` | Active `/canvas` client attached | Expected `false` unless a design-canvas session is using relay preview/overlay features. |
 | `cdpConnected` | Active `/cdp` client attached | Expected `false` until a legacy `/cdp` session connects. |
-| `pairingRequired` | Relay token required | When `true`, both `/ops` and `/cdp` require a token (auto-fetched). |
+| `pairingRequired` | Relay token required | When `true`, `/ops`, `/canvas`, and `/cdp` require a token (auto-fetched). |
 
 ### Connect
 
@@ -801,6 +804,33 @@ Canonical examples:
   }
 }
 ```
+
+### Design Canvas
+
+Use `canvas` to call the typed `canvas.*` surface through the daemon. The normal sequence is:
+`canvas.session.open` -> inspect the handshake -> `canvas.plan.set` -> `canvas.document.patch` -> `canvas.preview.render` or `canvas.feedback.poll`.
+
+```bash
+# Open a canvas session bound to an existing browser session
+npx opendevbrowser canvas --command canvas.session.open \
+  --params '{"browserSessionId":"<session-id>","documentId":"landing-page","mode":"dual-track"}' \
+  --output-format json
+
+# Submit a generation plan (required before patching)
+npx opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.json --output-format json
+
+# Apply a patch batch against a specific revision
+npx opendevbrowser canvas --command canvas.document.patch \
+  --params '{"canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","baseRevision":1,"patches":[{"op":"page.create","page":{"id":"page_home","rootNodeId":null,"name":"Home","path":"/","description":"Marketing landing page"}}]}' \
+  --output-format json
+
+# Save the canonical design document back into the repo
+npx opendevbrowser canvas --command canvas.document.save \
+  --params '{"canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>"}' \
+  --output-format json
+```
+
+`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, and required generation-plan fields. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. Live design-tab and overlay commands (`canvas.tab.open`, `canvas.overlay.mount`, `canvas.overlay.select`) require a browser-backed canvas session and use the dedicated `/canvas` relay channel in extension mode.
 
 ### RPC (power-user, internal)
 
@@ -1181,6 +1211,15 @@ npx opendevbrowser debug-trace-snapshot \
 | `--context` | `annotate` | Optional context text pre-filled in the UI |
 | `--debug` | `annotate` | Include debug metadata in the payload |
 | `--timeout-ms` | `annotate` | Annotation timeout in ms |
+
+**Canvas**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--command` | `canvas` | `canvas.*` command name (for example `canvas.session.open`) |
+| `--params` | `canvas` | Inline JSON object command params |
+| `--params-file` | `canvas` | Path to JSON object command params |
+| `--timeout-ms` | `canvas` | Client-side daemon call timeout in ms |
 
 **RPC (internal)**
 

@@ -2,12 +2,13 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-02-24
+Last updated: 2026-03-10
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/cli/args.ts`
 - `src/tools/index.ts`
 - `extension/src/ops/ops-runtime.ts`
+- `extension/src/canvas/canvas-runtime.ts`
 - `src/relay/protocol.ts`
 
 Operational mirror:
@@ -16,7 +17,7 @@ Operational mirror:
 
 ---
 
-## CLI Command Inventory (55)
+## CLI Command Inventory (56)
 
 ### Install and runtime management (10)
 - `install`
@@ -75,6 +76,9 @@ Operational mirror:
 - `dom-enabled`
 - `dom-checked`
 
+### Design canvas (1)
+- `canvas`
+
 ### Export, diagnostics, macro, annotation, power (10)
 - `clone-page`
 - `clone-component`
@@ -89,7 +93,7 @@ Operational mirror:
 
 ---
 
-## Tool Inventory (48)
+## Tool Inventory (49)
 
 ### Session and cookies (6)
 - `opendevbrowser_launch`
@@ -141,6 +145,9 @@ Operational mirror:
 - `opendevbrowser_clone_page`
 - `opendevbrowser_clone_component`
 - `opendevbrowser_annotate`
+
+### Design canvas (1)
+- `opendevbrowser_canvas`
 
 ### Macro, workflow, and skill surfaces (7)
 - `opendevbrowser_macro_resolve`
@@ -222,6 +229,52 @@ Envelope contract:
 - stream/event: `ops_event`, `ops_chunk`
 - liveness: `ops_ping`, `ops_pong`
 
+### `/canvas` command names (19)
+
+`/canvas` is the typed design-canvas relay protocol used by `opendevbrowser_canvas` and the `canvas` CLI command. Canonical document mutations execute in core; extension runtime support is used for live design-tab and overlay commands.
+
+#### Session and governance (6)
+- `canvas.session.open`
+- `canvas.session.status`
+- `canvas.session.close`
+- `canvas.capabilities.get`
+- `canvas.plan.set`
+- `canvas.plan.get`
+
+#### Document (4)
+- `canvas.document.load`
+- `canvas.document.patch`
+- `canvas.document.save`
+- `canvas.document.export`
+
+#### Live targets and overlay (5)
+- `canvas.tab.open`
+- `canvas.tab.close`
+- `canvas.overlay.mount`
+- `canvas.overlay.unmount`
+- `canvas.overlay.select`
+
+#### Preview and feedback (4)
+- `canvas.preview.render`
+- `canvas.preview.refresh`
+- `canvas.feedback.poll`
+- `canvas.feedback.subscribe`
+
+Extension runtime subset:
+- `canvas.tab.open`
+- `canvas.tab.close`
+- `canvas.tab.sync`
+- `canvas.overlay.mount`
+- `canvas.overlay.unmount`
+- `canvas.overlay.select`
+
+Envelope contract:
+- request: `canvas_request` (`requestId`, `canvasSessionId`, `leaseId`, `command`, `payload`)
+- success: `canvas_response`
+- error: `canvas_error`
+- stream/event: `canvas_event`, `canvas_chunk`
+- liveness: `canvas_ping`, `canvas_pong`
+
 ### `/cdp` channel contract (legacy)
 
 `/cdp` relays low-level CDP messages and is explicitly opt-in (`--extension-legacy`).
@@ -258,8 +311,9 @@ Event envelope:
 ```
 
 Auth and policy:
-- `/ops` and `/cdp` require `?token=<relayToken>` when pairing is enabled.
+- `/ops`, `/canvas`, and `/cdp` require `?token=<relayToken>` when pairing is enabled.
 - `/ops` is multi-client by design.
+- `/canvas` exposes typed design-session envelopes and reports relay usage via `canvasConnected`.
 - `/cdp` is legacy and is typically subject to binding/lease coordination in hub mode.
 - Runtime concurrency key is `ExecutionKey = (sessionId,targetId)`.
 - Same target commands are FIFO; different targets in one session can run in parallel up to the governor cap.
@@ -294,6 +348,7 @@ Auth and policy:
 ### Transport flags
 - Global transport flag: `--transport relay|native` (status and transport-aware flows).
 - Annotation transport flag: `annotate --transport auto|direct|relay`.
+- Canvas wrapper flags: `canvas --command <canvas.*> --params|--params-file [--timeout-ms]`.
 - Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
 
 For complete argument and flag coverage by command, see `docs/CLI.md`.

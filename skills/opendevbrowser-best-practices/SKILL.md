@@ -194,8 +194,38 @@ node scripts/provider-live-matrix.mjs --use-global-env --skip-live-regression --
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (55 CLI commands, 48 tools, 38 `/ops` commands, `/cdp` envelope contracts)
+- `docs/SURFACE_REFERENCE.md` (56 CLI commands, 49 tools, 38 `/ops` commands, 19 `/canvas` commands, `/cdp` envelope contracts)
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
+
+## Canvas Governance Handshake
+
+Use the design-canvas surface when the workflow needs persisted design documents, explicit governance state, preview tabs, or overlay selection.
+
+Recommended command order:
+1. `opendevbrowser_canvas` or `opendevbrowser canvas --command canvas.session.open` to get `canvasSessionId`, `leaseId`, `preflightState`, governance block states, and generation-plan requirements.
+2. Read the handshake before mutating. The handshake is the source of truth for:
+   - `requiredBeforeMutation`
+   - `requiredBeforeSave`
+   - `generationPlanRequirements.requiredBeforeMutation`
+   - `allowedBeforePlan`
+3. Submit `canvas.plan.set` with all required non-empty objects:
+   - `targetOutcome`
+   - `visualDirection`
+   - `layoutStrategy`
+   - `contentStrategy`
+   - `componentStrategy`
+   - `motionPosture`
+   - `responsivePosture`
+   - `accessibilityPosture`
+   - `validationTargets`
+4. Only after the plan is accepted, call `canvas.document.patch`.
+5. Use `canvas.preview.render`, `canvas.tab.open`, `canvas.overlay.mount`, and `canvas.overlay.select` when a browser-backed live view is required.
+6. Use `canvas.feedback.poll` between mutation rounds and `canvas.document.save` or `canvas.document.export` to persist artifacts.
+
+Failure handling:
+- `plan_required`: immediately call `canvas.plan.set`.
+- `revision_conflict`: reload with `canvas.document.load` and replay the patch batch against the latest revision.
+- `unsupported_target` or `restricted_url`: move the preview to a normal http(s) tab or fall back to managed mode.
 
 ## Diagnostics and Traceability
 

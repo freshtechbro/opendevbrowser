@@ -68,7 +68,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 | `managed` | `--no-extension` | Fresh Playwright-controlled Chrome |
 | `cdpConnect` | `opendevbrowser_connect` | Attach to existing `--remote-debugging-port` |
 
-Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. Annotation relay uses a dedicated `/annotation` websocket channel. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
+Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. Annotation relay uses a dedicated `/annotation` websocket channel, and design-canvas relay uses a dedicated `/canvas` websocket channel. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
 
 ### Connection Flags & Status Semantics
 
@@ -77,6 +77,9 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 - `--wait-for-extension`: Polls for extension handshake up to `--wait-timeout-ms` (min 3s).
 - `extensionConnected`: Extension WebSocket is connected to relay.
 - `extensionHandshakeComplete`: Extension handshake finished (preferred readiness signal).
+- `annotationConnected`: Annotation relay client attached.
+- `opsConnected`: At least one active `/ops` client.
+- `canvasConnected`: At least one active `/canvas` client.
 - `cdpConnected`: At least one active `/cdp` client; false is normal until a tool/CLI connects.
 - `pairingRequired`: Relay requires pairing token; extension auto-pair should handle this.
 
@@ -89,12 +92,13 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── cache/        # Chrome executable resolution
 │   ├── cli/          # CLI commands, daemon, installers
 │   ├── core/         # Bootstrap, runtime wiring, ToolDeps
+│   ├── canvas/       # Design-canvas document store, repo IO, export helpers
 │   ├── devtools/     # Console/network trackers with redaction
 │   ├── export/       # DOM capture, React emitter, CSS extraction
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 48 opendevbrowser_* tool definitions
+│   ├── tools/        # 49 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
@@ -121,7 +125,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Add skill pack | `skills/*/SKILL.md` | Follow naming conventions |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
-| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 55 CLI + 48 tools + `/ops` + `/cdp` map |
+| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 56 CLI + 49 tools + `/ops` + `/canvas` + `/cdp` map |
 
 ## Commands
 
@@ -179,7 +183,7 @@ npm run version:check     # Verify version alignment
 - Hostname normalization: lowercase before validation
 - Relay auth: timing-safe token comparison
 - Rate limiting: 5 handshakes/min/IP
-- Origin validation: `/extension` requires `chrome-extension://`; `/cdp`, `/ops`, and `/annotation` accept extension origin or loopback requests without `Origin`
+- Origin validation: `/extension` requires `chrome-extension://`; `/cdp`, `/ops`, `/canvas`, and `/annotation` accept extension origin or loopback requests without `Origin`
 - Export sanitization: strip scripts, handlers, dangerous CSS
 
 ### File Permissions
@@ -206,8 +210,9 @@ Config: ~/.config/opencode/opendevbrowser.jsonc
 export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   return {
     opendevbrowser_launch: createLaunchTool(deps),
+    opendevbrowser_canvas: createCanvasTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 48 tools
+    // ... 49 tools
   };
 }
 ```
