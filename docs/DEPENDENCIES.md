@@ -1,13 +1,13 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-02-28
+Last updated: 2026-03-12
 
 This document tracks runtime and build dependencies across the repository.
 
 ## Root package (`/package.json`)
 
-### Runtime dependencies
+### Runtime and packaged dependencies
 
 | Package | Version | Purpose |
 |---|---|---|
@@ -16,14 +16,15 @@ This document tracks runtime and build dependencies across the repository.
 | `async-mutex` | `^0.5.0` | Session/relay concurrency controls |
 | `jsonc-parser` | `^3.2.0` | JSONC config parsing |
 | `playwright-core` | `^1.58.2` | Browser control + CDP sessions |
+| `typescript` | `^5.9.3` | Runtime TSX parsing/printing for canvas code sync plus repository TypeScript builds |
 | `ws` | `^8.19.0` | Relay and daemon websocket transport |
+| `yjs` | `^13.6.29` | CRDT-backed canvas document state and convergence |
 | `zod` | `^3.25.76` | Runtime input/config validation |
 
 ### Dev dependencies
 
 | Package | Version | Purpose |
 |---|---|---|
-| `typescript` | `^5.9.3` | TypeScript compiler |
 | `tsup` | `^8.5.1` | ESM bundling |
 | `eslint` + `@typescript-eslint/*` | `^9.39.3`, `^8.56.1` | Linting |
 | `vitest` + `@vitest/coverage-v8` | `^4.0.18` | Test runner + coverage |
@@ -39,7 +40,7 @@ The website dependency graph is maintained in the private repository:
 - manifest: `frontend/package.json`
 - lockfile: `frontend/package-lock.json`
 
-This public repository no longer tracks website package manifests or lockfiles.
+This public repository no longer tracks website package manifests or lockfiles. Any public docs that mention `frontend/` commands are private-repo validation steps, not public-repo manifests.
 
 ## Extension package (`/extension`)
 

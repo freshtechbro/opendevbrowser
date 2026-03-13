@@ -171,7 +171,12 @@ describe("serve command", () => {
         wrapperPath: "/tmp/wrapper.sh",
         hostScriptPath: "/tmp/host.cjs",
         extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        registryPath: null
+        registryPath: null,
+        discoveredExtensionId: "cccccccccccccccccccccccccccccccc",
+        discoveredMatchedBy: "path",
+        expectedExtensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        expectedExtensionSource: "config",
+        mismatch: false
       });
     mocks.discoverExtensionId.mockReturnValue({ extensionId: "cccccccccccccccccccccccccccccccc", matchedBy: "path" });
     mocks.installNativeHost.mockReturnValue({
@@ -190,7 +195,12 @@ describe("serve command", () => {
       wrapperPath: "/tmp/wrapper.sh",
       hostScriptPath: "/tmp/host.cjs",
       extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      registryPath: null
+      registryPath: null,
+      discoveredExtensionId: "cccccccccccccccccccccccccccccccc",
+      discoveredMatchedBy: "path",
+      expectedExtensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      expectedExtensionSource: "config",
+      mismatch: false
     });
     expect(mocks.startDaemon).toHaveBeenCalledWith({ port: undefined, token: undefined, config });
   });
@@ -278,6 +288,54 @@ describe("serve command", () => {
     expect(result.success).toBe(true);
     expect(result.message).toContain("Native host install skipped: Native install failed: boom");
     expect(mocks.startDaemon).toHaveBeenCalledWith({ port: undefined, token: undefined, config });
+  });
+
+  it("reinstalls the native host when the installed extension id is stale", async () => {
+    const config = makeConfig(undefined);
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.getNativeStatusSnapshot
+      .mockReturnValueOnce({
+        installed: true,
+        manifestPath: "/tmp/manifest.json",
+        wrapperPath: "/tmp/wrapper.sh",
+        hostScriptPath: "/tmp/host.cjs",
+        extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        registryPath: null,
+        discoveredExtensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        discoveredMatchedBy: "path",
+        expectedExtensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        expectedExtensionSource: "path",
+        mismatch: true
+      })
+      .mockReturnValueOnce({
+        installed: true,
+        manifestPath: "/tmp/manifest.json",
+        wrapperPath: "/tmp/wrapper.sh",
+        hostScriptPath: "/tmp/host.cjs",
+        extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        registryPath: null,
+        discoveredExtensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        discoveredMatchedBy: "path",
+        expectedExtensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        expectedExtensionSource: "path",
+        mismatch: false
+      });
+    mocks.discoverExtensionId.mockReturnValue({
+      extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      matchedBy: "path"
+    });
+    mocks.installNativeHost.mockReturnValue({
+      success: true,
+      message: "Native host installed for extension bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb."
+    });
+
+    const result = await runServe(makeArgs([]));
+
+    expect(mocks.installNativeHost).toHaveBeenCalledWith("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    expect(result.success).toBe(true);
+    expect(result.message).toContain(
+      "Native host reinstalled for extension bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb (replacing stale aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)."
+    );
   });
 
   it("returns graceful daemon-running message when startup hits EADDRINUSE and daemon is reachable", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS } from "../src/cli/args";
-import { HELP_COMMAND_GROUPS, HELP_TOOL_ENTRIES } from "../src/cli/help";
+import { HELP_COMMAND_GROUPS, HELP_REFERENCE_ENTRIES, HELP_TOOL_ENTRIES } from "../src/cli/help";
 
 describe("cli help parity", () => {
   it("covers the full CLI command inventory", () => {
@@ -14,6 +14,13 @@ describe("cli help parity", () => {
     const names = HELP_TOOL_ENTRIES.map((entry) => entry.name);
 
     expect(new Set(names).size).toBe(HELP_TOOL_ENTRIES.length);
-    expect(HELP_TOOL_ENTRIES.length).toBe(48);
+    expect(HELP_TOOL_ENTRIES.length).toBe(49);
+  });
+
+  it("mentions both help invocations in the generated help text", () => {
+    const labels = HELP_REFERENCE_ENTRIES.map((entry) => entry.label);
+
+    expect(labels).toContain("opendevbrowser --help");
+    expect(labels).toContain("opendevbrowser help");
   });
 });

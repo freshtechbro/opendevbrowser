@@ -1,6 +1,5 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
-import { runProductVideoWorkflow } from "../providers";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
@@ -49,7 +48,8 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
     },
     async execute(args) {
       try {
-        const runtime = resolveProviderRuntime(deps);
+        const runtime = await resolveProviderRuntime(deps);
+        const { runProductVideoWorkflow } = await import("../providers");
         const includeScreenshots = args.include_screenshots ?? true;
         const result = await runProductVideoWorkflow(runtime, {
           product_url: args.product_url,

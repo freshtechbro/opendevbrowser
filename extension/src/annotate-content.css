@@ -23,7 +23,8 @@
   position: fixed;
   top: 16px;
   right: 16px;
-  width: 320px;
+  width: min(396px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   background: var(--odb-panel);
   border: 1px solid var(--odb-border);
   border-radius: 14px;
@@ -37,21 +38,29 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 12px 14px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   cursor: grab;
   user-select: none;
 }
 
-.odb-title {
+.odb-panel-header .odb-title {
   font-weight: 600;
   letter-spacing: 0.02em;
   font-size: 13px;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
-.odb-actions {
+.odb-panel-header .odb-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .odb-btn {
@@ -65,8 +74,8 @@
 }
 
 .odb-btn-icon {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   line-height: 1;
   font-weight: 600;

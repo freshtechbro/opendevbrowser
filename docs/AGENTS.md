@@ -12,6 +12,7 @@ Applies to all markdown and reference assets under `docs/`.
   - CLI commands/flags: `src/cli/args.ts`
   - Tool inventory: `src/tools/index.ts`
   - Relay/ops surfaces: `extension/src/ops/ops-runtime.ts`, `src/relay/protocol.ts`
+  - Canvas/session/code-sync surface: `src/browser/canvas-manager.ts`, `src/canvas/repo-store.ts`, `extension/src/canvas/canvas-runtime.ts`
   - Website ownership/sync contract: `docs/FRONTEND.md` and private repo `opendevbrowser-website-deploy/frontend/src/**`
 - Keep public docs concise and operational; avoid speculative claims.
 - If numbers (commands/tools/coverage) are mentioned, verify from code or generated artifacts in the same pass.
@@ -25,6 +26,13 @@ When command/tool/channel surface changes:
 - `docs/ARCHITECTURE.md`
 - `README.md`
 - relevant `AGENTS.md` files
+
+When canvas session/code-sync/projection behavior changes:
+- `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`
+- `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`
+- `docs/CLI.md`
+- `docs/SURFACE_REFERENCE.md`
+- relevant `AGENTS.md` files under `src/`, `src/browser/`, `src/canvas/`, and `extension/`
 
 When extension behavior changes:
 - `docs/EXTENSION.md`
@@ -55,4 +63,5 @@ When mirrored website inputs change (`docs/`, `skills/`, `assets/`, `CHANGELOG.m
 - Do not keep stale numeric claims when source has changed.
 - Do not document unsupported flags/commands.
 - Do not imply public-repo ownership of `frontend/`; website source is private.
+- Do not over-claim `bound_app_runtime`; `canvas_html` remains the default preview/export contract unless the binding opts in and runtime instrumentation exists.
 - Do not edit private generated frontend docs JSON by hand when the source is in `docs/`, `CHANGELOG.md`, or `skills/*/SKILL.md`.

@@ -24,6 +24,7 @@ import { runGoto } from "./commands/nav/goto";
 import { runWait } from "./commands/nav/wait";
 import { runSnapshot } from "./commands/nav/snapshot";
 import { runAnnotate } from "./commands/annotate";
+import { runCanvas } from "./commands/canvas";
 import { runRpc } from "./commands/rpc";
 import { runClick } from "./commands/interact/click";
 import { runHover } from "./commands/interact/hover";
@@ -443,8 +444,14 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "annotate",
-      description: "Request interactive annotations (extension relay)",
+      description: "Request interactive annotations via direct or relay transport",
       run: async () => runAnnotate(args)
+    });
+
+    registerCommand({
+      name: "canvas",
+      description: "Execute a design-canvas command",
+      run: async () => runCanvas(args)
     });
 
     registerCommand({

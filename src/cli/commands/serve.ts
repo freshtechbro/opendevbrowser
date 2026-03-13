@@ -205,19 +205,26 @@ export async function runServe(args: ParsedArgs) {
 
   let nativeStatus = getNativeStatusSnapshot();
   let nativeMessage: string | null = null;
-  if (!nativeStatus.installed) {
+  if (!nativeStatus.installed || nativeStatus.mismatch) {
     const discovered = discoverExtensionId();
-    const extensionId = config.nativeExtensionId ?? discovered.extensionId ?? null;
-    const usedDiscovery = !config.nativeExtensionId && Boolean(discovered.extensionId);
+    const extensionId = nativeStatus.expectedExtensionId ?? config.nativeExtensionId ?? discovered.extensionId ?? null;
+    const usedDiscovery = nativeStatus.expectedExtensionSource !== "config" && Boolean(extensionId);
+    const previousExtensionId = nativeStatus.extensionId;
     if (extensionId) {
       const installResult = installNativeHost(extensionId);
       if (installResult.success) {
         const suffix = usedDiscovery && discovered.matchedBy ? ` (auto-detected by ${discovered.matchedBy})` : "";
-        nativeMessage = `${installResult.message ?? "Native host installed."}${suffix}`;
+        nativeMessage = nativeStatus.mismatch && previousExtensionId
+          ? `Native host reinstalled for extension ${extensionId} (replacing stale ${previousExtensionId}).${suffix}`
+          : `${installResult.message ?? "Native host installed."}${suffix}`;
         nativeStatus = getNativeStatusSnapshot();
       } else {
-        nativeMessage = `Native host install skipped: ${installResult.message ?? "unknown error"}`;
+        nativeMessage = nativeStatus.mismatch
+          ? `Native host reinstall skipped: ${installResult.message ?? "unknown error"}`
+          : `Native host install skipped: ${installResult.message ?? "unknown error"}`;
       }
+    } else if (nativeStatus.mismatch && previousExtensionId) {
+      nativeMessage = `Native host targets stale extension ${previousExtensionId}, but no current extension id could be resolved for reinstall.`;
     } else {
       nativeMessage = "Native host not installed. Set nativeExtensionId in opendevbrowser.jsonc to auto-install.";
     }

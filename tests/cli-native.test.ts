@@ -41,7 +41,7 @@ describe("native CLI command", () => {
     if (result.success) {
       expect(result.message).toContain("Native host installed");
     } else {
-      expect(result.message).toContain("not installed");
+      expect(result.message).toMatch(/not installed|current extension|reinstall/i);
     }
   });
 

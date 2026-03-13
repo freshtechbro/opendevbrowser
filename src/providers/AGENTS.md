@@ -10,23 +10,38 @@ Multi-source provider runtime with tiered execution, safety guards, and browser 
 
 ```
 src/providers/
-├── types.ts              # Core types (418 lines) - ProviderSource, ProviderOperation, ProviderAdapter
-├── runtime-factory.ts    # Browser fallback port, config-driven runtime creation
-├── workflows.ts          # High-level workflow orchestration
-├── artifacts.ts          # Artifact generation
-├── errors.ts             # Provider error types
-├── web/                  # Web crawling and extraction
-│   ├── crawler.ts        # BFS/DFS crawler with worker threads
-│   ├── extract.ts        # Content extraction
-│   └── policy.ts         # Crawling policies
-├── social/               # Social platform providers
+├── adaptive-concurrency.ts # Global/per-domain concurrency controller
+├── artifacts.ts            # Artifact lifecycle + cleanup
+├── blocker.ts              # Blocker classification + artifact helpers
+├── enrichment.ts           # Enrichment scoring/metadata helpers
+├── errors.ts               # Provider error types
+├── index.ts                # Provider runtime entrypoint
+├── normalize.ts            # Result normalization + execution metadata
+├── policy.ts               # Provider selection policy
+├── registry.ts             # ProviderRegistry construction
+├── renderer.ts             # Provider render modes
+├── runtime-factory.ts      # Browser fallback port, config-driven runtime creation
+├── tier-router.ts          # Tier selection + fallback routing
+├── timebox.ts              # Timebox resolution/filtering
+├── types.ts                # Core types - ProviderSource, ProviderOperation, ProviderAdapter
+├── workflows.ts            # High-level research/shopping/product-video orchestration
+├── community/              # Community/forum providers
+│   └── index.ts
+├── web/                    # Web crawling and extraction
+│   ├── crawl-worker.ts     # Worker-thread crawl jobs
+│   ├── crawler.ts          # BFS/DFS crawler
+│   ├── extract.ts          # Content extraction
+│   └── policy.ts           # Crawling policies
+├── social/                 # Social platform providers
+│   ├── platform.ts         # Shared platform helpers
 │   ├── x.ts, reddit.ts, bluesky.ts, facebook.ts, linkedin.ts, instagram.ts, tiktok.ts, threads.ts, youtube.ts
 │   └── youtube-resolver.ts # Transcript strategy resolver (api/ytdlp/asr/browser fallback)
-├── shopping/             # Shopping/deal providers
-├── safety/               # Safety guards
-│   └── prompt-guard.ts   # Prompt injection detection
-└── shared/               # Shared utilities
-    ├── anti-bot-policy.ts, traversal-url.ts, post-policy.ts
+├── shopping/               # Shopping/deal providers
+│   └── index.ts
+├── safety/                 # Safety guards
+│   └── prompt-guard.ts     # Prompt injection detection
+└── shared/                 # Shared utilities
+    ├── anti-bot-policy.ts, post-policy.ts, request-headers.ts, traversal-url.ts
 ```
 
 ## Key Types
@@ -56,6 +71,7 @@ Tier selection based on: `challengePressure`, `highFrictionTarget`, `riskScore`,
 - **Anti-Bot Policy**: Cooldown, challenge retries, proxy/session hints
 - **Blocker Detection**: Auth required, anti-bot challenge, rate limited, upstream block
 - **Adaptive Concurrency**: Global/per-domain limits with auto-tuning
+- **Tier Router**: Controlled fallback across A/B/C runtime tiers
 
 ## Browser Fallback
 
@@ -78,6 +94,7 @@ When providers fail (e.g., YouTube transcript extraction), `createBrowserFallbac
 ```
 
 `social/youtube-resolver.ts` follows `providers.transcript.strategyOrder` and normalizes transcript resolution metadata.
+`runtime-factory.ts` also exposes `createBrowserFallbackPort()` for managed-browser recovery paths used by workflows and transcript resolution.
 
 ## Anti-Patterns
 

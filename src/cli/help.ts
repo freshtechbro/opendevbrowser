@@ -33,7 +33,7 @@ interface ReferenceEntry {
 }
 
 const LABEL_WIDTH = 42;
-const EXPECTED_TOOL_COUNT = 48;
+const EXPECTED_TOOL_COUNT = 49;
 const COMMAND_SET = new Set<string>(CLI_COMMANDS);
 const FLAG_SET = new Set<string>(VALID_FLAGS);
 
@@ -57,6 +57,11 @@ export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = [
     title: "Provider Workflows",
     summary: "Run research/shopping/media workflows and macro plans.",
     commands: ["research", "shopping", "product-video", "artifacts", "macro-resolve"]
+  },
+  {
+    title: "Design Canvas",
+    summary: "Execute design-canvas session, document, overlay, and preview commands.",
+    commands: ["canvas"]
   },
   {
     title: "Navigation",
@@ -116,7 +121,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--help", alias: "-h", description: "Show CLI help output." },
       { flag: "--version", alias: "-v", description: "Show CLI version." },
       { flag: "--output-format", description: "Output mode: text, json, stream-json." },
-      { flag: "--transport", description: "Annotation transport: relay (default) or native." }
+      { flag: "--transport", description: "Transport selector for transport-aware commands. `status` uses relay/native; `annotate` uses auto/direct/relay." }
     ]
   },
   {
@@ -137,7 +142,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--profile", description: "Use a named browser profile directory." },
       { flag: "--persist-profile", description: "Keep generated profile directory after exit." },
       { flag: "--chrome-path", description: "Use a specific Chrome/Chromium binary." },
-      { flag: "--start-url", description: "Open this URL immediately after launch." },
+      { flag: "--start-url", description: "Open this URL immediately after launch or connect." },
       { flag: "--flag", description: "Pass one or more extra Chrome CLI flags." },
       { flag: "--no-extension", description: "Force managed mode without extension relay." },
       { flag: "--extension-only", description: "Fail unless extension relay is connected." },
@@ -152,7 +157,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
     flags: [
       { flag: "--url", description: "Target URL for navigation, connect, or workflow commands." },
       { flag: "--wait-until", description: "Navigation wait strategy (load, domcontentloaded, etc.)." },
-      { flag: "--timeout-ms", description: "Operation timeout in milliseconds (for example goto, wait, screenshot, annotate, rpc, and macro-resolve)." },
+      { flag: "--timeout-ms", description: "Operation timeout in milliseconds (for example goto, wait, screenshot, annotate, canvas, rpc, and macro-resolve)." },
       { flag: "--ref", description: "Snapshot ref id for element-targeted commands." },
       { flag: "--state", description: "Wait state selector for wait-style commands." },
       { flag: "--until", description: "Wait condition selector for wait-style commands." },
@@ -180,9 +185,10 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--cookies", description: "Inline cookie payload for cookie-import command." },
       { flag: "--cookies-file", description: "File path containing cookies for cookie-import." },
       { flag: "--strict", description: "Fail cookie import on invalid entries." },
-      { flag: "--screenshot-mode", description: "Annotation screenshot mode: crop, full, or none." },
+      { flag: "--screenshot-mode", description: "Annotation screenshot mode: visible, full, or none." },
       { flag: "--debug", description: "Enable debug-level annotation capture extras." },
-      { flag: "--context", description: "Free-form annotation context for reviewers/agents." }
+      { flag: "--context", description: "Free-form annotation context for reviewers/agents." },
+      { flag: "--stored", description: "Return the last stored annotation payload instead of starting a new capture." }
     ]
   },
   {
@@ -193,8 +199,9 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--default-provider", description: "Provider fallback for shorthand macro expressions." },
       { flag: "--include-catalog", description: "Include macro catalog metadata in response." },
       { flag: "--execute", description: "Execute resolved macro action after planning (pair with --timeout-ms on slow runs)." },
-      { flag: "--params", description: "Inline JSON params for rpc command." },
-      { flag: "--params-file", description: "Path to JSON params file for rpc command." },
+      { flag: "--command", description: "Canvas command name for the canvas CLI command." },
+      { flag: "--params", description: "Inline JSON params for canvas or rpc commands." },
+      { flag: "--params-file", description: "Path to JSON params file for canvas or rpc commands." },
       { flag: "--unsafe-internal", description: "Required safety gate for rpc command." },
       { flag: "--topic", description: "Research topic input." },
       { flag: "--days", description: "Lookback window in days for research commands." },
@@ -212,7 +219,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--product-url", description: "Target product URL for product-video/artifacts workflows." },
       { flag: "--product-name", description: "Product name override for media workflows." },
       { flag: "--provider-hint", description: "Provider hint override for product workflows." },
-      { flag: "--include-screenshots", description: "Include screenshots in product presentation output." },
+      { flag: "--include-screenshots", description: "Include screenshots in product presentation output, or prefer screenshots when fetching stored annotations." },
       { flag: "--include-all-images", description: "Include all discovered product images." },
       { flag: "--include-copy", description: "Include product marketing copy metadata." },
       { flag: "--output-dir", description: "Directory where generated artifacts are written." },
@@ -264,6 +271,7 @@ export const HELP_TOOL_ENTRIES: readonly ToolEntry[] = [
   { name: "opendevbrowser_research_run", description: "Run research workflow directly." },
   { name: "opendevbrowser_shopping_run", description: "Run shopping workflow directly." },
   { name: "opendevbrowser_product_video_run", description: "Run product-video asset workflow directly." },
+  { name: "opendevbrowser_canvas", description: "Execute a design-canvas command surface call." },
   { name: "opendevbrowser_clone_page", description: "Export active page into React code." },
   { name: "opendevbrowser_clone_component", description: "Export component by ref into React code." },
   { name: "opendevbrowser_perf", description: "Collect browser performance metrics." },
@@ -273,11 +281,12 @@ export const HELP_TOOL_ENTRIES: readonly ToolEntry[] = [
   { name: "opendevbrowser_skill_load", description: "Load a specific skill pack." }
 ];
 
-const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
+export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "docs/CLI.md", description: "Full command docs, flag matrix, and examples." },
   { label: "docs/SURFACE_REFERENCE.md", description: "Canonical CLI/tool/channel inventory matrix." },
   { label: "src/tools/index.ts", description: "Code-level tool registry (source of truth)." },
-  { label: "opendevbrowser --help", description: "Always safe first command for quick discovery." }
+  { label: "opendevbrowser --help", description: "Primary full help invocation for quick discovery." },
+  { label: "opendevbrowser help", description: "Alias that prints the same full help inventory." }
 ];
 
 function formatRows(rows: readonly { label: string; description: string }[]): string {

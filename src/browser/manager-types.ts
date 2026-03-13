@@ -1,10 +1,13 @@
 /* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
+import type {
+  RuntimePreviewBridgeInput,
+  RuntimePreviewBridgeResult
+} from "./canvas-runtime-preview-bridge";
 
 export type BrowserManagerLike = Pick<BrowserManager,
   | "launch"
   | "connect"
-  | "connectRelay"
   | "disconnect"
   | "status"
   | "withPage"
@@ -43,4 +46,18 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "useTarget"
   | "newTarget"
   | "closeTarget"
->;
+> & {
+  connectRelay: (
+    wsEndpoint: string,
+    options?: { startUrl?: string }
+  ) => ReturnType<BrowserManager["connectRelay"]>;
+  registerCanvasTarget?: (
+    sessionId: string,
+    targetId: string
+  ) => Promise<{ targetId: string; url?: string; title?: string; adopted?: boolean }>;
+  applyRuntimePreviewBridge?: (
+    sessionId: string,
+    targetId: string | null,
+    input: RuntimePreviewBridgeInput
+  ) => Promise<RuntimePreviewBridgeResult>;
+};

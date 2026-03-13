@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseOptionalStringFlag } from "../../utils/parse";
 
 function parsePressArgs(rawArgs: string[]): { sessionId?: string; key?: string; ref?: string } {
   const parsed: { sessionId?: string; key?: string; ref?: string } = {};
@@ -45,8 +46,14 @@ function parsePressArgs(rawArgs: string[]): { sessionId?: string; key?: string; 
 
 export async function runPress(args: ParsedArgs) {
   const { sessionId, key, ref } = parsePressArgs(args.rawArgs);
+  const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
   if (!key) throw createUsageError("Missing --key");
-  const result = await callDaemon("interact.press", { sessionId, key, ref });
+  const result = await callDaemon("interact.press", {
+    sessionId,
+    key,
+    ref,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  });
   return { success: true, message: "Key press complete.", data: result };
 }

@@ -42,6 +42,13 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return core.relay.getAnnotationUrl?.() ?? null;
     case "relay.opsUrl":
       return core.relay.getOpsUrl?.() ?? null;
+    case "relay.canvasUrl":
+      return core.relay.getCanvasUrl?.() ?? null;
+    case "canvas.execute":
+      return core.canvasManager.execute(
+        requireString(params.command, "command"),
+        requireRecord(params.params ?? {}, "params")
+      );
     case "relay.bind": {
       const clientId = requireClientId(params);
       const binding = bindRelay(clientId);
@@ -96,7 +103,8 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       await authorizeSessionCommand(core, params, request.name, bindingId);
       const sessionId = requireString(params.sessionId, "sessionId");
       const status = await core.manager.status(sessionId);
-      const transport = requireAnnotationTransport(params.transport);
+      const stored = optionalBoolean(params.stored) ?? false;
+      const transport = stored ? "relay" : requireAnnotationTransport(params.transport);
       if (transport === "relay" && status.mode !== "extension") {
         throw new Error("Relay annotations require extension mode.");
       }
@@ -106,10 +114,13 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       const screenshotMode = requireScreenshotMode(params.screenshotMode);
       const debug = optionalBoolean(params.debug) ?? false;
       const context = optionalString(params.context);
+      const includeScreenshots = optionalBoolean(params.includeScreenshots) ?? true;
       const timeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
       return core.annotationManager.requestAnnotation({
         sessionId,
         transport,
+        stored,
+        includeScreenshots,
         targetId,
         tabId,
         url,
@@ -693,7 +704,10 @@ async function launchWithRelay(
       throw new Error(buildExtensionMissingMessage(missingReason));
     }
     try {
-      const result = await core.manager.connectRelay(relayUrl);
+      const startUrl = optionalString(params.startUrl);
+      const result = startUrl
+        ? await core.manager.connectRelay(relayUrl, { startUrl })
+        : await core.manager.connectRelay(relayUrl);
       const leaseId = extractLeaseId(result);
       if (result.mode === "extension" && leaseId) {
         registerSessionLease(result.sessionId, leaseId, clientId);
@@ -783,7 +797,10 @@ async function connectWithRelayRouting(
     if (extensionLegacy) {
       requireBinding(clientId, bindingId);
     }
-    const result = await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
+    const startUrl = optionalString(params.startUrl);
+    const result = startUrl
+      ? await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "", { startUrl })
+      : await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
     const leaseId = extractLeaseId(result);
     if (result.mode === "extension" && leaseId) {
       registerSessionLease(result.sessionId, leaseId, clientId);
@@ -798,7 +815,8 @@ async function connectWithRelayRouting(
   return core.manager.connect({
     wsEndpoint,
     host: optionalString(params.host),
-    port: optionalNumber(params.port, "port")
+    port: optionalNumber(params.port, "port"),
+    startUrl: optionalString(params.startUrl)
   });
 }
 
@@ -1043,6 +1061,13 @@ function requireString(value: unknown, label: string): string {
     throw new Error(`Missing ${label}`);
   }
   return value;
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid ${label}`);
+  }
+  return value as Record<string, unknown>;
 }
 
 function requireClientId(params: Record<string, unknown>): string {

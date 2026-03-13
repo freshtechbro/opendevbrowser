@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as os from "os";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { createMockProviderRuntime } from "./provider-runtime-mock";
 
 vi.mock("@opencode-ai/plugin", async () => {
   const { z } = await import("zod");
@@ -126,89 +127,110 @@ const createDeps = () => {
   const runner = {
     run: vi.fn().mockResolvedValue({ results: [], timingMs: 1 })
   };
+  const canvasManager = {
+    execute: vi.fn().mockResolvedValue({ canvasSessionId: "canvas-1", leaseId: "lease-1" })
+  };
 
   const baseConfig = resolveConfig({});
   const config = new ConfigStore({ ...baseConfig, relayToken: false });
   const skills = { loadBestPractices: vi.fn().mockResolvedValue("guide") };
   const getExtensionPath = vi.fn().mockReturnValue("/path/to/extension");
+  const providerRuntime = createMockProviderRuntime();
 
-  return { manager, runner, config, skills, getExtensionPath };
+  return { manager, canvasManager, runner, config, skills, getExtensionPath, providerRuntime };
+};
+
+type ExecutableTool = {
+  execute: (args: never) => Promise<string>;
 };
 
 const parse = (value: string) => JSON.parse(value) as { ok: boolean } & Record<string, unknown>;
 
-describe("tools", () => {
-  it("executes tool handlers", async () => {
-    const deps = createDeps();
-    const { createTools } = await import("../src/tools");
-    const tools = createTools(deps as never);
+const loadTools = async () => {
+  const deps = createDeps();
+  const { createTools } = await import("../src/tools");
+  return {
+    deps,
+    tools: createTools(deps as never) as Record<string, ExecutableTool>
+  };
+};
 
-    expect(parse(await tools.opendevbrowser_launch.execute({ profile: "default", noExtension: true } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_connect.execute({ host: "127.0.0.1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_disconnect.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_targets_list.execute({ sessionId: "s1", includeUrls: true } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_target_use.execute({ sessionId: "s1", targetId: "t1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_target_new.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_target_close.execute({ sessionId: "s1", targetId: "t1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_page.execute({ sessionId: "s1", name: "main" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_list.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_close.execute({ sessionId: "s1", name: "main" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_goto.execute({ sessionId: "s1", url: "https://" } as never))).toMatchObject({
-      ok: true,
-      meta: {
-        blockerState: "active",
-        blocker: { type: "auth_required" }
-      }
-    });
-    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", until: "load" } as never))).toMatchObject({
-      ok: true,
-      meta: { blockerState: "clear" }
-    });
-    expect(parse(await tools.opendevbrowser_wait.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({
-      ok: true,
-      meta: { blockerState: "clear" }
-    });
-    expect(parse(await tools.opendevbrowser_snapshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_click.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_hover.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_press.execute({ sessionId: "s1", key: "Enter" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_check.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_uncheck.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_type.execute({ sessionId: "s1", ref: "r1", text: "hi" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_select.execute({ sessionId: "s1", ref: "r1", values: ["v"] } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_scroll.execute({ sessionId: "s1", dy: 10 } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_scroll_into_view.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_dom_get_html.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_dom_get_text.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_get_attr.execute({ sessionId: "s1", ref: "r1", name: "id" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_get_value.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_is_visible.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_is_enabled.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_is_checked.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_run.execute({ sessionId: "s1", steps: [] } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_prompting_guide.execute({} as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_console_poll.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_network_poll.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never))).toMatchObject({
-      ok: true,
-      meta: { blockerState: "clear" }
-    });
-    expect(parse(await tools.opendevbrowser_cookie_import.execute({
-      sessionId: "s1",
-      cookies: [{ name: "session", value: "abc123", url: "https://example.com" }]
-    } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_cookie_list.execute({
-      sessionId: "s1",
-      urls: ["https://example.com"]
-    } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_macro_resolve.execute({
+const runTool = async (
+  tools: Record<string, ExecutableTool>,
+  name: string,
+  args: Record<string, unknown>
+) => parse(await tools[name].execute(args as never));
+
+describe("tools", () => {
+  it("executes lifecycle and interaction tool handlers", async () => {
+    const { tools } = await loadTools();
+    const cases: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
+      ["opendevbrowser_launch", { profile: "default", noExtension: true }, { ok: true }],
+      ["opendevbrowser_connect", { host: "127.0.0.1" }, { ok: true }],
+      ["opendevbrowser_disconnect", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_status", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_targets_list", { sessionId: "s1", includeUrls: true }, { ok: true }],
+      ["opendevbrowser_target_use", { sessionId: "s1", targetId: "t1" }, { ok: true }],
+      ["opendevbrowser_target_new", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_target_close", { sessionId: "s1", targetId: "t1" }, { ok: true }],
+      ["opendevbrowser_page", { sessionId: "s1", name: "main" }, { ok: true }],
+      ["opendevbrowser_list", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_close", { sessionId: "s1", name: "main" }, { ok: true }],
+      ["opendevbrowser_goto", { sessionId: "s1", url: "https://" }, { ok: true, meta: { blockerState: "active", blocker: { type: "auth_required" } } }],
+      ["opendevbrowser_wait", { sessionId: "s1", until: "load" }, { ok: true, meta: { blockerState: "clear" } }],
+      ["opendevbrowser_wait", { sessionId: "s1", ref: "r1" }, { ok: true, meta: { blockerState: "clear" } }],
+      ["opendevbrowser_snapshot", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_click", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_hover", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_press", { sessionId: "s1", key: "Enter" }, { ok: true }],
+      ["opendevbrowser_check", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_uncheck", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_type", { sessionId: "s1", ref: "r1", text: "hi" }, { ok: true }],
+      ["opendevbrowser_select", { sessionId: "s1", ref: "r1", values: ["v"] }, { ok: true }],
+      ["opendevbrowser_scroll", { sessionId: "s1", dy: 10 }, { ok: true }],
+      ["opendevbrowser_scroll_into_view", { sessionId: "s1", ref: "r1" }, { ok: true }]
+    ];
+
+    for (const [name, args, expected] of cases) {
+      expect(await runTool(tools, name, args)).toMatchObject(expected);
+    }
+  }, 30000);
+
+  it("executes DOM, diagnostics, and storage tool handlers", async () => {
+    const { tools } = await loadTools();
+    const cases: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
+      ["opendevbrowser_dom_get_html", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_dom_get_text", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_get_attr", { sessionId: "s1", ref: "r1", name: "id" }, { ok: true }],
+      ["opendevbrowser_get_value", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_is_visible", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_is_enabled", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_is_checked", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_run", { sessionId: "s1", steps: [] }, { ok: true }],
+      ["opendevbrowser_prompting_guide", {}, { ok: true }],
+      ["opendevbrowser_console_poll", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_network_poll", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_debug_trace_snapshot", { sessionId: "s1" }, { ok: true, meta: { blockerState: "clear" } }],
+      ["opendevbrowser_cookie_import", { sessionId: "s1", cookies: [{ name: "session", value: "abc123", url: "https://example.com" }] }, { ok: true }],
+      ["opendevbrowser_cookie_list", { sessionId: "s1", urls: ["https://example.com"] }, { ok: true }]
+    ];
+
+    for (const [name, args, expected] of cases) {
+      expect(await runTool(tools, name, args)).toMatchObject(expected);
+    }
+  }, 30000);
+
+  it("executes macro, canvas, and export tool handlers", async () => {
+    const { tools } = await loadTools();
+
+    expect(await runTool(tools, "opendevbrowser_macro_resolve", {
       expression: "@web.search(\"openai\")"
-    } as never))).toMatchObject({ ok: true });
-    const macroExecution = parse(await tools.opendevbrowser_macro_resolve.execute({
+    })).toMatchObject({ ok: true });
+
+    const macroExecution = await runTool(tools, "opendevbrowser_macro_resolve", {
       expression: "@community.search(\"openai\")",
       execute: true
-    } as never));
+    });
     expect(macroExecution).toMatchObject({
       ok: true,
       execution: {
@@ -226,10 +248,97 @@ describe("tools", () => {
     });
     expect(((macroExecution.execution as { records: unknown[] } | undefined)?.records.length ?? 0)).toBeGreaterThan(0);
     expect((macroExecution.execution as { meta?: { ok?: boolean } } | undefined)?.meta?.ok).toBe(true);
-    expect(parse(await tools.opendevbrowser_clone_page.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
-    expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never))).toMatchObject({ ok: true });
+
+    expect(await runTool(tools, "opendevbrowser_canvas", {
+      command: "canvas.session.open",
+      params: { browserSessionId: "s1" }
+    })).toMatchObject({ ok: true, canvasSessionId: "canvas-1" });
+
+    for (const [name, args] of [
+      ["opendevbrowser_clone_page", { sessionId: "s1" }],
+      ["opendevbrowser_clone_component", { sessionId: "s1", ref: "r1" }],
+      ["opendevbrowser_perf", { sessionId: "s1" }],
+      ["opendevbrowser_screenshot", { sessionId: "s1" }]
+    ] as Array<[string, Record<string, unknown>]>) {
+      expect(await runTool(tools, name, args)).toMatchObject({ ok: true });
+    }
+  }, 30000);
+
+  it("forwards targetId across target-aware tool handlers", async () => {
+    const { deps, tools } = await loadTools();
+    const defaultMaxChars = deps.config.get().snapshot.maxChars;
+
+    await runTool(tools, "opendevbrowser_goto", { sessionId: "s1", url: "https://example.com", targetId: "tab-9" });
+    expect(deps.manager.goto).toHaveBeenLastCalledWith("s1", "https://example.com", "load", 30000, undefined, "tab-9");
+
+    await runTool(tools, "opendevbrowser_wait", { sessionId: "s1", until: "load", targetId: "tab-9" });
+    expect(deps.manager.waitForLoad).toHaveBeenLastCalledWith("s1", "load", 30000, "tab-9");
+
+    await runTool(tools, "opendevbrowser_wait", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.waitForRef).toHaveBeenLastCalledWith("s1", "r1", "attached", 30000, "tab-9");
+
+    await runTool(tools, "opendevbrowser_snapshot", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.snapshot).toHaveBeenLastCalledWith("s1", "outline", defaultMaxChars, undefined, "tab-9");
+
+    await runTool(tools, "opendevbrowser_click", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.click).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_hover", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.hover).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_press", { sessionId: "s1", key: "Enter", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.press).toHaveBeenLastCalledWith("s1", "Enter", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_check", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.check).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_uncheck", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.uncheck).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_type", { sessionId: "s1", ref: "r1", text: "hello", targetId: "tab-9" });
+    expect(deps.manager.type).toHaveBeenLastCalledWith("s1", "r1", "hello", false, false, "tab-9");
+
+    await runTool(tools, "opendevbrowser_select", { sessionId: "s1", ref: "r1", values: ["one"], targetId: "tab-9" });
+    expect(deps.manager.select).toHaveBeenLastCalledWith("s1", "r1", ["one"], "tab-9");
+
+    await runTool(tools, "opendevbrowser_scroll", { sessionId: "s1", dy: 80, ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.scroll).toHaveBeenLastCalledWith("s1", 80, "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_scroll_into_view", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.scrollIntoView).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_dom_get_html", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domGetHtml).toHaveBeenLastCalledWith("s1", "r1", 8000, "tab-9");
+
+    await runTool(tools, "opendevbrowser_dom_get_text", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domGetText).toHaveBeenLastCalledWith("s1", "r1", 8000, "tab-9");
+
+    await runTool(tools, "opendevbrowser_get_attr", { sessionId: "s1", ref: "r1", name: "href", targetId: "tab-9" });
+    expect(deps.manager.domGetAttr).toHaveBeenLastCalledWith("s1", "r1", "href", "tab-9");
+
+    await runTool(tools, "opendevbrowser_get_value", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domGetValue).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_is_visible", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domIsVisible).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_is_enabled", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domIsEnabled).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_is_checked", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domIsChecked).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_clone_page", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.clonePage).toHaveBeenLastCalledWith("s1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_clone_component", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.cloneComponent).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_perf", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.perfMetrics).toHaveBeenLastCalledWith("s1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_screenshot", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.screenshot).toHaveBeenLastCalledWith("s1", undefined, "tab-9");
   }, 30000);
 
   it("wraps tool execution with ensureHub when provided", async () => {
@@ -254,6 +363,68 @@ describe("tools", () => {
     expect(statusResult.ok).toBe(true);
     expect(ensureHub).toHaveBeenCalledTimes(1);
     expect(deps.manager.status).toHaveBeenCalled();
+  });
+
+  it("rejects invalid canvas command prefixes", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "session.open"
+    } as never))).toMatchObject({
+      ok: false,
+      error: { code: "canvas_invalid_command" }
+    });
+  });
+
+  it("covers canvas tool unavailable, scalar, and failure branches", async () => {
+    const { createTools } = await import("../src/tools");
+    const deps = createDeps();
+
+    const unavailableTools = createTools({ ...deps, canvasManager: undefined } as never);
+    expect(parse(await unavailableTools.opendevbrowser_canvas.execute({
+      command: "canvas.session.open"
+    } as never))).toMatchObject({
+      ok: false,
+      error: { code: "canvas_unavailable" }
+    });
+
+    deps.canvasManager.execute.mockResolvedValueOnce("scalar-value");
+    const tools = createTools(deps as never);
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.capabilities.get"
+    } as never))).toMatchObject({
+      ok: true,
+      result: "scalar-value"
+    });
+
+    deps.canvasManager.execute.mockRejectedValueOnce(new Error("canvas boom"));
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.plan.set"
+    } as never))).toMatchObject({
+      ok: false,
+      error: {
+        code: "canvas_failed",
+        message: "canvas boom"
+      }
+    });
+
+    const blockerError = Object.assign(new Error("plan missing"), {
+      code: "plan_required",
+      details: { auditId: "CANVAS-01" }
+    });
+    deps.canvasManager.execute.mockRejectedValueOnce(blockerError);
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.document.patch"
+    } as never))).toMatchObject({
+      ok: false,
+      error: {
+        code: "plan_required",
+        message: "plan missing",
+        details: { auditId: "CANVAS-01" }
+      }
+    });
   });
 
   it("falls back to composed trace snapshot when manager capability is missing", async () => {
@@ -1000,6 +1171,98 @@ describe("tools", () => {
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:9999/ops");
   });
 
+  it("uses relay status port for legacy /cdp launches when the relay omits a cdp url", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
+      getCdpUrl: () => null
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionLegacy: true } as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("uses observed status port for legacy /cdp launches when the relay urls stay unavailable", async () => {
+    const deps = createDeps();
+    deps.config.set({ ...deps.config.get(), relayPort: 8787 });
+    const relay = {
+      status: () => ({ extensionConnected: false, extensionHandshakeComplete: false }),
+      getCdpUrl: () => null
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-legacy-9999",
+        running: true,
+        port: 9999,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        opsConnected: false,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionLegacy: true } as never));
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:9999/cdp");
+  });
+
+  it("keeps the legacy fallback /cdp url after wait when a status refresh returns undefined", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: vi.fn()
+        .mockReturnValueOnce({ extensionConnected: false, extensionHandshakeComplete: false, port: 8787 })
+        .mockReturnValueOnce({ extensionConnected: false, extensionHandshakeComplete: false, port: 8787 })
+        .mockReturnValueOnce(undefined),
+      getCdpUrl: () => null
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "observed-legacy-wait",
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        opsConnected: false,
+        cdpConnected: false,
+        pairingRequired: false
+      })
+    }));
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({
+      extensionLegacy: true,
+      waitForExtension: true,
+      waitTimeoutMs: 1000
+    } as never));
+
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("surfaces legacy relay authorization failures against /cdp", async () => {
+    const deps = createDeps();
+    deps.manager.connectRelay.mockRejectedValue(new Error("401 unauthorized"));
+    const relay = {
+      status: () => ({ extensionConnected: true, extensionHandshakeComplete: true, port: 8787 }),
+      getCdpUrl: () => "ws://relay-cdp"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({ extensionLegacy: true } as never));
+    expect(launchResult.ok).toBe(false);
+    expect(String(launchResult.error?.message)).toContain("relay /cdp unauthorized");
+  });
+
   it("falls back to relayUrl after wait when relay URL remains null", async () => {
     vi.useFakeTimers();
     try {
@@ -1054,7 +1317,7 @@ describe("tools", () => {
     vi.useRealTimers();
   });
 
-  it("navigates startUrl after relay connect", async () => {
+  it("passes startUrl into relay connect launches", async () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
@@ -1064,7 +1327,10 @@ describe("tools", () => {
     const tools = createTools({ ...deps, relay } as never);
 
     await tools.opendevbrowser_launch.execute({ startUrl: "https://example.com" } as never);
-    expect(deps.manager.goto).toHaveBeenCalledWith("s1", "https://example.com", "load", 30000);
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay", {
+      startUrl: "https://example.com"
+    });
+    expect(deps.manager.goto).not.toHaveBeenCalled();
   });
 
   it("routes connect to relay when wsEndpoint matches", async () => {

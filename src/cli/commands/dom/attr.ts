@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseOptionalStringFlag } from "../../utils/parse";
 
 function parseDomAttrArgs(rawArgs: string[]): { sessionId?: string; ref?: string; attr?: string } {
   const parsed: { sessionId?: string; ref?: string; attr?: string } = {};
@@ -45,9 +46,15 @@ function parseDomAttrArgs(rawArgs: string[]): { sessionId?: string; ref?: string
 
 export async function runDomAttr(args: ParsedArgs) {
   const { sessionId, ref, attr } = parseDomAttrArgs(args.rawArgs);
+  const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
   if (!ref) throw createUsageError("Missing --ref");
   if (!attr) throw createUsageError("Missing --attr");
-  const result = await callDaemon("dom.getAttr", { sessionId, ref, name: attr });
+  const result = await callDaemon("dom.getAttr", {
+    sessionId,
+    ref,
+    name: attr,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  });
   return { success: true, message: "DOM attribute captured.", data: result };
 }

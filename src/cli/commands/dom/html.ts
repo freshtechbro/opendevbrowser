@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseOptionalStringFlag } from "../../utils/parse";
 
 function parseDomHtmlArgs(rawArgs: string[]): { sessionId?: string; ref?: string; maxChars?: number } {
   const parsed: { sessionId?: string; ref?: string; maxChars?: number } = {};
@@ -45,8 +46,14 @@ function parseDomHtmlArgs(rawArgs: string[]): { sessionId?: string; ref?: string
 
 export async function runDomHtml(args: ParsedArgs) {
   const { sessionId, ref, maxChars } = parseDomHtmlArgs(args.rawArgs);
+  const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
   if (!ref) throw createUsageError("Missing --ref");
-  const result = await callDaemon("dom.getHtml", { sessionId, ref, maxChars });
+  const result = await callDaemon("dom.getHtml", {
+    sessionId,
+    ref,
+    maxChars,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  });
   return { success: true, message: "DOM HTML captured.", data: result };
 }

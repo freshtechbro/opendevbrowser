@@ -9,11 +9,12 @@ export function createClonePageTool(deps: ToolDeps): ToolDefinition {
   return tool({
     description: "Export the active page as a React component and CSS bundle.",
     args: {
-      sessionId: z.string().describe("Active browser session id")
+      sessionId: z.string().describe("Active browser session id"),
+      targetId: z.string().optional().describe("Optional target id")
     },
     async execute(args) {
       try {
-        const result = await deps.manager.clonePage(args.sessionId);
+        const result = await deps.manager.clonePage(args.sessionId, args.targetId);
         return ok({ component: result.component, css: result.css, warnings: result.warnings });
       } catch (error) {
         return failure(serializeError(error).message, "clone_page_failed");

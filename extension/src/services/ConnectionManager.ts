@@ -6,7 +6,8 @@ import type {
   RelayHandshake,
   RelayHandshakeAck,
   RelayHealthStatus,
-  OpsEnvelope
+  OpsEnvelope,
+  CanvasEnvelope
 } from "../types.js";
 import { DEFAULT_PAIRING_ENABLED, DEFAULT_PAIRING_TOKEN, DEFAULT_RELAY_PORT } from "../relay-settings.js";
 import { RelayClient } from "./RelayClient.js";
@@ -91,6 +92,7 @@ export class ConnectionManager {
   private connectPromise: Promise<void> | null = null;
   private annotationHandler: ((command: RelayAnnotationCommand) => void) | null = null;
   private opsHandler: ((message: OpsEnvelope) => void) | null = null;
+  private canvasHandler: ((message: CanvasEnvelope) => void) | null = null;
   private heartbeatTimer: number | null = null;
   private heartbeatInFlight = false;
   private readonly heartbeatIntervalMs = 25_000;
@@ -136,6 +138,10 @@ export class ConnectionManager {
     this.opsHandler = handler;
   }
 
+  onCanvasMessage(handler: (message: CanvasEnvelope) => void): void {
+    this.canvasHandler = handler;
+  }
+
   sendAnnotationResponse(response: RelayAnnotationResponse): void {
     if (!this.relay) return;
     try {
@@ -160,6 +166,15 @@ export class ConnectionManager {
       this.relay.sendOpsMessage(message);
     } catch (error) {
       logError("relay.send_ops_message", error, { code: "relay_send_failed" });
+    }
+  }
+
+  sendCanvasMessage(message: CanvasEnvelope): void {
+    if (!this.relay) return;
+    try {
+      this.relay.sendCanvasMessage(message);
+    } catch (error) {
+      logError("relay.send_canvas_message", error, { code: "relay_send_failed" });
     }
   }
 
@@ -432,6 +447,9 @@ export class ConnectionManager {
       },
       onOpsMessage: (message) => {
         this.opsHandler?.(message);
+      },
+      onCanvasMessage: (message) => {
+        this.canvasHandler?.(message);
       },
       onClose: (detail) => {
         this.handleRelayClose(detail);

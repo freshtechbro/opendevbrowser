@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { execFileSync } from "child_process";
 import { fileURLToPath } from "url";
 import type { ParsedArgs } from "../args";
+import { loadGlobalConfig } from "../../config";
 import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
 import { getExtensionPath } from "../../extension-extractor";
 
@@ -16,6 +17,11 @@ type NativeStatus = {
   hostScriptPath: string;
   extensionId: string | null;
   registryPath: string | null;
+  discoveredExtensionId: string | null;
+  discoveredMatchedBy: ExtensionIdMatchReason | null;
+  expectedExtensionId: string | null;
+  expectedExtensionSource: "config" | ExtensionIdMatchReason | null;
+  mismatch: boolean;
 };
 
 const EXTENSION_ID_RE = /^[a-p]{32}$/;
@@ -294,42 +300,6 @@ const getExtensionPathCandidates = (): Array<string | null> => {
   return [...candidates];
 };
 
-export const getNativeStatusSnapshot = (): NativeStatus => {
-  const hostScript = getHostScriptPath();
-  const manifestPath = getManifestPath();
-  const wrapperPath = getWrapperPath();
-  const registryPath = readRegistryPath();
-
-  let installed = false;
-  let manifestExists = false;
-  let wrapperExists = false;
-  let extensionIdValue: string | null = null;
-  if (fs.existsSync(manifestPath)) {
-    manifestExists = true;
-    installed = true;
-    const manifest = readManifest(manifestPath);
-    extensionIdValue = manifest.extensionId;
-  }
-  if (fs.existsSync(wrapperPath)) {
-    wrapperExists = true;
-  }
-  if (!manifestExists || !wrapperExists) {
-    installed = false;
-  }
-  if (process.platform === "win32" && !registryPath) {
-    installed = false;
-  }
-
-  return {
-    installed,
-    manifestPath: manifestExists ? manifestPath : null,
-    wrapperPath: wrapperExists ? wrapperPath : null,
-    hostScriptPath: hostScript,
-    extensionId: extensionIdValue,
-    registryPath
-  };
-};
-
 export function discoverExtensionId(): { extensionId: string | null; matchedBy?: ExtensionIdMatchReason } {
   const extensionPaths = getExtensionPathCandidates();
   const roots = getChromeUserDataRoots();
@@ -365,6 +335,95 @@ export function discoverExtensionId(): { extensionId: string | null; matchedBy?:
   }
   return { extensionId: null };
 }
+
+const resolveExpectedExtension = (): {
+  discoveredExtensionId: string | null;
+  discoveredMatchedBy: ExtensionIdMatchReason | null;
+  expectedExtensionId: string | null;
+  expectedExtensionSource: "config" | ExtensionIdMatchReason | null;
+} => {
+  let configuredExtensionId: string | null = null;
+  try {
+    configuredExtensionId = normalizeExtensionId(loadGlobalConfig().nativeExtensionId);
+  } catch {
+    configuredExtensionId = null;
+  }
+
+  const discovered = discoverExtensionId();
+  const discoveredExtensionId = discovered.extensionId ?? null;
+  const discoveredMatchedBy = discovered.matchedBy ?? null;
+  if (discoveredExtensionId) {
+    return {
+      discoveredExtensionId,
+      discoveredMatchedBy,
+      expectedExtensionId: discoveredExtensionId,
+      expectedExtensionSource: discoveredMatchedBy
+    };
+  }
+  if (configuredExtensionId) {
+    return {
+      discoveredExtensionId,
+      discoveredMatchedBy,
+      expectedExtensionId: configuredExtensionId,
+      expectedExtensionSource: "config"
+    };
+  }
+  return {
+    discoveredExtensionId,
+    discoveredMatchedBy,
+    expectedExtensionId: null,
+    expectedExtensionSource: null
+  };
+};
+
+export const getNativeStatusSnapshot = (): NativeStatus => {
+  const expectation = resolveExpectedExtension();
+  const hostScript = getHostScriptPath();
+  const manifestPath = getManifestPath();
+  const wrapperPath = getWrapperPath();
+  const registryPath = readRegistryPath();
+
+  let installed = false;
+  let manifestExists = false;
+  let wrapperExists = false;
+  let extensionIdValue: string | null = null;
+  if (fs.existsSync(manifestPath)) {
+    manifestExists = true;
+    installed = true;
+    const manifest = readManifest(manifestPath);
+    extensionIdValue = manifest.extensionId;
+  }
+  if (fs.existsSync(wrapperPath)) {
+    wrapperExists = true;
+  }
+  if (!manifestExists || !wrapperExists) {
+    installed = false;
+  }
+  if (process.platform === "win32" && !registryPath) {
+    installed = false;
+  }
+
+  const mismatch = Boolean(
+    installed
+    && extensionIdValue
+    && expectation.expectedExtensionId
+    && extensionIdValue !== expectation.expectedExtensionId
+  );
+
+  return {
+    installed,
+    manifestPath: manifestExists ? manifestPath : null,
+    wrapperPath: wrapperExists ? wrapperPath : null,
+    hostScriptPath: hostScript,
+    extensionId: extensionIdValue,
+    registryPath,
+    discoveredExtensionId: expectation.discoveredExtensionId,
+    discoveredMatchedBy: expectation.discoveredMatchedBy,
+    expectedExtensionId: expectation.expectedExtensionId,
+    expectedExtensionSource: expectation.expectedExtensionSource,
+    mismatch
+  };
+};
 
 export function installNativeHost(extensionId: string) {
   const normalized = normalizeExtensionId(extensionId);
@@ -440,6 +499,15 @@ export async function runNativeCommand(args: ParsedArgs) {
     };
   }
 
+  if (data.mismatch && data.extensionId && data.expectedExtensionId) {
+    return {
+      success: false,
+      message: `Native host targets ${data.extensionId}, but the current extension is ${data.expectedExtensionId}. Reinstall with \`opendevbrowser native install ${data.expectedExtensionId}\` or rerun \`opendevbrowser serve\`.`,
+      data,
+      exitCode: EXIT_DISCONNECTED
+    };
+  }
+
   const message = data.extensionId
     ? `Native host installed for extension ${data.extensionId}.`
     : "Native host installed (extension id missing).";
@@ -459,5 +527,6 @@ export const __test__ = {
   getProfileDirs,
   readProfilePreferences,
   findExtensionIdInCommands,
-  getExtensionPathCandidates
+  getExtensionPathCandidates,
+  resolveExpectedExtension
 };

@@ -127,6 +127,35 @@ describe("createOpenDevBrowserCore", () => {
     expect(core.config).toBe(config);
   });
 
+  it("omits browserFallbackPort when the fallback factory returns undefined", async () => {
+    vi.resetModules();
+    const actual = await vi.importActual<typeof import("../src/providers/runtime-factory")>("../src/providers/runtime-factory");
+    const providerRuntime = {
+      search: vi.fn(),
+      fetch: vi.fn(),
+      crawl: vi.fn(),
+      post: vi.fn()
+    };
+    vi.doMock("../src/providers/runtime-factory", () => ({
+      ...actual,
+      createBrowserFallbackPort: vi.fn(() => undefined),
+      createConfiguredProviderRuntime: vi.fn(() => providerRuntime)
+    }));
+
+    try {
+      const { createOpenDevBrowserCore } = await import("../src/core/bootstrap");
+      const core = createOpenDevBrowserCore({ directory: "/tmp/root", config: makeConfig() });
+      const runtimeFactory = await import("../src/providers/runtime-factory");
+
+      expect(runtimeFactory.createBrowserFallbackPort).toHaveBeenCalledOnce();
+      expect(core).not.toHaveProperty("browserFallbackPort");
+      expect(core.providerRuntime).toBe(providerRuntime);
+    } finally {
+      vi.doUnmock("../src/providers/runtime-factory");
+      vi.resetModules();
+    }
+  });
+
   it("stops relay when disabled or invalid port", async () => {
     const { createOpenDevBrowserCore } = await import("../src/core/bootstrap");
     const config = makeConfig({ relayToken: false });

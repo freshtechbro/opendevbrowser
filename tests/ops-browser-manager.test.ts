@@ -111,7 +111,17 @@ describe("OpsBrowserManager", () => {
       }),
       listPages: vi.fn().mockResolvedValue({ pages: [] }),
       closePage: vi.fn().mockResolvedValue(undefined),
-      withPage: vi.fn().mockResolvedValue("ok")
+      withPage: vi.fn().mockResolvedValue("ok"),
+      applyRuntimePreviewBridge: vi.fn().mockResolvedValue({
+        ok: true,
+        artifact: {
+          projection: "bound_app_runtime",
+          rootBindingId: "binding-base",
+          capturedAt: "2026-03-12T10:00:00.000Z",
+          hierarchyHash: "node-root:",
+          nodes: []
+        }
+      })
     };
     const manager = new OpsBrowserManager(base as never, makeConfig());
 
@@ -129,6 +139,20 @@ describe("OpsBrowserManager", () => {
 
     const value = await manager.withPage("base-session", null, async () => "ok");
     expect(value).toBe("ok");
+    expect(await manager.applyRuntimePreviewBridge("base-session", null, {
+      bindingId: "binding-base",
+      rootSelector: "#root",
+      html: "<div />"
+    })).toEqual({
+      ok: true,
+      artifact: {
+        projection: "bound_app_runtime",
+        rootBindingId: "binding-base",
+        capturedAt: "2026-03-12T10:00:00.000Z",
+        hierarchyHash: "node-root:",
+        nodes: []
+      }
+    });
   });
 
   it("delegates non-ops sessions to the base manager", async () => {
@@ -158,6 +182,11 @@ describe("OpsBrowserManager", () => {
       status: vi.fn().mockResolvedValue({ mode: "managed", activeTargetId: null }),
       withPage: vi.fn().mockImplementation(async (_sessionId: string, _targetId: string | null, fn: () => Promise<string>) => {
         return await fn();
+      }),
+      applyRuntimePreviewBridge: vi.fn().mockResolvedValue({
+        ok: false,
+        fallbackReason: "runtime_projection_unsupported",
+        message: "Missing runtime root"
       }),
       goto: vi.fn().mockResolvedValue({ finalUrl: "https://example.com", status: 200, timingMs: 1 }),
       waitForLoad: vi.fn().mockResolvedValue({ timingMs: 1 }),
@@ -203,6 +232,11 @@ describe("OpsBrowserManager", () => {
     await manager.disconnect("base-session", false);
     await manager.status("base-session");
     await manager.withPage("base-session", null, async () => "ok");
+    await manager.applyRuntimePreviewBridge("base-session", null, {
+      bindingId: "binding-base",
+      rootSelector: "#root",
+      html: "<div />"
+    });
     await manager.goto("base-session", "https://example.com", "load", 1000);
     await manager.waitForLoad("base-session", "load", 1000);
     await manager.waitForRef("base-session", "ref-1", "attached", 1000);
@@ -315,6 +349,33 @@ describe("OpsBrowserManager", () => {
     const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
     const result = await manager.connectRelay("ws://127.0.0.1:8787/ops");
     expect(result.activeTargetId).toBeNull();
+  });
+
+  it("forwards startUrl through ops relay connect requests", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-start-url", activeTargetId: "tab-start-url", leaseId: "lease-start-url" };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops", { startUrl: "http://127.0.0.1:41731/" });
+    expect(requestMock).toHaveBeenCalledWith(
+      "session.connect",
+      expect.objectContaining({
+        startUrl: "http://127.0.0.1:41731/"
+      }),
+      undefined,
+      30000,
+      expect.any(String)
+    );
   });
 
   it("tracks ops session close events", async () => {
@@ -633,6 +694,17 @@ describe("OpsBrowserManager", () => {
           return { value: true };
         case "dom.isChecked":
           return { value: false };
+        case "canvas.applyRuntimePreviewBridge":
+          return {
+            ok: true,
+            artifact: {
+              projection: "bound_app_runtime",
+              rootBindingId: "binding-runtime",
+              capturedAt: "2026-03-12T12:00:00.000Z",
+              hierarchyHash: "node-root:",
+              nodes: []
+            }
+          };
         case "export.clonePage":
         case "export.cloneComponent":
           return { capture: domCapture };
@@ -645,6 +717,13 @@ describe("OpsBrowserManager", () => {
           return { events: [], nextSeq: 0 };
         case "targets.list":
           return { activeTargetId: null, targets: [] };
+        case "targets.registerCanvas":
+          return {
+            targetId: "tab-canvas",
+            adopted: true,
+            url: "chrome-extension://test/canvas.html",
+            title: "Canvas"
+          };
         case "targets.use":
           return { activeTargetId: "tab-1", url: "https://example.com", title: "Example" };
         case "targets.new":
@@ -721,6 +800,7 @@ describe("OpsBrowserManager", () => {
     await manager.consolePoll("ops-2", 0, 10);
     await manager.networkPoll("ops-2", 0, 10);
     await manager.listTargets("ops-2", true);
+    await manager.registerCanvasTarget("ops-2", "tab-canvas");
     await manager.useTarget("ops-2", "tab-1");
     await manager.newTarget("ops-2", "https://example.com");
     await manager.closeTarget("ops-2", "tab-1");
@@ -754,6 +834,39 @@ describe("OpsBrowserManager", () => {
       expect(call[4]).toBe("lease-ops");
     }
     await expect(manager.withPage("ops-2", null, async () => "ok")).rejects.toThrow("Direct annotate is unavailable");
+    await expect(manager.applyRuntimePreviewBridge("ops-2", "tab-1", {
+      bindingId: "binding-runtime",
+      rootSelector: "#runtime-root",
+      html: "<article data-node-id=\"node-root\"></article>"
+    })).resolves.toEqual({
+      ok: true,
+      artifact: {
+        projection: "bound_app_runtime",
+        rootBindingId: "binding-runtime",
+        capturedAt: "2026-03-12T12:00:00.000Z",
+        hierarchyHash: "node-root:",
+        nodes: []
+      }
+    });
+    expect(requestMock).toHaveBeenCalledWith(
+      "canvas.applyRuntimePreviewBridge",
+      {
+        bindingId: "binding-runtime",
+        rootSelector: "#runtime-root",
+        html: "<article data-node-id=\"node-root\"></article>",
+        targetId: "tab-1"
+      },
+      "ops-2",
+      30000,
+      "lease-ops"
+    );
+    expect(requestMock).toHaveBeenCalledWith(
+      "targets.registerCanvas",
+      { targetId: "tab-canvas" },
+      "ops-2",
+      30000,
+      "lease-ops"
+    );
   });
 
   it("propagates ops screenshot warnings", async () => {

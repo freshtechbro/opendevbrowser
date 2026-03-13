@@ -10,7 +10,12 @@ extension/
 │   ├── background.ts    # Connection orchestration, message routing, annotation bridge
 │   ├── annotate-content.ts # In-page annotation UI + capture
 │   ├── annotate-content.css # Annotation UI styles
+│   ├── canvas/          # Canvas relay runtime, editor state model
+│   ├── canvas-page.ts   # Canvas page bridge/content script
+│   ├── logging.ts       # Extension logging helpers
 │   ├── popup.tsx        # Settings UI (port, token, auto-connect)
+│   ├── relay-settings.ts # Persisted relay configuration
+│   ├── types.ts         # Relay, ops, canvas protocol types
 │   ├── ops/             # Ops runtime, session store, snapshot/dom bridges
 │   └── services/        # Relay/CDP attach, message forwarding
 │       ├── ConnectionManager.ts  # Relay lifecycle + primary tab tracking
@@ -38,6 +43,8 @@ Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changi
 - **Multi-client CDP**: `CDPRouter` multiplexes commands/events for multiple `/cdp` clients via `TargetSessionMap`.
 - **Annotation relay**: `/annotation` channel forwards annotation commands/events to `background.ts`.
 - **Ops relay**: `/ops` channel routes high-level ops commands through `OpsRuntime`.
+- **Canvas relay**: `/canvas` channel routes design-tab state, overlay sync, and preview/selection updates through `CanvasRuntime`.
+- **Preview boundary**: projected `canvas_html` remains the default compatibility path; `bound_app_runtime` only succeeds when the binding opts in and the target app exposes the required instrumentation.
 
 ## Connection Flow
 
@@ -46,13 +53,15 @@ Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changi
 3. Connects to `ws://127.0.0.1:<port>/extension`
 4. Badge shows dot status (`green` connected, `red` disconnected)
 5. Ops relay (when requested by CLI/tools) connects to `ws://127.0.0.1:<port>/ops`
-6. Annotation relay (when requested) connects to `ws://127.0.0.1:<port>/annotation`
+6. Canvas relay (when requested) connects to `ws://127.0.0.1:<port>/canvas`
+7. Annotation relay (when requested) connects to `ws://127.0.0.1:<port>/annotation`
 
 ## Status Fields (Relay /status)
 
 - `extensionConnected`: Extension WebSocket connected to relay.
 - `extensionHandshakeComplete`: Handshake finished (preferred readiness signal).
 - `opsConnected`: Active `/ops` client connected (false until an ops session connects).
+- `canvasConnected`: Active `/canvas` client connected (false until a canvas session connects).
 - `cdpConnected`: Active `/cdp` client connected (false until a tool/CLI attaches).
 - `annotationConnected`: Annotation channel connected to relay.
 - `pairingRequired`: Relay requires pairing token (auto-pair should satisfy).

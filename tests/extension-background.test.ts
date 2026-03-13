@@ -13,14 +13,17 @@ let lastConnectionManager: {
   clearLastError: ReturnType<typeof vi.fn>;
   onAnnotationCommand: (handler: (command: unknown) => void) => void;
   onOpsMessage: (handler: (message: unknown) => void) => void;
+  onCanvasMessage: (handler: (message: unknown) => void) => void;
   sendAnnotationResponse: ReturnType<typeof vi.fn>;
   sendAnnotationEvent: ReturnType<typeof vi.fn>;
   sendOpsMessage: ReturnType<typeof vi.fn>;
+  sendCanvasMessage: ReturnType<typeof vi.fn>;
   getCdpRouter: ReturnType<typeof vi.fn>;
   relayHealthCheck: ReturnType<typeof vi.fn>;
   emitStatus: (status: ConnectionStatus) => void;
   emitAnnotationCommand: (command: unknown) => void;
   emitOpsMessage: (message: unknown) => void;
+  emitCanvasMessage: (message: unknown) => void;
 } | null = null;
 
 const registerLastConnectionManager = (manager: NonNullable<typeof lastConnectionManager>): void => {
@@ -33,6 +36,7 @@ vi.mock("../extension/src/services/ConnectionManager", () => ({
     listeners = new Set<(status: ConnectionStatus) => void>();
     annotationHandler: ((command: unknown) => void) | null = null;
     opsHandler: ((message: unknown) => void) | null = null;
+    canvasHandler: ((message: unknown) => void) | null = null;
     connect = vi.fn(async () => {
       this.status = "connected";
       this.emitStatus("connected");
@@ -52,9 +56,13 @@ vi.mock("../extension/src/services/ConnectionManager", () => ({
     onOpsMessage = (handler: (message: unknown) => void) => {
       this.opsHandler = handler;
     };
+    onCanvasMessage = (handler: (message: unknown) => void) => {
+      this.canvasHandler = handler;
+    };
     sendAnnotationResponse = vi.fn();
     sendAnnotationEvent = vi.fn();
     sendOpsMessage = vi.fn();
+    sendCanvasMessage = vi.fn();
     getCdpRouter = vi.fn(() => ({
       attach: vi.fn(async () => {}),
       sendCommand: vi.fn(async () => ({})),
@@ -75,6 +83,9 @@ vi.mock("../extension/src/services/ConnectionManager", () => ({
     };
     emitOpsMessage = (message: unknown) => {
       this.opsHandler?.(message);
+    };
+    emitCanvasMessage = (message: unknown) => {
+      this.canvasHandler?.(message);
     };
     constructor() {
       registerLastConnectionManager(this);
@@ -541,5 +552,69 @@ describe("extension background annotation routing", () => {
 
     expect(payloadResponse.source).toBe("memory");
     expect(payloadResponse.payload?.screenshots?.[0]?.id).toBe("shot-2");
+  });
+
+  it("stores agent-dispatched payloads and serves them via relay fetch_stored", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const payload = {
+      url: "https://example.com",
+      title: "Example",
+      timestamp: "2026-03-12T00:00:00.000Z",
+      screenshotMode: "visible" as const,
+      screenshots: [{ id: "shot-agent", label: "full", base64: "CCCC", mime: "image/png" as const }],
+      annotations: [
+        {
+          id: "item-agent",
+          selector: "#hero",
+          tag: "section",
+          rect: { x: 0, y: 0, width: 320, height: 180 },
+          attributes: {},
+          a11y: {},
+          styles: {},
+          screenshotId: "shot-agent",
+          note: "Hero needs work"
+        }
+      ]
+    };
+
+    const sendResponse = await new Promise<{ ok?: boolean }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage(
+        { type: "annotation:sendPayload", payload, source: "popup_all", label: "Popup annotation payload" },
+        (message) => resolve(message as { ok?: boolean })
+      );
+    });
+
+    expect(sendResponse.ok).toBe(true);
+
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "fetch-agent",
+        command: "fetch_stored",
+        options: { includeScreenshots: false }
+      }
+    });
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.sendAnnotationResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "annotationResponse",
+        payload: expect.objectContaining({
+          requestId: "fetch-agent",
+          status: "ok",
+          payload: expect.objectContaining({
+            annotations: [
+              expect.not.objectContaining({ screenshotId: expect.anything() })
+            ]
+          })
+        })
+      })
+    );
   });
 });

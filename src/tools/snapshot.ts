@@ -12,6 +12,7 @@ export function createSnapshotTool(deps: ToolDeps): ToolDefinition {
     description: "Capture a snapshot of the current page and return refs.",
     args: {
       sessionId: z.string().describe("Session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       format: formatSchema.optional().describe("Snapshot format"),
       maxChars: z.number().int().optional().describe("Max characters for snapshot output"),
       cursor: z.string().optional().describe("Cursor for paging")
@@ -23,7 +24,8 @@ export function createSnapshotTool(deps: ToolDeps): ToolDefinition {
           args.sessionId,
           args.format ?? "outline",
           args.maxChars ?? config.snapshot.maxChars,
-          args.cursor
+          args.cursor,
+          args.targetId
         );
         return ok(result);
       } catch (error) {

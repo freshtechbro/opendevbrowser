@@ -4,7 +4,7 @@ Tool development patterns. Extends `src/AGENTS.md`.
 
 ## Overview
 
-48 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
+49 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
 Hub mode is enforced via `ensureHub` in `src/tools/index.ts` to rebind remote managers and avoid local relay fallback.
 
 ## Tool Structure
@@ -39,6 +39,7 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 | DOM | dom_get_html, dom_get_text, get_attr, get_value, is_visible, is_enabled, is_checked |
 | Devtools | console_poll, network_poll, perf, screenshot |
 | Annotation | annotate |
+| Canvas | canvas |
 | Export | clone_page, clone_component |
 | Skills | skill_list, skill_load |
 | Run | run (multi-action) |
@@ -51,6 +52,8 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 |-------|----------------|
 | `tools/` | Input validation, response shaping |
 | `browser/` | Session lifecycle, CDP orchestration |
+| `canvas/` | Document store, repo persistence, TSX-first code-sync helpers |
+| `providers/` | Workflow runtime, blocker handling, browser fallback |
 | `snapshot/` | AX-tree capture, ref resolution |
 | `relay/` | Extension communication |
 
@@ -58,6 +61,7 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 
 Keep tool names and counts in sync with `src/tools/index.ts`, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md`.
 When inventory-affecting tools change, re-run `node scripts/docs-drift-check.mjs` and update release evidence docs.
+When `opendevbrowser_canvas` subcommands change, also sync `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, and `src/canvas/AGENTS.md`.
 
 ## Response Pattern
 

@@ -1,0 +1,126 @@
+{
+  "canvasSessionId": "canvas_session_01",
+  "browserSessionId": "browser_session_01",
+  "documentId": "dc_01",
+  "leaseId": "lease_01",
+  "preflightState": "handshake_read",
+  "attachModes": [
+    "observer",
+    "lease_reclaim"
+  ],
+  "governanceRequirements": {
+    "requiredBeforeMutation": [
+      "intent",
+      "generationPlan",
+      "designLanguage",
+      "contentModel",
+      "layoutSystem",
+      "typographySystem",
+      "motionSystem",
+      "responsiveSystem",
+      "accessibilityPolicy"
+    ],
+    "requiredBeforeSave": [
+      "intent",
+      "generationPlan",
+      "designLanguage",
+      "contentModel",
+      "layoutSystem",
+      "typographySystem",
+      "colorSystem",
+      "surfaceSystem",
+      "iconSystem",
+      "motionSystem",
+      "responsiveSystem",
+      "accessibilityPolicy",
+      "libraryPolicy",
+      "runtimeBudgets"
+    ],
+    "optionalInherited": [
+      "colorSystem",
+      "surfaceSystem",
+      "iconSystem",
+      "libraryPolicy",
+      "runtimeBudgets"
+    ]
+  },
+  "generationPlanRequirements": {
+    "requiredBeforeMutation": [
+      "targetOutcome",
+      "visualDirection",
+      "layoutStrategy",
+      "contentStrategy",
+      "componentStrategy",
+      "motionPosture",
+      "responsivePosture",
+      "accessibilityPosture",
+      "validationTargets"
+    ]
+  },
+  "allowedLibraries": {
+    "icons": [
+      "3dicons",
+      "tabler",
+      "microsoft-fluent-ui-system-icons",
+      "@lobehub/fluent-emoji-3d"
+    ],
+    "components": [
+      "shadcn"
+    ],
+    "styling": [
+      "tailwindcss"
+    ],
+    "motion": [],
+    "threeD": []
+  },
+  "warningAuditIds": [
+    "CANVAS-01",
+    "CANVAS-02",
+    "CANVAS-03",
+    "CANVAS-04",
+    "CANVAS-05",
+    "CANVAS-06",
+    "CANVAS-07"
+  ],
+  "allowedBeforePlan": [
+    "canvas.capabilities.get",
+    "canvas.plan.get",
+    "canvas.plan.set",
+    "canvas.document.load",
+    "canvas.session.attach",
+    "canvas.session.status"
+  ],
+  "projectionModes": [
+    "canvas_html",
+    "bound_app_runtime"
+  ],
+  "annotationDispatch": {
+    "popupAndCanvasSend": "storage_backed_retrieval",
+    "retrievalCommand": "annotate --stored"
+  },
+  "documentContext": {
+    "status": "existing",
+    "existingGovernanceBlocks": [
+      "colorSystem",
+      "surfaceSystem",
+      "iconSystem",
+      "libraryPolicy",
+      "runtimeBudgets"
+    ],
+    "missingGovernanceBlocks": [
+      "intent",
+      "generationPlan",
+      "designLanguage",
+      "contentModel",
+      "layoutSystem",
+      "typographySystem",
+      "motionSystem",
+      "responsiveSystem",
+      "accessibilityPolicy"
+    ],
+    "tokensPresent": true,
+    "themesPresent": true,
+    "viewportsPresent": true,
+    "componentInventoryPresent": false
+  }
+}

@@ -70,7 +70,16 @@ const extractCrawlMetrics = (result: ProviderAggregateResult): { pagesPerMinute:
 describe("provider performance release gate", () => {
   it("meets p50/p95 latency baseline for search and fetch fixture runs", async () => {
     const runtime = createProviderRuntime();
-    runtime.register(createWebProvider({ id: "web/perf-gate", fetcher: fixtureFetcher }));
+    runtime.register(createWebProvider({
+      id: "web/perf-gate",
+      fetcher: fixtureFetcher,
+      workerThreads: 0,
+      defaultPipeline: {
+        fetchConcurrency: 4,
+        queueMax: 32,
+        frontierMax: 32
+      }
+    }));
 
     const searchLatencies: number[] = [];
     const fetchLatencies: number[] = [];
@@ -102,7 +111,16 @@ describe("provider performance release gate", () => {
 
   it("meets crawl throughput and extraction success baseline", async () => {
     const runtime = createProviderRuntime();
-    runtime.register(createWebProvider({ id: "web/perf-gate", fetcher: fixtureFetcher }));
+    runtime.register(createWebProvider({
+      id: "web/perf-gate",
+      fetcher: fixtureFetcher,
+      workerThreads: 0,
+      defaultPipeline: {
+        fetchConcurrency: 4,
+        queueMax: 32,
+        frontierMax: 32
+      }
+    }));
 
     const throughput: number[] = [];
     const p95Latencies: number[] = [];

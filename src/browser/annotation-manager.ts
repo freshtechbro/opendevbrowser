@@ -20,6 +20,8 @@ export type AnnotationRequestOptions = {
   targetId?: string;
   tabId?: number;
   transport?: AnnotationTransport;
+  stored?: boolean;
+  includeScreenshots?: boolean;
   url?: string;
   screenshotMode?: AnnotationScreenshotMode;
   debug?: boolean;
@@ -48,6 +50,9 @@ export class AnnotationManager {
   }
 
   async requestAnnotation(options: AnnotationRequestOptions): Promise<AnnotationResponse> {
+    if (options.stored) {
+      return this.requestStored(options);
+    }
     const transport = options.transport ?? "auto";
 
     if (transport === "relay") {
@@ -73,6 +78,25 @@ export class AnnotationManager {
     }
 
     return this.requestRelay(options, false);
+  }
+
+  private async requestStored(options: AnnotationRequestOptions): Promise<AnnotationResponse> {
+    if (options.transport === "direct") {
+      return {
+        version: 1,
+        requestId: randomUUID(),
+        status: "error",
+        error: { code: "invalid_request", message: "Stored annotations require relay transport." }
+      };
+    }
+    return this.requestRelay(
+      {
+        ...options,
+        transport: "relay"
+      },
+      true,
+      "fetch_stored"
+    );
   }
 
   private async canFallbackToRelay(sessionId: string): Promise<boolean> {
@@ -147,19 +171,13 @@ export class AnnotationManager {
     }
   }
 
-  private async requestRelay(options: AnnotationRequestOptions, requireExtension: boolean): Promise<AnnotationResponse> {
+  private async requestRelay(
+    options: AnnotationRequestOptions,
+    requireExtension: boolean,
+    commandName: AnnotationCommand["command"] = "start"
+  ): Promise<AnnotationResponse> {
     const requestId = randomUUID();
     const timeoutMs = options.timeoutMs ?? 120_000;
-
-    const baseEndpoint = this.getRelayEndpoint();
-    if (!baseEndpoint) {
-      return {
-        version: 1,
-        requestId,
-        status: "error",
-        error: { code: "relay_unavailable", message: "Annotation relay unavailable. Start the daemon and retry." }
-      };
-    }
 
     if (requireExtension && options.sessionId && this.manager) {
       try {
@@ -181,6 +199,34 @@ export class AnnotationManager {
           error: { code: "invalid_request", message: detail }
         };
       }
+    }
+
+    const command: AnnotationCommand = {
+      version: 1,
+      requestId,
+      command: commandName,
+      url: options.url,
+      tabId: options.tabId,
+      options: {
+        screenshotMode: options.screenshotMode,
+        debug: options.debug,
+        context: options.context,
+        includeScreenshots: options.includeScreenshots
+      }
+    };
+
+    if (this.relay?.requestAnnotation) {
+      return await this.relay.requestAnnotation(command, timeoutMs);
+    }
+
+    const baseEndpoint = this.getRelayEndpoint();
+    if (!baseEndpoint) {
+      return {
+        version: 1,
+        requestId,
+        status: "error",
+        error: { code: "relay_unavailable", message: "Annotation relay unavailable. Start the daemon and retry." }
+      };
     }
 
     const { connectEndpoint } = await resolveRelayEndpoint({
@@ -206,23 +252,13 @@ export class AnnotationManager {
       };
     }
 
-    const command: AnnotationCommand = {
-      version: 1,
-      requestId,
-      command: "start",
-      url: options.url,
-      tabId: options.tabId,
-      options: {
-        screenshotMode: options.screenshotMode,
-        debug: options.debug,
-        context: options.context
-      }
-    };
-
     const relayCommand: RelayAnnotationCommand = {
       type: "annotationCommand",
       payload: command
     };
+
+    let terminalResponse: AnnotationResponse | null = null;
+    let readySeen = false;
 
     const cleanup = () => {
       socket.removeAllListeners();
@@ -239,22 +275,43 @@ export class AnnotationManager {
         if (record.type === "annotationResponse") {
           const response = record as RelayAnnotationResponse;
           if (response.payload?.requestId === requestId) {
+            terminalResponse = response.payload;
             resolve(response.payload);
           }
         } else if (record.type === "annotationEvent") {
           const event = record as RelayAnnotationEvent;
           if (event.payload?.requestId === requestId) {
+            if (event.payload.event === "ready") {
+              readySeen = true;
+            }
             return;
           }
         }
       });
       socket.on("error", (error) => reject(error));
-      socket.on("close", () => reject(new Error("Relay closed annotation socket")));
+      socket.on("close", () => {
+        if (terminalResponse) {
+          resolve(terminalResponse);
+          return;
+        }
+        if (commandName === "start" && readySeen) {
+          resolve({
+            version: 1,
+            requestId,
+            status: "cancelled",
+            error: { code: "cancelled", message: "Annotation cancelled." }
+          });
+          return;
+        }
+        reject(new Error("Relay closed annotation socket"));
+      });
     });
 
+    let timedOut = false;
     const timeoutPromise = new Promise<AnnotationResponse>((resolve) => {
       const id = setTimeout(() => {
         clearTimeout(id);
+        timedOut = true;
         resolve({
           version: 1,
           requestId,
@@ -264,9 +321,11 @@ export class AnnotationManager {
       }, timeoutMs);
     });
 
+    let locallyAborted = false;
     const abortPromise = new Promise<AnnotationResponse>((resolve) => {
       if (!options.signal) return;
       if (options.signal.aborted) {
+        locallyAborted = true;
         resolve({
           version: 1,
           requestId,
@@ -276,6 +335,7 @@ export class AnnotationManager {
         return;
       }
       const onAbort = () => {
+        locallyAborted = true;
         resolve({
           version: 1,
           requestId,
@@ -290,7 +350,8 @@ export class AnnotationManager {
 
     try {
       const result = await Promise.race([responsePromise, timeoutPromise, abortPromise]);
-      if (result.status !== "ok") {
+      const shouldCancel = commandName === "start" && (locallyAborted || timedOut);
+      if (shouldCancel) {
         sendCancel(socket, requestId);
       }
       return result;

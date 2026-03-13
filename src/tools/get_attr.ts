@@ -10,12 +10,13 @@ export function createGetAttrTool(deps: ToolDeps): ToolDefinition {
     description: "Get a DOM attribute value by ref.",
     args: {
       sessionId: z.string().describe("Active browser session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       ref: z.string().describe("Element ref from snapshot"),
       name: z.string().describe("Attribute name, e.g. href or aria-label")
     },
     async execute(args) {
       try {
-        const result = await deps.manager.domGetAttr(args.sessionId, args.ref, args.name);
+        const result = await deps.manager.domGetAttr(args.sessionId, args.ref, args.name, args.targetId);
         return ok(result);
       } catch (error) {
         return failure(serializeError(error).message, "get_attr_failed");

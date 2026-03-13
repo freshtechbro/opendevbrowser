@@ -117,7 +117,9 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
               return failure(buildExtensionMissingMessage(diagnostics.message), "extension_not_connected");
             }
             try {
-              result = await deps.manager.connectRelay(relayUrl);
+              result = args.startUrl
+                ? await deps.manager.connectRelay(relayUrl, { startUrl: args.startUrl })
+                : await deps.manager.connectRelay(relayUrl);
               usedRelay = true;
             } catch (error) {
               const errorMessage = serializeError(error).message;
@@ -157,10 +159,6 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
             } catch (error) {
               return failure(buildManagedFailureMessage(error), "launch_failed");
             }
-          }
-
-          if (usedRelay && args.startUrl && result.activeTargetId) {
-            await deps.manager.goto(result.sessionId, args.startUrl, "load", 30000);
           }
 
           const warnings = result.warnings ?? [];

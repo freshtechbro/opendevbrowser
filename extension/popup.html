@@ -376,6 +376,51 @@
         gap: 10px;
       }
 
+      .annotation-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 10px;
+        max-height: 180px;
+        overflow: auto;
+      }
+
+      .annotation-item {
+        display: grid;
+        gap: 8px;
+        padding: 10px;
+        border-radius: 12px;
+        border: 1px solid var(--stroke);
+        background: var(--panel-strong);
+      }
+
+      .annotation-item-summary {
+        font-size: 11px;
+        color: var(--text);
+        line-height: 1.4;
+        word-break: break-word;
+      }
+
+      .annotation-item-meta {
+        font-size: 10px;
+        color: var(--muted);
+      }
+
+      .annotation-item-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .annotation-empty {
+        font-size: 10px;
+        color: var(--muted);
+        text-align: center;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px dashed var(--stroke);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
       @media (prefers-reduced-motion: reduce) {
         * {
           transition: none !important;
@@ -502,6 +547,13 @@
         <div class="button-row">
           <button id="annotationStart" class="secondary">Annotate</button>
           <button id="annotationCopy" class="secondary" disabled>Copy payload</button>
+        </div>
+        <div class="button-row">
+          <button id="annotationSend" class="secondary" disabled>Send to agent</button>
+          <button id="annotationRefresh" class="secondary">Refresh payload</button>
+        </div>
+        <div id="annotationItems" class="annotation-list">
+          <div class="annotation-empty">No annotation items available.</div>
         </div>
       </section>
 

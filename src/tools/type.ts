@@ -10,6 +10,7 @@ export function createTypeTool(deps: ToolDeps): ToolDefinition {
     description: "Type text into a referenced input.",
     args: {
       sessionId: z.string().describe("Session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       ref: z.string().describe("Element ref"),
       text: z.string().describe("Text to type"),
       clear: z.boolean().optional().describe("Clear before typing"),
@@ -22,7 +23,8 @@ export function createTypeTool(deps: ToolDeps): ToolDefinition {
           args.ref,
           args.text,
           Boolean(args.clear),
-          Boolean(args.submit)
+          Boolean(args.submit),
+          args.targetId
         );
         return ok(result);
       } catch (error) {

@@ -3,6 +3,7 @@ import { EventEmitter } from "events";
 import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { Window } from "happy-dom";
 import { resolveConfig as parseConfig } from "../src/config";
 
 const resolveCachePaths = vi.fn();
@@ -548,6 +549,29 @@ describe("BrowserManager", () => {
     expect(result.mode).toBe("cdpConnect");
   });
 
+  it("opens startUrl after direct CDP connect", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await manager.connect({ host: "127.0.0.1", port: 9222, startUrl: "https://example.com/start" });
+    expect(page.goto).toHaveBeenCalledWith("https://example.com/start", {
+      waitUntil: "load",
+      timeout: 30000
+    });
+  });
+
   it("connects via relay endpoint", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -573,6 +597,35 @@ describe("BrowserManager", () => {
     expect(result.mode).toBe("extension");
     expect(connectOverCDP).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp?token=secret-token");
     expect(result.wsEndpoint).toBe("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("opens startUrl after legacy relay connect", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://existing.example/");
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: true, instanceId: "relay-1" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: "secret-token", instanceId: "relay-1" })
+      }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await manager.connectRelay("ws://127.0.0.1:8787/cdp", { startUrl: "https://example.com/start" });
+    expect(page.goto).toHaveBeenCalledWith("https://example.com/start", {
+      waitUntil: "load",
+      timeout: 30000
+    });
   });
 
   it("ignores token query params on relay endpoints", async () => {
@@ -1309,6 +1362,41 @@ describe("BrowserManager", () => {
     await manager.goto(result.sessionId, "https://example.com");
 
     expect(stable.page.goto).toHaveBeenCalled();
+    expect(setActiveSpy).toHaveBeenCalled();
+    setActiveSpy.mockRestore();
+  });
+
+  it("prefers a stable http page when connecting over CDP", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("about:blank");
+    page.goto.mockRejectedValue(new Error("should not use blank page"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/mock-browser" })
+    }) as never;
+
+    const stable = createPage(nodes);
+    stable.setContext(context);
+    stable.page.url.mockReturnValue("https://example.com/");
+    const pages = context.pages();
+    pages.push(stable.page as never);
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { TargetManager } = await import("../src/browser/target-manager");
+    const setActiveSpy = vi.spyOn(TargetManager.prototype, "setActiveTarget");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connect({ host: "127.0.0.1", port: 9222 });
+    await manager.goto(result.sessionId, "https://example.com");
+
+    expect(stable.page.goto).toHaveBeenCalled();
+    expect(page.goto).not.toHaveBeenCalled();
     expect(setActiveSpy).toHaveBeenCalled();
     setActiveSpy.mockRestore();
   });
@@ -3588,6 +3676,48 @@ describe("BrowserManager", () => {
     const currentUrl = await manager.withPage(launch.sessionId, null, async (activePage) => activePage.url());
     expect(currentUrl).toBe("about:blank");
     expect(waitSpy).not.toHaveBeenCalled();
+  });
+
+  it("applies the runtime preview bridge through managed sessions", async () => {
+    const nodes = [
+      { ref: "r1", role: "region", name: "Runtime", tag: "section", selector: "#runtime-root" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+    const runtimeWindow = new Window();
+    const root = runtimeWindow.document.createElement("section");
+    root.id = "runtime-root";
+    root.setAttribute("data-binding-id", "binding-runtime");
+    runtimeWindow.document.body.appendChild(root);
+
+    vi.stubGlobal("window", runtimeWindow);
+    vi.stubGlobal("document", runtimeWindow.document);
+    vi.stubGlobal("HTMLElement", runtimeWindow.HTMLElement);
+
+    page.evaluate.mockImplementation(async (pageFunction: (arg: unknown) => unknown, arg: unknown) => {
+      return await pageFunction(arg);
+    });
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const result = await manager.applyRuntimePreviewBridge(launch.sessionId, null, {
+      bindingId: "binding-runtime",
+      rootSelector: "#runtime-root",
+      html: "<article data-node-id=\"node-root\"></article>"
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      artifact: expect.objectContaining({
+        projection: "bound_app_runtime",
+        rootBindingId: "binding-runtime"
+      })
+    });
+    expect(root.innerHTML).toContain("data-node-id=\"node-root\"");
   });
 
   it("omits navigation status when goto response lacks a status function", async () => {

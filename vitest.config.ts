@@ -10,9 +10,15 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    // Keep the suite serialized so V8 coverage teardown stays deterministic in this repo.
+    fileParallelism: false,
+    maxWorkers: 1,
     testTimeout: 30_000,
     hookTimeout: 30_000,
     coverage: {
+      // Vitest can trigger multiple internal runs while this suite is active;
+      // keep shard files around until the final coverage aggregation completes.
+      cleanOnRerun: false,
       provider: "v8",
       reporter: ["text", "lcov"],
       include: ["src/**/*.ts"],

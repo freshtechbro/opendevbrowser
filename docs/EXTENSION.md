@@ -3,7 +3,7 @@
 Optional Chrome extension that enables relay mode (attach to existing logged-in tabs).
 
 Status: active  
-Last updated: 2026-02-24
+Last updated: 2026-03-10
 
 Quick file-level overview: `<public-repo-root>/extension/README.md`
 
@@ -14,6 +14,7 @@ Quick file-level overview: `<public-repo-root>/extension/README.md`
 - Allows OpenDevBrowser to control tabs without launching a new browser.
 - Supports multi-tab CDP routing with flat sessions (Chrome 125+).
 - Exposes top-level tabs and auto-attached child targets (workers/OOPIF) through `Target.getTargets`.
+- Hosts the dedicated design-canvas runtime used by `/canvas` for design-tab and overlay operations.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
 - Extension mode is headed-only; extension-intent headless launch/connect is rejected with `unsupported_mode`.
 - When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
@@ -73,8 +74,9 @@ When auto-pair is enabled:
 
 Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`. The CLI/tool `connect` command accepts base relay WS URLs
 (for example `ws://127.0.0.1:<relayPort>`) and normalizes them to `/ops`.
+Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for live design-canvas preview and overlay commands.
 Legacy relay `/cdp` is still available but must be explicitly opted in (CLI: `--extension-legacy`).
-When pairing is enabled, both `/ops` and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
+When pairing is enabled, `/ops`, `/canvas`, and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
 to obtain the token before connecting, so users should not manually pass or share tokenized URLs.
 
 Readiness checks:
@@ -88,6 +90,7 @@ node scripts/chrome-store-compliance-check.mjs
 Expected extension-ready daemon fields:
 - `extensionConnected=true`
 - `extensionHandshakeComplete=true`
+- `canvasConnected=false` unless a design-canvas session is actively using relay preview/overlay flows
 
 ## Chrome version requirement
 
@@ -98,6 +101,8 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 - Target discovery (`Target.getTargets`) includes top-level tabs and child targets.
 - Child targets are auto-attached recursively for session-aware routing.
 - A single **primary tab** is used for relay handshake/status; switching tabs updates the handshake without disconnecting others.
+- Design-canvas flows can open dedicated extension-hosted design tabs (`canvas.html`) and mount overlays on existing tabs through the `/canvas` runtime.
+- The extension design tab is a same-origin infinite-canvas editor: it persists full `CanvasPageState` snapshots in `IndexedDB`, fans out same-origin convergence over `BroadcastChannel`, sends editor-originated patch requests back through `/canvas`, and keeps arbitrary page overlays in sync through the same runtime.
 
 ## Security notes
 

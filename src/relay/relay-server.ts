@@ -3,9 +3,18 @@ import type { AddressInfo } from "net";
 import { timingSafeEqual, randomUUID } from "crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import {
+  AnnotationCommand,
   AnnotationErrorCode,
   AnnotationResponse,
+  CanvasEnvelope,
+  CanvasError,
+  CanvasErrorResponse,
+  CanvasEvent,
+  CanvasHello,
+  CanvasPing,
+  CanvasRequest,
   MAX_OPS_PAYLOAD_BYTES,
+  MAX_CANVAS_PAYLOAD_BYTES,
   OpsEnvelope,
   OpsError,
   OpsErrorResponse,
@@ -51,6 +60,7 @@ export type RelayStatus = {
   cdpConnected: boolean;
   annotationConnected: boolean;
   opsConnected: boolean;
+  canvasConnected: boolean;
   pairingRequired: boolean;
   instanceId: string;
   extension?: ExtensionInfo;
@@ -75,10 +85,12 @@ export class RelayServer {
   private cdpWss: WebSocketServer | null = null;
   private annotationWss: WebSocketServer | null = null;
   private opsWss: WebSocketServer | null = null;
+  private canvasWss: WebSocketServer | null = null;
   private extensionSocket: WebSocket | null = null;
   private cdpSocket: WebSocket | null = null;
   private annotationSocket: WebSocket | null = null;
   private opsClients = new Map<string, WebSocket>();
+  private canvasClients = new Map<string, WebSocket>();
   private opsOwnedTabIds = new Set<number>();
   private extensionInfo: ExtensionInfo | null = null;
   private extensionHandshakeComplete = false;
@@ -90,10 +102,13 @@ export class RelayServer {
   private httpAttempts = new Map<string, { count: number; resetAt: number }>();
   private cdpAllowlist: Set<string> | null = null;
   private annotationPending = new Map<string, { createdAt: number }>();
+  private annotationDirectPending = new Map<string, { resolve: (response: AnnotationResponse) => void; timeout: NodeJS.Timeout }>();
   private static readonly MAX_HANDSHAKE_ATTEMPTS = 5;
   private static readonly RATE_LIMIT_WINDOW_MS = 60_000;
   private static readonly MAX_HTTP_ATTEMPTS = 60;
   private static readonly MAX_ANNOTATION_PAYLOAD_BYTES = 12 * 1024 * 1024;
+  private static readonly MAX_OPS_PAYLOAD_BYTES = MAX_OPS_PAYLOAD_BYTES;
+  private static readonly MAX_CANVAS_PAYLOAD_BYTES = MAX_CANVAS_PAYLOAD_BYTES;
   private static readonly ANNOTATION_REQUEST_TIMEOUT_MS = 120_000;
 
   constructor(options: RelayServerOptions = {}) {
@@ -110,6 +125,7 @@ export class RelayServer {
     this.cdpWss = new WebSocketServer({ noServer: true });
     this.annotationWss = new WebSocketServer({ noServer: true });
     this.opsWss = new WebSocketServer({ noServer: true });
+    this.canvasWss = new WebSocketServer({ noServer: true });
 
     this.extensionWss.on("connection", (socket: WebSocket) => {
       if (this.extensionSocket) {
@@ -184,6 +200,27 @@ export class RelayServer {
         if (this.opsClients.get(clientId) === socket) {
           this.opsClients.delete(clientId);
           this.notifyOpsClientClosed(clientId);
+        }
+      });
+      void _request;
+    });
+
+    this.canvasWss.on("connection", (socket: WebSocket, _request: IncomingMessage) => {
+      const clientId = randomUUID();
+      this.canvasClients.set(clientId, socket);
+      socket.on("message", (data: WebSocket.RawData) => {
+        this.handleCanvasClientMessage(clientId, data);
+      });
+      socket.on("close", () => {
+        if (this.canvasClients.get(clientId) === socket) {
+          this.canvasClients.delete(clientId);
+          this.notifyCanvasClientClosed(clientId);
+        }
+      });
+      socket.on("error", () => {
+        if (this.canvasClients.get(clientId) === socket) {
+          this.canvasClients.delete(clientId);
+          this.notifyCanvasClientClosed(clientId);
         }
       });
       void _request;
@@ -363,6 +400,38 @@ export class RelayServer {
         return;
       }
 
+      if (pathname === "/canvas") {
+        if (this.isRateLimited(ip)) {
+          this.logSecurityEvent("rate_limited", { ip, path: pathname });
+          socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (origin && !this.isExtensionOrigin(origin)) {
+          this.logSecurityEvent("origin_blocked", { origin: rawOrigin ?? "", ip, path: pathname });
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (!origin && !this.isLoopbackAddress(ip)) {
+          this.logSecurityEvent("origin_blocked", { origin: rawOrigin ?? "", ip, path: pathname });
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const token = this.getCdpTokenFromRequestUrl(request.url);
+        if (!this.isTokenValid(token)) {
+          this.logSecurityEvent("canvas_unauthorized", { ip });
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        this.canvasWss?.handleUpgrade(request, socket, head, (ws: WebSocket) => {
+          this.canvasWss?.emit("connection", ws, request);
+        });
+        return;
+      }
+
       socket.destroy();
     });
 
@@ -415,23 +484,39 @@ export class RelayServer {
       this.annotationSocket.close(1000, "Relay stopped");
       this.annotationSocket = null;
     }
+    for (const [requestId, pending] of this.annotationDirectPending.entries()) {
+      clearTimeout(pending.timeout);
+      pending.resolve({
+        version: 1,
+        requestId,
+        status: "error",
+        error: { code: "relay_unavailable", message: "Relay stopped." }
+      });
+    }
+    this.annotationDirectPending.clear();
 
     for (const socket of this.opsClients.values()) {
       socket.close(1000, "Relay stopped");
     }
     this.opsClients.clear();
+    for (const socket of this.canvasClients.values()) {
+      socket.close(1000, "Relay stopped");
+    }
+    this.canvasClients.clear();
     this.opsOwnedTabIds.clear();
 
     this.extensionWss?.close();
     this.cdpWss?.close();
     this.annotationWss?.close();
     this.opsWss?.close();
+    this.canvasWss?.close();
     this.server?.close();
 
     this.extensionWss = null;
     this.cdpWss = null;
     this.annotationWss = null;
     this.opsWss = null;
+    this.canvasWss = null;
     this.server = null;
   }
 
@@ -446,6 +531,7 @@ export class RelayServer {
       cdpConnected: Boolean(this.cdpSocket),
       annotationConnected: Boolean(this.annotationSocket),
       opsConnected: this.opsClients.size > 0,
+      canvasConnected: this.canvasClients.size > 0,
       pairingRequired: Boolean(this.pairingToken),
       instanceId: this.instanceId,
       extension: this.extensionInfo ?? undefined,
@@ -463,8 +549,50 @@ export class RelayServer {
     return this.baseUrl ? `${this.baseUrl}/annotation` : null;
   }
 
+  async requestAnnotation(command: AnnotationCommand, timeoutMs = RelayServer.ANNOTATION_REQUEST_TIMEOUT_MS): Promise<AnnotationResponse> {
+    if (!this.hasReadyExtensionSocket()) {
+      return {
+        version: 1,
+        requestId: command.requestId,
+        status: "error",
+        error: { code: "relay_unavailable", message: "Extension not connected to relay." }
+      };
+    }
+
+    if (this.annotationDirectPending.has(command.requestId)) {
+      return {
+        version: 1,
+        requestId: command.requestId,
+        status: "error",
+        error: { code: "invalid_request", message: "Duplicate annotation requestId." }
+      };
+    }
+
+    return await new Promise<AnnotationResponse>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.annotationDirectPending.delete(command.requestId);
+        resolve({
+          version: 1,
+          requestId: command.requestId,
+          status: "error",
+          error: { code: "timeout", message: "Annotation request timed out." }
+        });
+      }, timeoutMs);
+
+      this.annotationDirectPending.set(command.requestId, { resolve, timeout });
+      this.sendJson(this.extensionSocket, {
+        type: "annotationCommand",
+        payload: command
+      } satisfies RelayAnnotationCommand);
+    });
+  }
+
   getOpsUrl(): string | null {
     return this.baseUrl ? `${this.baseUrl}/ops` : null;
+  }
+
+  getCanvasUrl(): string | null {
+    return this.baseUrl ? `${this.baseUrl}/canvas` : null;
   }
 
   getDiscoveryPort(): number | null {
@@ -647,6 +775,7 @@ export class RelayServer {
       cdpConnected: Boolean(this.cdpSocket),
       annotationConnected: Boolean(this.annotationSocket),
       opsConnected: this.opsClients.size > 0,
+      canvasConnected: this.canvasClients.size > 0,
       pairingRequired: Boolean(this.pairingToken),
       health,
       lastHandshakeError: this.lastHandshakeError ?? undefined
@@ -881,6 +1010,11 @@ export class RelayServer {
       return;
     }
 
+    if (isCanvasEnvelope(message)) {
+      this.handleCanvasExtensionMessage(message);
+      return;
+    }
+
     if (isHealthCheck(message)) {
       this.sendJson(this.extensionSocket, this.buildHealthResponse(message));
       return;
@@ -929,7 +1063,7 @@ export class RelayServer {
     }
 
     const command = payload;
-    if (!this.extensionSocket || !this.extensionHandshakeComplete) {
+    if (!this.hasReadyExtensionSocket()) {
       this.sendAnnotationError(command.requestId, "relay_unavailable", "Extension not connected to relay.");
       return;
     }
@@ -961,12 +1095,12 @@ export class RelayServer {
 
     if (isOpsHello(message) || isOpsRequest(message) || isOpsPing(message)) {
       const sizeBytes = Buffer.byteLength(JSON.stringify(message));
-      if (sizeBytes > MAX_OPS_PAYLOAD_BYTES) {
+      if (sizeBytes > RelayServer.MAX_OPS_PAYLOAD_BYTES) {
         this.sendOpsError(clientId, {
           code: "invalid_request",
           message: "Ops payload exceeded relay limits.",
           retryable: false,
-          details: { maxPayloadBytes: MAX_OPS_PAYLOAD_BYTES }
+          details: { maxPayloadBytes: RelayServer.MAX_OPS_PAYLOAD_BYTES }
         }, getOpsRequestId(message), getOpsSessionId(message));
         return;
       }
@@ -980,6 +1114,44 @@ export class RelayServer {
       message: "Invalid ops message.",
       retryable: false
     }, getOpsRequestId(message), getOpsSessionId(message));
+  }
+
+  private handleCanvasClientMessage(clientId: string, data: WebSocket.RawData): void {
+    const message = parseJson(data);
+    if (!isRecord(message)) {
+      return;
+    }
+
+    if (!this.extensionSocket || !this.extensionHandshakeComplete) {
+      this.sendCanvasError(clientId, {
+        code: "canvas_unavailable",
+        message: "Extension not connected to relay.",
+        retryable: true
+      }, getCanvasRequestId(message), getCanvasSessionId(message));
+      return;
+    }
+
+    if (isCanvasHello(message) || isCanvasRequest(message) || isCanvasPing(message)) {
+      const sizeBytes = Buffer.byteLength(JSON.stringify(message));
+      if (sizeBytes > RelayServer.MAX_CANVAS_PAYLOAD_BYTES) {
+        this.sendCanvasError(clientId, {
+          code: "invalid_request",
+          message: "Canvas payload exceeded relay limits.",
+          retryable: false,
+          details: { maxPayloadBytes: RelayServer.MAX_CANVAS_PAYLOAD_BYTES }
+        }, getCanvasRequestId(message), getCanvasSessionId(message));
+        return;
+      }
+
+      this.sendJson(this.extensionSocket, { ...message, clientId } satisfies CanvasEnvelope);
+      return;
+    }
+
+    this.sendCanvasError(clientId, {
+      code: "invalid_request",
+      message: "Invalid canvas message.",
+      retryable: false
+    }, getCanvasRequestId(message), getCanvasSessionId(message));
   }
 
   private handleOpsExtensionMessage(message: OpsEnvelope): void {
@@ -1010,12 +1182,38 @@ export class RelayServer {
     this.sendJson(client, message);
   }
 
+  private handleCanvasExtensionMessage(message: CanvasEnvelope): void {
+    if (message.type === "canvas_hello_ack" && this.canvasClients.size === 0) {
+      return;
+    }
+    const clientId = message.clientId;
+    if (!clientId) {
+      return;
+    }
+    const client = this.canvasClients.get(clientId);
+    if (!client) {
+      return;
+    }
+    this.sendJson(client, message);
+  }
+
   private notifyOpsClientClosed(clientId: string): void {
     if (!this.extensionSocket) return;
     const event: OpsEvent = {
       type: "ops_event",
       clientId,
       event: "ops_client_disconnected",
+      payload: { at: Date.now() }
+    };
+    this.sendJson(this.extensionSocket, event);
+  }
+
+  private notifyCanvasClientClosed(clientId: string): void {
+    if (!this.extensionSocket) return;
+    const event: CanvasEvent = {
+      type: "canvas_event",
+      clientId,
+      event: "canvas_client_disconnected",
       payload: { at: Date.now() }
     };
     this.sendJson(this.extensionSocket, event);
@@ -1034,6 +1232,19 @@ export class RelayServer {
     this.sendJson(client, payload);
   }
 
+  private sendCanvasError(clientId: string, error: CanvasError, requestId?: string, canvasSessionId?: string): void {
+    const client = this.canvasClients.get(clientId);
+    if (!client) return;
+    const payload: CanvasErrorResponse = {
+      type: "canvas_error",
+      requestId: requestId ?? "unknown",
+      clientId,
+      canvasSessionId,
+      error
+    };
+    this.sendJson(client, payload);
+  }
+
   private forwardAnnotationResponse(message: RelayAnnotationResponse): void {
     const payload = message.payload as unknown;
     if (!isAnnotationResponse(payload)) {
@@ -1045,6 +1256,12 @@ export class RelayServer {
     }
 
     const requestId = payload.requestId;
+    const directPending = this.annotationDirectPending.get(requestId);
+    if (directPending) {
+      clearTimeout(directPending.timeout);
+      this.annotationDirectPending.delete(requestId);
+      directPending.resolve(payload);
+    }
     if (!this.annotationPending.has(requestId)) {
       return;
     }
@@ -1094,10 +1311,21 @@ export class RelayServer {
       this.sendAnnotationError(requestId, code, message);
     }
     this.annotationPending.clear();
+    for (const [requestId, pending] of this.annotationDirectPending.entries()) {
+      clearTimeout(pending.timeout);
+      pending.resolve({
+        version: 1,
+        requestId,
+        status: "error",
+        error: { code, message }
+      });
+    }
+    this.annotationDirectPending.clear();
   }
 
   private buildHealthStatus(): RelayHealthStatus {
     const opsConnected = this.opsClients.size > 0;
+    const canvasConnected = this.canvasClients.size > 0;
     if (!this.running) {
       return {
         ok: false,
@@ -1108,6 +1336,7 @@ export class RelayServer {
         cdpConnected: Boolean(this.cdpSocket),
         annotationConnected: Boolean(this.annotationSocket),
         opsConnected,
+        canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError ?? undefined
       };
@@ -1123,6 +1352,7 @@ export class RelayServer {
         cdpConnected: Boolean(this.cdpSocket),
         annotationConnected: Boolean(this.annotationSocket),
         opsConnected,
+        canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError
       };
@@ -1138,6 +1368,7 @@ export class RelayServer {
         cdpConnected: Boolean(this.cdpSocket),
         annotationConnected: Boolean(this.annotationSocket),
         opsConnected,
+        canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError
       };
@@ -1153,6 +1384,7 @@ export class RelayServer {
         cdpConnected: Boolean(this.cdpSocket),
         annotationConnected: Boolean(this.annotationSocket),
         opsConnected,
+        canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError ?? undefined
       };
@@ -1168,6 +1400,7 @@ export class RelayServer {
         cdpConnected: Boolean(this.cdpSocket),
         annotationConnected: Boolean(this.annotationSocket),
         opsConnected,
+        canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError ?? undefined
       };
@@ -1181,6 +1414,7 @@ export class RelayServer {
       cdpConnected: Boolean(this.cdpSocket),
       annotationConnected: Boolean(this.annotationSocket),
       opsConnected,
+      canvasConnected,
       pairingRequired: Boolean(this.pairingToken),
       lastHandshakeError: this.lastHandshakeError ?? undefined
     };
@@ -1207,6 +1441,10 @@ export class RelayServer {
       return;
     }
     socket.send(JSON.stringify(payload));
+  }
+
+  private hasReadyExtensionSocket(): boolean {
+    return Boolean(this.extensionSocket && this.extensionSocket.readyState === WebSocket.OPEN && this.extensionHandshakeComplete);
   }
 
   private isPairingTokenValid(handshake: RelayHandshake): boolean {
@@ -1292,12 +1530,37 @@ const isOpsEnvelope = (value: Record<string, unknown>): value is OpsEnvelope => 
   return typeof type === "string" && type.startsWith("ops_");
 };
 
+const isCanvasHello = (value: Record<string, unknown>): value is CanvasHello => {
+  return value.type === "canvas_hello" && typeof value.version === "string";
+};
+
+const isCanvasPing = (value: Record<string, unknown>): value is CanvasPing => {
+  return value.type === "canvas_ping" && typeof value.id === "string";
+};
+
+const isCanvasRequest = (value: Record<string, unknown>): value is CanvasRequest => {
+  return value.type === "canvas_request" && typeof value.requestId === "string" && typeof value.command === "string";
+};
+
+const isCanvasEnvelope = (value: Record<string, unknown>): value is CanvasEnvelope => {
+  const type = value.type;
+  return typeof type === "string" && type.startsWith("canvas_");
+};
+
 const getOpsRequestId = (value: Record<string, unknown>): string | undefined => {
   return typeof value.requestId === "string" ? value.requestId : undefined;
 };
 
 const getOpsSessionId = (value: Record<string, unknown>): string | undefined => {
   return typeof value.opsSessionId === "string" ? value.opsSessionId : undefined;
+};
+
+const getCanvasRequestId = (value: Record<string, unknown>): string | undefined => {
+  return typeof value.requestId === "string" ? value.requestId : undefined;
+};
+
+const getCanvasSessionId = (value: Record<string, unknown>): string | undefined => {
+  return typeof value.canvasSessionId === "string" ? value.canvasSessionId : undefined;
 };
 
 const extractOpsTabId = (payload: unknown): number | undefined => {
@@ -1310,7 +1573,7 @@ const isAnnotationCommand = (value: unknown): value is RelayAnnotationCommand["p
   if (!isRecord(value)) return false;
   if (value.version !== 1) return false;
   if (typeof value.requestId !== "string") return false;
-  if (value.command !== "start" && value.command !== "cancel") return false;
+  if (value.command !== "start" && value.command !== "cancel" && value.command !== "fetch_stored") return false;
   if (value.options && !isRecord(value.options)) return false;
   return true;
 };

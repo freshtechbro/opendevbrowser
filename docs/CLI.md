@@ -2,9 +2,9 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-01
+Last updated: 2026-03-12
 
-OpenDevBrowser exposes 48 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+OpenDevBrowser exposes 49 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); use continuity guidance only for long-running handoff/compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
@@ -15,6 +15,7 @@ First-run pre-release onboarding: `docs/FIRST_RUN_ONBOARDING.md`
 Parity and skill-pack gates:
 
 ```bash
+npm run test -- tests/cli-help-parity.test.ts
 npm run test -- tests/parity-matrix.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ```
@@ -47,6 +48,7 @@ cd "$WORKDIR"
 npm init -y
 npm install <public-repo-root>/opendevbrowser-0.0.16.tgz
 npx --no-install opendevbrowser --help
+npx --no-install opendevbrowser help
 ```
 
 Load extension unpacked from:
@@ -60,6 +62,8 @@ export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 ```
 
 By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations (legacy `claude`/`amp` labels are still synchronized for compatibility). Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+
+`OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
 
 ### Skill discovery order
 
@@ -121,18 +125,19 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `55`.
-- Categories: install/runtime management, session/connection, navigation, interaction, targets/pages, DOM inspection, export/diagnostics/macro/annotation, and internal power (`rpc`).
+- Total commands: `56`.
+- Categories: install/runtime management, session/connection, navigation, interaction, targets/pages, DOM inspection, design canvas, export/diagnostics/macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `48` (`opendevbrowser_*`).
+- Total tools: `49` (`opendevbrowser_*`).
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `artifacts`, `rpc`.
 
 ### Relay channel surface
 
 - `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `38` command names.
+- `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `26` command names and envelope contracts.
 - `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
 
 ---
@@ -208,15 +213,17 @@ npx opendevbrowser --uninstall
 npx opendevbrowser --help
 npx opendevbrowser -h
 
+npx opendevbrowser help
+
 npx opendevbrowser --version
 npx opendevbrowser -v
 ```
 
-`--help` now prints a complete, agent-oriented inventory:
-- All CLI commands (55) grouped by function, each with one-line descriptions.
+`--help` and `help` print the same complete, agent-oriented inventory:
+- All CLI commands (56) grouped by function, each with one-line descriptions.
 - All supported CLI flags, grouped by install/session/navigation/workflow usage.
-- All `opendevbrowser_*` tools (48), each with one-line descriptions.
-- Macro execute timeout guidance via `--timeout-ms` for slow `macro-resolve --execute` runs.
+- All `opendevbrowser_*` tools (49), each with one-line descriptions.
+- Macro and design-canvas timeout guidance via `--timeout-ms`.
 - Canonical inventory pointers: `docs/SURFACE_REFERENCE.md`, `src/tools/index.ts`, and this CLI guide.
 
 Operational help parity check:
@@ -515,9 +522,11 @@ Interactive vs non-interactive:
 | `--wait-timeout-ms` | Max wait for extension | Defaults to 30s. |
 | `extensionConnected` | Extension websocket connected | `false` means popup isn’t connected to relay. |
 | `extensionHandshakeComplete` | Extension handshake done | `false` means reconnect/repair from popup. |
+| `annotationConnected` | Active `/annotation` client attached | Expected `false` unless annotate relay transport is active. |
 | `opsConnected` | Active `/ops` client attached | `false` means no ops client is connected. |
+| `canvasConnected` | Active `/canvas` client attached | Expected `false` unless a design-canvas session is using relay preview/overlay features. |
 | `cdpConnected` | Active `/cdp` client attached | Expected `false` until a legacy `/cdp` session connects. |
-| `pairingRequired` | Relay token required | When `true`, both `/ops` and `/cdp` require a token (auto-fetched). |
+| `pairingRequired` | Relay token required | When `true`, `/ops`, `/canvas`, and `/cdp` require a token (auto-fetched). |
 
 ### Connect
 
@@ -802,6 +811,35 @@ Canonical examples:
 }
 ```
 
+### Design Canvas
+
+Use `canvas` to call the typed `canvas.*` surface through the daemon. The normal sequence is:
+`canvas.session.open` -> inspect the handshake -> `canvas.plan.set` -> `canvas.document.patch` (including `governance.update` blocks) -> `canvas.preview.render` or `canvas.feedback.poll`.
+Additional same-session clients use `canvas.session.attach` with `attachMode=observer` or `attachMode=lease_reclaim`.
+
+```bash
+# Open a canvas session bound to an existing browser session
+npx opendevbrowser canvas --command canvas.session.open \
+  --params '{"browserSessionId":"<session-id>","documentId":"landing-page","mode":"dual-track"}' \
+  --output-format json
+
+# Submit a generation plan (required before patching)
+npx opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.json --output-format json
+
+# Apply a patch batch against a specific revision, including governance blocks required before save
+npx opendevbrowser canvas --command canvas.document.patch \
+  --params '{"canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","baseRevision":1,"patches":[{"op":"governance.update","block":"intent","changes":{"summary":"Marketing landing page refresh"}},{"op":"governance.update","block":"designLanguage","changes":{"profile":"clean-room"}},{"op":"page.create","page":{"id":"page_home","rootNodeId":null,"name":"Home","path":"/","description":"Marketing landing page"}}]}' \
+  --output-format json
+
+# Save the canonical design document back into the repo
+npx opendevbrowser canvas --command canvas.document.save \
+  --params '{"canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>"}' \
+  --output-format json
+```
+
+`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, required generation-plan fields, runtime budgets, and warning classes. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. `canvas.document.save` and `canvas.document.export` return `policy_violation` until all `requiredBeforeSave` governance blocks are present. In extension mode, `canvas.tab.open` opens an extension-hosted `canvas.html` infinite-canvas editor that persists full page state in `IndexedDB`, converges same-origin tabs through `BroadcastChannel`, and forwards editor-originated patch requests through `/canvas`; `canvas.feedback.poll` and `canvas.feedback.subscribe` support target/category filtering and structured preflight blockers. The initial `canvas.feedback.subscribe` payload is public on all surfaces, and the CLI now exposes a live `stream-json` bridge by repeatedly polling after the returned cursor until timeout. The tool wrapper still returns the initial payload only.
+`canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` add TSX-first code sync on top of the same session. Bound source manifests are stored under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`; preview targets default to projected `canvas_html` and only attempt `bound_app_runtime` reconciliation when the binding opts in and runtime bridge preflight succeeds.
+
 ### RPC (power-user, internal)
 
 Execute any daemon command directly. This bypasses the stable CLI command surface, is intentionally unsafe/internal, and requires `--unsafe-internal`.
@@ -928,6 +966,12 @@ npx opendevbrowser annotate --session-id <session-id> --transport relay --tab-id
 # With URL + context + debug metadata
 npx opendevbrowser annotate --session-id <session-id> --url https://example.com \
   --screenshot-mode visible --context "Review the hero layout" --timeout-ms 90000 --debug
+
+# Return the last stored annotation payload
+npx opendevbrowser annotate --session-id <session-id> --stored
+
+# Prefer the in-memory stored payload with screenshots when still available
+npx opendevbrowser annotate --session-id <session-id> --stored --include-screenshots
 ```
 
 ---
@@ -1098,7 +1142,7 @@ npx opendevbrowser debug-trace-snapshot \
 | `--no-interactive` | | Alias of `--no-prompt` |
 | `--quiet` | | Suppress output |
 | `--output-format` | | `text`, `json`, or `stream-json` |
-| `--transport` | | Transport selector (`relay` or `native`) for transport-aware commands |
+| `--transport` | | Transport selector for transport-aware commands (`status`: `relay|native`; `annotate`: `auto|direct|relay`) |
 | `--daemon` | | Daemon status selector for `status` |
 | `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
 | `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
@@ -1178,9 +1222,20 @@ npx opendevbrowser debug-trace-snapshot \
 | `--target-id` | `annotate` | Target id for direct annotate |
 | `--tab-id` | `annotate` | Chrome tab id for relay annotate |
 | `--screenshot-mode` | `annotate` | `visible` (default), `full`, or `none` |
+| `--include-screenshots` | `annotate` | When used with `--stored`, prefer the in-memory payload that still includes screenshots if available |
 | `--context` | `annotate` | Optional context text pre-filled in the UI |
 | `--debug` | `annotate` | Include debug metadata in the payload |
+| `--stored` | `annotate` | Return the last stored annotation payload for the session |
 | `--timeout-ms` | `annotate` | Annotation timeout in ms |
+
+**Canvas**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--command` | `canvas` | `canvas.*` command name (for example `canvas.session.open`) |
+| `--params` | `canvas` | Inline JSON object command params |
+| `--params-file` | `canvas` | Path to JSON object command params |
+| `--timeout-ms` | `canvas` | Client-side daemon call timeout in ms |
 
 **RPC (internal)**
 

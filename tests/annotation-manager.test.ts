@@ -92,12 +92,21 @@ describe("AnnotationManager", () => {
     manager.setRelay(relay);
 
     const requestPromise = manager.requestAnnotation({ screenshotMode: "none" });
-    await nextTick();
-    const socket = socketState.lastSocket;
+    let socket = socketState.lastSocket;
+    for (let attempt = 0; attempt < 5 && !socket; attempt += 1) {
+      await nextTick();
+      socket = socketState.lastSocket;
+    }
+    expect(socket).toBeTruthy();
     socket?.open();
     await nextTick();
 
-    const sent = socket?.sent[0] ?? "";
+    let sent = socket?.sent[0] ?? "";
+    for (let attempt = 0; attempt < 5 && !sent; attempt += 1) {
+      await nextTick();
+      sent = socket?.sent[0] ?? "";
+    }
+    expect(sent).toBeTruthy();
     const command = JSON.parse(sent) as { payload?: { requestId?: string } };
     const requestId = command.payload?.requestId ?? "req";
 
@@ -119,6 +128,32 @@ describe("AnnotationManager", () => {
     const result = await requestPromise;
     expect(result.status).toBe("ok");
     expect(result.payload?.screenshotMode).toBe("none");
+  });
+
+  it("uses the in-process relay annotation path when available", async () => {
+    const config = resolveConfig({ relayPort: 8787 });
+    const relay = {
+      requestAnnotation: vi.fn().mockResolvedValue({
+        version: 1,
+        requestId: "req-direct-relay",
+        status: "cancelled",
+        error: { code: "cancelled", message: "Annotation cancelled." }
+      })
+    };
+    const browser = { status: vi.fn().mockResolvedValue({ mode: "extension" }) };
+    const manager = new AnnotationManager(relay as never, config, browser as never);
+
+    const result = await manager.requestAnnotation({ sessionId: "s1", transport: "relay" });
+
+    expect(result.status).toBe("cancelled");
+    expect(relay.requestAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "start",
+        requestId: expect.any(String)
+      }),
+      120000
+    );
+    expect(socketState.lastSocket).toBeNull();
   });
 
   it("returns ok responses from the annotation channel", async () => {
@@ -186,7 +221,7 @@ describe("AnnotationManager", () => {
     expect(result.payload?.url).toBe("https://example.com");
   });
 
-  it("sends cancel commands when responses report errors", async () => {
+  it("does not send cancel commands when the relay already reported an error", async () => {
     vi.mocked(resolveRelayEndpoint).mockResolvedValue({
       connectEndpoint: "ws://127.0.0.1:8787/annotation",
       reportedEndpoint: "ws://127.0.0.1:8787/annotation",
@@ -221,7 +256,90 @@ describe("AnnotationManager", () => {
     const result = await requestPromise;
     expect(result.status).toBe("error");
     const cancelMessage = socket?.sent.find((entry) => entry.includes("\"command\":\"cancel\""));
-    expect(cancelMessage).toBeTruthy();
+    expect(cancelMessage).toBeUndefined();
+  });
+
+  it("does not send cancel commands when the relay already reported cancellation", async () => {
+    vi.mocked(resolveRelayEndpoint).mockResolvedValue({
+      connectEndpoint: "ws://127.0.0.1:8787/annotation",
+      reportedEndpoint: "ws://127.0.0.1:8787/annotation",
+      relayPort: 8787,
+      pairingRequired: false
+    });
+
+    const config = resolveConfig({ relayPort: 8787 });
+    const manager = new AnnotationManager(undefined, config);
+    const requestPromise = manager.requestAnnotation({ screenshotMode: "visible" });
+
+    await nextTick();
+    const socket = socketState.lastSocket;
+    expect(socket).toBeTruthy();
+    socket?.open();
+    await nextTick();
+
+    const sent = socket?.sent[0] ?? "";
+    const command = JSON.parse(sent) as { payload?: { requestId?: string } };
+    const requestId = command.payload?.requestId ?? "req";
+
+    socket?.emit("message", JSON.stringify({
+      type: "annotationResponse",
+      payload: {
+        version: 1,
+        requestId,
+        status: "cancelled",
+        error: { code: "cancelled", message: "Annotation cancelled." }
+      }
+    }));
+
+    const result = await requestPromise;
+    expect(result.status).toBe("cancelled");
+    const cancelMessage = socket?.sent.find((entry) => entry.includes("\"command\":\"cancel\""));
+    expect(cancelMessage).toBeUndefined();
+  });
+
+  it("does not send cancel commands for stored relay fetches", async () => {
+    vi.mocked(resolveRelayEndpoint).mockResolvedValue({
+      connectEndpoint: "ws://127.0.0.1:8787/annotation",
+      reportedEndpoint: "ws://127.0.0.1:8787/annotation",
+      relayPort: 8787,
+      pairingRequired: false
+    });
+
+    const relay = { getAnnotationUrl: () => "ws://127.0.0.1:8787/annotation" };
+    const browser = { status: vi.fn().mockResolvedValue({ mode: "extension" }) };
+    const config = resolveConfig({ relayPort: 0 });
+    const manager = new AnnotationManager(relay, config, browser as never);
+    const requestPromise = manager.requestAnnotation({
+      sessionId: "s1",
+      stored: true,
+      includeScreenshots: false
+    });
+
+    await nextTick();
+    const socket = socketState.lastSocket;
+    expect(socket).toBeTruthy();
+    socket?.open();
+    await nextTick();
+
+    const sent = socket?.sent[0] ?? "";
+    const command = JSON.parse(sent) as { payload?: { requestId?: string; command?: string } };
+    const requestId = command.payload?.requestId ?? "req";
+    expect(command.payload?.command).toBe("fetch_stored");
+
+    socket?.emit("message", JSON.stringify({
+      type: "annotationResponse",
+      payload: {
+        version: 1,
+        requestId,
+        status: "error",
+        error: { code: "payload_unavailable", message: "No stored payload." }
+      }
+    }));
+
+    const result = await requestPromise;
+    expect(result.status).toBe("error");
+    const cancelMessage = socket?.sent.find((entry) => entry.includes("\"command\":\"cancel\""));
+    expect(cancelMessage).toBeUndefined();
   });
 
   it("returns timeout errors and cancels the command", async () => {
@@ -270,6 +388,104 @@ describe("AnnotationManager", () => {
     const result = await requestPromise;
     expect(result.status).toBe("error");
     expect(result.error?.code).toBe("relay_unavailable");
+  });
+
+  it("returns cancelled when the socket closes after the session reached ready", async () => {
+    vi.mocked(resolveRelayEndpoint).mockResolvedValue({
+      connectEndpoint: "ws://127.0.0.1:8787/annotation",
+      reportedEndpoint: "ws://127.0.0.1:8787/annotation",
+      relayPort: 8787,
+      pairingRequired: false
+    });
+
+    const config = resolveConfig({ relayPort: 8787 });
+    const manager = new AnnotationManager(undefined, config);
+    const requestPromise = manager.requestAnnotation({});
+
+    let socket = socketState.lastSocket;
+    for (let attempt = 0; attempt < 5 && !socket; attempt += 1) {
+      await nextTick();
+      socket = socketState.lastSocket;
+    }
+    expect(socket).toBeTruthy();
+    socket?.open();
+    await nextTick();
+
+    let sent = socket?.sent[0] ?? "";
+    for (let attempt = 0; attempt < 5 && !sent; attempt += 1) {
+      await nextTick();
+      sent = socket?.sent[0] ?? "";
+    }
+    expect(sent).toBeTruthy();
+    const command = JSON.parse(sent) as { payload?: { requestId?: string } };
+    const requestId = command.payload?.requestId ?? "req";
+
+    socket?.emit("message", JSON.stringify({
+      type: "annotationEvent",
+      payload: {
+        version: 1,
+        requestId,
+        event: "ready",
+        message: "Annotation session started."
+      }
+    }));
+    socket?.emit("close");
+
+    const result = await requestPromise;
+    expect(result.status).toBe("cancelled");
+    expect(result.error?.code).toBe("cancelled");
+  });
+
+  it("ignores unknown relay messages and tolerates close after the terminal response", async () => {
+    vi.mocked(resolveRelayEndpoint).mockResolvedValue({
+      connectEndpoint: "ws://127.0.0.1:8787/annotation",
+      reportedEndpoint: "ws://127.0.0.1:8787/annotation",
+      relayPort: 8787,
+      pairingRequired: false
+    });
+
+    const config = resolveConfig({ relayPort: 8787 });
+    const manager = new AnnotationManager(undefined, config);
+    const requestPromise = manager.requestAnnotation({ screenshotMode: "none" });
+
+    let socket = socketState.lastSocket;
+    for (let attempt = 0; attempt < 5 && !socket; attempt += 1) {
+      await nextTick();
+      socket = socketState.lastSocket;
+    }
+    expect(socket).toBeTruthy();
+    socket?.open();
+    await nextTick();
+
+    let sent = socket?.sent[0] ?? "";
+    for (let attempt = 0; attempt < 5 && !sent; attempt += 1) {
+      await nextTick();
+      sent = socket?.sent[0] ?? "";
+    }
+    expect(sent).toBeTruthy();
+    const command = JSON.parse(sent) as { payload?: { requestId?: string } };
+    const requestId = command.payload?.requestId ?? "req";
+
+    socket?.emit("message", JSON.stringify({ type: "annotationUnknown", payload: { ignored: true } }));
+    socket?.emit("message", JSON.stringify({
+      type: "annotationResponse",
+      payload: {
+        version: 1,
+        requestId,
+        status: "ok",
+        payload: {
+          url: "https://example.com/final",
+          timestamp: "2026-01-31T00:00:00Z",
+          screenshotMode: "none",
+          annotations: []
+        }
+      }
+    }));
+    socket?.emit("close");
+
+    const result = await requestPromise;
+    expect(result.status).toBe("ok");
+    expect(result.payload?.url).toBe("https://example.com/final");
   });
 
   it("returns cancelled when the abort signal is already aborted", async () => {
@@ -322,6 +538,36 @@ describe("AnnotationManager", () => {
     expect(result.status).toBe("cancelled");
     const cancelMessage = socket?.sent.find((entry) => entry.includes("\"command\":\"cancel\""));
     expect(cancelMessage).toBeTruthy();
+  });
+
+  it("skips cancel dispatch when abort wins after the socket already closed", async () => {
+    vi.mocked(resolveRelayEndpoint).mockResolvedValue({
+      connectEndpoint: "ws://127.0.0.1:8787/annotation",
+      reportedEndpoint: "ws://127.0.0.1:8787/annotation",
+      relayPort: 8787,
+      pairingRequired: false
+    });
+
+    const config = resolveConfig({ relayPort: 8787 });
+    const manager = new AnnotationManager(undefined, config);
+    const controller = new AbortController();
+
+    const requestPromise = manager.requestAnnotation({ signal: controller.signal });
+    await nextTick();
+
+    const socket = socketState.lastSocket;
+    socket?.open();
+    await nextTick();
+
+    if (socket) {
+      socket.readyState = 3;
+    }
+    controller.abort();
+
+    const result = await requestPromise;
+    expect(result.status).toBe("cancelled");
+    const cancelMessage = socket?.sent.find((entry) => entry.includes("\"command\":\"cancel\""));
+    expect(cancelMessage).toBeUndefined();
   });
 
   it("skips cancel when the socket is closed before an error response", async () => {
@@ -677,6 +923,33 @@ describe("AnnotationManager", () => {
     expect(runDirectAnnotate).not.toHaveBeenCalled();
   });
 
+  it("uses the default direct_unavailable message when direct assets omit detail", async () => {
+    vi.mocked(resolveDirectAnnotateAssets).mockReturnValue({ assets: null, error: undefined });
+
+    const config = resolveConfig({ relayPort: 0 });
+    const manager = new AnnotationManager(undefined, config, { status: vi.fn() } as never);
+    const result = await manager.requestAnnotation({ sessionId: "s1", transport: "direct" });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toMatchObject({
+      code: "direct_unavailable",
+      message: "Direct annotate unavailable."
+    });
+  });
+
+  it("rejects stored requests when transport=direct is forced", async () => {
+    const config = resolveConfig({ relayPort: 8787 });
+    const manager = new AnnotationManager(undefined, config);
+
+    const result = await manager.requestAnnotation({ stored: true, transport: "direct" });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toMatchObject({
+      code: "invalid_request",
+      message: "Stored annotations require relay transport."
+    });
+  });
+
   it("returns direct_failed in auto mode when session is not extension", async () => {
     vi.mocked(resolveDirectAnnotateAssets).mockReturnValue({ assets: { scriptPath: "/tmp/script.js", stylePath: "/tmp/style.css" } });
     vi.mocked(runDirectAnnotate).mockResolvedValue({
@@ -713,6 +986,66 @@ describe("AnnotationManager", () => {
     expect(result.status).toBe("error");
     expect(result.error?.code).toBe("direct_failed");
     expect(resolveRelayEndpoint).not.toHaveBeenCalled();
+  });
+
+  it("falls back to relay in auto mode when direct annotate fails in extension mode", async () => {
+    vi.mocked(resolveDirectAnnotateAssets).mockReturnValue({
+      assets: { scriptPath: "/tmp/script.js", stylesheetPath: "/tmp/style.css" } as never
+    });
+    vi.mocked(runDirectAnnotate).mockResolvedValue({
+      version: 1,
+      requestId: "req-direct",
+      status: "error",
+      error: { code: "direct_failed", message: "Direct failed" }
+    });
+    vi.mocked(resolveRelayEndpoint).mockResolvedValue({
+      connectEndpoint: "ws://127.0.0.1:8787/annotation",
+      reportedEndpoint: "ws://127.0.0.1:8787/annotation",
+      relayPort: 8787,
+      pairingRequired: false
+    });
+
+    const relay = { getAnnotationUrl: () => "ws://127.0.0.1:8787/annotation" };
+    const config = resolveConfig({ relayPort: 0 });
+    const manager = new AnnotationManager(relay, config, { status: vi.fn().mockResolvedValue({ mode: "extension" }) } as never);
+    const requestPromise = manager.requestAnnotation({ sessionId: "s1", screenshotMode: "none" });
+
+    let socket = socketState.lastSocket;
+    for (let attempt = 0; attempt < 5 && !socket; attempt += 1) {
+      await nextTick();
+      socket = socketState.lastSocket;
+    }
+    expect(socket).toBeTruthy();
+    socket?.open();
+    await nextTick();
+
+    let sent = socket?.sent[0] ?? "";
+    for (let attempt = 0; attempt < 5 && !sent; attempt += 1) {
+      await nextTick();
+      sent = socket?.sent[0] ?? "";
+    }
+    expect(sent).toBeTruthy();
+    const command = JSON.parse(sent) as { payload?: { requestId?: string } };
+    const requestId = command.payload?.requestId ?? "req";
+
+    socket?.emit("message", JSON.stringify({
+      type: "annotationResponse",
+      payload: {
+        version: 1,
+        requestId,
+        status: "ok",
+        payload: {
+          url: "https://example.com/fallback",
+          timestamp: "2026-01-31T00:00:00Z",
+          screenshotMode: "none",
+          annotations: []
+        }
+      }
+    }));
+
+    const result = await requestPromise;
+    expect(result.status).toBe("ok");
+    expect(result.payload?.url).toBe("https://example.com/fallback");
   });
 
   it("returns invalid_request when relay transport is used outside extension", async () => {

@@ -16,6 +16,10 @@ import { OpsClient } from "./ops-client";
 import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
 import { BrowserManager } from "./browser-manager";
+import type {
+  RuntimePreviewBridgeInput,
+  RuntimePreviewBridgeResult
+} from "./canvas-runtime-preview-bridge";
 
 type CookieImportRecord = {
   name: string;
@@ -62,10 +66,12 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return this.base.connect(options);
   }
 
-  async connectRelay(wsEndpoint: string): ReturnType<BrowserManagerLike["connectRelay"]> {
+  async connectRelay(wsEndpoint: string, options?: { startUrl?: string }): ReturnType<BrowserManagerLike["connectRelay"]> {
     const endpoint = new URL(wsEndpoint);
     if (endpoint.pathname.endsWith("/cdp")) {
-      return this.base.connectRelay(wsEndpoint);
+      return options?.startUrl
+        ? this.base.connectRelay(wsEndpoint, options)
+        : this.base.connectRelay(wsEndpoint);
     }
 
     const { connectEndpoint, reportedEndpoint } = await resolveRelayEndpoint({
@@ -78,7 +84,10 @@ export class OpsBrowserManager implements BrowserManagerLike {
     const result = await client.request<{ opsSessionId: string; activeTargetId?: string | null; url?: string; title?: string; leaseId?: string }>(
       "session.connect",
       {
-        parallelismPolicy: this.buildParallelismPolicyPayload()
+        parallelismPolicy: this.buildParallelismPolicyPayload(),
+        ...(typeof options?.startUrl === "string" && options.startUrl.trim().length > 0
+          ? { startUrl: options.startUrl.trim() }
+          : {})
       },
       undefined,
       30000,
@@ -164,6 +173,36 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.base.withPage(sessionId, targetId, fn as never);
     }
     throw new Error("Direct annotate is unavailable via extension ops sessions.");
+  }
+
+  async applyRuntimePreviewBridge(
+    sessionId: string,
+    targetId: string | null,
+    input: RuntimePreviewBridgeInput
+  ): Promise<RuntimePreviewBridgeResult> {
+    if (!this.opsSessions.has(sessionId)) {
+      if (typeof this.base.applyRuntimePreviewBridge === "function") {
+        return await this.base.applyRuntimePreviewBridge(sessionId, targetId, input);
+      }
+      return await this.base.withPage(sessionId, targetId, async (page) => {
+        const { applyRuntimePreviewBridge: runRuntimePreviewBridge } = await import("./canvas-runtime-preview-bridge");
+        return await runRuntimePreviewBridge(page as {
+          evaluate: <TArg, TResult>(
+            pageFunction: (arg: TArg) => TResult | Promise<TResult>,
+            arg: TArg
+          ) => Promise<TResult>;
+        }, input);
+      });
+    }
+    return await this.requestOps<RuntimePreviewBridgeResult>(
+      sessionId,
+      "canvas.applyRuntimePreviewBridge",
+      this.withTarget({
+        bindingId: input.bindingId,
+        rootSelector: input.rootSelector,
+        html: input.html
+      }, targetId)
+    );
   }
 
   async cookieImport(
@@ -465,6 +504,16 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.base.listTargets(sessionId, includeUrls);
     }
     return await this.requestOps(sessionId, "targets.list", { includeUrls });
+  }
+
+  async registerCanvasTarget(
+    sessionId: string,
+    targetId: string
+  ): Promise<{ targetId: string; url?: string; title?: string; adopted?: boolean }> {
+    if (!this.opsSessions.has(sessionId)) {
+      return { targetId, adopted: false };
+    }
+    return await this.requestOps(sessionId, "targets.registerCanvas", { targetId });
   }
 
   async useTarget(sessionId: string, targetId: string): Promise<{ activeTargetId: string; url?: string; title?: string }> {

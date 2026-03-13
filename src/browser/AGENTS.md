@@ -1,23 +1,29 @@
-# Browser Module
+# src/browser/ — Agent Guidelines
 
-**Scope:** Browser lifecycle, session management, target tracking, script execution
+**Scope:** Browser lifecycle, session management, target tracking, script execution, `/canvas` orchestration, preview sync
 
 ## Overview
 
-Owns Playwright browser instances, session state, and target (page/tab) management. Central coordination point between CDP, extension relay, and managed sessions.
+Owns Playwright browser instances, session state, target (page/tab) management, and the browser-facing half of canvas session/preview/code-sync orchestration. Central coordination point between CDP, extension relay, managed sessions, `/ops`, and `/canvas`.
 
 ## Structure
 
 ```
 src/browser/
-├── browser-manager.ts      # Main orchestrator (45KB) - launch, connect, lifecycle
-├── target-manager.ts       # Page/tab registry, named targets
-├── script-runner.ts        # Multi-step script execution
-├── annotation-manager.ts   # Annotation transport coordination
-├── ops-browser-manager.ts  # Ops-mode browser management
-├── ops-client.ts           # Ops protocol client
-├── session-store.ts        # Session metadata persistence
-└── manager-types.ts        # Shared type definitions
+├── annotation-manager.ts         # Annotation transport coordination
+├── browser-manager.ts            # Main orchestrator - launch, connect, lifecycle
+├── canvas-client.ts              # /canvas relay client
+├── canvas-code-sync-manager.ts   # TSX-first code sync status/pull/push/watch
+├── canvas-manager.ts             # /canvas commands, preview sync, overlay orchestration
+├── canvas-runtime-preview-bridge.ts # Opt-in bound-app runtime reconciliation
+├── canvas-session-sync-manager.ts # Lease-holder / observer attach state
+├── manager-types.ts              # Shared type definitions
+├── ops-browser-manager.ts        # Ops-mode browser management
+├── ops-client.ts                 # Ops protocol client
+├── parallelism-governor.ts       # Session parallelism caps + backpressure
+├── script-runner.ts              # Multi-step script execution
+├── session-store.ts              # Session metadata persistence
+└── target-manager.ts             # Page/tab registry, named targets
 ```
 
 ## Key Classes
@@ -40,6 +46,16 @@ src/browser/
 - Timing metrics
 - Step-by-step execution via `executeStep()`
 
+### CanvasManager
+- `/canvas` command router for session open/attach/status/close, document patch/save/export, preview render/refresh, overlay state, and feedback polling/subscription
+- Owns session leases and design-tab target state
+- Delegates TSX-first bind/pull/push/resolve work to `CanvasCodeSyncManager`
+
+### CanvasCodeSyncManager
+- Loads and saves document-scoped manifests through `src/canvas/repo-store.ts`
+- Watches bound source files and computes drift/conflict state
+- Supports `canvas.code.bind`, `unbind`, `pull`, `push`, `status`, and `resolve`
+
 ## Session Modes
 
 | Mode | Entry | Use Case |
@@ -53,12 +69,14 @@ src/browser/
 - **Localhost-only CDP:** Endpoints validated to 127.0.0.1, ::1, localhost
 - **Profile isolation:** Each session gets isolated profile directory
 - **Cleanup:** Automatic profile cleanup unless `persistProfile: true`
+- **Canvas preview boundary:** `canvas_html` remains the default projection; `bound_app_runtime` is opt-in and must fall back when instrumentation/root selectors are missing
 
 ## Dependencies
 
 - `playwright-core` - Browser automation
 - `async-mutex` - Session-level locking
 - `../relay/*` - Extension relay coordination
+- `../canvas/*` - Document store, export, repo persistence, code-sync primitives
 - `../snapshot/*` - RefStore, Snapshotter
 - `../devtools/*` - ConsoleTracker, NetworkTracker
 - `../export/*` - DOM capture, CSS extraction
@@ -68,3 +86,4 @@ src/browser/
 - Never bypass `TargetManager` for page access
 - Never store raw `Page` references outside session context
 - Never skip mutex acquisition for session mutations
+- Never claim runtime-bound parity unless the binding explicitly opts into `bound_app_runtime` and preflight succeeds; projected `canvas_html` is the compatibility fallback

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "canvasSessionId": "<canvas-session-id>",
+  "documentId": "<document-id>",
+  "targetIds": [
+    "<target-id>"
+  ],
+  "afterCursor": null,
+  "categories": [
+    "render",
+    "console",
+    "network",
+    "validation",
+    "performance",
+    "asset",
+    "export"
+  ],
+  "requiredEventTypes": [
+    "feedback.item",
+    "feedback.heartbeat",
+    "feedback.complete"
+  ],
+  "requiredFieldsPerItem": [
+    "documentId",
+    "pageId",
+    "prototypeId",
+    "targetId",
+    "documentRevision",
+    "severity",
+    "class",
+    "message",
+    "evidenceRefs"
+  ],
+  "requiredIssueClasses": [
+    "CANVAS-01",
+    "CANVAS-02",
+    "CANVAS-03",
+    "CANVAS-04",
+    "CANVAS-05",
+    "CANVAS-06",
+    "CANVAS-07"
+  ],
+  "checks": [
+    {
+      "auditId": "CANVAS-01",
+      "description": "Reject feedback-based mutation when handshake evidence is missing."
+    },
+    {
+      "auditId": "CANVAS-02",
+      "description": "Carry governance warnings through save/export evaluation."
+    },
+    {
+      "auditId": "CANVAS-03",
+      "description": "Treat malformed generation plans as blocking plan validation failures."
+    },
+    {
+      "auditId": "CANVAS-04",
+      "description": "Report library or icon-policy violations as structured validation findings."
+    },
+    {
+      "auditId": "CANVAS-05",
+      "description": "Capture unsupported target or overlay mount failures with target attribution."
+    },
+    {
+      "auditId": "CANVAS-06",
+      "description": "Verify preview downgrade and runtime budget warnings are surfaced."
+    },
+    {
+      "auditId": "CANVAS-07",
+      "description": "Require targetId, pageId, class, and evidenceRefs on feedback items."
+    }
+  ]
+}

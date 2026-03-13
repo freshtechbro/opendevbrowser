@@ -5,6 +5,35 @@ export type DomCapture = {
   inlineStyles: boolean;
 };
 
+type RuntimePreviewBridgeResult =
+  | {
+    ok: true;
+    artifact: {
+      projection: "bound_app_runtime";
+      rootBindingId: string;
+      capturedAt: string;
+      hierarchyHash: string;
+      nodes: Array<{
+        nodeId: string;
+        bindingId: string;
+        text: string;
+        childOrderHash: string;
+        attributes: Record<string, string>;
+        styleProjection: Record<string, string>;
+      }>;
+    };
+  }
+  | {
+    ok: false;
+    fallbackReason:
+      | "runtime_bridge_unavailable"
+      | "runtime_projection_unsupported"
+      | "runtime_projection_failed"
+      | "runtime_instrumentation_missing"
+      | "fallback_canvas_html";
+    message: string;
+  };
+
 type CaptureOptions = {
   sanitize?: boolean;
   maxNodes?: number;
@@ -305,6 +334,72 @@ export class DomBridge {
 
     return payload.value as DomCapture;
   }
+
+  async applyRuntimePreviewBridge(
+    tabId: number,
+    bindingId: string,
+    rootSelector: string,
+    html: string
+  ): Promise<RuntimePreviewBridgeResult> {
+    return await runInTab(tabId, (payload) => {
+      const input = payload as { bindingId: string; rootSelector: string; html: string };
+      const root = document.querySelector(input.rootSelector);
+      if (!(root instanceof HTMLElement)) {
+        return {
+          ok: false,
+          fallbackReason: "runtime_projection_unsupported",
+          message: `Runtime root not found for selector ${input.rootSelector}.`
+        } satisfies RuntimePreviewBridgeResult;
+      }
+      const existingBindingId = root.getAttribute("data-binding-id");
+      if (existingBindingId !== input.bindingId) {
+        return {
+          ok: false,
+          fallbackReason: "runtime_instrumentation_missing",
+          message: "Runtime root is missing the expected data-binding-id instrumentation."
+        } satisfies RuntimePreviewBridgeResult;
+      }
+      root.innerHTML = input.html;
+      const nodes = [root, ...Array.from(root.querySelectorAll("[data-node-id]"))]
+        .filter((element): element is HTMLElement => element instanceof HTMLElement && element.hasAttribute("data-node-id"))
+        .map((element) => {
+          const computed = window.getComputedStyle(element);
+          const childOrder = Array.from(element.children)
+            .map((child) => child instanceof HTMLElement ? child.getAttribute("data-node-id") ?? child.tagName.toLowerCase() : "")
+            .join("|");
+          return {
+            nodeId: element.getAttribute("data-node-id") ?? "",
+            bindingId: element.getAttribute("data-binding-id") ?? input.bindingId,
+            text: (element.innerText || "").trim(),
+            childOrderHash: childOrder,
+            attributes: {
+              "data-node-id": element.getAttribute("data-node-id") ?? "",
+              ...(element.hasAttribute("data-binding-id")
+                ? { "data-binding-id": element.getAttribute("data-binding-id") ?? "" }
+                : {})
+            },
+            styleProjection: {
+              color: computed.color,
+              backgroundColor: computed.backgroundColor,
+              fontSize: computed.fontSize,
+              fontWeight: computed.fontWeight,
+              borderRadius: computed.borderRadius,
+              display: computed.display
+            }
+          };
+        });
+      return {
+        ok: true,
+        artifact: {
+          projection: "bound_app_runtime",
+          rootBindingId: input.bindingId,
+          capturedAt: new Date().toISOString(),
+          hierarchyHash: nodes.map((node) => `${node.nodeId}:${node.childOrderHash}`).join("|"),
+          nodes
+        }
+      } satisfies RuntimePreviewBridgeResult;
+    }, [{ bindingId, rootSelector, html }]);
+  }
 }
 
 type RunResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -315,6 +410,60 @@ const runWithElement = async <T>(tabId: number, selector: string, action: Elemen
     if (!el) {
       return { ok: false, error: "Element not found" };
     }
+    const dispatchPointer = (target: Element, type: string, buttons: number) => {
+      const rect = target.getBoundingClientRect();
+      const init = {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        button: 0,
+        buttons
+      };
+      if (typeof PointerEvent === "function") {
+        target.dispatchEvent(new PointerEvent(type, init));
+        return;
+      }
+      target.dispatchEvent(new MouseEvent(type.replace(/^pointer/, "mouse"), init));
+    };
+    const dispatchMouse = (target: Element, type: string, buttons: number) => {
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        button: 0,
+        buttons
+      }));
+    };
+    const dispatchHover = (target: Element) => {
+      dispatchPointer(target, "pointerover", 0);
+      dispatchPointer(target, "pointerenter", 0);
+      dispatchMouse(target, "mouseover", 0);
+      dispatchMouse(target, "mouseenter", 0);
+      dispatchPointer(target, "pointermove", 0);
+      dispatchMouse(target, "mousemove", 0);
+    };
+    const dispatchClick = (target: Element) => {
+      dispatchHover(target);
+      dispatchPointer(target, "pointerdown", 1);
+      dispatchMouse(target, "mousedown", 1);
+      if (target instanceof HTMLElement) {
+        target.focus();
+      }
+      dispatchPointer(target, "pointerup", 0);
+      dispatchMouse(target, "mouseup", 0);
+      if (target instanceof HTMLElement) {
+        target.click();
+        return;
+      }
+      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, composed: true, view: window }));
+    };
     const action = act as ElementAction;
     switch (action.type) {
       case "outerHTML":
@@ -339,11 +488,10 @@ const runWithElement = async <T>(tabId: number, selector: string, action: Elemen
         }
         return { ok: true, value: false };
       case "click":
-        (el as HTMLElement).click();
+        dispatchClick(el);
         return { ok: true, value: true };
       case "hover": {
-        const event = new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window });
-        el.dispatchEvent(event);
+        dispatchHover(el);
         return { ok: true, value: true };
       }
       case "focus":

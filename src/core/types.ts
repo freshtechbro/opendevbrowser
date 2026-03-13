@@ -1,5 +1,6 @@
 /* c8 ignore file */
 import type { BrowserManagerLike } from "../browser/manager-types";
+import type { CanvasManagerLike } from "../browser/canvas-manager";
 import type { ScriptRunner } from "../browser/script-runner";
 import type { AnnotationManager } from "../browser/annotation-manager";
 import type {
@@ -28,6 +29,7 @@ export type OpenDevBrowserCore = {
   parallelismPolicy: ParallelismGovernorConfig;
   configStore: ConfigStore;
   manager: BrowserManagerLike;
+  canvasManager: CanvasManagerLike;
   annotationManager: AnnotationManager;
   runner: ScriptRunner;
   skills: SkillLoader;

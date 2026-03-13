@@ -12,7 +12,7 @@ export const CLI_COMMANDS = [
   "clone-page", "clone-component",
   "perf", "screenshot", "console-poll", "network-poll", "debug-trace-snapshot",
   "cookie-import", "cookie-list", "macro-resolve",
-  "annotate", "rpc"
+  "annotate", "canvas", "rpc"
 ] as const;
 
 const CLI_COMMAND_SET = new Set<string>(CLI_COMMANDS);
@@ -124,6 +124,7 @@ export const VALID_FLAGS = [
   "--since-console-seq", "--since-network-seq", "--since-exception-seq", "--request-id",
   "--cookies", "--cookies-file", "--strict",
   "--expression", "--default-provider", "--include-catalog",
+  "--command",
   "--execute",
   "--params", "--params-file", "--unsafe-internal",
   "--daemon",
@@ -131,6 +132,7 @@ export const VALID_FLAGS = [
   "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms",
   "--skills-global", "--skills-local", "--no-skills",
   "--screenshot-mode", "--debug", "--context",
+  "--stored",
   "--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source",
   "--query", "--providers", "--budget", "--region", "--sort",
   "--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy",
@@ -160,6 +162,7 @@ export const VALID_EQUALS_FLAGS = [
   "--persist-profile",
   "--expression",
   "--default-provider",
+  "--command",
   "--request-id",
   "--strict",
   "--params",

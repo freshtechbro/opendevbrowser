@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/opendevbrowser.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
 [![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-green.svg?style=flat-square)](https://opencode.ai)
 [![CLI](https://img.shields.io/badge/Interface-CLI-orange.svg?style=flat-square)](docs/CLI.md)
 [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-blue.svg?style=flat-square)](docs/EXTENSION.md)
@@ -43,12 +43,13 @@ Distribution split (current target state):
 | **Stable refs** | Elements identified by `backendNodeId`, not fragile selectors |
 | **Security by default** | CDP localhost-only, timing-safe auth, HTML sanitization |
 | **3 browser modes** | Managed, CDP connect, or extension relay for logged-in sessions |
-| **Ops + CDP channels** | High-level multi-client `/ops` plus legacy `/cdp` compatibility |
+| **Ops + Canvas + CDP channels** | High-level multi-client `/ops`, dedicated `/canvas`, plus legacy `/cdp` compatibility |
 | **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
+| **Design canvas + code sync** | Persist repo-native design documents, attach same-session observers, round-trip bound TSX files, and drive preview tabs with `canvas_html` or opted-in `bound_app_runtime` reconciliation |
 | **Loop-closure diagnostics** | Console/network polling + unified debug trace snapshots for verification workflows |
-| **8 bundled skill packs** | Best practices plus login, forms, data extraction, research, shopping, and product asset workflows |
-| **48 tools** | Complete browser automation coverage |
+| **10 bundled skill directories** | Best practices plus login, forms, data extraction, research, shopping, and product asset workflows |
+| **49 tools** | Complete browser automation coverage, including the design-canvas command surface |
 | **97% test coverage** | Production-ready with strict TypeScript |
 
 ---
@@ -93,6 +94,7 @@ npx --no-install opendevbrowser help
 
 Full validated flow: [`docs/FIRST_RUN_ONBOARDING.md`](docs/FIRST_RUN_ONBOARDING.md).
 Dependency/runtime inventory: [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+Live CLI inventory/help surface: `npx opendevbrowser --help` or `npx opendevbrowser help`.
 
 Use OpenCode only if you want plugin tools. CLI and extension workflows work without OpenCode.
 
@@ -296,9 +298,9 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **48 tools** organized by category:
+OpenDevBrowser provides **49 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
-Complete source-accurate inventory (tools + CLI + `/ops` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
+Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 
 ### Session Management
 | Tool | Description |
@@ -371,7 +373,12 @@ Complete source-accurate inventory (tools + CLI + `/ops` + `/cdp`): [docs/SURFAC
 ### Annotation
 | Tool | Description |
 |------|-------------|
-| `opendevbrowser_annotate` | Capture interactive annotations via extension relay |
+| `opendevbrowser_annotate` | Capture interactive annotations via direct (CDP) or relay transport |
+
+### Design Canvas
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_canvas` | Execute typed design-canvas session, attach, code-sync, preview, feedback, and overlay commands |
 
 ### Export & Cloning
 | Tool | Description |
@@ -389,7 +396,7 @@ Complete source-accurate inventory (tools + CLI + `/ops` + `/cdp`): [docs/SURFAC
 
 ## Bundled Skills
 
-OpenDevBrowser includes **8 task-specific skill packs**:
+OpenDevBrowser includes **8 OpenDevBrowser-specific skill packs** plus shared `research` and `shopping` compatibility directories that are synced by the installer:
 
 | Skill | Purpose |
 |-------|---------|
@@ -401,6 +408,9 @@ OpenDevBrowser includes **8 task-specific skill packs**:
 | `opendevbrowser-research` | Deterministic multi-source research workflows |
 | `opendevbrowser-shopping` | Deterministic multi-provider deal comparison workflows |
 | `opendevbrowser-product-presentation-asset` | Product screenshot/copy asset collection for presentation pipelines |
+
+Installer note:
+- `--skills-global` and `--skills-local` copy every directory under `skills/`, including the shared `research/` and `shopping/` packs.
 
 Skills are discovered from (priority order):
 1. `.opencode/skill/` (project)
@@ -431,18 +441,20 @@ Extension relay relies on **flat CDP sessions (Chrome 125+)** and uses DebuggerS
 
 Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`.
 The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/ops`.
+Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for design-canvas editor, session attach/lease flow, code-sync, preview, feedback, and overlay flows.
 Legacy relay `/cdp` remains available with explicit opt-in (`--extension-legacy`).
-When pairing is enabled, both `/ops` and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
+When pairing is enabled, `/ops`, `/canvas`, and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
 
-## Ops vs CDP
+## Relay Channels
 
 | Channel | What It Does | When to Use It |
 |---------|---------------|----------------|
 | **`/ops` (default)** | High-level automation protocol with session ownership, event streaming, and multi-client handling | Preferred extension relay path for modern workflows |
+| **`/canvas`** | Typed design-canvas protocol for session handshakes/attach, live editor sync, TSX code sync, preview tabs, feedback streams, and overlay selection | Use with `opendevbrowser_canvas` or `opendevbrowser canvas` during design-canvas workflows |
 | **`/cdp` (legacy)** | Low-level CDP relay path with compatibility-focused behavior | Opt-in compatibility mode (`--extension-legacy`) |
 | **Direct CDP connect** | Attach to Chrome started with `--remote-debugging-port` | Existing debug/browser setups without extension relay |
 
-For full `/ops` command names, `/cdp` envelope details, and mode/flag matrices, see [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
+For full `/ops` and `/canvas` command names, `/cdp` envelope details, and mode/flag matrices, see [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 
 ---
 
@@ -600,10 +612,10 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 
 ## CLI Commands
 
-The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, and annotate).
+The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 48 tools, `/ops` and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 49 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
@@ -615,6 +627,7 @@ See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accura
 | Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view` |
 | Targets/pages | `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close` |
 | DOM | `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked` |
+| Design canvas | `canvas` |
 | Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `screenshot`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `macro-resolve`, `annotate`, `rpc` |
 
 ### Install/Management
@@ -649,6 +662,7 @@ Start the daemon with `npx opendevbrowser serve`, then use:
 | `npx opendevbrowser select` | Select dropdown option by ref |
 | `npx opendevbrowser scroll` | Scroll page or element |
 | `npx opendevbrowser run` | Run a JSON script |
+| `npx opendevbrowser canvas --command canvas.session.open --params '{...}'` | Start or continue a design-canvas workflow through the daemon |
 | `npx opendevbrowser macro-resolve --expression '@media.search("youtube transcript parity", "youtube", 5)' --execute --timeout-ms 120000` | Execute macro plans with extended timeout for slow runs |
 
 Workflow cookie controls (`research run`, `shopping run`, `product-video run`):
@@ -666,7 +680,7 @@ OpenDevBrowser is **secure by default** with defense-in-depth protections:
 |------------|---------|
 | **CDP Localhost-Only** | Remote endpoints blocked; hostname normalized to prevent bypass |
 | **Timing-Safe Auth** | `crypto.timingSafeEqual()` for token comparison |
-| **Origin Validation** | `/extension` requires `chrome-extension://` origin; `/ops`, `/cdp`, `/annotation`, and `/config`/`/status`/`/pair` allow loopback no-Origin requests |
+| **Origin Validation** | `/extension` requires `chrome-extension://` origin; `/ops`, `/canvas`, `/cdp`, `/annotation`, and `/config`/`/status`/`/pair` allow loopback no-Origin requests |
 | **PNA Preflights** | HTTP preflights include `Access-Control-Allow-Private-Network: true` when requested |
 | **Rate Limiting** | 5 handshake attempts/minute per IP, plus HTTP rate limiting for `/config`, `/status`, `/pair` |
 | **Data Redaction** | Tokens, API keys, sensitive paths auto-redacted |
@@ -752,17 +766,18 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   ├── cache/        # Chrome executable resolution
 │   ├── cli/          # CLI commands, daemon, installers
 │   ├── core/         # Bootstrap, runtime wiring, ToolDeps
+│   ├── canvas/       # Design-canvas document store, repo IO, export helpers
 │   ├── devtools/     # Console/network trackers with redaction
 │   ├── export/       # DOM capture, React emitter, CSS extraction
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 48 opendevbrowser_* tool definitions
+│   ├── tools/        # 49 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
-├── skills/           # Bundled skill packs (8 total)
+├── skills/           # Bundled skill directories (10 total; 8 canonical OpenDevBrowser packs + 2 shared compatibility packs)
 ├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, CLI, extension, distribution plans
 ```

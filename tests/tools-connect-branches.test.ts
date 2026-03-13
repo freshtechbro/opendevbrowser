@@ -70,4 +70,39 @@ describe("connect tool branches", () => {
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
     expect(deps.manager.connect).not.toHaveBeenCalled();
   });
+
+  it("forwards startUrl to relay connect requests", async () => {
+    const deps = createDeps({
+      opsUrl: "ws://127.0.0.1:8787/ops"
+    });
+    const tool = createConnectTool(deps as never);
+
+    const result = parse(await tool.execute({
+      startUrl: "http://127.0.0.1:41731/"
+    } as never));
+
+    expect(result).toMatchObject({ ok: true });
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops", {
+      startUrl: "http://127.0.0.1:41731/"
+    });
+  });
+
+  it("forwards startUrl to direct CDP connect requests", async () => {
+    const deps = createDeps();
+    const tool = createConnectTool(deps as never);
+
+    const result = parse(await tool.execute({
+      host: "127.0.0.1",
+      port: 9222,
+      startUrl: "http://127.0.0.1:41731/"
+    } as never));
+
+    expect(result).toMatchObject({ ok: true });
+    expect(deps.manager.connect).toHaveBeenCalledWith({
+      host: "127.0.0.1",
+      port: 9222,
+      startUrl: "http://127.0.0.1:41731/",
+      wsEndpoint: undefined
+    });
+  });
 });

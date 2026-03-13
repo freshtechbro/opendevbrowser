@@ -1,5 +1,19 @@
 # Public/Private Split + Multi-Channel Distribution Plan
 
+Status: historical execution plan
+Snapshot date: 2026-02-25
+Last audited against repo: 2026-03-12
+
+Current public source-of-truth docs:
+- `docs/DISTRIBUTION_PLAN.md`
+- `docs/FRONTEND.md`
+- `docs/RELEASE_RUNBOOK.md`
+- `docs/CUTOVER_CHECKLIST.md`
+
+Current audit note:
+- completed/open checklist states below are preserved as 2026-02-25 rollout evidence and are not authoritative current status from this public repo alone.
+- the public template pack still provides `templates/website-deploy/`, but it does not currently include `templates/website-deploy/.github/workflows/promote-website-production.yml`; treat template-completeness claims below as historical rollout notes, not current packaging truth.
+
 Detailed execution plan to keep OpenDevBrowser core and extension public while moving website deployment to a private repository with automated sync, then standardize npm + Chrome extension + GitHub release distribution.
 
 ---
@@ -33,7 +47,7 @@ Detailed execution plan to keep OpenDevBrowser core and extension public while m
 - Vercel project ownership or team permission to set production branch and protection.
 - Optional Chrome Web Store publisher access if Stage 2 extension publishing is enabled.
 
-### Implementation status (2026-02-25)
+### Historical implementation status (2026-02-25 snapshot)
 
 Completed in execution:
 - Public repo release/sync/store workflows were implemented:
@@ -59,7 +73,7 @@ Completed in execution:
   - removed `frontend/` from public repo
   - removed frontend-coupled tests (`tests/frontend-docs-links.test.ts`, `tests/frontend-focus-trap.test.ts`)
 
-Open operational items:
+Open operational items at snapshot time:
 - Hosting branch enforcement (`website-production`) must be finalized in provider settings.
 - Private branch protection is constrained by current GitHub plan (`HTTP 403` when enforcing private branch protection via API).
 - First production public tag release through `release-public.yml` is still pending.

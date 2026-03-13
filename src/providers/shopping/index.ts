@@ -1,4 +1,4 @@
-import { ProviderRuntimeError, normalizeProviderReasonCode, toProviderError } from "../errors";
+import { ProviderRuntimeError, toProviderError } from "../errors";
 import { normalizeRecord, normalizeRecords } from "../normalize";
 import { providerRequestHeaders } from "../shared/request-headers";
 import { canonicalizeUrl } from "../web/crawler";
@@ -256,33 +256,13 @@ const parseIsoDate = (value: string): number => {
   return Number.isNaN(parsed) ? NaN : parsed;
 };
 
-const SHOPPING_FALLBACK_ERROR_CODES = new Set<ProviderErrorCode>([
-  "auth",
-  "rate_limited",
-  "timeout",
-  "network",
-  "upstream",
-  "unavailable"
-]);
-
 const fallbackReasonCodeForError = (error: {
-  code: ProviderErrorCode;
-  message: string;
-  details?: Record<string, JsonValue>;
   reasonCode?: ProviderReasonCode;
-}): ProviderReasonCode | undefined => {
+}): ProviderReasonCode => {
   if (error.reasonCode) return error.reasonCode;
-  const normalized = normalizeProviderReasonCode({
-    code: error.code,
-    message: error.message,
-    details: error.details
-  });
-  if (normalized) return normalized;
-  if (error.code === "auth") return "token_required";
-  if (error.code === "rate_limited") return "rate_limited";
-  if (error.code === "upstream") return "ip_blocked";
-  if (error.code === "timeout" || error.code === "network" || error.code === "unavailable") return "env_limited";
-  return undefined;
+  // resolveBrowserFallback is only reached from the default fetcher's recoverable paths.
+  // auth/rate_limited carry explicit reason codes above; the remaining cases are env-limited.
+  return "env_limited";
 };
 
 const readFallbackString = (output: Record<string, JsonValue> | undefined, key: "html" | "url"): string | undefined => {
@@ -304,10 +284,7 @@ const resolveBrowserFallback = async (args: {
     provider: args.provider,
     source: SHOPPING_SOURCE
   });
-  if (!SHOPPING_FALLBACK_ERROR_CODES.has(normalized.code)) {
-    return null;
-  }
-  const reasonCode = fallbackReasonCodeForError(normalized) ?? "env_limited";
+  const reasonCode = fallbackReasonCodeForError(normalized);
 
   const fallback = await fallbackPort.resolve({
     provider: args.provider,

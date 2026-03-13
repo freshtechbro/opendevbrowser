@@ -58,6 +58,7 @@ sub_continuity.md
 
 # Local planning artifacts
 .sisyphus/
+.factory/
 prd.json
 progress.txt
 

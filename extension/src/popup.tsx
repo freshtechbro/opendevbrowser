@@ -1,11 +1,14 @@
 import type {
   AnnotationCommand,
+  AnnotationDispatchSource,
+  AnnotationPayload,
   BackgroundMessage,
   NativeTransportHealth,
-  PopupAnnotationProbeResponse,
   PopupAnnotationGetPayloadResponse,
   PopupAnnotationLastMetaResponse,
   PopupAnnotationMeta,
+  PopupAnnotationProbeResponse,
+  PopupAnnotationSendPayloadResponse,
   PopupAnnotationStartResponse,
   PopupMessage,
   RelayHealthStatus
@@ -20,6 +23,10 @@ import {
   DEFAULT_RELAY_PORT
 } from "./relay-settings.js";
 import { logError } from "./logging.js";
+import {
+  describeAnnotationItem,
+  filterAnnotationPayload
+} from "./annotation-payload.js";
 
 const statusEl = document.getElementById("status");
 const statusIndicator = document.getElementById("statusIndicator");
@@ -43,6 +50,9 @@ const nativeEnabledInput = document.getElementById("nativeEnabled") as HTMLInput
 const annotationContextInput = document.getElementById("annotationContext") as HTMLInputElement | null;
 const annotationStartButton = document.getElementById("annotationStart");
 const annotationCopyButton = document.getElementById("annotationCopy") as HTMLButtonElement | null;
+const annotationSendButton = document.getElementById("annotationSend") as HTMLButtonElement | null;
+const annotationRefreshButton = document.getElementById("annotationRefresh") as HTMLButtonElement | null;
+const annotationItems = document.getElementById("annotationItems");
 const annotationNote = document.getElementById("annotationNote");
 
 if (
@@ -68,6 +78,9 @@ if (
   || !annotationContextInput
   || !annotationStartButton
   || !annotationCopyButton
+  || !annotationSendButton
+  || !annotationRefreshButton
+  || !annotationItems
   || !annotationNote
 ) {
   throw new Error("Popup DOM missing required elements");
@@ -76,6 +89,7 @@ if (
 const defaultNote = "Local relay only. Tokens stay on-device.";
 const defaultAnnotationNote = "No annotations captured yet.";
 const LAST_ANNOTATION_META_KEY = "annotationLastMeta";
+let lastAnnotationPayload: AnnotationPayload | null = null;
 
 const setNote = (message?: string) => {
   const next = message && message.trim() ? message : defaultNote;
@@ -249,13 +263,25 @@ const refreshStatus = async () => {
   }
 };
 
-const setCopyEnabled = (enabled: boolean) => {
+const setAnnotationActionsEnabled = (enabled: boolean) => {
   annotationCopyButton.disabled = !enabled;
+  annotationSendButton.disabled = !enabled;
 };
 
 const buildPopupAnnotationOptions = (): AnnotationCommand["options"] | undefined => {
   const context = annotationContextInput.value.trim();
   return context ? { context } : undefined;
+};
+
+const withPopupContext = (payload: AnnotationPayload): AnnotationPayload => {
+  const context = annotationContextInput.value.trim();
+  if (!context) {
+    return payload;
+  }
+  return {
+    ...payload,
+    context
+  };
 };
 
 const fetchTokenFromPlugin = async (
@@ -392,16 +418,85 @@ const formatAnnotationSummary = (meta: PopupAnnotationMeta): string => {
   return `Last annotation: ${count} item${count === 1 ? "" : "s"}${target}.`;
 };
 
+const renderAnnotationItems = (payload: AnnotationPayload | null) => {
+  annotationItems.innerHTML = "";
+  if (!payload || payload.annotations.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "annotation-empty";
+    empty.textContent = "No annotation items available.";
+    annotationItems.append(empty);
+    return;
+  }
+  for (const item of payload.annotations) {
+    const row = document.createElement("div");
+    row.className = "annotation-item";
+
+    const summary = document.createElement("div");
+    summary.className = "annotation-item-summary";
+    summary.textContent = describeAnnotationItem(item);
+
+    const meta = document.createElement("div");
+    meta.className = "annotation-item-meta";
+    meta.textContent = `${item.tag} • ${Math.round(item.rect.width)}×${Math.round(item.rect.height)}`;
+
+    const actions = document.createElement("div");
+    actions.className = "annotation-item-actions";
+
+    const copyButton = document.createElement("button");
+    copyButton.className = "secondary";
+    copyButton.type = "button";
+    copyButton.textContent = "Copy item";
+    copyButton.addEventListener("click", () => {
+      void copySelectedAnnotation([item.id], "Copied annotation item payload.");
+    });
+
+    const sendButton = document.createElement("button");
+    sendButton.className = "secondary";
+    sendButton.type = "button";
+    sendButton.textContent = "Send item";
+    sendButton.addEventListener("click", () => {
+      void sendSelectedAnnotation([item.id], "popup_item", describeAnnotationItem(item), "Sent annotation item to agent inbox.");
+    });
+
+    actions.append(copyButton, sendButton);
+    row.append(summary, meta, actions);
+    annotationItems.append(row);
+  }
+};
+
+const loadAnnotationPayload = async (preferScreenshots: boolean): Promise<PopupAnnotationGetPayloadResponse> => {
+  let response = await sendMessage<PopupAnnotationGetPayloadResponse>({
+    type: "annotation:getPayload",
+    includeScreenshots: preferScreenshots
+  });
+  if (!response.payload && preferScreenshots) {
+    response = await sendMessage<PopupAnnotationGetPayloadResponse>({
+      type: "annotation:getPayload",
+      includeScreenshots: false
+    });
+  }
+  return response;
+};
+
+const refreshAnnotationPayload = async () => {
+  const response = await loadAnnotationPayload(false);
+  lastAnnotationPayload = response.payload ? withPopupContext(response.payload) : null;
+  renderAnnotationItems(lastAnnotationPayload);
+};
+
 const refreshLastAnnotationMeta = async () => {
   try {
     const response = await sendMessage<PopupAnnotationLastMetaResponse>({ type: "annotation:lastMeta" });
     const meta = response.meta;
     if (meta && meta.status === "ok") {
-      setCopyEnabled(true);
+      setAnnotationActionsEnabled(true);
       setAnnotationNote(formatAnnotationSummary(meta));
+      await refreshAnnotationPayload();
       return;
     }
-    setCopyEnabled(false);
+    setAnnotationActionsEnabled(false);
+    lastAnnotationPayload = null;
+    renderAnnotationItems(null);
     if (meta) {
       setAnnotationNote(formatAnnotationSummary(meta));
     } else {
@@ -409,7 +504,9 @@ const refreshLastAnnotationMeta = async () => {
     }
   } catch (error) {
     logError("popup.annotation_meta", error, { code: "annotation_meta_failed" });
-    setCopyEnabled(false);
+    setAnnotationActionsEnabled(false);
+    lastAnnotationPayload = null;
+    renderAnnotationItems(null);
     setAnnotationNote("Annotation status unavailable.");
   }
 };
@@ -434,6 +531,63 @@ const copyTextToClipboard = async (text: string): Promise<void> => {
   if (!ok) {
     throw new Error("Clipboard copy failed");
   }
+};
+
+const copyPayloadToClipboard = async (payload: AnnotationPayload, message: string) => {
+  await copyTextToClipboard(JSON.stringify(payload, null, 2));
+  setAnnotationNote(message);
+};
+
+const sendPayloadToAgent = async (
+  payload: AnnotationPayload,
+  source: AnnotationDispatchSource,
+  label: string,
+  successMessage: string
+) => {
+  const response = await sendMessage<PopupAnnotationSendPayloadResponse>({
+    type: "annotation:sendPayload",
+    payload,
+    source,
+    label
+  });
+  if (!response.ok) {
+    throw new Error(response.error?.message ?? "Agent dispatch failed.");
+  }
+  setAnnotationNote(successMessage);
+};
+
+const copySelectedAnnotation = async (annotationIds?: string[], successMessage = "Copied annotation payload to clipboard.") => {
+  const response = await loadAnnotationPayload(true);
+  if (!response.payload) {
+    setAnnotationActionsEnabled(false);
+    setAnnotationNote("No completed annotation payload available.");
+    renderAnnotationItems(null);
+    return;
+  }
+  const payload = withPopupContext(annotationIds && annotationIds.length > 0
+    ? filterAnnotationPayload(response.payload, annotationIds, { includeScreenshots: Boolean(response.payload.screenshots?.length) })
+    : response.payload);
+  await copyPayloadToClipboard(payload, response.warning ? `${successMessage} ${response.warning}` : successMessage);
+  await refreshLastAnnotationMeta();
+};
+
+const sendSelectedAnnotation = async (
+  annotationIds: string[] | undefined,
+  source: AnnotationDispatchSource,
+  label: string,
+  successMessage: string
+) => {
+  const response = await loadAnnotationPayload(true);
+  if (!response.payload) {
+    setAnnotationActionsEnabled(false);
+    setAnnotationNote("No completed annotation payload available.");
+    renderAnnotationItems(null);
+    return;
+  }
+  const payload = withPopupContext(annotationIds && annotationIds.length > 0
+    ? filterAnnotationPayload(response.payload, annotationIds, { includeScreenshots: Boolean(response.payload.screenshots?.length) })
+    : response.payload);
+  await sendPayloadToAgent(payload, source, label, successMessage);
 };
 
 const toggle = async () => {
@@ -506,46 +660,48 @@ annotationStartButton.addEventListener("click", () => {
     if (!response.ok) {
       const message = response.error?.message ?? "Annotation start failed.";
       setAnnotationNote(message);
-      setCopyEnabled(false);
+      setAnnotationActionsEnabled(false);
+      lastAnnotationPayload = null;
+      renderAnnotationItems(null);
       return;
     }
     setAnnotationNote("Annotation started. Switch to the tab to select elements.");
-    setCopyEnabled(false);
+    setAnnotationActionsEnabled(false);
+    lastAnnotationPayload = null;
+    renderAnnotationItems(null);
     void refreshInjectionStatus();
   })().catch((error) => {
     const message = error instanceof Error ? error.message : "Annotation start failed.";
     setAnnotationNote(message);
-    setCopyEnabled(false);
+    setAnnotationActionsEnabled(false);
+    lastAnnotationPayload = null;
+    renderAnnotationItems(null);
   });
 });
 
 annotationCopyButton.addEventListener("click", () => {
   (async () => {
     setAnnotationNote("Preparing annotation payload...");
-    let response = await sendMessage<PopupAnnotationGetPayloadResponse>({
-      type: "annotation:getPayload",
-      includeScreenshots: true
-    });
-    if (!response.payload) {
-      response = await sendMessage<PopupAnnotationGetPayloadResponse>({
-        type: "annotation:getPayload",
-        includeScreenshots: false
-      });
-    }
-    if (!response.payload) {
-      setAnnotationNote("No completed annotation payload available.");
-      setCopyEnabled(false);
-      return;
-    }
-    await copyTextToClipboard(JSON.stringify(response.payload, null, 2));
-    if (response.warning) {
-      setAnnotationNote(`Copied payload (${response.warning.replace(/\.$/, "")}).`);
-    } else {
-      setAnnotationNote("Copied annotation payload to clipboard.");
-    }
-    await refreshLastAnnotationMeta();
+    await copySelectedAnnotation(undefined, "Copied annotation payload to clipboard.");
   })().catch((error) => {
     const message = error instanceof Error ? error.message : "Copy failed.";
+    setAnnotationNote(message);
+  });
+});
+
+annotationSendButton.addEventListener("click", () => {
+  (async () => {
+    setAnnotationNote("Sending annotation payload to agent inbox...");
+    await sendSelectedAnnotation(undefined, "popup_all", "Popup annotation payload", "Sent annotation payload to agent inbox.");
+  })().catch((error) => {
+    const message = error instanceof Error ? error.message : "Send failed.";
+    setAnnotationNote(message);
+  });
+});
+
+annotationRefreshButton.addEventListener("click", () => {
+  refreshLastAnnotationMeta().catch((error) => {
+    const message = error instanceof Error ? error.message : "Refresh failed.";
     setAnnotationNote(message);
   });
 });
@@ -630,7 +786,8 @@ loadSettings().catch((error) => {
 
 refreshLastAnnotationMeta().catch((error) => {
   logError("popup.annotation_meta", error, { code: "annotation_meta_failed" });
-  setCopyEnabled(false);
+  setAnnotationActionsEnabled(false);
+  renderAnnotationItems(null);
   setAnnotationNote();
 });
 

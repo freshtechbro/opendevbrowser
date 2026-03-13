@@ -40,6 +40,19 @@ describe("screenshot CLI command", () => {
     });
   });
 
+  it("parses target-id in equals form", () => {
+    const parsed = __test__.parseScreenshotArgs([
+      "--session-id=s1",
+      "--target-id=tab-11",
+      "--timeout-ms=45000"
+    ]);
+    expect(parsed).toEqual({
+      sessionId: "s1",
+      targetId: "tab-11",
+      timeoutMs: 45000
+    });
+  });
+
   it("passes timeout-ms to daemon call options", async () => {
     callDaemon.mockResolvedValue({ path: "/tmp/capture.png" });
 
@@ -62,6 +75,22 @@ describe("screenshot CLI command", () => {
       message: "Screenshot captured.",
       data: { path: "/tmp/capture.png" }
     });
+  });
+
+  it("passes target-id through screenshot calls", async () => {
+    callDaemon.mockResolvedValue({ path: "/tmp/capture.png" });
+
+    await runScreenshot(makeArgs([
+      "--session-id",
+      "s1",
+      "--target-id",
+      "tab-11"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "page.screenshot",
+      { sessionId: "s1", path: undefined, targetId: "tab-11" }
+    );
   });
 
   it("calls daemon without timeout options when timeout is not provided", async () => {

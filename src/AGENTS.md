@@ -8,14 +8,17 @@ Extends root `AGENTS.md`. Nearest file takes precedence.
 src/
 ├── index.ts              # Plugin entry, exports OpenDevBrowserPlugin
 ├── config.ts             # Zod schema, loadConfig()
+├── canvas/               # Canvas document store, repo IO, code-sync, export helpers
 ├── core/
 │   └── bootstrap.ts      # createOpenDevBrowserCore() → ToolDeps
 ├── annotate/             # Annotation transports + output shaping
 ├── browser/
 │   ├── browser-manager.ts   # Playwright lifecycle, session state
+│   ├── canvas-manager.ts    # /canvas session/document/preview orchestration
 │   ├── ops-browser-manager.ts # Extension ops sessions (/ops relay)
 │   └── target-manager.ts    # Tab management, active tracking
-├── tools/                # 48 tool definitions (see tools/AGENTS.md)
+├── providers/            # Provider runtime, policy, workflows, browser fallback
+├── tools/                # 49 tool definitions (see tools/AGENTS.md)
 ├── snapshot/             # AX-tree capture, RefStore
 ├── relay/                # WebSocket relay server
 ├── devtools/             # Console/network with redaction
@@ -34,17 +37,19 @@ src/
 | Module | Responsibility |
 |--------|----------------|
 | `annotate/` | Direct/relay annotation transport + output formatting |
-| `browser/` | BrowserManager, OpsBrowserManager, TargetManager, AnnotationManager, CDP lifecycle. See `browser/AGENTS.md` |
+| `browser/` | BrowserManager, OpsBrowserManager, CanvasManager, TargetManager, AnnotationManager, preview/code-sync coordination, CDP lifecycle. See `browser/AGENTS.md` |
 | `cache/` | Chrome executable resolution |
+| `canvas/` | Canvas document store, validation, repo persistence, TSX-first code-sync helpers. See `canvas/AGENTS.md` |
 | `cli/` | CLI commands, installers, daemon autostart + hub tooling. See `cli/AGENTS.md` |
 | `cli/` (hub) | Daemon lifecycle, FIFO lease queue, relay status refresh |
 | `core/` | Bootstrap, runtime wiring |
 | `devtools/` | Console/network trackers, redaction |
 | `export/` | DOM capture, React emitter, sanitization |
+| `providers/` | Tier routing, blocker policy, browser fallback, workflow orchestration. See `providers/AGENTS.md` |
 | `relay/` | Extension relay server, protocol types. See `relay/AGENTS.md` |
 | `skills/` | SkillLoader, topic filtering. See `../skills/AGENTS.md` |
 | `snapshot/` | AX-tree snapshots, ref management. See `snapshot/AGENTS.md` |
-| `tools/` | 48 tool definitions (thin wrappers). See `tools/AGENTS.md` |
+| `tools/` | 49 tool definitions (thin wrappers). See `tools/AGENTS.md` |
 | `utils/` | Shared utilities |
 
 ## Manager Pattern
@@ -62,6 +67,7 @@ class BrowserManager {
 
 **Key managers:**
 - `BrowserManager`: Playwright session, launch/connect/disconnect
+- `CanvasManager`: `/canvas` session/document/preview orchestration, shared-session attach, code-sync entry point
 - `TargetManager`: Tab lifecycle, naming, active tracking
 - `ScriptRunner`: Action execution with retry/backoff
 - `AnnotationManager`: Direct/relay annotation orchestration
@@ -70,12 +76,14 @@ class BrowserManager {
 
 ```
 bootstrap.ts
-  ├── Creates: BrowserManager, AnnotationManager, ScriptRunner, SkillLoader, RelayServer
+  ├── Creates: BrowserManager, AnnotationManager, CanvasManager, ScriptRunner, SkillLoader, RelayServer, providerRuntime
   └── Returns: ToolDeps interface
         ├── manager
+        ├── canvasManager
         ├── annotationManager
         ├── runner
         ├── skills
+        ├── providerRuntime / browserFallbackPort?
         ├── config
         ├── relay? / getExtensionPath? / ensureHub?
 ```
@@ -107,6 +115,7 @@ Reference architecture flows in `docs/ARCHITECTURE.md` and keep module boundarie
 ### Managers (src/browser/, src/core/)
 - Own lifecycle and state
 - BrowserManager: Playwright session, targets, cleanup
+- CanvasManager: session lease/attach, document patches, preview sync, code-sync orchestration
 - ScriptRunner: action execution with retry/backoff
 
 ### Security (src/relay/, src/browser/)

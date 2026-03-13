@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseOptionalStringFlag } from "../../utils/parse";
 
 function parseClickArgs(rawArgs: string[]): { sessionId?: string; ref?: string } {
   const parsed: { sessionId?: string; ref?: string } = {};
@@ -34,8 +35,13 @@ function parseClickArgs(rawArgs: string[]): { sessionId?: string; ref?: string }
 
 export async function runClick(args: ParsedArgs) {
   const { sessionId, ref } = parseClickArgs(args.rawArgs);
+  const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
   if (!ref) throw createUsageError("Missing --ref");
-  const result = await callDaemon("interact.click", { sessionId, ref });
+  const result = await callDaemon("interact.click", {
+    sessionId,
+    ref,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  });
   return { success: true, message: "Click complete.", data: result };
 }

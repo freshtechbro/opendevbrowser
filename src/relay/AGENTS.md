@@ -19,12 +19,13 @@ src/relay/
 ## Key Classes
 
 ### RelayServer
-- **Multi-channel WebSocket:** extension, cdp, annotation, ops
+- **Multi-channel WebSocket:** extension, cdp, annotation, ops, canvas
 - **Security:** timingSafeEqual token comparison, rate limiting (5 handshakes/min/IP)
 - **Rate limits:**
   - Handshake: 5 attempts per 60s window per IP
   - HTTP: 60 requests per 60s window per IP
   - Annotation payload: 12MB max
+  - Canvas payload: 12MB max
   - Annotation timeout: 120s
 - **Discovery:** HTTP endpoint on port 8787 (default)
 
@@ -32,6 +33,7 @@ src/relay/
 - `RelayHandshake` / `RelayHandshakeAck` - Extension pairing
 - `RelayCommand` / `RelayResponse` - CDP proxy
 - `OpsRequest` / `OpsResponse` - Ops protocol
+- `CanvasRequest` / `CanvasResponse` - Design-canvas protocol
 - `AnnotationRequest` / `AnnotationResponse` - Visual annotations
 
 ## Endpoints
@@ -45,11 +47,12 @@ src/relay/
 | `/cdp` | CDP proxy WebSocket |
 | `/annotation` | Annotation WebSocket |
 | `/ops` | Ops protocol WebSocket |
+| `/canvas` | Design-canvas WebSocket |
 
 ## Security
 
 - **Token comparison:** `crypto.timingSafeEqual()` (never `===`)
-- **Origin validation:** `/extension` requires `chrome-extension://`; `/cdp`, `/ops`, and `/annotation` accept extension origin or loopback requests without `Origin`
+- **Origin validation:** `/extension` requires `chrome-extension://`; `/cdp`, `/ops`, `/canvas`, and `/annotation` accept extension origin or loopback requests without `Origin`
 - **Hostname normalization:** lowercase before validation
 - **Localhost enforcement:** 127.0.0.1, ::1, localhost only
 - **Pairing:** Optional token-based pairing for first connect
@@ -66,6 +69,7 @@ type RelayStatus = {
   cdpConnected: boolean;               // CDP client connected
   annotationConnected: boolean;        // Annotation client connected
   opsConnected: boolean;               // Ops client(s) connected
+  canvasConnected: boolean;            // Canvas client(s) connected
   pairingRequired: boolean;            // Pairing token required
   instanceId: string;                  // Relay instance identity
   extension?: { tabId: number; url?: string; title?: string; groupId?: number };

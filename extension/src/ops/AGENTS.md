@@ -5,17 +5,20 @@ Ops runtime for extension relay. Extends `extension/AGENTS.md`.
 ## Overview
 
 High-level ops protocol implementation for browser automation via extension relay. Handles session lifecycle, navigation, interaction, DOM operations, and DevTools integration.
+The runtime also enforces per-target parallelism/backpressure and session ownership through coordinator/governor helpers.
 
 ## Structure
 
 ```
 extension/src/ops/
-├── ops-runtime.ts        # Main orchestrator (1264+ lines) - command handling
-├── ops-session-store.ts  # Session state, ref store, console/network events
-├── snapshot-builder.ts   # AX-tree snapshot construction
-├── snapshot-shared.ts    # Shared snapshot utilities
-├── dom-bridge.ts         # DOM operations via CDP
-└── redaction.ts          # URL/console text redaction
+├── dom-bridge.ts                 # DOM operations via CDP
+├── ops-runtime.ts                # Main orchestrator - command handling + lifecycle
+├── ops-session-store.ts          # Session state, ref store, console/network events
+├── parallelism-governor.ts       # Governor policy + backpressure evaluation
+├── redaction.ts                  # URL/console text redaction
+├── snapshot-builder.ts           # AX-tree snapshot construction
+├── snapshot-shared.ts            # Shared snapshot utilities
+└── target-session-coordinator.ts # Target/tab session ownership coordination
 ```
 
 ## OpsRuntime Commands
@@ -54,6 +57,11 @@ extension/src/ops/
 Large payloads (>MAX_OPS_PAYLOAD_BYTES) are chunked:
 1. Send `OpsResponse` with `chunked: true`, `payloadId`, `totalChunks`
 2. Send `OpsChunk` messages for each chunk
+
+## Parallelism and Ownership
+
+- `target-session-coordinator.ts` keeps per-target ownership consistent for `/ops` clients.
+- `parallelism-governor.ts` is the source of `parallelism_backpressure` gating; keep it aligned with the runtime’s lease/attach behavior instead of adding ad-hoc throttles in command handlers.
 
 ## Redaction
 

@@ -10,6 +10,7 @@ export function createDomGetTextTool(deps: ToolDeps): ToolDefinition {
     description: "Get inner text for a referenced element.",
     args: {
       sessionId: z.string().describe("Session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       ref: z.string().describe("Element ref"),
       maxChars: z.number().int().optional().describe("Max characters")
     },
@@ -18,7 +19,8 @@ export function createDomGetTextTool(deps: ToolDeps): ToolDefinition {
         const result = await deps.manager.domGetText(
           args.sessionId,
           args.ref,
-          args.maxChars ?? 8000
+          args.maxChars ?? 8000,
+          args.targetId
         );
         return ok({
           ref: args.ref,

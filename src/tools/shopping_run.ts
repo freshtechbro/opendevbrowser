@@ -1,6 +1,5 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
-import { runShoppingWorkflow } from "../providers";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
@@ -27,7 +26,8 @@ export function createShoppingRunTool(deps: ToolDeps): ToolDefinition {
     },
     async execute(args) {
       try {
-        const runtime = resolveProviderRuntime(deps);
+        const runtime = await resolveProviderRuntime(deps);
+        const { runShoppingWorkflow } = await import("../providers");
         const result = await runShoppingWorkflow(runtime, {
           query: args.query,
           providers: args.providers,

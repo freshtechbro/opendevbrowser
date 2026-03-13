@@ -1,6 +1,5 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
-import { createConfiguredProviderRuntime } from "../providers/runtime-factory";
 import {
   executeMacroResolution,
   shapeExecutionPayload,
@@ -27,6 +26,18 @@ async function loadMacroRuntime(): Promise<MacroRuntimeModule | null> {
   } catch {
     return null;
   }
+}
+
+async function resolveMacroProviderRuntime(deps: ToolDeps): Promise<NonNullable<ToolDeps["providerRuntime"]>> {
+  if (deps.providerRuntime) {
+    return deps.providerRuntime;
+  }
+  const { createConfiguredProviderRuntime } = await import("../providers/runtime-factory");
+  return createConfiguredProviderRuntime({
+    config: deps.config?.get?.(),
+    manager: deps.manager,
+    browserFallbackPort: deps.browserFallbackPort
+  });
 }
 
 function parseFallbackMacro(expression: string, defaultProvider?: string): FallbackMacroResolution {
@@ -118,12 +129,7 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
           });
         }
 
-        const runtimeConfig = deps.config?.get?.();
-        const providerRuntime = deps.providerRuntime ?? createConfiguredProviderRuntime({
-          config: runtimeConfig,
-          manager: deps.manager,
-          browserFallbackPort: deps.browserFallbackPort
-        });
+        const providerRuntime = await resolveMacroProviderRuntime(deps);
         const execution = shapeExecutionPayload(
           await executeMacroResolution(resolution, providerRuntime)
         );

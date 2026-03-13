@@ -54,6 +54,7 @@ export type RelayHttpStatus = {
   cdpConnected: boolean;
   annotationConnected: boolean;
   opsConnected: boolean;
+  canvasConnected: boolean;
   pairingRequired: boolean;
   health?: RelayHealthStatus;
   lastHandshakeError?: RelayHandshakeError;
@@ -225,6 +226,139 @@ export type OpsEnvelope =
   | OpsEvent
   | OpsChunk;
 
+export const CANVAS_PROTOCOL_VERSION = "1";
+export const MAX_CANVAS_PAYLOAD_BYTES = 12 * 1024 * 1024;
+
+export type CanvasErrorCode =
+  | "canvas_unavailable"
+  | "invalid_request"
+  | "invalid_session"
+  | "not_owner"
+  | "restricted_url"
+  | "timeout"
+  | "not_supported"
+  | "execution_failed"
+  | "plan_required"
+  | "revision_conflict"
+  | "unsupported_target"
+  | "lease_reclaim_required"
+  | "policy_violation"
+  | "code_sync_required"
+  | "code_sync_conflict"
+  | "code_sync_unsupported"
+  | "code_sync_out_of_date";
+
+export type CanvasError = {
+  code: CanvasErrorCode;
+  message: string;
+  retryable: boolean;
+  details?: Record<string, unknown>;
+};
+
+export type CanvasHello = {
+  type: "canvas_hello";
+  version: string;
+  clientId?: string;
+  capabilities?: string[];
+  maxPayloadBytes?: number;
+};
+
+export type CanvasHelloAck = {
+  type: "canvas_hello_ack";
+  version: string;
+  clientId?: string;
+  capabilities?: string[];
+  maxPayloadBytes: number;
+};
+
+export type CanvasPing = {
+  type: "canvas_ping";
+  id: string;
+  clientId?: string;
+};
+
+export type CanvasPong = {
+  type: "canvas_pong";
+  id: string;
+  clientId?: string;
+};
+
+export type CanvasRequest = {
+  type: "canvas_request";
+  requestId: string;
+  clientId?: string;
+  canvasSessionId?: string;
+  leaseId?: string;
+  command: string;
+  payload?: unknown;
+};
+
+export type CanvasResponse = {
+  type: "canvas_response";
+  requestId: string;
+  clientId?: string;
+  canvasSessionId?: string;
+  payload?: unknown;
+  chunked?: boolean;
+  payloadId?: string;
+  totalChunks?: number;
+};
+
+export type CanvasErrorResponse = {
+  type: "canvas_error";
+  requestId: string;
+  clientId?: string;
+  canvasSessionId?: string;
+  error: CanvasError;
+};
+
+export type CanvasEventType =
+  | "canvas_session_created"
+  | "canvas_session_closed"
+  | "canvas_session_expired"
+  | "canvas_target_closed"
+  | "canvas_document_snapshot"
+  | "canvas_document_update"
+  | "canvas_presence"
+  | "canvas_lease_changed"
+  | "canvas_feedback_item"
+  | "canvas_patch_requested"
+  | "canvas_code_sync_started"
+  | "canvas_code_sync_applied"
+  | "canvas_code_sync_conflict"
+  | "canvas_code_sync_failed"
+  | "canvas_client_disconnected";
+
+export type CanvasEvent = {
+  type: "canvas_event";
+  clientId?: string;
+  canvasSessionId?: string;
+  event: CanvasEventType;
+  payload?: unknown;
+};
+
+export type CanvasChunk = {
+  type: "canvas_chunk";
+  requestId: string;
+  clientId?: string;
+  canvasSessionId?: string;
+  payloadId: string;
+  chunkIndex: number;
+  totalChunks: number;
+  data: string;
+};
+
+export type CanvasEnvelope =
+  | CanvasHello
+  | CanvasHelloAck
+  | CanvasPing
+  | CanvasPong
+  | CanvasRequest
+  | CanvasResponse
+  | CanvasErrorResponse
+  | CanvasEvent
+  | CanvasChunk;
+
 export type RelayHealthReason =
   | "ok"
   | "relay_down"
@@ -234,7 +368,8 @@ export type RelayHealthReason =
   | "pairing_invalid"
   | "cdp_disconnected"
   | "annotation_disconnected"
-  | "ops_disconnected";
+  | "ops_disconnected"
+  | "canvas_disconnected";
 
 export type RelayHealthStatus = {
   ok: boolean;
@@ -245,6 +380,7 @@ export type RelayHealthStatus = {
   cdpConnected: boolean;
   annotationConnected: boolean;
   opsConnected: boolean;
+  canvasConnected: boolean;
   pairingRequired: boolean;
   lastHandshakeError?: RelayHandshakeError;
 };
@@ -275,16 +411,25 @@ export type AnnotationScreenshotMode = "visible" | "full" | "none";
 
 export type AnnotationTransport = "auto" | "direct" | "relay";
 
+export type AnnotationDispatchSource =
+  | "annotate_item"
+  | "annotate_all"
+  | "popup_item"
+  | "popup_all"
+  | "canvas_item"
+  | "canvas_all";
+
 export type AnnotationCommand = {
   version: 1;
   requestId: string;
-  command: "start" | "cancel";
+  command: "start" | "cancel" | "fetch_stored";
   url?: string;
   tabId?: number;
   options?: {
     screenshotMode?: AnnotationScreenshotMode;
     debug?: boolean;
     context?: string;
+    includeScreenshots?: boolean;
   };
 };
 
@@ -298,6 +443,7 @@ export type AnnotationErrorCode =
   | "restricted_url"
   | "injection_failed"
   | "capture_failed"
+  | "payload_unavailable"
   | "cancelled"
   | "unknown";
 

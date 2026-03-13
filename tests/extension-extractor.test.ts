@@ -78,6 +78,7 @@ describe("extension-extractor", () => {
       expect(result).toBe(destDir);
       expect(existsSync(join(destDir, ".version"))).toBe(true);
       expect(existsSync(join(destDir, "manifest.json"))).toBe(true);
+      expect(existsSync(join(destDir, "canvas.html"))).toBe(true);
     }
   }, 20000);
 

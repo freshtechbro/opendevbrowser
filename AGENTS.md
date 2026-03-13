@@ -1,6 +1,6 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-02-01 | **Commit:** 2869775 | **Branch:** main
+**Generated:** 2026-03-12 | **Commit:** fa2e88a | **Branch:** codex/design-canvas
 
 ## Overview
 
@@ -68,7 +68,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 | `managed` | `--no-extension` | Fresh Playwright-controlled Chrome |
 | `cdpConnect` | `opendevbrowser_connect` | Attach to existing `--remote-debugging-port` |
 
-Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. Annotation relay uses a dedicated `/annotation` websocket channel. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
+Extension relay requires **Chrome 125+** and uses flat CDP sessions with DebuggerSession `sessionId` routing. Annotation relay uses a dedicated `/annotation` websocket channel, and design-canvas relay uses a dedicated `/canvas` websocket channel. When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
 
 ### Connection Flags & Status Semantics
 
@@ -77,6 +77,9 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 - `--wait-for-extension`: Polls for extension handshake up to `--wait-timeout-ms` (min 3s).
 - `extensionConnected`: Extension WebSocket is connected to relay.
 - `extensionHandshakeComplete`: Extension handshake finished (preferred readiness signal).
+- `annotationConnected`: Annotation relay client attached.
+- `opsConnected`: At least one active `/ops` client.
+- `canvasConnected`: At least one active `/canvas` client.
 - `cdpConnected`: At least one active `/cdp` client; false is normal until a tool/CLI connects.
 - `pairingRequired`: Relay requires pairing token; extension auto-pair should handle this.
 
@@ -85,24 +88,24 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 ```
 .
 ├── src/              # Plugin implementation
-│   ├── browser/      # BrowserManager, TargetManager, CDP lifecycle
+│   ├── browser/      # Browser sessions, target orchestration, canvas preview/code-sync
 │   ├── cache/        # Chrome executable resolution
 │   ├── cli/          # CLI commands, daemon, installers
 │   ├── core/         # Bootstrap, runtime wiring, ToolDeps
+│   ├── canvas/       # Design-canvas document store, repo IO, code-sync, export helpers
 │   ├── devtools/     # Console/network trackers with redaction
 │   ├── export/       # DOM capture, React emitter, CSS extraction
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 48 opendevbrowser_* tool definitions
+│   ├── tools/        # 49 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
-├── frontend/         # Next.js marketing/docs frontend
 ├── scripts/          # Operational scripts (build/sync/smoke)
-├── skills/           # Bundled skill packs (8 total)
+├── skills/           # 8 canonical skill packs plus compatibility alias dirs
 ├── tests/            # Vitest tests (97% coverage required)
-└── docs/             # Architecture, CLI, extension, frontend, plans
+└── docs/             # Architecture, CLI, extension, plans, and version-scoped evidence
 ```
 
 ## Where to Look
@@ -119,9 +122,10 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Extension routing | `extension/src/services/TargetSessionMap.ts` | Root/child session routing |
 | CLI commands | `src/cli/commands/` | Registry-based, daemon mode |
 | Add skill pack | `skills/*/SKILL.md` | Follow naming conventions |
+| Design canvas + code sync | `src/canvas/`, `src/browser/canvas-manager.ts`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md` | `canvas.session.attach`, `canvas.code.*`, manifest persistence, runtime preview fallback |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
-| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 55 CLI + 48 tools + `/ops` + `/cdp` map |
+| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 56 CLI + 49 tools + `/ops` + `/canvas` + `/cdp` map |
 
 ## Commands
 
@@ -179,7 +183,7 @@ npm run version:check     # Verify version alignment
 - Hostname normalization: lowercase before validation
 - Relay auth: timing-safe token comparison
 - Rate limiting: 5 handshakes/min/IP
-- Origin validation: `/extension` requires `chrome-extension://`; `/cdp`, `/ops`, and `/annotation` accept extension origin or loopback requests without `Origin`
+- Origin validation: `/extension` requires `chrome-extension://`; `/cdp`, `/ops`, `/canvas`, and `/annotation` accept extension origin or loopback requests without `Origin`
 - Export sanitization: strip scripts, handlers, dangerous CSS
 
 ### File Permissions
@@ -193,7 +197,7 @@ Entry: src/index.ts
   └── Exports: { tool, chat.message, experimental.chat.system.transform }
 
 Bootstrap: src/core/bootstrap.ts
-  └── Creates: BrowserManager, ScriptRunner, SkillLoader, RelayServer
+  └── Creates: BrowserManager, AnnotationManager, CanvasManager, ScriptRunner, SkillLoader, providerRuntime, RelayServer
   └── Returns: ToolDeps (injected into all tools)
 
 Config: ~/.config/opencode/opendevbrowser.jsonc
@@ -206,8 +210,9 @@ Config: ~/.config/opencode/opendevbrowser.jsonc
 export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   return {
     opendevbrowser_launch: createLaunchTool(deps),
+    opendevbrowser_canvas: createCanvasTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 48 tools
+    // ... 49 tools
   };
 }
 ```
@@ -233,7 +238,8 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Surface inventory: `docs/SURFACE_REFERENCE.md`
 - Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
-- If tool list or outputs change, update `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, and this file together.
+- Treat generated CLI help as part of the documentation surface.
+- If tool list, command outputs, or help inventory changes, update `src/cli/help.ts`, `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, and this file together, then verify both `npx opendevbrowser --help` and `npx opendevbrowser help`.
 
 ## AGENTS.md Governance
 
@@ -244,6 +250,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 Subdirectory guides override this root file:
 - `src/AGENTS.md` — module boundaries, manager patterns
 - `src/browser/AGENTS.md` — browser/session module specifics
+- `src/canvas/AGENTS.md` — canvas document store, repo persistence, code-sync specifics
 - `src/cli/AGENTS.md` — CLI command and daemon conventions
 - `src/providers/AGENTS.md` — provider system (web/social/shopping), tiers, safety
 - `src/relay/AGENTS.md` — relay protocol and security specifics
@@ -252,8 +259,6 @@ Subdirectory guides override this root file:
 - `extension/AGENTS.md` — Chrome extension specifics
 - `extension/src/ops/AGENTS.md` — ops runtime for extension relay
 - `extension/src/services/AGENTS.md` — CDP routing, flat-session handling
-- `frontend/AGENTS.md` — frontend app conventions and generation workflow
-- `frontend/src/AGENTS.md` — frontend source module boundaries
 - `docs/AGENTS.md` — documentation source-of-truth and sync rules
 - `scripts/AGENTS.md` — script safety and output conventions
 - `tests/AGENTS.md` — testing conventions

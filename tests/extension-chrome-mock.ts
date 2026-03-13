@@ -8,6 +8,7 @@ type DebuggerDetachListener = (source: chrome.debugger.Debuggee, reason?: string
 type RuntimeListener = () => void;
 type MessageListener = (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void) => void;
 type AlarmListener = (alarm: chrome.alarms.Alarm) => void;
+type ConnectListener = (port: chrome.runtime.Port) => void;
 
 export type ChromeMockState = {
   chrome: typeof chrome;
@@ -24,6 +25,7 @@ export type ChromeMockState = {
   emitStartup: () => void;
   emitInstalled: () => void;
   emitAlarm: (name: string) => void;
+  emitConnect: (options?: { name?: string; sender?: chrome.runtime.MessageSender }) => chrome.runtime.Port;
 };
 
 export const createChromeMock = (initial?: {
@@ -71,15 +73,47 @@ export const createChromeMock = (initial?: {
   const installedListeners = new Set<RuntimeListener>();
   const messageListeners = new Set<MessageListener>();
   const alarmListeners = new Set<AlarmListener>();
+  const connectListeners = new Set<ConnectListener>();
   const scheduledAlarms = new Map<string, chrome.alarms.Alarm>();
   let sessionCounter = 1;
   let captureVisibleTabResult = "data:image/png;base64,AAAA";
   let captureVisibleTabError: string | null = null;
   let lastCaptureArgs: { windowId: number | undefined; options?: chrome.tabs.CaptureVisibleTabOptions } | null = null;
 
+  const createPort = (name = "", sender: chrome.runtime.MessageSender = activeTab ? { tab: activeTab } : {}): chrome.runtime.Port => {
+    const messageListeners = new Set<(message: unknown, port: chrome.runtime.Port) => void>();
+    const disconnectListeners = new Set<(port: chrome.runtime.Port) => void>();
+    const port = {
+      name,
+      sender,
+      disconnect: vi.fn(() => {
+        for (const listener of disconnectListeners) {
+          listener(port);
+        }
+      }),
+      onDisconnect: {
+        addListener: (listener: (port: chrome.runtime.Port) => void) => {
+          disconnectListeners.add(listener);
+        }
+      },
+      onMessage: {
+        addListener: (listener: (message: unknown, port: chrome.runtime.Port) => void) => {
+          messageListeners.add(listener);
+        }
+      },
+      postMessage: vi.fn((message: unknown) => {
+        for (const listener of messageListeners) {
+          listener(message, port);
+        }
+      })
+    } as unknown as chrome.runtime.Port;
+    return port;
+  };
+
   const chromeMock = {
     runtime: {
       lastError: null as { message: string } | null,
+      getURL: vi.fn((path: string) => `chrome-extension://test/${path}`),
       onStartup: {
         addListener: (listener: RuntimeListener) => {
           startupListeners.add(listener);
@@ -95,6 +129,18 @@ export const createChromeMock = (initial?: {
           messageListeners.add(listener);
         }
       },
+      onConnect: {
+        addListener: (listener: ConnectListener) => {
+          connectListeners.add(listener);
+        }
+      },
+      connect: vi.fn((connectInfo?: { name?: string }) => {
+        const port = createPort(connectInfo?.name ?? "");
+        for (const listener of connectListeners) {
+          listener(port);
+        }
+        return port;
+      }),
       sendMessage: vi.fn((message: unknown, callback?: (response: unknown) => void) => {
         for (const listener of messageListeners) {
           const sender: chrome.runtime.MessageSender = activeTab ? { tab: activeTab } : {};
@@ -151,6 +197,9 @@ export const createChromeMock = (initial?: {
       query: vi.fn(async () => (activeTab ? [activeTab] : [])),
       get: vi.fn(async (tabId: number) => {
         return tabsById.get(tabId) ?? null;
+      }),
+      getCurrent: vi.fn((callback: (tab?: chrome.tabs.Tab) => void) => {
+        callback(activeTab ?? undefined);
       }),
       sendMessage: vi.fn((tabId: number, _message: unknown, callback?: (response: unknown) => void) => {
         void tabId;
@@ -339,6 +388,13 @@ export const createChromeMock = (initial?: {
       for (const listener of alarmListeners) {
         listener(alarm);
       }
+    },
+    emitConnect: (options) => {
+      const port = createPort(options?.name ?? "", options?.sender ?? (activeTab ? { tab: activeTab } : {}));
+      for (const listener of connectListeners) {
+        listener(port);
+      }
+      return port;
     }
   };
 };

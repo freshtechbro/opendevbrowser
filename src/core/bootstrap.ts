@@ -1,6 +1,7 @@
 import { BrowserManager } from "../browser/browser-manager";
 import { OpsBrowserManager } from "../browser/ops-browser-manager";
 import { AnnotationManager } from "../browser/annotation-manager";
+import { CanvasManager } from "../browser/canvas-manager";
 import { ScriptRunner } from "../browser/script-runner";
 import { ConfigStore, loadGlobalConfig } from "../config";
 import { getExtensionPath } from "../extension-extractor";
@@ -29,6 +30,12 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   const relay = new RelayServer();
   relay.setToken(config.relayToken);
   const annotationManager = new AnnotationManager(relay, config, manager);
+  const canvasManager = new CanvasManager({
+    worktree: cacheRoot,
+    browserManager: manager,
+    config,
+    relay
+  });
 
   const ensureRelay = async (port = config.relayPort): Promise<void> => {
     if (port <= 0 || config.relayToken === false) {
@@ -64,6 +71,7 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     parallelismPolicy: config.parallelism,
     configStore,
     manager,
+    canvasManager,
     annotationManager,
     runner,
     skills,

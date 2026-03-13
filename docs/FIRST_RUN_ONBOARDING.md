@@ -1,7 +1,7 @@
 # First-Run Onboarding (Pre-Release)
 
 Status: active  
-Last updated: 2026-02-24
+Last updated: 2026-03-12
 
 This guide is the shipping checklist for validating OpenDevBrowser as a new user **before npm distribution is live**.
 
@@ -40,7 +40,7 @@ npx --no-install opendevbrowser version --output-format json
 
 Expected:
 - package is installed under `./node_modules/opendevbrowser`
-- CLI command inventory is available via `npx --no-install opendevbrowser --help`
+- CLI command inventory is available via both `npx --no-install opendevbrowser --help` and `npx --no-install opendevbrowser help`
 
 ## 3) Isolate config/cache to avoid daemon collisions
 
@@ -80,7 +80,9 @@ npx --no-install opendevbrowser --global --full --no-prompt
 Expected:
 - global OpenCode config is created/updated under `$OPENCODE_CONFIG_DIR`
 - bundled skills sync runs without errors
-- extension assets are available at `~/.config/opencode/opendevbrowser/extension` (or isolated equivalent when `OPENCODE_CONFIG_DIR` is set)
+- extension assets are extracted to `~/.config/opencode/opendevbrowser/extension`
+- extracted assets now include `manifest.json`, `popup.html`, `canvas.html`, `dist/`, and `icons/`
+- `OPENCODE_CONFIG_DIR` isolates config lookup only; it does not relocate the extracted extension asset directory
 
 ## 4) Start daemon
 

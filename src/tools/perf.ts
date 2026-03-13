@@ -9,11 +9,12 @@ export function createPerfTool(deps: ToolDeps): ToolDefinition {
   return tool({
     description: "Fetch lightweight performance metrics from the active page.",
     args: {
-      sessionId: z.string().describe("Active browser session id")
+      sessionId: z.string().describe("Active browser session id"),
+      targetId: z.string().optional().describe("Optional target id")
     },
     async execute(args) {
       try {
-        const result = await deps.manager.perfMetrics(args.sessionId);
+        const result = await deps.manager.perfMetrics(args.sessionId, args.targetId);
         return ok({ metrics: result.metrics });
       } catch (error) {
         return failure(serializeError(error).message, "perf_failed");

@@ -11,7 +11,8 @@ import type {
   RelayPing,
   RelayPong,
   RelayResponse,
-  OpsEnvelope
+  OpsEnvelope,
+  CanvasEnvelope
 } from "../types.js";
 import { logError } from "../logging.js";
 
@@ -19,6 +20,7 @@ type RelayHandlers = {
   onCommand: (command: RelayCommand) => void;
   onAnnotationCommand?: (command: RelayAnnotationCommand) => void;
   onOpsMessage?: (message: OpsEnvelope) => void;
+  onCanvasMessage?: (message: CanvasEnvelope) => void;
   onClose: (detail?: { code?: number; reason?: string }) => void;
 };
 
@@ -123,6 +125,9 @@ export class RelayClient {
             this.handlers.onOpsMessage?.(record as OpsEnvelope);
             return;
           }
+          if (isCanvasEnvelope(record)) {
+            this.handlers.onCanvasMessage?.(record as CanvasEnvelope);
+          }
         });
 
         this.socket.addEventListener("close", (event) => {
@@ -215,6 +220,10 @@ export class RelayClient {
     this.send(message);
   }
 
+  sendCanvasMessage(message: CanvasEnvelope): void {
+    this.send(message);
+  }
+
   async sendHealthCheck(timeoutMs = 1500): Promise<RelayHealthStatus> {
     return await this.sendPing(timeoutMs);
   }
@@ -304,4 +313,8 @@ const isValidPong = (value: Record<string, unknown>): value is RelayPong => {
 
 const isOpsEnvelope = (value: Record<string, unknown>): value is OpsEnvelope => {
   return typeof value.type === "string" && value.type.startsWith("ops_");
+};
+
+const isCanvasEnvelope = (value: Record<string, unknown>): value is CanvasEnvelope => {
+  return typeof value.type === "string" && value.type.startsWith("canvas_");
 };

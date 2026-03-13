@@ -13,6 +13,8 @@ export function createAnnotateTool(deps: ToolDeps): ToolDefinition {
     description: "Request interactive annotations via direct (CDP) or relay transport.",
     args: {
       sessionId: z.string().describe("Session id"),
+      stored: z.boolean().optional().describe("Fetch the latest payload explicitly sent from popup/canvas surfaces"),
+      includeScreenshots: z.boolean().optional().describe("When fetching stored payloads, prefer screenshots if still available in memory"),
       transport: transportSchema.optional().describe("auto | direct | relay (default: auto)"),
       targetId: z.string().optional().describe("Optional target id for direct mode"),
       tabId: z.number().int().optional().describe("Optional Chrome tab id for relay mode"),
@@ -24,7 +26,7 @@ export function createAnnotateTool(deps: ToolDeps): ToolDefinition {
     },
     async execute(args) {
       try {
-        const transport = args.transport ?? "auto";
+        const transport = args.stored ? "relay" : (args.transport ?? "auto");
         if (transport === "relay") {
           const status = await deps.manager.status(args.sessionId);
           if (status.mode !== "extension") {
@@ -35,6 +37,8 @@ export function createAnnotateTool(deps: ToolDeps): ToolDefinition {
         const response = await deps.annotationManager.requestAnnotation({
           sessionId: args.sessionId,
           transport,
+          stored: args.stored ?? false,
+          includeScreenshots: args.includeScreenshots ?? true,
           targetId: args.targetId,
           tabId: args.tabId,
           url: args.url,
@@ -43,6 +47,13 @@ export function createAnnotateTool(deps: ToolDeps): ToolDefinition {
           context: args.context,
           timeoutMs: args.timeoutMs
         });
+
+        if (response.status === "cancelled") {
+          return ok({
+            cancelled: true,
+            message: response.error?.message ?? "Annotation cancelled."
+          });
+        }
 
         if (response.status !== "ok" || !response.payload) {
           const message = response.error?.message ?? "Annotation failed.";

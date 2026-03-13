@@ -111,18 +111,18 @@ const makeDeps = (overrides: {
 };
 
 describe("workflow tool branch coverage", () => {
-  it("resolves provider runtime from deps and from default runtime fallback", () => {
+  it("resolves provider runtime from deps and from default runtime fallback", async () => {
     const injectedRuntime = {
       search: vi.fn(),
       fetch: vi.fn()
     };
 
-    const fromDeps = resolveProviderRuntime({
+    const fromDeps = await resolveProviderRuntime({
       providerRuntime: injectedRuntime
     } as never);
     expect(fromDeps).toBe(injectedRuntime);
 
-    const withoutConfig = resolveProviderRuntime({
+    const withoutConfig = await resolveProviderRuntime({
       config: undefined
     } as never);
     expect(typeof withoutConfig.search).toBe("function");
@@ -140,7 +140,7 @@ describe("workflow tool branch coverage", () => {
       }
     });
 
-    const withConfig = resolveProviderRuntime({
+    const withConfig = await resolveProviderRuntime({
       config
     } as never);
     expect(typeof withConfig.search).toBe("function");

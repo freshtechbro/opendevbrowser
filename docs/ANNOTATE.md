@@ -1,10 +1,11 @@
 # Annotate
 
 Status: active  
-Last updated: 2026-02-28
+Last updated: 2026-03-13
 
 OpenDevBrowser can capture interactive annotations either directly via CDP/Playwright or through the extension relay, and
-return a markdown summary plus structured data and screenshots. This is exposed via the `opendevbrowser_annotate` tool.
+return a markdown summary plus structured data and screenshots. This is exposed through both the `annotate` CLI command
+and the `opendevbrowser_annotate` tool.
 
 ## Requirements
 
@@ -35,6 +36,12 @@ npx opendevbrowser annotate --session-id <session-id> --transport relay --tab-id
 # With URL + context + debug metadata
 npx opendevbrowser annotate --session-id <session-id> --url https://example.com \
   --screenshot-mode visible --context "Review the hero layout" --timeout-ms 90000 --debug
+
+# Return the last stored annotation payload
+npx opendevbrowser annotate --session-id <session-id> --stored
+
+# Prefer the in-memory stored payload with screenshots when still available
+npx opendevbrowser annotate --session-id <session-id> --stored --include-screenshots
 ```
 
 CLI output:
@@ -51,8 +58,12 @@ You can start annotations directly from the extension popup:
 1. Open the OpenDevBrowser extension popup.
 2. In **Annotation**, add an optional request/context.
 3. Click **Annotate**, then switch to the target tab and select elements.
-4. Submit from the in-page annotation UI.
-5. Back in the popup, click **Copy payload** to copy the full annotation JSON (DOM info included).
+4. Use the in-page annotation UI:
+   - the main panel can `Copy`, `Send`, `Cancel`, or `Submit`
+   - each selected note card can `Copy` or `Send` that individual item
+5. Back in the popup, use:
+   - `Copy payload` / `Send payload` for the combined stored annotation payload
+   - `Copy item` / `Send item` for an individual stored annotation item
 
 If the extension service worker restarts, screenshots may be omitted from the copied payload; the popup will note when screenshots were dropped.
 
@@ -63,6 +74,8 @@ Required:
 
 Optional:
 - `transport` (`auto` | `direct` | `relay`, default: `auto`)
+- `stored` (fetch the latest payload explicitly sent from popup/canvas surfaces)
+- `includeScreenshots` (when used with `stored`, prefer screenshots if they are still available in memory)
 - `targetId` (direct mode target id from `targets-list`)
 - `tabId` (relay mode Chrome tab id)
 - `url` (open a URL before annotating)
@@ -71,7 +84,20 @@ Optional:
 - `context` (pre-fill the annotation context)
 - `timeoutMs` (defaults to 120000)
 
-Example (OpenCode tool call):
+Stored payload example (OpenCode tool call):
+
+```json
+{
+  "tool": "opendevbrowser_annotate",
+  "args": {
+    "sessionId": "session-123",
+    "stored": true,
+    "includeScreenshots": true
+  }
+}
+```
+
+Direct/relay capture example:
 
 ```json
 {
@@ -103,6 +129,10 @@ The tool returns:
 - `screenshots`: array of `{ id, path }` with local temp file paths
 
 Screenshots are written to the system temp directory (example: `/tmp/opendevbrowser-annotate-*.png`).
+
+Stored payload retrieval notes:
+- `--stored` / `stored: true` returns the latest payload explicitly dispatched from popup, canvas, or in-page annotation surfaces.
+- `--include-screenshots` / `includeScreenshots: true` prefers the in-memory copy when screenshots are still available; otherwise the stored payload falls back to the sanitized payload without screenshots.
 
 ## Redaction
 
