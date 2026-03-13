@@ -12,6 +12,9 @@
       --panel-border: rgba(148, 163, 184, 0.14);
       --text: #e6eef8;
       --muted: #8fa4bb;
+      --surface-bg: #ffffff;
+      --surface-grid: rgba(148, 163, 184, 0.18);
+      --surface-text: #0f172a;
       --accent: #20d5c6;
       --accent-strong: #0ea5e9;
       --danger: #fb7185;
@@ -185,11 +188,11 @@
       min-height: 64vh;
       border-radius: 20px;
       background:
-        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px),
-        radial-gradient(circle at top, rgba(32, 213, 198, 0.06), transparent 38rem),
-        #07111d;
+        linear-gradient(var(--surface-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--surface-grid) 1px, transparent 1px),
+        var(--surface-bg);
       background-size: 32px 32px, 32px 32px, auto;
+      color: var(--surface-text);
       overflow: hidden;
       cursor: grab;
     }

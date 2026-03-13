@@ -1,4 +1,15 @@
+import { CANVAS_SURFACE_TOKENS, CANVAS_SURFACE_TOKEN_VARIABLES } from "./surface-palette";
 import type { CanvasDocument, CanvasNode, CanvasPage } from "./types";
+
+const renderSurfaceTokenStyles = (): string => [
+  `:root {`,
+  `  ${CANVAS_SURFACE_TOKEN_VARIABLES.background}: ${CANVAS_SURFACE_TOKENS.background};`,
+  `  ${CANVAS_SURFACE_TOKEN_VARIABLES.text}: ${CANVAS_SURFACE_TOKENS.text};`,
+  `  ${CANVAS_SURFACE_TOKEN_VARIABLES.grid}: ${CANVAS_SURFACE_TOKENS.grid};`,
+  `  ${CANVAS_SURFACE_TOKEN_VARIABLES.accent}: ${CANVAS_SURFACE_TOKENS.accent};`,
+  `  ${CANVAS_SURFACE_TOKEN_VARIABLES.accentStrong}: ${CANVAS_SURFACE_TOKENS.accentStrong};`,
+  `}`
+].join(" ");
 
 const escapeHtml = (value: string): string => value
   .replaceAll("&", "&amp;")
@@ -98,12 +109,13 @@ export function renderCanvasDocumentHtml(document: CanvasDocument): string {
     "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />",
     `  <title>${escapeHtml(document.title)}</title>`,
     "  <style>",
-    "    body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #07111d; color: #f3f6fb; }",
-    "    .odb-canvas-root { display: grid; gap: 24px; padding: 24px; }",
-    "    .odb-canvas-page { border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 24px; background: rgba(12,20,33,0.84); }",
+    `    ${renderSurfaceTokenStyles()}`,
+    "    body { margin: 0; font-family: 'Segoe UI', sans-serif; background: var(--surface-bg); color: var(--surface-text); }",
+    "    .odb-canvas-root { display: grid; gap: 24px; padding: 24px; background: var(--surface-bg); }",
+    "    .odb-canvas-page { border: 1px solid rgba(15,23,42,0.08); border-radius: 20px; padding: 24px; background: var(--surface-bg); }",
     "    .odb-canvas-node { display: block; }",
     "    .odb-canvas-text { font-size: 1rem; line-height: 1.5; }",
-    "    .odb-canvas-note { border-left: 3px solid #20d5c6; padding-left: 12px; color: #9aa6bd; }",
+    "    .odb-canvas-note { border-left: 3px solid var(--accent); padding-left: 12px; color: rgba(15,23,42,0.72); }",
     "  </style>",
     "</head>",
     "<body>",
@@ -117,10 +129,11 @@ export function renderCanvasDocumentHtml(document: CanvasDocument): string {
 
 export function renderCanvasDocumentComponent(document: CanvasDocument): string {
   const body = document.pages.map((page) => renderPageTsx(page)).join("\n");
+  const surfaceStyle = ` style={{ "backgroundColor": "${CANVAS_SURFACE_TOKENS.background}", "color": "${CANVAS_SURFACE_TOKENS.text}" }}`;
   return [
     "export function OpenDevBrowserCanvasDocument() {",
     "  return (",
-    `    <main className="odb-canvas-root" data-document-id="${document.documentId}">`,
+    `    <main className="odb-canvas-root" data-document-id="${document.documentId}"${surfaceStyle}>`,
     body,
     "    </main>",
     "  );",
