@@ -193,6 +193,70 @@ describe("annotate tool", () => {
     expect(result.error).toMatchObject({ code: "timeout" });
   });
 
+  it("returns a clean cancelled result when the annotation is cancelled", async () => {
+    const deps = createDeps();
+    deps.annotationManager.requestAnnotation.mockResolvedValue({
+      version: 1,
+      requestId: "req-cancelled",
+      status: "cancelled",
+      error: { code: "cancelled", message: "Annotation cancelled." }
+    });
+
+    const { createAnnotateTool } = await import("../src/tools/annotate");
+    const tool = createAnnotateTool(deps as never);
+    const result = parse(await tool.execute({ sessionId: "s1" } as never));
+
+    expect(result.ok).toBe(true);
+    expect(result.cancelled).toBe(true);
+    expect(result.message).toBe("Annotation cancelled.");
+  });
+
+  it("falls back to the default cancelled message when none is provided", async () => {
+    const deps = createDeps();
+    deps.annotationManager.requestAnnotation.mockResolvedValue({
+      version: 1,
+      requestId: "req-cancelled-default",
+      status: "cancelled",
+      error: { code: "cancelled" }
+    });
+
+    const { createAnnotateTool } = await import("../src/tools/annotate");
+    const tool = createAnnotateTool(deps as never);
+    const result = parse(await tool.execute({ sessionId: "s1" } as never));
+
+    expect(result.ok).toBe(true);
+    expect(result.cancelled).toBe(true);
+    expect(result.message).toBe("Annotation cancelled.");
+  });
+
+  it("forces relay transport for stored annotation retrieval", async () => {
+    const deps = createDeps();
+    deps.manager.status.mockResolvedValue({ mode: "extension" });
+    deps.annotationManager.requestAnnotation.mockResolvedValue({
+      version: 1,
+      requestId: "req-stored",
+      status: "ok",
+      payload: buildPayload({ screenshots: [] })
+    });
+
+    const { createAnnotateTool } = await import("../src/tools/annotate");
+    const tool = createAnnotateTool(deps as never);
+    const result = parse(await tool.execute({
+      sessionId: "s1",
+      stored: true,
+      transport: "direct",
+      includeScreenshots: false
+    } as never));
+
+    expect(result.ok).toBe(true);
+    expect(deps.annotationManager.requestAnnotation).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "s1",
+      transport: "relay",
+      stored: true,
+      includeScreenshots: false
+    }));
+  });
+
   it("returns an error when relay annotation is requested outside extension mode", async () => {
     const deps = createDeps();
     deps.manager.status.mockResolvedValue({ mode: "managed" });

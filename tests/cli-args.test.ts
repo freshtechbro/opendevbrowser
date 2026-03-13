@@ -152,9 +152,24 @@ describe("parseArgs", () => {
     expect(launchParsed.command).toBe("launch");
     expect(launchParsed.rawArgs).toEqual(["--extension-only", "--extension-legacy"]);
 
-    const connectParsed = parseArgs(["node", "cli", "connect", "--ws-endpoint", "ws://127.0.0.1:8787", "--extension-legacy"]);
+    const connectParsed = parseArgs([
+      "node",
+      "cli",
+      "connect",
+      "--ws-endpoint",
+      "ws://127.0.0.1:8787",
+      "--extension-legacy",
+      "--start-url",
+      "http://127.0.0.1:41731/"
+    ]);
     expect(connectParsed.command).toBe("connect");
-    expect(connectParsed.rawArgs).toEqual(["--ws-endpoint", "ws://127.0.0.1:8787", "--extension-legacy"]);
+    expect(connectParsed.rawArgs).toEqual([
+      "--ws-endpoint",
+      "ws://127.0.0.1:8787",
+      "--extension-legacy",
+      "--start-url",
+      "http://127.0.0.1:41731/"
+    ]);
   });
 
   it("accepts --persist-profile in equals form for launch parsing", () => {
@@ -226,6 +241,23 @@ describe("parseArgs", () => {
     expect(parsed.command).toBe("annotate");
   });
 
+  it("accepts annotate --stored retrieval", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "annotate",
+      "--session-id",
+      "s1",
+      "--stored"
+    ]);
+    expect(parsed.command).toBe("annotate");
+    expect(parsed.rawArgs).toEqual([
+      "--session-id",
+      "s1",
+      "--stored"
+    ]);
+  });
+
   it("rejects unknown flags for annotate", () => {
     expect(() => parseArgs(["node", "cli", "annotate", "--not-a-real-flag"]))
       .toThrow("Unknown flag: --not-a-real-flag");
@@ -286,6 +318,11 @@ describe("parseAnnotateArgs", () => {
   it("parses timeout-ms", () => {
     const parsed = parseAnnotateArgs(["--timeout-ms", "90000"]);
     expect(parsed.timeoutMs).toBe(90000);
+  });
+
+  it("parses stored flag", () => {
+    const parsed = parseAnnotateArgs(["--stored"]);
+    expect(parsed.stored).toBe(true);
   });
 
   it("rejects invalid timeout-ms", () => {

@@ -265,6 +265,61 @@ describe("RelayServer", () => {
     expect(destroy).toHaveBeenCalled();
   });
 
+  it("rejects canvas upgrades when pairing is required and no token is provided", async () => {
+    server = new RelayServer();
+    server.setToken("secret");
+    const started = await server.start(0);
+
+    await expect(upgradeRequest({
+      port: started.port,
+      path: "/canvas"
+    })).resolves.toBe(401);
+  });
+
+  it("rejects canvas upgrades from non-extension origins", async () => {
+    server = new RelayServer();
+    await server.start(0);
+    const internal = server as unknown as { server?: { emit: (event: string, ...args: unknown[]) => void } };
+    const write = vi.fn();
+    const destroy = vi.fn();
+
+    internal.server?.emit(
+      "upgrade",
+      {
+        url: "/canvas",
+        headers: { origin: "https://evil.com" },
+        socket: { remoteAddress: "127.0.0.1" }
+      },
+      { write, destroy },
+      Buffer.from("")
+    );
+
+    expect(write).toHaveBeenCalledWith("HTTP/1.1 403 Forbidden\r\n\r\n");
+    expect(destroy).toHaveBeenCalled();
+  });
+
+  it("rejects canvas upgrades from non-loopback addresses without origin", async () => {
+    server = new RelayServer();
+    await server.start(0);
+    const internal = server as unknown as { server?: { emit: (event: string, ...args: unknown[]) => void } };
+    const write = vi.fn();
+    const destroy = vi.fn();
+
+    internal.server?.emit(
+      "upgrade",
+      {
+        url: "/canvas",
+        headers: {},
+        socket: { remoteAddress: "10.0.0.1" }
+      },
+      { write, destroy },
+      Buffer.from("")
+    );
+
+    expect(write).toHaveBeenCalledWith("HTTP/1.1 403 Forbidden\r\n\r\n");
+    expect(destroy).toHaveBeenCalled();
+  });
+
   it("returns canvas_unavailable when no extension is connected", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -350,6 +405,43 @@ describe("RelayServer", () => {
     expect(server.status().canvasConnected).toBe(true);
     canvas.close();
     extension.close();
+  });
+
+  it("ignores canvas extension messages without a client id", () => {
+    const internal = new RelayServer() as unknown as {
+      handleCanvasExtensionMessage: (message: Record<string, unknown>) => void;
+      sendJson: (socket: unknown, message: unknown) => void;
+      canvasClients: Map<string, unknown>;
+    };
+
+    const sendSpy = vi.spyOn(internal, "sendJson");
+    internal.canvasClients.set("canvas-client-1", {});
+
+    internal.handleCanvasExtensionMessage({
+      type: "canvas_hello_ack",
+      version: "1"
+    });
+
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it("ignores canvas extension messages for unknown clients", () => {
+    const internal = new RelayServer() as unknown as {
+      handleCanvasExtensionMessage: (message: Record<string, unknown>) => void;
+      sendJson: (socket: unknown, message: unknown) => void;
+      canvasClients: Map<string, unknown>;
+    };
+
+    const sendSpy = vi.spyOn(internal, "sendJson");
+    internal.canvasClients.set("canvas-client-1", {});
+
+    internal.handleCanvasExtensionMessage({
+      type: "canvas_hello_ack",
+      version: "1",
+      clientId: "missing-client"
+    });
+
+    expect(sendSpy).not.toHaveBeenCalled();
   });
 
   it("rejects invalid canvas messages", async () => {
@@ -623,6 +715,213 @@ describe("RelayServer", () => {
       }
     };
     extension.send(JSON.stringify({ type: "annotationResponse", payload: responsePayload }));
+    const response = await nextMessage(annotation);
+    expect(response.type).toBe("annotationResponse");
+    expect(response.payload).toEqual(responsePayload);
+
+    annotation.close();
+    extension.close();
+  });
+
+  it("supports in-process annotation requests through the relay", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 78 } }));
+    await waitForHandshakeAck(extension);
+
+    const requestPromise = server.requestAnnotation({
+      version: 1,
+      requestId: "req-direct",
+      command: "start",
+      url: "https://example.com"
+    });
+
+    const forwarded = await nextMessage(extension);
+    expect(forwarded.type).toBe("annotationCommand");
+    expect(forwarded.payload).toEqual({
+      version: 1,
+      requestId: "req-direct",
+      command: "start",
+      url: "https://example.com"
+    });
+
+    extension.send(JSON.stringify({
+      type: "annotationResponse",
+      payload: {
+        version: 1,
+        requestId: "req-direct",
+        status: "cancelled",
+        error: { code: "cancelled", message: "Annotation cancelled." }
+      }
+    }));
+
+    await expect(requestPromise).resolves.toMatchObject({
+      requestId: "req-direct",
+      status: "cancelled",
+      error: { code: "cancelled" }
+    });
+
+    extension.close();
+  });
+
+  it("fails in-process annotation requests when the extension disconnects", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 79 } }));
+    await waitForHandshakeAck(extension);
+
+    const requestPromise = server.requestAnnotation({
+      version: 1,
+      requestId: "req-direct-drop",
+      command: "start"
+    });
+
+    await nextMessage(extension);
+    extension.close();
+
+    await expect(requestPromise).resolves.toMatchObject({
+      requestId: "req-direct-drop",
+      status: "error",
+      error: { code: "relay_unavailable" }
+    });
+  });
+
+  it("returns relay_unavailable for in-process annotation requests without a ready extension", async () => {
+    server = new RelayServer();
+    await server.start(0);
+
+    await expect(server.requestAnnotation({
+      version: 1,
+      requestId: "req-direct-unavailable",
+      command: "start"
+    })).resolves.toMatchObject({
+      requestId: "req-direct-unavailable",
+      status: "error",
+      error: { code: "relay_unavailable" }
+    });
+  });
+
+  it("times out in-process annotation requests", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 80 } }));
+    await waitForHandshakeAck(extension);
+
+    const requestPromise = server.requestAnnotation({
+      version: 1,
+      requestId: "req-direct-timeout",
+      command: "start"
+    }, 5);
+
+    await nextMessage(extension);
+
+    await expect(requestPromise).resolves.toMatchObject({
+      requestId: "req-direct-timeout",
+      status: "error",
+      error: { code: "timeout" }
+    });
+
+    extension.close();
+  });
+
+  it("rejects duplicate in-process annotation request ids", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 81 } }));
+    await waitForHandshakeAck(extension);
+
+    const firstRequest = server.requestAnnotation({
+      version: 1,
+      requestId: "req-direct-duplicate",
+      command: "start"
+    }, 1000);
+
+    await nextMessage(extension);
+
+    await expect(server.requestAnnotation({
+      version: 1,
+      requestId: "req-direct-duplicate",
+      command: "start"
+    })).resolves.toMatchObject({
+      requestId: "req-direct-duplicate",
+      status: "error",
+      error: { code: "invalid_request" }
+    });
+
+    extension.close();
+    await expect(firstRequest).resolves.toMatchObject({
+      requestId: "req-direct-duplicate",
+      status: "error",
+      error: { code: "relay_unavailable" }
+    });
+  });
+
+  it("fails pending in-process annotation requests when the relay stops", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 82 } }));
+    await waitForHandshakeAck(extension);
+
+    const requestPromise = server.requestAnnotation({
+      version: 1,
+      requestId: "req-direct-stop",
+      command: "start"
+    }, 1000);
+
+    await nextMessage(extension);
+    server.stop();
+
+    await expect(requestPromise).resolves.toMatchObject({
+      requestId: "req-direct-stop",
+      status: "error",
+      error: {
+        code: "relay_unavailable",
+        message: "Relay stopped."
+      }
+    });
+    server = null;
+  });
+
+  it("accepts and forwards fetch_stored annotation commands", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const annotation = await connect(`${started.url}/annotation`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 88 } }));
+    await waitForHandshakeAck(extension);
+
+    const commandPayload = {
+      version: 1,
+      requestId: "req-fetch",
+      command: "fetch_stored",
+      options: { includeScreenshots: false }
+    };
+    annotation.send(JSON.stringify({ type: "annotationCommand", payload: commandPayload }));
+
+    const forwarded = await nextMessage(extension);
+    expect(forwarded.type).toBe("annotationCommand");
+    expect(forwarded.payload).toEqual(commandPayload);
+
+    const responsePayload = {
+      version: 1,
+      requestId: "req-fetch",
+      status: "error",
+      error: { code: "payload_unavailable", message: "No payload" }
+    };
+    extension.send(JSON.stringify({ type: "annotationResponse", payload: responsePayload }));
+
     const response = await nextMessage(annotation);
     expect(response.type).toBe("annotationResponse");
     expect(response.payload).toEqual(responsePayload);

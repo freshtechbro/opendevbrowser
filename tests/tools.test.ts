@@ -264,6 +264,83 @@ describe("tools", () => {
     }
   }, 30000);
 
+  it("forwards targetId across target-aware tool handlers", async () => {
+    const { deps, tools } = await loadTools();
+    const defaultMaxChars = deps.config.get().snapshot.maxChars;
+
+    await runTool(tools, "opendevbrowser_goto", { sessionId: "s1", url: "https://example.com", targetId: "tab-9" });
+    expect(deps.manager.goto).toHaveBeenLastCalledWith("s1", "https://example.com", "load", 30000, undefined, "tab-9");
+
+    await runTool(tools, "opendevbrowser_wait", { sessionId: "s1", until: "load", targetId: "tab-9" });
+    expect(deps.manager.waitForLoad).toHaveBeenLastCalledWith("s1", "load", 30000, "tab-9");
+
+    await runTool(tools, "opendevbrowser_wait", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.waitForRef).toHaveBeenLastCalledWith("s1", "r1", "attached", 30000, "tab-9");
+
+    await runTool(tools, "opendevbrowser_snapshot", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.snapshot).toHaveBeenLastCalledWith("s1", "outline", defaultMaxChars, undefined, "tab-9");
+
+    await runTool(tools, "opendevbrowser_click", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.click).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_hover", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.hover).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_press", { sessionId: "s1", key: "Enter", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.press).toHaveBeenLastCalledWith("s1", "Enter", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_check", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.check).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_uncheck", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.uncheck).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_type", { sessionId: "s1", ref: "r1", text: "hello", targetId: "tab-9" });
+    expect(deps.manager.type).toHaveBeenLastCalledWith("s1", "r1", "hello", false, false, "tab-9");
+
+    await runTool(tools, "opendevbrowser_select", { sessionId: "s1", ref: "r1", values: ["one"], targetId: "tab-9" });
+    expect(deps.manager.select).toHaveBeenLastCalledWith("s1", "r1", ["one"], "tab-9");
+
+    await runTool(tools, "opendevbrowser_scroll", { sessionId: "s1", dy: 80, ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.scroll).toHaveBeenLastCalledWith("s1", 80, "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_scroll_into_view", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.scrollIntoView).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_dom_get_html", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domGetHtml).toHaveBeenLastCalledWith("s1", "r1", 8000, "tab-9");
+
+    await runTool(tools, "opendevbrowser_dom_get_text", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domGetText).toHaveBeenLastCalledWith("s1", "r1", 8000, "tab-9");
+
+    await runTool(tools, "opendevbrowser_get_attr", { sessionId: "s1", ref: "r1", name: "href", targetId: "tab-9" });
+    expect(deps.manager.domGetAttr).toHaveBeenLastCalledWith("s1", "r1", "href", "tab-9");
+
+    await runTool(tools, "opendevbrowser_get_value", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domGetValue).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_is_visible", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domIsVisible).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_is_enabled", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domIsEnabled).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_is_checked", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.domIsChecked).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_clone_page", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.clonePage).toHaveBeenLastCalledWith("s1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_clone_component", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
+    expect(deps.manager.cloneComponent).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_perf", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.perfMetrics).toHaveBeenLastCalledWith("s1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_screenshot", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.screenshot).toHaveBeenLastCalledWith("s1", undefined, "tab-9");
+  }, 30000);
+
   it("wraps tool execution with ensureHub when provided", async () => {
     const deps = createDeps();
     const ensureHub = vi.fn().mockResolvedValue(undefined);
@@ -1240,7 +1317,7 @@ describe("tools", () => {
     vi.useRealTimers();
   });
 
-  it("navigates startUrl after relay connect", async () => {
+  it("passes startUrl into relay connect launches", async () => {
     const deps = createDeps();
     const relay = {
       status: () => ({ extensionConnected: true }),
@@ -1250,7 +1327,10 @@ describe("tools", () => {
     const tools = createTools({ ...deps, relay } as never);
 
     await tools.opendevbrowser_launch.execute({ startUrl: "https://example.com" } as never);
-    expect(deps.manager.goto).toHaveBeenCalledWith("s1", "https://example.com", "load", 30000);
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay", {
+      startUrl: "https://example.com"
+    });
+    expect(deps.manager.goto).not.toHaveBeenCalled();
   });
 
   it("routes connect to relay when wsEndpoint matches", async () => {

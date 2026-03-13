@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { Window } from "happy-dom";
 import { resolveConfig } from "../src/config";
 import { CANVAS_PROJECT_DEFAULTS, createDefaultCanvasDocument } from "../src/canvas/document-store";
 import { saveCanvasDocument } from "../src/canvas/repo-store";
@@ -67,7 +68,7 @@ const governanceBootstrapPatches = [
   { op: "governance.update", block: "motionSystem", changes: { reducedMotion: "respect-user-preference" } },
   { op: "governance.update", block: "responsiveSystem", changes: { breakpoints: { mobile: 390, tablet: 1024, desktop: 1440 } } },
   { op: "governance.update", block: "accessibilityPolicy", changes: { reducedMotion: "respect-user-preference" } },
-  { op: "governance.update", block: "libraryPolicy", changes: { icons: ["tabler"], components: [], motion: [], threeD: [] } },
+  { op: "governance.update", block: "libraryPolicy", changes: { icons: ["tabler"], components: ["shadcn"], styling: ["tailwindcss"], motion: [], threeD: [] } },
   {
     op: "governance.update",
     block: "runtimeBudgets",
@@ -80,6 +81,10 @@ const governanceBootstrapPatches = [
     }
   }
 ] as const;
+
+function countOccurrences(source: string, needle: string): number {
+  return source.split(needle).length - 1;
+}
 
 type FakeClassList = {
   add: (name: string) => void;
@@ -161,6 +166,14 @@ const createDomHarness = () => {
   };
 };
 
+const decodeDataUrl = (value: string): string => {
+  const prefix = "data:text/html;charset=utf-8,";
+  if (!value.startsWith(prefix)) {
+    throw new Error(`Expected HTML data URL, received: ${value}`);
+  }
+  return decodeURIComponent(value.slice(prefix.length));
+};
+
 describe("CanvasManager", () => {
   let worktree: string;
 
@@ -226,6 +239,7 @@ describe("CanvasManager", () => {
     const canvasSessionId = opened.canvasSessionId as string;
     const leaseId = opened.leaseId as string;
     const documentId = opened.documentId as string;
+    expect(opened.allowedLibraries).toEqual(CANVAS_PROJECT_DEFAULTS.libraryPolicy);
 
     await expect(manager.execute("canvas.document.patch", {
       canvasSessionId,
@@ -343,6 +357,7 @@ describe("CanvasManager", () => {
       prototypeId: "proto_home_default"
     }) as Record<string, unknown>;
     expect(preview.renderStatus).toBe("rendered");
+    expect(browserManager.screenshot).toHaveBeenCalledWith("browser-managed", undefined, "tab-preview");
 
     const feedback = await manager.execute("canvas.feedback.poll", {
       canvasSessionId,
@@ -598,10 +613,19 @@ describe("CanvasManager", () => {
     expect(resolveRelayEndpointMock).toHaveBeenCalledTimes(1);
     expect(canvasClientConnectMock).toHaveBeenCalledTimes(1);
     expect(canvasClientRequestMock).toHaveBeenCalledWith("canvas.tab.open", expect.any(Object), canvasSessionId, 30000, leaseId);
+    const openCall = canvasClientRequestMock.mock.calls.find(([command]) => command === "canvas.tab.open");
+    expect(openCall?.[1]).toEqual(expect.objectContaining({
+      html: expect.stringContaining("odb-canvas-component-button")
+    }));
+    const syncCall = canvasClientRequestMock.mock.calls.find(([command]) => command === "canvas.tab.sync");
+    expect(syncCall?.[1]).toEqual(expect.objectContaining({
+      html: expect.stringContaining("data-icon-libraries")
+    }));
   });
 
   it("covers repo-backed sessions and non-browser guard paths", async () => {
     const document = createDefaultCanvasDocument("dc_repo_backed");
+    document.title = "Repo Backed Document";
     document.designGovernance.generationPlan = structuredClone(validGenerationPlan);
     const repoPath = await saveCanvasDocument(worktree, document, ".opendevbrowser/canvas/documents/preseeded.json");
     const browserManager = {
@@ -625,13 +649,25 @@ describe("CanvasManager", () => {
     expect(await manager.execute("canvas.session.status", { canvasSessionId })).toMatchObject({
       documentId: "dc_repo_backed",
       mode: "document-only",
-      planStatus: "accepted"
+      planStatus: "accepted",
+      libraryPolicy: CANVAS_PROJECT_DEFAULTS.libraryPolicy,
+      componentInventoryCount: 0,
+      componentSourceKinds: []
     });
     expect(await manager.execute("canvas.capabilities.get", { canvasSessionId })).toMatchObject({
       documentId: "dc_repo_backed"
     });
     expect(await manager.execute("canvas.plan.get", { canvasSessionId, leaseId })).toMatchObject({
       planStatus: "accepted"
+    });
+    expect(await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId: "dc_repo_backed"
+    })).toMatchObject({
+      documentId: "dc_repo_backed",
+      document: { title: "Repo Backed Document" },
+      handshake: { preflightState: "plan_accepted" }
     });
     await expect(manager.execute("canvas.plan.set", {
       canvasSessionId,
@@ -1139,6 +1175,101 @@ describe("CanvasManager", () => {
     });
   });
 
+  it("auto-refreshes active preview targets after accepted editor patches", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "managed",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      goto: vi.fn().mockResolvedValue({ finalUrl: "data:text/html", status: 200, timingMs: 5 }),
+      screenshot: vi.fn().mockResolvedValue({ path: join(worktree, "preview-live.png") }),
+      perfMetrics: vi.fn().mockResolvedValue({ metrics: [{ name: "LayoutDuration", value: 4 }] }),
+      consolePoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      networkPoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      closeTarget: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-managed"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    const managerState = manager as unknown as {
+      sessions: Map<string, {
+        editorSelection: { pageId: string | null; nodeId: string | null; targetId: string | null };
+        feedback: Array<{ class: string; targetId: string | null; details: Record<string, unknown> }>;
+        store: { getRevision: () => number; getDocument: () => { pages: Array<{ rootNodeId: string | null; nodes: Array<{ id: string; metadata: Record<string, unknown> }> }> } };
+      }>;
+      handleCanvasEvent: (event: { event: string; canvasSessionId: string; payload: Record<string, unknown> }) => Promise<void>;
+    };
+    const session = managerState.sessions.get(canvasSessionId);
+    const rootNodeId = session?.store.getDocument().pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+
+    await manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    });
+
+    browserManager.goto.mockClear();
+    browserManager.screenshot.mockClear();
+
+    await managerState.handleCanvasEvent({
+      event: "canvas_patch_requested",
+      canvasSessionId,
+      payload: {
+        baseRevision: session?.store.getRevision(),
+        selection: {
+          pageId: "page_home",
+          nodeId: rootNodeId,
+          targetId: "tab-preview"
+        },
+        patches: [{
+          op: "node.update",
+          nodeId: rootNodeId,
+          changes: { "metadata.editor": "live" }
+        }]
+      }
+    });
+
+    expect(browserManager.goto).toHaveBeenCalledTimes(1);
+    expect(browserManager.screenshot).toHaveBeenCalledWith("browser-managed", undefined, "tab-preview");
+    expect(decodeDataUrl(browserManager.goto.mock.calls[0]?.[1] as string)).toContain('data-preview-prototype-id="proto_home_default"');
+    expect(decodeDataUrl(browserManager.goto.mock.calls[0]?.[1] as string)).toContain('<base href="https://example.com/" />');
+
+    expect(session?.feedback.some((item) => item.class === "editor-document-patched" && item.details.source === "editor")).toBe(true);
+    expect(session?.feedback.some((item) => (
+      item.class === "render-complete"
+      && item.targetId === "tab-preview"
+      && item.details.cause === "patch_sync"
+      && item.details.source === "editor"
+      && item.details.projection === "canvas_html"
+    ))).toBe(true);
+    expect(session?.editorSelection).toMatchObject({
+      pageId: "page_home",
+      nodeId: rootNodeId,
+      targetId: "tab-preview"
+    });
+    expect(session?.store.getDocument().pages[0]?.nodes.find((node) => node.id === rootNodeId)?.metadata.editor).toBe("live");
+  });
+
   it("covers feedback heartbeat timers and stream wakeups without payload events", async () => {
     vi.useFakeTimers();
     try {
@@ -1502,7 +1633,8 @@ describe("CanvasManager", () => {
     document.designGovernance.accessibilityPolicy = { reducedMotion: "respect-user-preference" };
     document.designGovernance.libraryPolicy = {
       icons: ["tabler"],
-      components: [],
+      components: ["shadcn"],
+      styling: ["tailwindcss"],
       motion: [],
       threeD: []
     };
@@ -1642,7 +1774,7 @@ describe("CanvasManager", () => {
     });
   });
 
-  it("covers preview resolution and revision conflict branches", async () => {
+  it("covers preview projection and revision conflict branches", async () => {
     let currentUrl: string | undefined;
     const browserManager = {
       status: vi.fn().mockImplementation(async () => ({
@@ -1737,22 +1869,17 @@ describe("CanvasManager", () => {
     })).rejects.toThrow("Unknown prototype: proto_missing");
 
     currentUrl = undefined;
-    await expect(manager.execute("canvas.preview.render", {
+    expect(await manager.execute("canvas.preview.render", {
       canvasSessionId,
       leaseId,
       targetId: "tab-preview",
       prototypeId: "proto_routeless"
-    })).rejects.toMatchObject({
-      code: "unsupported_target"
+    })).toMatchObject({
+      renderStatus: "rendered"
     });
-    await expect(manager.execute("canvas.preview.render", {
-      canvasSessionId,
-      leaseId,
-      targetId: "tab-preview",
-      prototypeId: "proto_home_default"
-    })).rejects.toMatchObject({
-      code: "unsupported_target"
-    });
+    expect(decodeDataUrl(browserManager.goto.mock.calls.at(-1)?.[1] as string)).toContain('data-preview-route=""');
+    expect(decodeDataUrl(browserManager.goto.mock.calls.at(-1)?.[1] as string)).not.toContain("<base href=");
+
     expect(await manager.execute("canvas.preview.render", {
       canvasSessionId,
       leaseId,
@@ -1761,17 +1888,19 @@ describe("CanvasManager", () => {
     })).toMatchObject({
       renderStatus: "rendered"
     });
-    expect(browserManager.goto).toHaveBeenCalledWith("browser-preview", "preview", "load", 30000, undefined, "tab-preview");
+    expect(decodeDataUrl(browserManager.goto.mock.calls.at(-1)?.[1] as string)).toContain('data-preview-source-url="preview"');
+    expect(decodeDataUrl(browserManager.goto.mock.calls.at(-1)?.[1] as string)).not.toContain("<base href=");
 
     currentUrl = "http://[";
-    await expect(manager.execute("canvas.preview.render", {
+    expect(await manager.execute("canvas.preview.render", {
       canvasSessionId,
       leaseId,
       targetId: "tab-preview",
       prototypeId: "proto_home_default"
-    })).rejects.toMatchObject({
-      code: "unsupported_target"
+    })).toMatchObject({
+      renderStatus: "rendered"
     });
+    expect(decodeDataUrl(browserManager.goto.mock.calls.at(-1)?.[1] as string)).toContain('data-preview-source-url=""');
 
     currentUrl = "https://example.com/app";
     expect(await manager.execute("canvas.preview.render", {
@@ -1783,7 +1912,7 @@ describe("CanvasManager", () => {
       renderStatus: "rendered",
       previewState: "focused"
     });
-    expect(browserManager.goto).toHaveBeenCalledWith("browser-preview", "https://example.com/app", "load", 30000, undefined, "tab-preview");
+    expect(decodeDataUrl(browserManager.goto.mock.calls.at(-1)?.[1] as string)).toContain('<base href="https://example.com/app" />');
     expect(await manager.execute("canvas.preview.render", {
       canvasSessionId,
       leaseId,
@@ -1793,7 +1922,7 @@ describe("CanvasManager", () => {
       renderStatus: "rendered",
       previewState: "focused"
     });
-    expect(browserManager.goto).toHaveBeenCalledWith("browser-preview", "https://example.com/", "load", 30000, undefined, "tab-preview");
+    expect(decodeDataUrl(browserManager.goto.mock.calls.at(-1)?.[1] as string)).toContain('<base href="https://example.com/" />');
     browserManager.consolePoll.mockResolvedValueOnce({ events: [], nextSeq: 3 });
     browserManager.networkPoll.mockResolvedValueOnce({ events: [], nextSeq: 0 });
     expect(await manager.execute("canvas.preview.render", {
@@ -1805,6 +1934,7 @@ describe("CanvasManager", () => {
       renderStatus: "rendered",
       previewState: "focused"
     });
+    expect(decodeDataUrl(browserManager.goto.mock.calls.at(-1)?.[1] as string)).toContain('data-preview-prototype-id="proto_home_default"');
 
     expect(await manager.execute("canvas.preview.refresh", {
       canvasSessionId,
@@ -2026,6 +2156,12 @@ describe("CanvasManager", () => {
         url: "https://example.com/app",
         title: "App"
       }),
+      registerCanvasTarget: vi.fn().mockResolvedValue({
+        targetId: "tab-ext-1",
+        adopted: true,
+        url: "chrome-extension://test/canvas.html",
+        title: "Canvas"
+      }),
       goto: vi.fn().mockResolvedValue({ finalUrl: "https://example.com/", status: 200, timingMs: 5 }),
       screenshot: vi.fn().mockResolvedValue({ path: undefined }),
       consolePoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
@@ -2138,6 +2274,10 @@ describe("CanvasManager", () => {
     expect(String(overlay.mountId)).toContain("mount_");
     expect(overlay.previewState).toBe("background");
     expect(overlay.overlayState).toBe("mounted");
+    const extensionSyncCall = [...canvasClientRequestMock.mock.calls].reverse().find(([command]) => command === "canvas.tab.sync");
+    expect(extensionSyncCall?.[1]).toEqual(expect.objectContaining({
+      html: expect.stringContaining("odb-canvas-root")
+    }));
     expect(overlay.capabilities).toEqual({ selection: true, guides: true });
 
     relayUrl = "ws://127.0.0.1:9797/canvas";
@@ -2164,7 +2304,985 @@ describe("CanvasManager", () => {
     expect(resolveRelayEndpointMock).toHaveBeenCalledTimes(2);
     expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
     expect(browserManager.closeTarget).toHaveBeenCalledWith("browser-extension", "tab-other");
+    expect(browserManager.registerCanvasTarget).toHaveBeenCalledWith("browser-extension", "tab-ext-1");
     expect(canvasClientRequestMock).toHaveBeenCalledWith("canvas.overlay.unmount", expect.any(Object), canvasSessionId, 30000, leaseId);
     expect(canvasClientRequestMock).toHaveBeenCalledWith("canvas.tab.close", expect.any(Object), canvasSessionId, 30000, leaseId);
+  });
+
+  it("tracks attached observers, lease reclaim, and summary state", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      clientId: "client-owner"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const originalLeaseId = String(opened.leaseId);
+
+    const observer = await manager.execute("canvas.session.attach", {
+      canvasSessionId,
+      clientId: "client-observer",
+      attachMode: "observer"
+    }) as {
+      role: string;
+      summary: {
+        attachedClients: Array<{ clientId: string; role: string }>;
+        leaseHolderClientId: string;
+      };
+    };
+    expect(observer.role).toBe("observer");
+    expect(observer.summary.leaseHolderClientId).toBe("client-owner");
+    expect(observer.summary.attachedClients).toEqual(expect.arrayContaining([
+      expect.objectContaining({ clientId: "client-owner", role: "lease_holder" }),
+      expect.objectContaining({ clientId: "client-observer", role: "observer" })
+    ]));
+
+    await expect(manager.execute("canvas.session.attach", {
+      canvasSessionId,
+      clientId: "client-invalid",
+      attachMode: "invalid"
+    })).rejects.toThrow("Unsupported attachMode: invalid");
+
+    const reclaimed = await manager.execute("canvas.session.attach", {
+      canvasSessionId,
+      clientId: "client-reclaimer",
+      attachMode: "lease_reclaim"
+    }) as {
+      leaseId: string;
+      role: string;
+      summary: {
+        attachedClients: Array<{ clientId: string; role: string }>;
+        leaseHolderClientId: string;
+      };
+    };
+    expect(reclaimed.role).toBe("lease_holder");
+    expect(reclaimed.leaseId).not.toBe(originalLeaseId);
+    expect(reclaimed.summary.leaseHolderClientId).toBe("client-reclaimer");
+    expect(reclaimed.summary.attachedClients).toEqual(expect.arrayContaining([
+      expect.objectContaining({ clientId: "client-owner", role: "observer" }),
+      expect.objectContaining({ clientId: "client-observer", role: "observer" }),
+      expect.objectContaining({ clientId: "client-reclaimer", role: "lease_holder" })
+    ]));
+
+    const planResult = await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId: reclaimed.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    }) as { documentRevision: number };
+    await expect(manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId: originalLeaseId,
+      baseRevision: 1,
+      patches: []
+    })).rejects.toMatchObject({
+      code: "lease_reclaim_required"
+    });
+
+    await expect(manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId: reclaimed.leaseId,
+      baseRevision: planResult.documentRevision,
+      patches: [{
+        op: "governance.update",
+        block: "intent",
+        changes: { summary: "Lease reclaimer can still mutate." }
+      }]
+    })).resolves.toMatchObject({
+      appliedRevision: planResult.documentRevision + 1
+    });
+
+    expect(await manager.execute("canvas.session.status", {
+      canvasSessionId,
+      clientId: "client-observer"
+    })).toMatchObject({
+      leaseId: reclaimed.leaseId,
+      leaseHolderClientId: "client-reclaimer"
+    });
+  });
+
+  it("round-trips canvas.code bind, pull, push, status, and resolve flows", async () => {
+    const sourcePath = join(worktree, "Hero.tsx");
+    await writeFile(sourcePath, [
+      "export function Hero() {",
+      "  return <section className=\"hero-shell\"><span>Hello world</span></section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const documentId = String(opened.documentId);
+    const session = (manager as {
+      sessions: Map<string, {
+        store: {
+          getDocument: () => {
+            pages: Array<{
+              rootNodeId: string | null;
+              nodes: Array<{ id: string; props: Record<string, unknown> }>;
+            }>;
+          };
+          getRevision: () => number;
+        };
+      }>;
+    }).sessions.get(canvasSessionId);
+    if (!session) {
+      throw new Error("Missing canvas session");
+    }
+
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    const rootNodeId = loaded.document.pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: [{
+        op: "binding.set",
+        nodeId: rootNodeId,
+        binding: {
+          id: "binding_plain",
+          kind: "component-prop",
+          selector: "props.text",
+          componentName: "HeroTitle",
+          metadata: { source: "cms" }
+        }
+      }]
+    });
+    await expect(manager.execute("canvas.code.pull", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_plain"
+    })).rejects.toMatchObject({
+      code: "code_sync_required",
+      details: { bindingId: "binding_plain" }
+    });
+
+    const bound = await manager.execute("canvas.code.bind", {
+      canvasSessionId,
+      leaseId,
+      nodeId: rootNodeId,
+      bindingId: "binding_code",
+      repoPath: sourcePath,
+      exportName: "Hero",
+      syncMode: "manual"
+    }) as {
+      bindingStatus: { state: string };
+      summary: { bindings: Array<{ bindingId: string }> };
+    };
+    expect(bound.bindingStatus.state).toBe("idle");
+    expect(bound.summary.bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ bindingId: "binding_code" })
+    ]));
+    expect(await manager.execute("canvas.code.status", {
+      canvasSessionId
+    })).toMatchObject({
+      codeSyncState: "idle",
+      boundFiles: [sourcePath],
+      bindings: expect.arrayContaining([
+        expect.objectContaining({ bindingId: "binding_code" })
+      ])
+    });
+    expect(await manager.execute("canvas.code.push", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_code"
+    })).toMatchObject({
+      ok: false,
+      conflicts: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "unsupported_change",
+          message: "No existing code-sync manifest found. Run canvas.code.pull first."
+        })
+      ]),
+      summary: {
+        codeSyncState: "conflict"
+      }
+    });
+    await expect(manager.execute("canvas.code.pull", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_code",
+      resolutionPolicy: "broken"
+    })).rejects.toThrow("Unsupported resolutionPolicy: broken");
+
+    const pulled = await manager.execute("canvas.code.pull", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_code"
+    }) as {
+      ok: boolean;
+      patchesApplied: number;
+      summary: { codeSyncState: string };
+    };
+    expect(pulled.ok).toBe(true);
+    expect(pulled.patchesApplied).toBeGreaterThan(0);
+    expect(pulled.summary.codeSyncState).toBe("in_sync");
+
+    const manifestPath = join(worktree, ".opendevbrowser", "canvas", "code-sync", documentId, "binding_code.json");
+    expect(await readFile(manifestPath, "utf-8")).toContain("\"bindingId\": \"binding_code\"");
+
+    const importedTextNode = session.store.getDocument().pages[0]?.nodes.find((node) => node.props.text === "Hello world");
+    expect(importedTextNode).toBeTruthy();
+
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: [{
+        op: "node.update",
+        nodeId: importedTextNode?.id,
+        changes: { "props.text": "Hello canvas" }
+      }]
+    });
+
+    const pushed = await manager.execute("canvas.code.push", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_code"
+    }) as {
+      ok: boolean;
+      repoPath: string;
+      summary: { lastPushAt?: string };
+    };
+    expect(pushed.ok).toBe(true);
+    expect(pushed.repoPath).toBe(sourcePath);
+    expect(pushed.summary.lastPushAt).toBeTruthy();
+    const pushedSource = await readFile(sourcePath, "utf-8");
+    expect(pushedSource).toContain("Hello canvas");
+    expect(pushedSource).toContain("data-node-id");
+    expect(pushedSource).toContain("data-binding-id=\"binding_code\"");
+    expect(countOccurrences(pushedSource, "data-node-id=")).toBe(2);
+    expect(countOccurrences(pushedSource, 'data-binding-id="binding_code"')).toBe(2);
+
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: [{
+        op: "node.update",
+        nodeId: importedTextNode?.id,
+        changes: { "props.text": "Hello canvas again" }
+      }]
+    });
+
+    expect(await manager.execute("canvas.code.push", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_code"
+    })).toMatchObject({
+      ok: true,
+      repoPath: sourcePath
+    });
+    const secondPushedSource = await readFile(sourcePath, "utf-8");
+    expect(secondPushedSource).toContain("Hello canvas again");
+    expect(countOccurrences(secondPushedSource, "data-node-id=")).toBe(2);
+    expect(countOccurrences(secondPushedSource, 'data-binding-id="binding_code"')).toBe(2);
+
+    expect(await manager.execute("canvas.code.status", {
+      canvasSessionId,
+      bindingId: "binding_code"
+    })).toMatchObject({
+      bindingStatus: {
+        bindingId: "binding_code",
+        state: "in_sync",
+        projection: "canvas_html"
+      },
+      summary: {
+        boundFiles: [sourcePath],
+        codeSyncState: "in_sync"
+      }
+    });
+
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: [{
+        op: "node.update",
+        nodeId: importedTextNode?.id,
+        changes: { "props.text": "Canvas drift" }
+      }]
+    });
+    await writeFile(sourcePath, pushedSource.replace("Hello canvas", "Hello source"));
+
+    const conflicted = await manager.execute("canvas.code.pull", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_code"
+    }) as {
+      ok: boolean;
+      conflicts: Array<{ kind: string }>;
+    };
+    expect(conflicted.ok).toBe(false);
+    expect(conflicted.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "source_hash_changed" }),
+      expect.objectContaining({ kind: "document_revision_changed" })
+    ]));
+
+    const manual = await manager.execute("canvas.code.resolve", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_code",
+      resolutionPolicy: "manual"
+    }) as {
+      ok: boolean;
+      conflicts: Array<{ kind: string; message: string }>;
+      summary: { codeSyncState: string };
+    };
+    expect(manual.ok).toBe(false);
+    expect(manual.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "ownership_violation",
+        message: "Manual conflict resolution is not automatable. Choose prefer_code or prefer_canvas."
+      })
+    ]));
+    expect(manual.summary.codeSyncState).toBe("conflict");
+
+    const resolved = await manager.execute("canvas.code.resolve", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_code",
+      resolutionPolicy: "prefer_code"
+    }) as {
+      ok: boolean;
+      summary: { codeSyncState: string };
+    };
+    expect(resolved.ok).toBe(true);
+    expect(resolved.summary.codeSyncState).toBe("in_sync");
+
+    expect(session.store.getDocument().pages[0]?.nodes.some((node) => node.props.text === "Hello source")).toBe(true);
+
+    expect(await manager.execute("canvas.code.unbind", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_code"
+    })).toMatchObject({
+      ok: true,
+      bindingId: "binding_code",
+      summary: {
+        bindings: expect.not.arrayContaining([
+          expect.objectContaining({ bindingId: "binding_code" })
+        ])
+      }
+    });
+  });
+
+  it("reconciles watch-mode source drift during canvas.code.status when the source changed ahead of watcher import", async () => {
+    const sourcePath = join(worktree, "WatchStatusHero.tsx");
+    await writeFile(sourcePath, [
+      "export function Hero() {",
+      "  return <section className=\"hero-shell\"><span>Hello baseline</span></section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+      documentId: string;
+    };
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      documentId: opened.documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    const rootNodeId = loaded.document.pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+
+    const planResult = await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    }) as { documentRevision: number };
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      baseRevision: planResult.documentRevision,
+      patches: governanceBootstrapPatches
+    });
+
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      nodeId: rootNodeId,
+      bindingId: "binding_watch_status_reconcile",
+      repoPath: sourcePath,
+      exportName: "Hero",
+      syncMode: "watch"
+    });
+    await manager.execute("canvas.code.pull", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      bindingId: "binding_watch_status_reconcile"
+    });
+
+    const session = (manager as {
+      sessions: Map<string, {
+        store: {
+          getDocument: () => {
+            pages: Array<{
+              nodes: Array<{ id: string; props: Record<string, unknown> }>;
+            }>;
+          };
+          getRevision: () => number;
+        };
+      }>;
+    }).sessions.get(opened.canvasSessionId);
+    if (!session) {
+      throw new Error("Missing watch-status session");
+    }
+    const importedTextNode = session.store.getDocument().pages[0]?.nodes.find((node) => node.props.text === "Hello baseline");
+    if (!importedTextNode) {
+      throw new Error("Expected imported text node");
+    }
+
+    const patched = await manager.execute("canvas.document.patch", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: [{
+        op: "node.update",
+        nodeId: importedTextNode.id,
+        changes: { "props.text": "Hello from canvas status" }
+      }]
+    }) as { appliedRevision: number };
+    await manager.execute("canvas.code.push", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      bindingId: "binding_watch_status_reconcile"
+    });
+
+    const pushedSource = await readFile(sourcePath, "utf-8");
+    await writeFile(sourcePath, pushedSource.replace("Hello from canvas status", "Hello from source status"));
+
+    const status = await manager.execute("canvas.code.status", {
+      canvasSessionId: opened.canvasSessionId,
+      bindingId: "binding_watch_status_reconcile"
+    }) as {
+      bindingStatus: { state: string; driftState: string };
+      summary: { documentRevision: number };
+    };
+    expect(status.bindingStatus).toMatchObject({
+      state: "in_sync",
+      driftState: "clean"
+    });
+    expect(status.summary.documentRevision).toBeGreaterThan(patched.appliedRevision);
+    expect(session.store.getDocument().pages[0]?.nodes.some((node) => node.props.text === "Hello from source status")).toBe(true);
+  });
+
+  it("records watch conflicts when a watched source change cannot be imported", async () => {
+    const sourcePath = join(worktree, "WatchConflictHero.tsx");
+    await writeFile(sourcePath, [
+      "export function Hero() {",
+      "  return <section><span>Hello conflict</span></section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+      documentId: string;
+    };
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      documentId: opened.documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      baseRevision: 2,
+      patches: governanceBootstrapPatches
+    });
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      nodeId: loaded.document.pages[0]?.rootNodeId,
+      bindingId: "binding_watch_conflict",
+      repoPath: sourcePath,
+      exportName: "Hero",
+      syncMode: "watch"
+    });
+
+    const internal = manager as unknown as {
+      codeSyncManager: {
+        pull: (args: unknown) => Promise<{
+          ok: boolean;
+          conflicts: Array<{ message: string }>;
+        }>;
+      };
+      handleWatchedSourceChange: (canvasSessionId: string, bindingId: string) => Promise<void>;
+    };
+    const pullSpy = vi.spyOn(internal.codeSyncManager, "pull").mockResolvedValue({
+      ok: false,
+      conflicts: [{ message: "Source drift requires manual review." }]
+    });
+
+    await internal.handleWatchedSourceChange(opened.canvasSessionId, "binding_watch_conflict");
+
+    expect(pullSpy).toHaveBeenCalledTimes(1);
+    await expect(manager.execute("canvas.feedback.poll", {
+      canvasSessionId: opened.canvasSessionId,
+      categories: ["code-sync"]
+    })).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          class: "code-sync-watch-conflict",
+          message: "Source drift requires manual review."
+        })
+      ])
+    });
+  });
+
+  it("prefers bound_app_runtime preview when bridge instrumentation is available and falls back explicitly when it is not", async () => {
+    const runtimeWindow = new Window();
+    vi.stubGlobal("window", runtimeWindow);
+    vi.stubGlobal("document", runtimeWindow.document);
+    vi.stubGlobal("HTMLElement", runtimeWindow.HTMLElement);
+
+    const runtimeRoot = runtimeWindow.document.createElement("section");
+    runtimeRoot.id = "runtime-root";
+    runtimeRoot.setAttribute("data-binding-id", "binding_runtime");
+    runtimeWindow.document.body.appendChild(runtimeRoot);
+
+    const sourcePath = join(worktree, "RuntimeView.tsx");
+    await writeFile(sourcePath, [
+      "export function RuntimeView() {",
+      "  return <section>Runtime preview</section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "managed",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      goto: vi.fn().mockResolvedValue({ finalUrl: "https://example.com/", status: 200, timingMs: 5 }),
+      screenshot: vi.fn().mockResolvedValue({ path: undefined }),
+      perfMetrics: vi.fn().mockResolvedValue({ metrics: [] }),
+      consolePoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      networkPoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      withPage: vi.fn().mockImplementation(async (_sessionId: string, _targetId: string | null, fn: (page: unknown) => Promise<unknown>) => {
+        return await fn({
+          evaluate: vi.fn(async (pageFunction: (arg: unknown) => unknown, arg: unknown) => await pageFunction(arg))
+        });
+      })
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-runtime-preview"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const documentId = String(opened.documentId);
+
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId,
+      leaseId,
+      nodeId: loaded.document.pages[0]?.rootNodeId,
+      bindingId: "binding_runtime",
+      repoPath: sourcePath,
+      exportName: "RuntimeView",
+      projection: "bound_app_runtime",
+      runtimeRootSelector: "#runtime-root"
+    });
+
+    await expect(manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    })).resolves.toMatchObject({
+      renderStatus: "rendered",
+      previewState: "focused"
+    });
+    expect(String(browserManager.goto.mock.calls[0]?.[1])).toBe("https://example.com/");
+    expect(runtimeRoot.innerHTML).toContain("data-node-id");
+    expect(await manager.execute("canvas.feedback.poll", {
+      canvasSessionId,
+      categories: ["render"]
+    })).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          class: "render-complete",
+          details: expect.objectContaining({
+            projection: "bound_app_runtime",
+            fallbackReason: null
+          })
+        })
+      ])
+    });
+
+    const runtimeSession = (manager as {
+      sessions: Map<string, {
+        store: {
+          getRevision: () => number;
+          getDocument: () => {
+            prototypes: Array<{
+              id: string;
+              pageId: string;
+              route: string;
+              name: string;
+              defaultVariants?: Record<string, string>;
+              metadata?: Record<string, unknown>;
+            }>;
+          };
+        };
+      }>;
+    }).sessions.get(canvasSessionId);
+    const runtimePrototype = runtimeSession?.store.getDocument().prototypes.find((entry) => entry.id === "proto_home_default");
+    if (!runtimeSession || !runtimePrototype) {
+      throw new Error("Missing runtime preview prototype");
+    }
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: runtimeSession.store.getRevision(),
+      patches: [{
+        op: "prototype.upsert",
+        prototype: {
+          ...runtimePrototype,
+          route: ""
+        }
+      }]
+    });
+
+    await expect(manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    })).resolves.toMatchObject({
+      renderStatus: "rendered",
+      previewState: "focused"
+    });
+    expect(String(browserManager.goto.mock.calls.at(-1)?.[1])).toBe("https://example.com/app");
+
+    runtimeRoot.removeAttribute("data-binding-id");
+    await manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    });
+    expect(String(browserManager.goto.mock.calls.at(-1)?.[1])).toContain("data:text/html");
+    const renderFeedback = await manager.execute("canvas.feedback.poll", {
+      canvasSessionId,
+      categories: ["render"]
+    }) as {
+      items: Array<{ details?: { projection?: string; fallbackReason?: string | null } }>;
+    };
+    expect(renderFeedback.items.some((item) => item.details?.projection === "canvas_html" && item.details.fallbackReason === "runtime_instrumentation_missing")).toBe(true);
+  });
+
+  it("falls back explicitly when a bound runtime preview lacks a runtime root selector", async () => {
+    const sourcePath = join(worktree, "RuntimeNoSelector.tsx");
+    await writeFile(sourcePath, [
+      "export function RuntimeNoSelector() {",
+      "  return <section>Runtime no selector</section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "managed",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      goto: vi.fn().mockResolvedValue({ finalUrl: "https://example.com/", status: 200, timingMs: 5 }),
+      screenshot: vi.fn().mockResolvedValue({ path: undefined }),
+      perfMetrics: vi.fn().mockResolvedValue({ metrics: [] }),
+      consolePoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      networkPoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 })
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-runtime-no-selector"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const documentId = String(opened.documentId);
+
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId,
+      leaseId,
+      nodeId: loaded.document.pages[0]?.rootNodeId,
+      bindingId: "binding_runtime_no_selector",
+      repoPath: sourcePath,
+      exportName: "RuntimeNoSelector",
+      projection: "bound_app_runtime"
+    });
+
+    await expect(manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    })).resolves.toMatchObject({
+      renderStatus: "rendered",
+      previewState: "focused",
+      degradeReason: null
+    });
+
+    expect(String(browserManager.goto.mock.calls.at(-1)?.[1])).toContain("data:text/html");
+    expect(await manager.execute("canvas.feedback.poll", {
+      canvasSessionId,
+      categories: ["render"]
+    })).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          class: "render-complete",
+          details: expect.objectContaining({
+            projection: "canvas_html",
+            fallbackReason: "runtime_bridge_unavailable"
+          })
+        })
+      ])
+    });
+  });
+
+  it("reuses the last stable source url after a runtime fallback", async () => {
+    const runtimeWindow = new Window();
+    vi.stubGlobal("window", runtimeWindow);
+    vi.stubGlobal("document", runtimeWindow.document);
+    vi.stubGlobal("HTMLElement", runtimeWindow.HTMLElement);
+
+    const runtimeRoot = runtimeWindow.document.createElement("section");
+    runtimeRoot.id = "runtime-root";
+    runtimeRoot.setAttribute("data-binding-id", "binding_runtime_recover");
+    runtimeWindow.document.body.appendChild(runtimeRoot);
+
+    const sourcePath = join(worktree, "RuntimeRecover.tsx");
+    await writeFile(sourcePath, [
+      "export function RuntimeRecover() {",
+      "  return <section>Runtime recover</section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    let currentUrl = "https://example.com/app";
+    let bridgeCallCount = 0;
+    const browserManager = {
+      status: vi.fn().mockImplementation(async () => ({
+        mode: "managed",
+        activeTargetId: "tab-preview",
+        url: currentUrl,
+        title: "App"
+      })),
+      goto: vi.fn().mockImplementation(async (_sessionId: string, url: string) => {
+        currentUrl = url;
+        return { finalUrl: url, status: 200, timingMs: 5 };
+      }),
+      screenshot: vi.fn().mockResolvedValue({ path: undefined }),
+      perfMetrics: vi.fn().mockResolvedValue({ metrics: [] }),
+      consolePoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      networkPoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      withPage: vi.fn().mockImplementation(async (_sessionId: string, _targetId: string | null, fn: (page: unknown) => Promise<unknown>) => {
+        bridgeCallCount += 1;
+        if (bridgeCallCount === 1) {
+          runtimeRoot.removeAttribute("data-binding-id");
+        } else {
+          runtimeRoot.setAttribute("data-binding-id", "binding_runtime_recover");
+        }
+        return await fn({
+          evaluate: vi.fn(async (pageFunction: (arg: unknown) => unknown, arg: unknown) => await pageFunction(arg))
+        });
+      })
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-runtime-recover"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const documentId = String(opened.documentId);
+
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId,
+      leaseId,
+      nodeId: loaded.document.pages[0]?.rootNodeId,
+      bindingId: "binding_runtime_recover",
+      repoPath: sourcePath,
+      exportName: "RuntimeRecover",
+      projection: "bound_app_runtime",
+      runtimeRootSelector: "#runtime-root"
+    });
+
+    const runtimeSession = (manager as {
+      sessions: Map<string, {
+        store: {
+          getRevision: () => number;
+          getDocument: () => {
+            prototypes: Array<{
+              id: string;
+              pageId: string;
+              route: string;
+              name: string;
+              defaultVariants?: Record<string, string>;
+              metadata?: Record<string, unknown>;
+            }>;
+          };
+        };
+      }>;
+    }).sessions.get(canvasSessionId);
+    const runtimePrototype = runtimeSession?.store.getDocument().prototypes.find((entry) => entry.id === "proto_home_default");
+    if (!runtimeSession || !runtimePrototype) {
+      throw new Error("Missing runtime preview recovery prototype");
+    }
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: runtimeSession.store.getRevision(),
+      patches: [{
+        op: "prototype.upsert",
+        prototype: {
+          ...runtimePrototype,
+          route: ""
+        }
+      }]
+    });
+
+    await manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    });
+    expect(currentUrl).toContain("data:text/html");
+
+    await manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    });
+
+    expect(currentUrl).toBe("https://example.com/app");
+    const status = await manager.execute("canvas.session.status", {
+      canvasSessionId
+    }) as {
+      targets: Array<{ projection?: string; fallbackReason?: string | null; sourceUrl?: string | null }>;
+    };
+    expect(status.targets[0]).toMatchObject({
+      projection: "bound_app_runtime",
+      fallbackReason: null,
+      sourceUrl: "https://example.com/app"
+    });
   });
 });

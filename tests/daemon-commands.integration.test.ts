@@ -201,6 +201,8 @@ describe("daemon-commands integration", () => {
     expect(core.annotationManager.requestAnnotation).toHaveBeenCalledWith({
       sessionId: "session-1",
       transport: "auto",
+      stored: false,
+      includeScreenshots: true,
       targetId: undefined,
       tabId: undefined,
       url: "https://example.com",
@@ -254,6 +256,8 @@ describe("daemon-commands integration", () => {
     expect(core.annotationManager.requestAnnotation).toHaveBeenCalledWith({
       sessionId: "session-1",
       transport: "direct",
+      stored: false,
+      includeScreenshots: true,
       targetId: undefined,
       tabId: undefined,
       url: undefined,
@@ -276,6 +280,58 @@ describe("daemon-commands integration", () => {
         transport: "relay"
       }
     })).rejects.toThrow("Relay annotations require extension mode.");
+  });
+
+  it("routes stored annotate fetches without requiring a page url", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "extension", activeTargetId: "target-1" });
+    core.annotationManager.requestAnnotation.mockResolvedValue({
+      version: 1,
+      requestId: "req-stored",
+      status: "ok",
+      payload: {
+        url: "https://example.com",
+        timestamp: "2026-03-13T00:00:00Z",
+        screenshotMode: "visible",
+        annotations: []
+      }
+    });
+    registerSessionLease("session-1", "lease-1", "client-1");
+
+    const response = await handleDaemonCommand(core, {
+      name: "annotate",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        stored: true,
+        includeScreenshots: false
+      }
+    });
+
+    expect(response).toEqual({
+      version: 1,
+      requestId: "req-stored",
+      status: "ok",
+      payload: {
+        url: "https://example.com",
+        timestamp: "2026-03-13T00:00:00Z",
+        screenshotMode: "visible",
+        annotations: []
+      }
+    });
+    expect(core.annotationManager.requestAnnotation).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      transport: "relay",
+      stored: true,
+      includeScreenshots: false,
+      targetId: undefined,
+      tabId: undefined,
+      url: undefined,
+      screenshotMode: "visible",
+      debug: false,
+      context: undefined,
+      timeoutMs: undefined
+    });
   });
 
   it("allows extension disconnect for implicit lease owner and rejects mismatches", async () => {

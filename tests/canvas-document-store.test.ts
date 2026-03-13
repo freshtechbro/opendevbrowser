@@ -9,6 +9,7 @@ import {
   evaluateCanvasWarnings,
   missingRequiredSaveBlocks,
   normalizeCanvasDocument,
+  resolveCanvasLibraryPolicy,
   validateCanvasSave,
   validateGenerationPlan
 } from "../src/canvas/document-store";
@@ -82,6 +83,7 @@ describe("canvas document store", () => {
     expect(context.componentInventoryPresent).toBe(true);
     expect(context.existingGovernanceBlocks).toContain("intent");
     expect(context.missingGovernanceBlocks).toContain("designLanguage");
+    expect(resolveCanvasLibraryPolicy(document)).toEqual(CANVAS_PROJECT_DEFAULTS.libraryPolicy);
   });
 
   it("normalizes sparse canvas documents with project defaults", () => {
@@ -254,6 +256,118 @@ describe("canvas document store", () => {
       variants: [{ density: 2 }],
       metadata: { provenance: { sourceUrl: "https://example.com/logo.svg" } }
     });
+  });
+
+  it("normalizes code-sync bindings and falls back invalid library policy fields", () => {
+    const normalized = normalizeCanvasDocument({
+      designGovernance: {
+        libraryPolicy: {
+          icons: "invalid" as unknown as string[],
+          components: ["shadcn", "custom-kit", "", 7 as unknown as string],
+          styling: null as unknown as string[],
+          motion: {} as unknown as string[],
+          threeD: undefined as unknown as string[]
+        }
+      },
+      bindings: [
+        {
+          id: "binding_kind_code_sync",
+          nodeId: "node_kind",
+          kind: "code-sync",
+          selector: 42 as unknown as string,
+          componentName: false as unknown as string,
+          metadata: null as unknown as Record<string, unknown>,
+          codeSync: {
+            adapter: "tsx-react-v1",
+            repoPath: "src/app/Hero.tsx",
+            exportName: "HeroSection",
+            syncMode: "watch"
+          }
+        },
+        {
+          id: "binding_explicit_code_sync",
+          nodeId: "node_explicit",
+          kind: "component-prop",
+          selector: "props.title",
+          metadata: null as unknown as Record<string, unknown>,
+          codeSync: {
+            adapter: "tsx-react-v1",
+            repoPath: "src/app/Card.tsx",
+            selector: "[data-card]",
+            syncMode: "manual"
+          }
+        },
+        {
+          id: "binding_metadata_code_sync",
+          nodeId: "node_metadata",
+          kind: "code-sync",
+          metadata: {
+            codeSync: {
+              adapter: "tsx-react-v1",
+              repoPath: "src/app/MetadataBacked.tsx",
+              exportName: "MetadataBacked",
+              syncMode: "manual"
+            }
+          }
+        }
+      ]
+    } as unknown as CanvasDocument);
+
+    expect(resolveCanvasLibraryPolicy(normalized)).toEqual({
+      icons: CANVAS_PROJECT_DEFAULTS.libraryPolicy.icons,
+      components: ["shadcn", "custom-kit"],
+      styling: CANVAS_PROJECT_DEFAULTS.libraryPolicy.styling,
+      motion: CANVAS_PROJECT_DEFAULTS.libraryPolicy.motion,
+      threeD: CANVAS_PROJECT_DEFAULTS.libraryPolicy.threeD
+    });
+    expect(normalized.bindings).toEqual([
+      expect.objectContaining({
+        id: "binding_kind_code_sync",
+        metadata: {},
+        selector: undefined,
+        componentName: undefined,
+        codeSync: expect.objectContaining({
+          adapter: "tsx-react-v1",
+          repoPath: "src/app/Hero.tsx",
+          exportName: "HeroSection",
+          syncMode: "watch",
+          projection: "canvas_html"
+        })
+      }),
+      expect.objectContaining({
+        id: "binding_explicit_code_sync",
+        metadata: {},
+        selector: "props.title",
+        codeSync: expect.objectContaining({
+          adapter: "tsx-react-v1",
+          repoPath: "src/app/Card.tsx",
+          selector: "[data-card]",
+          syncMode: "manual",
+          projection: "canvas_html"
+        })
+      }),
+      expect.objectContaining({
+        id: "binding_metadata_code_sync",
+        metadata: expect.objectContaining({
+          codeSync: expect.objectContaining({
+            repoPath: "src/app/MetadataBacked.tsx"
+          })
+        }),
+        codeSync: expect.objectContaining({
+          adapter: "tsx-react-v1",
+          repoPath: "src/app/MetadataBacked.tsx",
+          exportName: "MetadataBacked",
+          syncMode: "manual",
+          projection: "canvas_html"
+        })
+      })
+    ]);
+
+    const inheritedStateDocument = createDefaultCanvasDocument("dc_library_policy_status");
+    inheritedStateDocument.designGovernance.libraryPolicy = {
+      icons: undefined
+    } as unknown as CanvasDocument["designGovernance"]["libraryPolicy"];
+    expect(buildGovernanceBlockStates(inheritedStateDocument).libraryPolicy.status).toBe("present");
   });
 
   it("publishes typed Yjs updates and applies encoded state round-trip", () => {
@@ -693,6 +807,49 @@ describe("canvas document store", () => {
     ])).toThrow("Unknown node: node_missing");
   });
 
+  it("creates deep nested change paths and rejects reversed overlaps", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_nested_paths"));
+    const rootNodeId = store.getDocument().pages[0]?.rootNodeId as string;
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    const nestedResult = store.applyPatches(2, [
+      {
+        op: "node.update",
+        nodeId: rootNodeId,
+        changes: {
+          "props.theme.colors.primary": "#123456",
+          "metadata.review.status": "ready"
+        }
+      }
+    ]);
+
+    const rootNode = store.getDocument().pages[0]?.nodes.find((node) => node.id === rootNodeId);
+    expect(nestedResult.appliedRevision).toBe(3);
+    expect(rootNode?.props).toMatchObject({
+      theme: {
+        colors: {
+          primary: "#123456"
+        }
+      }
+    });
+    expect(rootNode?.metadata).toMatchObject({
+      review: {
+        status: "ready"
+      }
+    });
+
+    expect(() => store.applyPatches(nestedResult.appliedRevision, [
+      {
+        op: "node.update",
+        nodeId: rootNodeId,
+        changes: {
+          "metadata.review.status": "stale",
+          metadata: {}
+        }
+      }
+    ])).toThrow("Overlapping change paths: metadata.review.status vs metadata");
+  });
+
   it("rejects missing patch targets for inserts and attachments", () => {
     const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_missing_targets"));
     store.setGenerationPlan(validPlan as CanvasGenerationPlan);
@@ -812,6 +969,67 @@ describe("canvas document store", () => {
     expect(store.getDocument().pages.find((entry) => entry.id === "page_secondary")?.rootNodeId).toBeNull();
   });
 
+  it("covers binding removal for missing, primary, and detached-primary bindings", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_binding_remove"));
+    const rootNodeId = store.getDocument().pages[0]?.rootNodeId as string;
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    const missingRemoval = store.applyPatches(2, [{
+      op: "binding.remove",
+      bindingId: "binding_missing"
+    }]);
+    expect(missingRemoval.appliedRevision).toBe(3);
+
+    const primaryBinding = store.applyPatches(missingRemoval.appliedRevision, [{
+      op: "binding.set",
+      nodeId: rootNodeId,
+      binding: {
+        id: "binding_primary",
+        kind: "component-prop",
+        selector: "props.title"
+      }
+    }]);
+    expect(store.getDocument().bindings.map((binding) => binding.id)).toEqual(["binding_primary"]);
+
+    const removedPrimary = store.applyPatches(primaryBinding.appliedRevision, [{
+      op: "binding.remove",
+      bindingId: "binding_primary"
+    }]);
+    expect(store.getDocument().bindings).toEqual([]);
+    expect(store.getDocument().pages[0]?.nodes.find((node) => node.id === rootNodeId)?.bindingRefs.primary).toBeUndefined();
+
+    const detachedPrimary = store.applyPatches(removedPrimary.appliedRevision, [
+      {
+        op: "binding.set",
+        nodeId: rootNodeId,
+        binding: {
+          id: "binding_secondary",
+          kind: "component-prop",
+          selector: "props.subtitle"
+        }
+      },
+      {
+        op: "node.update",
+        nodeId: rootNodeId,
+        changes: {
+          "bindingRefs.primary": "binding_detached",
+          "bindingRefs.secondary": "binding_secondary"
+        }
+      }
+    ]);
+    const removedSecondary = store.applyPatches(detachedPrimary.appliedRevision, [{
+      op: "binding.remove",
+      bindingId: "binding_secondary"
+    }]);
+
+    expect(removedSecondary.appliedRevision).toBe(detachedPrimary.appliedRevision + 1);
+    expect(store.getDocument().bindings).toEqual([]);
+    expect(store.getDocument().pages[0]?.nodes.find((node) => node.id === rootNodeId)?.bindingRefs).toMatchObject({
+      primary: "binding_detached",
+      secondary: "binding_secondary"
+    });
+  });
+
   it("reports rich governance, asset, and runtime warnings for save-time validation", () => {
     const document = createDefaultCanvasDocument("dc_warning_matrix");
     const rootNode = document.pages[0]?.nodes.find((node) => node.id === document.pages[0]?.rootNodeId);
@@ -832,7 +1050,8 @@ describe("canvas document store", () => {
     document.designGovernance.accessibilityPolicy = {};
     document.designGovernance.libraryPolicy = {
       icons: ["lucide-react"],
-      components: ["unknown:kit"],
+      components: ["rogue-kit"],
+      styling: ["rogue-css"],
       motion: [],
       threeD: []
     };
@@ -927,7 +1146,8 @@ describe("canvas document store", () => {
     document.designGovernance.accessibilityPolicy = { reducedMotion: "respect-user-preference" };
     document.designGovernance.libraryPolicy = {
       icons: ["tabler"],
-      components: [],
+      components: ["shadcn"],
+      styling: ["tailwindcss"],
       motion: [],
       threeD: []
     };
@@ -980,7 +1200,8 @@ describe("canvas document store", () => {
     warningDocument.designGovernance.accessibilityPolicy = { reducedMotion: "respect-user-preference" };
     warningDocument.designGovernance.libraryPolicy = {
       icons: ["tabler"],
-      components: [],
+      components: ["shadcn"],
+      styling: ["tailwindcss"],
       motion: [],
       threeD: []
     };
@@ -1031,4 +1252,5 @@ describe("canvas document store", () => {
       metadata: { source: "test" }
     });
   });
+
 });
