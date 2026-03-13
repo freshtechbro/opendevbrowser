@@ -22,7 +22,10 @@
       "source": "document-context"
     },
     "componentStrategy": {
-      "mode": "reuse-first"
+      "mode": "reuse-first",
+      "approvedLibraries": [
+        "shadcn"
+      ]
     },
     "motionPosture": {
       "level": "subtle",

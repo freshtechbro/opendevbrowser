@@ -16,15 +16,16 @@ Branch model:
 2. Seed `frontend/` from your preserved private baseline/snapshot (the public repo no longer contains `frontend/`).
 3. Copy this template content into the private repo root:
 - `.github/workflows/sync-from-public.yml`
-- `.github/workflows/promote-website-production.yml`
 - `scripts/sync-from-public.mjs`
 - `docs/DEPLOYMENT_RUNBOOK.md`
 - `docs/HOSTING_CONFIGURATION.md`
 - `docs/CUTOVER_CHECKLIST.md`
-4. Configure private repo branch protection:
+4. Add or restore `.github/workflows/promote-website-production.yml` from your private repo baseline before running the sync script.
+   The bundled `scripts/sync-from-public.mjs` requires both workflows plus `frontend/package.json` to exist in the private repo root.
+5. Configure private repo branch protection:
 - protect `main` with required checks
 - protect `website-production` and allow CI bot push only
-5. Configure repository variables/secrets:
+6. Configure repository variables/secrets:
 - `PUBLIC_REPO_URL` (optional; defaults to `https://github.com/freshtechbro/opendevbrowser.git`)
 
 ## Local Validation
@@ -32,6 +33,7 @@ Branch model:
 Run from private repo root:
 
 ```bash
+# prerequisite: private repo already includes .github/workflows/promote-website-production.yml
 npm ci --prefix frontend
 node scripts/sync-from-public.mjs --public-ref main
 npm run sync:assets --prefix frontend

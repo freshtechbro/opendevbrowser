@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/opendevbrowser.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
 [![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-green.svg?style=flat-square)](https://opencode.ai)
 [![CLI](https://img.shields.io/badge/Interface-CLI-orange.svg?style=flat-square)](docs/CLI.md)
 [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-blue.svg?style=flat-square)](docs/EXTENSION.md)
@@ -46,9 +46,9 @@ Distribution split (current target state):
 | **Ops + Canvas + CDP channels** | High-level multi-client `/ops`, dedicated `/canvas`, plus legacy `/cdp` compatibility |
 | **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
-| **Design canvas vertical slice** | Persist repo-native design documents, drive preview tabs, enforce governance saves, and run an extension-hosted infinite canvas editor with converged local state |
+| **Design canvas + code sync** | Persist repo-native design documents, attach same-session observers, round-trip bound TSX files, and drive preview tabs with `canvas_html` or opted-in `bound_app_runtime` reconciliation |
 | **Loop-closure diagnostics** | Console/network polling + unified debug trace snapshots for verification workflows |
-| **8 bundled skill packs** | Best practices plus login, forms, data extraction, research, shopping, and product asset workflows |
+| **10 bundled skill directories** | Best practices plus login, forms, data extraction, research, shopping, and product asset workflows |
 | **49 tools** | Complete browser automation coverage, including the design-canvas command surface |
 | **97% test coverage** | Production-ready with strict TypeScript |
 
@@ -94,6 +94,7 @@ npx --no-install opendevbrowser help
 
 Full validated flow: [`docs/FIRST_RUN_ONBOARDING.md`](docs/FIRST_RUN_ONBOARDING.md).
 Dependency/runtime inventory: [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+Live CLI inventory/help surface: `npx opendevbrowser --help` or `npx opendevbrowser help`.
 
 Use OpenCode only if you want plugin tools. CLI and extension workflows work without OpenCode.
 
@@ -372,12 +373,12 @@ Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): 
 ### Annotation
 | Tool | Description |
 |------|-------------|
-| `opendevbrowser_annotate` | Capture interactive annotations via extension relay |
+| `opendevbrowser_annotate` | Capture interactive annotations via direct (CDP) or relay transport |
 
 ### Design Canvas
 | Tool | Description |
 |------|-------------|
-| `opendevbrowser_canvas` | Execute typed design-canvas session, plan, document, preview, and overlay commands |
+| `opendevbrowser_canvas` | Execute typed design-canvas session, attach, code-sync, preview, feedback, and overlay commands |
 
 ### Export & Cloning
 | Tool | Description |
@@ -395,7 +396,7 @@ Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): 
 
 ## Bundled Skills
 
-OpenDevBrowser includes **8 task-specific skill packs**:
+OpenDevBrowser includes **8 OpenDevBrowser-specific skill packs** plus shared `research` and `shopping` compatibility directories that are synced by the installer:
 
 | Skill | Purpose |
 |-------|---------|
@@ -407,6 +408,9 @@ OpenDevBrowser includes **8 task-specific skill packs**:
 | `opendevbrowser-research` | Deterministic multi-source research workflows |
 | `opendevbrowser-shopping` | Deterministic multi-provider deal comparison workflows |
 | `opendevbrowser-product-presentation-asset` | Product screenshot/copy asset collection for presentation pipelines |
+
+Installer note:
+- `--skills-global` and `--skills-local` copy every directory under `skills/`, including the shared `research/` and `shopping/` packs.
 
 Skills are discovered from (priority order):
 1. `.opencode/skill/` (project)
@@ -437,7 +441,7 @@ Extension relay relies on **flat CDP sessions (Chrome 125+)** and uses DebuggerS
 
 Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`.
 The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/ops`.
-Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for design-canvas editor, preview, feedback, and overlay flows.
+Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for design-canvas editor, session attach/lease flow, code-sync, preview, feedback, and overlay flows.
 Legacy relay `/cdp` remains available with explicit opt-in (`--extension-legacy`).
 When pairing is enabled, `/ops`, `/canvas`, and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
 
@@ -446,7 +450,7 @@ When pairing is enabled, `/ops`, `/canvas`, and `/cdp` require a relay token (`?
 | Channel | What It Does | When to Use It |
 |---------|---------------|----------------|
 | **`/ops` (default)** | High-level automation protocol with session ownership, event streaming, and multi-client handling | Preferred extension relay path for modern workflows |
-| **`/canvas`** | Typed design-canvas protocol for design-session handshakes, live editor sync, preview tabs, feedback streams, and overlay selection | Use with `opendevbrowser_canvas` or `opendevbrowser canvas` during design-canvas workflows |
+| **`/canvas`** | Typed design-canvas protocol for session handshakes/attach, live editor sync, TSX code sync, preview tabs, feedback streams, and overlay selection | Use with `opendevbrowser_canvas` or `opendevbrowser canvas` during design-canvas workflows |
 | **`/cdp` (legacy)** | Low-level CDP relay path with compatibility-focused behavior | Opt-in compatibility mode (`--extension-legacy`) |
 | **Direct CDP connect** | Attach to Chrome started with `--remote-debugging-port` | Existing debug/browser setups without extension relay |
 
@@ -773,7 +777,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
-├── skills/           # Bundled skill packs (8 total)
+├── skills/           # Bundled skill directories (10 total; 8 canonical OpenDevBrowser packs + 2 shared compatibility packs)
 ├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, CLI, extension, distribution plans
 ```

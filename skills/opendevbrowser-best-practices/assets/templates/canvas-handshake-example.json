@@ -4,15 +4,46 @@
   "documentId": "dc_01",
   "leaseId": "lease_01",
   "preflightState": "handshake_read",
-  "requiredBeforeMutation": [
-    "designGovernance.intent",
-    "designGovernance.libraryPolicy",
-    "generationPlan"
+  "attachModes": [
+    "observer",
+    "lease_reclaim"
   ],
-  "requiredBeforeSave": [
-    "designGovernance.responsiveSystem",
-    "designGovernance.runtimeBudgets"
-  ],
+  "governanceRequirements": {
+    "requiredBeforeMutation": [
+      "intent",
+      "generationPlan",
+      "designLanguage",
+      "contentModel",
+      "layoutSystem",
+      "typographySystem",
+      "motionSystem",
+      "responsiveSystem",
+      "accessibilityPolicy"
+    ],
+    "requiredBeforeSave": [
+      "intent",
+      "generationPlan",
+      "designLanguage",
+      "contentModel",
+      "layoutSystem",
+      "typographySystem",
+      "colorSystem",
+      "surfaceSystem",
+      "iconSystem",
+      "motionSystem",
+      "responsiveSystem",
+      "accessibilityPolicy",
+      "libraryPolicy",
+      "runtimeBudgets"
+    ],
+    "optionalInherited": [
+      "colorSystem",
+      "surfaceSystem",
+      "iconSystem",
+      "libraryPolicy",
+      "runtimeBudgets"
+    ]
+  },
   "generationPlanRequirements": {
     "requiredBeforeMutation": [
       "targetOutcome",
@@ -25,6 +56,22 @@
       "accessibilityPosture",
       "validationTargets"
     ]
+  },
+  "allowedLibraries": {
+    "icons": [
+      "3dicons",
+      "tabler",
+      "microsoft-fluent-ui-system-icons",
+      "@lobehub/fluent-emoji-3d"
+    ],
+    "components": [
+      "shadcn"
+    ],
+    "styling": [
+      "tailwindcss"
+    ],
+    "motion": [],
+    "threeD": []
   },
   "warningAuditIds": [
     "CANVAS-01",
@@ -40,6 +87,40 @@
     "canvas.plan.get",
     "canvas.plan.set",
     "canvas.document.load",
+    "canvas.session.attach",
     "canvas.session.status"
-  ]
+  ],
+  "projectionModes": [
+    "canvas_html",
+    "bound_app_runtime"
+  ],
+  "annotationDispatch": {
+    "popupAndCanvasSend": "storage_backed_retrieval",
+    "retrievalCommand": "annotate --stored"
+  },
+  "documentContext": {
+    "status": "existing",
+    "existingGovernanceBlocks": [
+      "colorSystem",
+      "surfaceSystem",
+      "iconSystem",
+      "libraryPolicy",
+      "runtimeBudgets"
+    ],
+    "missingGovernanceBlocks": [
+      "intent",
+      "generationPlan",
+      "designLanguage",
+      "contentModel",
+      "layoutSystem",
+      "typographySystem",
+      "motionSystem",
+      "responsiveSystem",
+      "accessibilityPolicy"
+    ],
+    "tokensPresent": true,
+    "themesPresent": true,
+    "viewportsPresent": true,
+    "componentInventoryPresent": false
+  }
 }

@@ -8,7 +8,7 @@ Connects Chrome tabs to the local OpenDevBrowser relay so sessions can run again
 
 ## Key behavior
 
-- Connects to local relay (`/extension`) and participates in `/ops`, `/cdp` (legacy), and `/annotation` workflows.
+- Connects to local relay (`/extension`) and participates in `/ops`, `/canvas`, `/cdp` (legacy), and `/annotation` workflows.
 - Uses flat CDP sessions (Chrome 125+) with `sessionId`-based routing.
 - Supports auto-connect, auto-pair, and optional native-host fallback.
 - Tracks a primary tab for handshake/status while keeping multi-target routing intact.
@@ -36,10 +36,15 @@ npm run extension:pack
    - repo `extension/` for local development, or
    - pre-release local package install path: `<WORKDIR>/node_modules/opendevbrowser/extension`.
 
+The extracted install copy created by `npx opendevbrowser --full` includes `manifest.json`, `popup.html`, `canvas.html`, `dist/`, and `icons/`.
+
 ## Source map
 
 - `extension/src/background.ts` — relay + command routing coordinator
 - `extension/src/popup.tsx` — settings UI
+- `extension/canvas.html` — extension-hosted design-canvas editor shell
+- `extension/src/canvas-page.ts` — design-canvas page bootstrap
+- `extension/src/canvas/*` — design-canvas runtime state, sync, and rendering helpers
 - `extension/src/services/*` — connection manager, relay client, CDP router/session mapping
 - `extension/src/ops/*` — high-level ops runtime
 - `extension/src/annotate-content.ts` — in-page annotation UI
@@ -50,4 +55,4 @@ npm run extension:pack
 - Local daemon/relay running (`npx opendevbrowser serve`)
 - Matching relay port/token settings
 
-See `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/EXTENSION.md` for full operational and troubleshooting details.
+See [`../docs/EXTENSION.md`](../docs/EXTENSION.md) for full operational and troubleshooting details.

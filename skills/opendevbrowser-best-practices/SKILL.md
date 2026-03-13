@@ -1,7 +1,7 @@
 ---
 name: opendevbrowser-best-practices
 description: This skill should be used when the user asks to design or run OpenDevBrowser provider workflows, scraping pipelines, QA/debug automation, parity checks across modes, or resilient browser operations with codified scripts and artifacts.
-version: 2.4.0
+version: 2.5.0
 ---
 
 # OpenDevBrowser Best Practices
@@ -23,7 +23,7 @@ Use this skill when you need:
 - `artifacts/fingerprint-tiers.md` — hardening tiers and when to use each.
 - `artifacts/macro-workflows.md` — macro design and expansion standards.
 - `artifacts/browser-agent-known-issues-matrix.md` — known browser-agent failure modes mapped to required controls.
-- `artifacts/command-channel-reference.md` — CLI/tool/`/ops`/`/cdp` surface map plus cross-agent skill-sync targets.
+- `artifacts/command-channel-reference.md` — CLI/tool/`/ops`/`/canvas`/`/cdp` surface map plus cross-agent skill-sync targets.
 - `artifacts/canvas-governance-playbook.md` — `/canvas` preflight, blocker, and feedback-evaluation guidance.
 - `assets/templates/mode-flag-matrix.json` — mode + flag verification template.
 - `assets/templates/ops-request-envelope.json` — `/ops` request envelope template.
@@ -58,6 +58,7 @@ Use this skill when you need:
 
 ```bash
 npx opendevbrowser --help
+npx opendevbrowser help
 ```
 
 5. Run robustness coverage checks across workflow skills:
@@ -201,7 +202,7 @@ node scripts/provider-live-matrix.mjs --use-global-env --skip-live-regression --
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (56 CLI commands, 49 tools, 38 `/ops` commands, 19 `/canvas` commands, `/cdp` envelope contracts)
+- `docs/SURFACE_REFERENCE.md` (56 CLI commands, 49 tools, 38 `/ops` commands, 26 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
 
 ## Canvas Governance Handshake
@@ -211,10 +212,15 @@ Use the design-canvas surface when the workflow needs persisted design documents
 Recommended command order:
 1. `opendevbrowser_canvas` or `opendevbrowser canvas --command canvas.session.open` to get `canvasSessionId`, `leaseId`, `preflightState`, governance block states, and generation-plan requirements.
 2. Read the handshake before mutating. The handshake is the source of truth for:
-   - `requiredBeforeMutation`
-   - `requiredBeforeSave`
+   - `governanceRequirements.requiredBeforeMutation`
+   - `governanceRequirements.requiredBeforeSave`
    - `generationPlanRequirements.requiredBeforeMutation`
-   - `allowedBeforePlan`
+   - `allowedLibraries`
+   - `mutationPolicy.allowedBeforePlan`
+   - treat `allowedLibraries.components`, `allowedLibraries.icons`, and `allowedLibraries.styling` as separate policy lanes:
+     `components` are reusable UI adapters such as `shadcn`,
+     `icons` are approved icon families,
+     `styling` is for utility/theme adapters such as `tailwindcss`
 3. Submit `canvas.plan.set` with all required non-empty objects:
    - `targetOutcome`
    - `visualDirection`
@@ -228,6 +234,24 @@ Recommended command order:
 4. Only after the plan is accepted, call `canvas.document.patch`.
 5. Use `canvas.preview.render`, `canvas.tab.open`, `canvas.overlay.mount`, and `canvas.overlay.select` when a browser-backed live view is required.
 6. Use `canvas.feedback.poll` between mutation rounds and `canvas.document.save` or `canvas.document.export` to persist artifacts.
+
+Code-sync surface:
+- `canvas.session.attach` joins an existing canvas session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
+- `canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` manage TSX-first document bindings when a canvas file is round-tripped to repo code.
+
+Current `/canvas` parity notes:
+- All 26 public `canvas.*` commands are agent-callable through `opendevbrowser_canvas` and `opendevbrowser canvas --command ...`.
+- `canvas.feedback.subscribe` live streaming is public through the CLI only: use `--output-format stream-json` for the built-in polling bridge.
+- Tool-driven agents can achieve the same behavior by calling `canvas.feedback.subscribe` once and then looping on `canvas.feedback.poll` with the returned cursor.
+- `canvas.tab.sync` and `canvas.overlay.sync` are internal extension runtime helpers, not public commands.
+- `canvas_html` is still the default preview/export contract. `bound_app_runtime` is opt-in and only valid when runtime preflight and app-side instrumentation succeed.
+- Component and icon libraries currently render semantically, not package-faithfully. Treat `shadcn`, `tailwindcss`, `tabler`, `microsoft-fluent-ui-system-icons`, `3dicons`, and `@lobehub/fluent-emoji-3d` as metadata and constrained render lanes, not as general library import/export parity.
+- Annotation remains a separate surface today, but popup and canvas both ship per-item and combined `Copy` / `Send` actions. The remaining gap is that `Send` persists payloads for later `annotate --stored` retrieval instead of proactively injecting them into the active agent chat.
+
+Tailwind usage rule:
+- When `allowedLibraries.styling` includes `tailwindcss`, use it for layout, spacing, responsive, and state styling over canonical tokens/theme variables.
+- Do not treat Tailwind as a component inventory source or mix it into `componentStrategy.approvedLibraries`.
+- Preview/export should materialize a deterministic utility-class layer and stay self-contained; do not depend on a remote Tailwind CDN for canvas preview correctness.
 
 Failure handling:
 - `plan_required`: immediately call `canvas.plan.set`.

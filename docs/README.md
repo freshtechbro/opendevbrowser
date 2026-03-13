@@ -6,9 +6,9 @@ Canonical documentation map for OpenDevBrowser runtime, extension, and distribut
 
 - `<public-repo-root>/README.md` - product overview, installation, and first-run flow
 - `<public-repo-root>/docs/ARCHITECTURE.md` - canonical ASCII runtime architecture map, relay modes, and security boundaries
-- `<public-repo-root>/docs/CLI.md` - CLI commands, flags, and operational usage
+- `<public-repo-root>/docs/CLI.md` - CLI commands, flags, generated help parity, and operational usage
 - `<public-repo-root>/docs/FIRST_RUN_ONBOARDING.md` - first-time local-package onboarding and first-task verification flow
-- `<public-repo-root>/docs/SURFACE_REFERENCE.md` - canonical command/tool/channel inventory
+- `<public-repo-root>/docs/SURFACE_REFERENCE.md` - canonical command/tool/channel inventory mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`
 - `<public-repo-root>/docs/EXTENSION.md` - extension setup, relay behavior, and diagnostics
 - `<public-repo-root>/docs/TROUBLESHOOTING.md` - deterministic recovery and verification guidance
 - `<public-repo-root>/docs/ANNOTATE.md` - annotation workflows and artifact expectations
@@ -20,13 +20,16 @@ Canonical documentation map for OpenDevBrowser runtime, extension, and distribut
 - `<public-repo-root>/docs/RELEASE_RUNBOOK.md` - public npm + GitHub release operations
 - `<public-repo-root>/docs/EXTENSION_RELEASE_RUNBOOK.md` - extension artifact/store publication operations
 - `<public-repo-root>/docs/CUTOVER_CHECKLIST.md` - public/private cutover and rollback checklist
-- `<public-repo-root>/docs/RELEASE_0.0.16_EVIDENCE.md` - v0.0.16 release evidence ledger
 - `<public-repo-root>/CHANGELOG.md` - release delta history and version-to-version summaries
 
 ## Website and design docs
 
 - `<public-repo-root>/docs/FRONTEND.md` - public/private website ownership, sync, and validation contract
 - `<public-repo-root>/docs/ASSET_INVENTORY.md` - brand and marketing asset inventory
+
+## Version-scoped evidence
+
+- `<public-repo-root>/docs/RELEASE_0.0.16_EVIDENCE.md` - v0.0.16-specific release evidence ledger; treat as version-scoped, not evergreen operational guidance
 
 ## Planning/spec docs (historical or in-flight)
 
@@ -48,6 +51,8 @@ Use these as planning references only; verify against runtime code and active do
    - `npm run typecheck --prefix frontend`
    - `npm run build --prefix frontend`
 5. Run public quality gates before closing the task.
+   - `npx opendevbrowser --help`
+   - `npx opendevbrowser help`
    - `npm run test:release-gate`
    - `node scripts/audit-zombie-files.mjs`
    - `node scripts/docs-drift-check.mjs`

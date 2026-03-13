@@ -9,11 +9,11 @@ Compact operational map of the current OpenDevBrowser surfaces, with the `/canva
 - CLI commands: `56`
 - Plugin tools: `49`
 - `/ops` command names: `38`
-- `/canvas` command names: `19`
+- `/canvas` command names: `26`
 - Legacy `/cdp` relay: generic CDP forwarding (method-level)
 
 Canonical exhaustive reference: `docs/SURFACE_REFERENCE.md`.
-CLI help mirror: `npx opendevbrowser --help`.
+CLI help mirror: `npx opendevbrowser --help` and `npx opendevbrowser help` (identical inventories).
 
 ## Agent skill-sync coverage
 
@@ -68,11 +68,16 @@ Concurrency policy:
 
 ### `/canvas`
 
-Command families:
-- Session and governance: `canvas.session.open`, `canvas.session.status`, `canvas.session.close`, `canvas.capabilities.get`, `canvas.plan.set`, `canvas.plan.get`
+Core command families:
+- Session and governance: `canvas.session.open`, `canvas.session.attach`, `canvas.session.status`, `canvas.session.close`, `canvas.capabilities.get`, `canvas.plan.set`, `canvas.plan.get`
 - Document: `canvas.document.load`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`
 - Live targets and overlay: `canvas.tab.open`, `canvas.tab.close`, `canvas.overlay.mount`, `canvas.overlay.unmount`, `canvas.overlay.select`
 - Preview and feedback: `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.feedback.subscribe`
+- Code sync: `canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, `canvas.code.resolve`
+
+Extension runtime subset:
+- `canvas.tab.open`, `canvas.tab.close`, `canvas.tab.sync`
+- `canvas.overlay.mount`, `canvas.overlay.unmount`, `canvas.overlay.select`, `canvas.overlay.sync`
 
 Envelope types:
 - `canvas_request`, `canvas_response`, `canvas_error`
@@ -88,15 +93,30 @@ Minimum handshake payload shape:
   "documentId": "dc_01",
   "leaseId": "lease_01",
   "preflightState": "handshake_read",
-  "requiredBeforeMutation": [
-    "designGovernance.intent",
-    "designGovernance.libraryPolicy",
-    "generationPlan"
-  ],
-  "requiredBeforeSave": [
-    "designGovernance.responsiveSystem",
-    "designGovernance.runtimeBudgets"
-  ]
+  "attachModes": ["observer", "lease_reclaim"],
+  "governanceRequirements": {
+    "requiredBeforeMutation": ["intent", "generationPlan", "designLanguage"],
+    "requiredBeforeSave": ["intent", "generationPlan", "runtimeBudgets"]
+  },
+  "generationPlanRequirements": {
+    "requiredBeforeMutation": ["targetOutcome", "visualDirection", "layoutStrategy"]
+  },
+  "allowedLibraries": {
+    "components": ["shadcn"],
+    "icons": ["lucide"],
+    "styling": ["tailwindcss"]
+  },
+  "mutationPolicy": {
+    "planRequiredBeforePatch": true,
+    "allowedBeforePlan": [
+      "canvas.capabilities.get",
+      "canvas.plan.get",
+      "canvas.plan.set",
+      "canvas.document.load",
+      "canvas.session.attach",
+      "canvas.session.status"
+    ]
+  }
 }
 ```
 
@@ -121,14 +141,23 @@ Recommended blocker envelope:
 ```
 
 Feedback contract markers:
-- Poll categories: `render`, `console`, `network`, `validation`, `performance`, `asset`, `export`
+- Poll categories: `render`, `console`, `network`, `validation`, `performance`, `asset`, `export`, `code-sync`, `parity`
 - Feedback items must preserve `documentId`, `pageId`, `prototypeId`, `targetId`, `documentRevision`, `severity`, `class`, and `evidenceRefs`
 - Subscribe event types: `feedback.item`, `feedback.heartbeat`, `feedback.complete`
+
+Current operational constraints:
+- `canvas.feedback.subscribe` returns the initial payload on every public surface. For ongoing events:
+  - CLI: use `opendevbrowser canvas --command canvas.feedback.subscribe --output-format stream-json`
+  - tool/daemon loops: reuse the returned cursor with repeated `canvas.feedback.poll`
+- `canvas.tab.sync` and `canvas.overlay.sync` are internal extension runtime helpers only.
+- `canvas_html` remains the default preview/export contract; `bound_app_runtime` is valid only when the binding explicitly opts in and runtime preflight succeeds.
+- Library metadata is preserved, but rendered output is still semantic rather than package-faithful.
+- Popup and canvas both ship per-item and combined annotation `Copy` / `Send` actions. Today, `Send` stores the payload for later `annotate --stored` retrieval rather than proactively delivering it into the active agent chat.
 
 Operational rule:
 - Read `canvas.session.open` or `canvas.capabilities.get` before mutation.
 - Use `canvas.feedback.poll` after each patch/render loop.
-- Do not save if `requiredBeforeSave` still reports missing governance blocks.
+- Do not save if `governanceRequirements.requiredBeforeSave` still reports missing governance blocks.
 
 ### `/cdp` (legacy)
 

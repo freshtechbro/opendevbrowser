@@ -2,7 +2,7 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-03-10
+Last updated: 2026-03-12
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/cli/args.ts`
@@ -229,12 +229,13 @@ Envelope contract:
 - stream/event: `ops_event`, `ops_chunk`
 - liveness: `ops_ping`, `ops_pong`
 
-### `/canvas` command names (19)
+### `/canvas` command names (26)
 
 `/canvas` is the typed design-canvas relay protocol used by `opendevbrowser_canvas` and the `canvas` CLI command. Canonical document mutations execute in core; extension runtime support is used for the extension-hosted `canvas.html` infinite-canvas editor, converged design-tab state sync, and overlay commands.
 
-#### Session and governance (6)
+#### Session and governance (7)
 - `canvas.session.open`
+- `canvas.session.attach`
 - `canvas.session.status`
 - `canvas.session.close`
 - `canvas.capabilities.get`
@@ -260,19 +261,34 @@ Envelope contract:
 - `canvas.feedback.poll`
 - `canvas.feedback.subscribe`
 
-Extension runtime subset:
+#### Code sync (6)
+- `canvas.code.bind`
+- `canvas.code.unbind`
+- `canvas.code.pull`
+- `canvas.code.push`
+- `canvas.code.status`
+- `canvas.code.resolve`
+
+Extension runtime subset (internal relay helpers, not public agent commands):
 - `canvas.tab.open`
 - `canvas.tab.close`
 - `canvas.tab.sync`
 - `canvas.overlay.mount`
 - `canvas.overlay.unmount`
 - `canvas.overlay.select`
+- `canvas.overlay.sync`
 
 Behavior notes:
+- `canvas.session.open` creates a session and lease; `canvas.session.attach` joins an existing session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
 - `canvas.document.patch` supports governance completion through `governance.update` patch batches in addition to scene/node operations.
+- Accepted `canvas.document.patch` batches now auto-refresh every active preview target so browser verification stays in the same edit loop as the design tab.
 - `canvas.document.save` and `canvas.document.export` can fail with `policy_violation` when `requiredBeforeSave` governance blocks are still missing.
 - Extension-hosted design tabs persist full same-origin editor state in `IndexedDB`, rebroadcast converged state over `BroadcastChannel`, and forward editor-originated patch requests through `canvas_event` payloads.
-- `canvas.feedback.subscribe` returns the initial filtered batch plus a live async stream that emits `feedback.item`, `feedback.heartbeat`, and `feedback.complete` events.
+- `canvas.tab.open` is the public command; internal `canvas.tab.sync` keeps extension-hosted design tabs on the same core-rendered HTML materialization path after public mutations.
+- `canvas.code.*` manages TSX-first bindings (`adapter=tsx-react-v1`) with repo-local manifests under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`.
+- `canvas.preview.render` and `canvas.preview.refresh` default to projected `canvas_html`, but bindings that opt into `projection=bound_app_runtime` attempt in-place runtime reconciliation before falling back to canonical HTML projection.
+- `canvas.feedback.subscribe` returns the initial filtered batch publicly. The underlying manager also creates a live async stream (`feedback.item`, `feedback.heartbeat`, `feedback.complete`); the CLI now exposes that through a `stream-json` polling bridge, while the tool wrapper still returns only the initial payload.
+- `canvas.session.status` and `canvas.code.status` surface attached clients, active lease holder, watch state, drift/conflict state, projection mode, fallback reasons, and parity artifacts.
 
 Envelope contract:
 - request: `canvas_request` (`requestId`, `canvasSessionId`, `leaseId`, `command`, `payload`)
@@ -280,6 +296,23 @@ Envelope contract:
 - error: `canvas_error`
 - stream/event: `canvas_event`, `canvas_chunk`
 - liveness: `canvas_ping`, `canvas_pong`
+
+Canvas event types:
+- `canvas_session_created`
+- `canvas_session_closed`
+- `canvas_session_expired`
+- `canvas_target_closed`
+- `canvas_document_snapshot`
+- `canvas_document_update`
+- `canvas_presence`
+- `canvas_lease_changed`
+- `canvas_feedback_item`
+- `canvas_patch_requested`
+- `canvas_code_sync_started`
+- `canvas_code_sync_applied`
+- `canvas_code_sync_conflict`
+- `canvas_code_sync_failed`
+- `canvas_client_disconnected`
 
 ### `/cdp` channel contract (legacy)
 

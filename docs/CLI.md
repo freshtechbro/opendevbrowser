@@ -2,7 +2,7 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-10
+Last updated: 2026-03-12
 
 OpenDevBrowser exposes 49 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); use continuity guidance only for long-running handoff/compaction.
@@ -15,6 +15,7 @@ First-run pre-release onboarding: `docs/FIRST_RUN_ONBOARDING.md`
 Parity and skill-pack gates:
 
 ```bash
+npm run test -- tests/cli-help-parity.test.ts
 npm run test -- tests/parity-matrix.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ```
@@ -47,6 +48,7 @@ cd "$WORKDIR"
 npm init -y
 npm install <public-repo-root>/opendevbrowser-0.0.16.tgz
 npx --no-install opendevbrowser --help
+npx --no-install opendevbrowser help
 ```
 
 Load extension unpacked from:
@@ -60,6 +62,8 @@ export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 ```
 
 By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations (legacy `claude`/`amp` labels are still synchronized for compatibility). Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+
+`OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
 
 ### Skill discovery order
 
@@ -133,7 +137,7 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 ### Relay channel surface
 
 - `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `38` command names.
-- `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `19` command names and envelope contracts.
+- `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `26` command names and envelope contracts.
 - `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
 
 ---
@@ -209,11 +213,13 @@ npx opendevbrowser --uninstall
 npx opendevbrowser --help
 npx opendevbrowser -h
 
+npx opendevbrowser help
+
 npx opendevbrowser --version
 npx opendevbrowser -v
 ```
 
-`--help` now prints a complete, agent-oriented inventory:
+`--help` and `help` print the same complete, agent-oriented inventory:
 - All CLI commands (56) grouped by function, each with one-line descriptions.
 - All supported CLI flags, grouped by install/session/navigation/workflow usage.
 - All `opendevbrowser_*` tools (49), each with one-line descriptions.
@@ -809,6 +815,7 @@ Canonical examples:
 
 Use `canvas` to call the typed `canvas.*` surface through the daemon. The normal sequence is:
 `canvas.session.open` -> inspect the handshake -> `canvas.plan.set` -> `canvas.document.patch` (including `governance.update` blocks) -> `canvas.preview.render` or `canvas.feedback.poll`.
+Additional same-session clients use `canvas.session.attach` with `attachMode=observer` or `attachMode=lease_reclaim`.
 
 ```bash
 # Open a canvas session bound to an existing browser session
@@ -830,7 +837,8 @@ npx opendevbrowser canvas --command canvas.document.save \
   --output-format json
 ```
 
-`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, required generation-plan fields, runtime budgets, and warning classes. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. `canvas.document.save` and `canvas.document.export` return `policy_violation` until all `requiredBeforeSave` governance blocks are present. In extension mode, `canvas.tab.open` opens an extension-hosted `canvas.html` infinite-canvas editor that persists full page state in `IndexedDB`, converges same-origin tabs through `BroadcastChannel`, and forwards editor-originated patch requests through `/canvas`; `canvas.feedback.poll` and `canvas.feedback.subscribe` support target/category filtering, structured preflight blockers, and a live async feedback stream.
+`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, required generation-plan fields, runtime budgets, and warning classes. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. `canvas.document.save` and `canvas.document.export` return `policy_violation` until all `requiredBeforeSave` governance blocks are present. In extension mode, `canvas.tab.open` opens an extension-hosted `canvas.html` infinite-canvas editor that persists full page state in `IndexedDB`, converges same-origin tabs through `BroadcastChannel`, and forwards editor-originated patch requests through `/canvas`; `canvas.feedback.poll` and `canvas.feedback.subscribe` support target/category filtering and structured preflight blockers. The initial `canvas.feedback.subscribe` payload is public on all surfaces, and the CLI now exposes a live `stream-json` bridge by repeatedly polling after the returned cursor until timeout. The tool wrapper still returns the initial payload only.
+`canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` add TSX-first code sync on top of the same session. Bound source manifests are stored under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`; preview targets default to projected `canvas_html` and only attempt `bound_app_runtime` reconciliation when the binding opts in and runtime bridge preflight succeeds.
 
 ### RPC (power-user, internal)
 
@@ -958,6 +966,12 @@ npx opendevbrowser annotate --session-id <session-id> --transport relay --tab-id
 # With URL + context + debug metadata
 npx opendevbrowser annotate --session-id <session-id> --url https://example.com \
   --screenshot-mode visible --context "Review the hero layout" --timeout-ms 90000 --debug
+
+# Return the last stored annotation payload
+npx opendevbrowser annotate --session-id <session-id> --stored
+
+# Prefer the in-memory stored payload with screenshots when still available
+npx opendevbrowser annotate --session-id <session-id> --stored --include-screenshots
 ```
 
 ---
@@ -1128,7 +1142,7 @@ npx opendevbrowser debug-trace-snapshot \
 | `--no-interactive` | | Alias of `--no-prompt` |
 | `--quiet` | | Suppress output |
 | `--output-format` | | `text`, `json`, or `stream-json` |
-| `--transport` | | Transport selector (`relay` or `native`) for transport-aware commands |
+| `--transport` | | Transport selector for transport-aware commands (`status`: `relay|native`; `annotate`: `auto|direct|relay`) |
 | `--daemon` | | Daemon status selector for `status` |
 | `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
 | `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
@@ -1208,8 +1222,10 @@ npx opendevbrowser debug-trace-snapshot \
 | `--target-id` | `annotate` | Target id for direct annotate |
 | `--tab-id` | `annotate` | Chrome tab id for relay annotate |
 | `--screenshot-mode` | `annotate` | `visible` (default), `full`, or `none` |
+| `--include-screenshots` | `annotate` | When used with `--stored`, prefer the in-memory payload that still includes screenshots if available |
 | `--context` | `annotate` | Optional context text pre-filled in the UI |
 | `--debug` | `annotate` | Include debug metadata in the payload |
+| `--stored` | `annotate` | Return the last stored annotation payload for the session |
 | `--timeout-ms` | `annotate` | Annotation timeout in ms |
 
 **Canvas**

@@ -1,9 +1,10 @@
 {
   "schemaVersion": "1.0",
   "expectedCounts": {
-    "cliCommands": 50,
-    "tools": 44,
-    "opsCommands": 36
+    "cliCommands": 56,
+    "tools": 49,
+    "opsCommands": 38,
+    "canvasCommands": 26
   },
   "docsMustCover": [
     "README.md",
@@ -17,6 +18,9 @@
     "CLI command names documented by category",
     "Tool names documented by category",
     "Ops command namespaces documented",
+    "Canvas command names documented",
+    "Canvas code-sync surface documented",
+    "Annotation send/copy semantics documented",
     "CDP envelope contract documented",
     "Global and command-specific flags documented",
     "Mode semantics documented"

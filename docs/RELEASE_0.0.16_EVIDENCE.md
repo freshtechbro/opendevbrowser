@@ -1,9 +1,15 @@
 # v0.0.16 Release Evidence
 
-Status: active  
-Last updated: 2026-03-01
+Status: historical snapshot
+Snapshot date: 2026-03-01
+Last audited against repo: 2026-03-12
 
-## Baseline
+Current audit note:
+- this file preserves the v0.0.16 release snapshot captured on 2026-03-01; it is not the live source of truth for current repo state.
+- current source inventories are `56` CLI commands (`src/cli/args.ts`) and `49` tools (`src/tools/index.ts`), so the `55` / `48` values below should be read as historical release-baseline evidence only.
+- for current operational guidance, use `docs/RELEASE_RUNBOOK.md`, `docs/SURFACE_REFERENCE.md`, and `README.md`.
+
+## Historical baseline
 
 - Branch: `codex/release-v0.0.16-hardening`
 - Target channels: GitHub release artifacts, npm publish, Chrome Web Store publish (optional/manual lane)
@@ -50,7 +56,7 @@ Last updated: 2026-03-01
 - [x] `artifacts/release/v0.0.16/live-regression-matrix-report.json`
 - [x] `artifacts/release/v0.0.16/first-run-global-install-*.json`
 
-## Latest gate outputs (2026-03-01)
+## Historical gate outputs (2026-03-01 snapshot)
 
 ### Static + grouped regression
 
@@ -72,7 +78,7 @@ Last updated: 2026-03-01
   - docs drift check (`55` commands / `48` tools parity)
   - chrome store compliance check (all checks passed)
 
-### Strict live gates (current blocker status)
+### Strict live gates at snapshot time
 
 - Not rerun in this validation pass.
 - Reference artifacts remain:

@@ -51,16 +51,40 @@ const executableScripts = [
   "scripts/validate-skill-assets.sh"
 ];
 
+const skillDocMarkers = [
+  "npx opendevbrowser --help",
+  "npx opendevbrowser help",
+  "56 CLI commands, 49 tools, 38 `/ops` commands, 26 `/canvas` commands",
+  "mutationPolicy.allowedBeforePlan",
+  "canvas.code.bind",
+  "canvas.code.resolve",
+  "bound_app_runtime",
+  "annotate --stored"
+];
+
 const commandRefMarkers = [
   "CLI commands: `56`",
   "Plugin tools: `49`",
   "`/ops` command names: `38`",
-  "`/canvas` command names: `19`",
+  "`/canvas` command names: `26`",
   "docs/SURFACE_REFERENCE.md",
+  "npx opendevbrowser help",
   "canvas.session.open",
+  "canvas.session.attach",
   "canvas.feedback.poll",
+  "canvas.code.bind",
+  "canvas.code.resolve",
+  "canvas.tab.sync",
+  "canvas.overlay.sync",
   "feedback.heartbeat",
+  "governanceRequirements",
+  "generationPlanRequirements",
+  "mutationPolicy",
+  "code-sync",
+  "parity",
   "plan_required",
+  "annotate --stored",
+  "storage",
   "opencode",
   "codex",
   "claudecode",
@@ -94,6 +118,17 @@ const templateMarkerPaths = [
   "assets/templates/canvas-feedback-eval.json",
   "assets/templates/canvas-blocker-checklist.json",
   "assets/templates/robustness-checklist.json"
+];
+
+const surfaceAuditPath = "assets/templates/surface-audit-checklist.json";
+const surfaceAuditMarkers = [
+  "\"cliCommands\": 56",
+  "\"tools\": 49",
+  "\"opsCommands\": 38",
+  "\"canvasCommands\": 26",
+  "Canvas command names documented",
+  "Canvas code-sync surface documented",
+  "Annotation send/copy semantics documented"
 ];
 
 const failures = [];
@@ -132,6 +167,11 @@ for (const relPath of requiredPaths) {
     failures.push(`SKILL.md missing reference: ${relPath}`);
   }
 }
+for (const marker of skillDocMarkers) {
+  if (!hasMarker(skillDoc, marker)) {
+    failures.push(`SKILL.md missing marker: ${marker}`);
+  }
+}
 
 const commandRefPath = "artifacts/command-channel-reference.md";
 if (fs.existsSync(path.join(skillRoot, commandRefPath))) {
@@ -159,6 +199,15 @@ if (fs.existsSync(path.join(skillRoot, canvasPlaybookPath))) {
   for (const marker of canvasPlaybookMarkers) {
     if (!hasMarker(canvasPlaybook, marker)) {
       failures.push(`Canvas playbook missing marker: ${marker}`);
+    }
+  }
+}
+
+if (fs.existsSync(path.join(skillRoot, surfaceAuditPath))) {
+  const surfaceAudit = readUtf8(surfaceAuditPath);
+  for (const marker of surfaceAuditMarkers) {
+    if (!hasMarker(surfaceAudit, marker)) {
+      failures.push(`Surface audit checklist missing marker: ${marker}`);
     }
   }
 }
