@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultCanvasDocument } from "../src/canvas/document-store";
 import { renderCanvasDocumentComponent, renderCanvasDocumentHtml } from "../src/canvas/export";
+import { CANVAS_SURFACE_TOKENS, CANVAS_SURFACE_TOKEN_VARIABLES } from "../src/canvas/surface-palette";
 import type { CanvasNode } from "../src/canvas/types";
 
 function createNode(
@@ -80,6 +81,11 @@ describe("canvas export", () => {
     expect(html).toContain("<aside");
     expect(html).toContain("<hr");
     expect(html).toContain(">123</div>");
+    expect(html).toContain(`${CANVAS_SURFACE_TOKEN_VARIABLES.background}: ${CANVAS_SURFACE_TOKENS.background};`);
+    expect(html).toContain(`${CANVAS_SURFACE_TOKEN_VARIABLES.text}: ${CANVAS_SURFACE_TOKENS.text};`);
+    expect(html).toContain(`${CANVAS_SURFACE_TOKEN_VARIABLES.grid}: ${CANVAS_SURFACE_TOKENS.grid};`);
+    expect(html).toContain("background: var(--surface-bg); color: var(--surface-text);");
+    expect(html).toContain("background: var(--surface-bg); }");
   });
 
   it("renders component output for empty pages and metadata-backed nodes", () => {
@@ -123,6 +129,7 @@ describe("canvas export", () => {
     expect(component).toContain("Metadata text");
     expect(component).toContain("style={{ \"padding\": \"1rem\" }}");
     expect(component).toContain("data-page-id=\"page_marketing\"");
+    expect(component).toContain(`style={{ "backgroundColor": "${CANVAS_SURFACE_TOKENS.background}", "color": "${CANVAS_SURFACE_TOKENS.text}" }}`);
   });
 
   it("filters non-renderable styles and preserves empty text slots in component output", () => {
