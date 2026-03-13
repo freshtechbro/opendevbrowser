@@ -13,6 +13,7 @@ export function createWaitTool(deps: ToolDeps): ToolDefinition {
     description: "Wait for a load state or a ref state.",
     args: {
       sessionId: z.string().describe("Session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       until: waitUntilSchema.optional().describe("Load state to wait for"),
       ref: z.string().optional().describe("Ref to wait for"),
       state: waitStateSchema.optional().describe("Ref state to wait for"),
@@ -25,7 +26,8 @@ export function createWaitTool(deps: ToolDeps): ToolDefinition {
             args.sessionId,
             args.ref,
             args.state ?? "attached",
-            args.timeoutMs ?? 30000
+            args.timeoutMs ?? 30000,
+            args.targetId
           );
           return ok(result);
         }
@@ -37,7 +39,8 @@ export function createWaitTool(deps: ToolDeps): ToolDefinition {
         const result = await deps.manager.waitForLoad(
           args.sessionId,
           args.until,
-          args.timeoutMs ?? 30000
+          args.timeoutMs ?? 30000,
+          args.targetId
         );
         return ok(result);
       } catch (error) {

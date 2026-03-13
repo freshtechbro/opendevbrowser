@@ -19,7 +19,8 @@ import { CDPRouter } from "../services/CDPRouter.js";
 import { TabManager } from "../services/TabManager.js";
 import { getRestrictionMessage, isRestrictedUrl } from "../services/url-restrictions.js";
 import { logError } from "../logging.js";
-import { DomBridge } from "./dom-bridge.js";
+import type { CanvasPageElementAction, CanvasPageState } from "../canvas/model.js";
+import { DomBridge, type DomCapture } from "./dom-bridge.js";
 import { buildSnapshot, type SnapshotMode } from "./snapshot-builder.js";
 import { OpsSessionStore, type OpsSession, type OpsConsoleEvent, type OpsNetworkEvent } from "./ops-session-store.js";
 import {
@@ -58,6 +59,7 @@ const TARGET_SCOPED_COMMANDS = new Set<string>([
   "dom.isVisible",
   "dom.isEnabled",
   "dom.isChecked",
+  "canvas.applyRuntimePreviewBridge",
   "export.clonePage",
   "export.cloneComponent",
   "devtools.perf",
@@ -76,11 +78,15 @@ type OpsParallelWaiter = {
 export type OpsRuntimeOptions = {
   send: (message: OpsEnvelope) => void;
   cdp: CDPRouter;
+  getCanvasPageState?: (targetId: string) => CanvasPageState | null;
+  performCanvasPageAction?: (targetId: string, action: CanvasPageElementAction, selector?: string | null) => Promise<unknown>;
 };
 
 export class OpsRuntime {
   private readonly sendEnvelope: (message: OpsEnvelope) => void;
   private readonly cdp: CDPRouter;
+  private readonly getCanvasPageState?: (targetId: string) => CanvasPageState | null;
+  private readonly performCanvasPageAction?: (targetId: string, action: CanvasPageElementAction, selector?: string | null) => Promise<unknown>;
   private readonly tabs = new TabManager();
   private readonly dom = new DomBridge();
   private readonly sessions = new OpsSessionStore();
@@ -91,6 +97,8 @@ export class OpsRuntime {
   constructor(options: OpsRuntimeOptions) {
     this.sendEnvelope = options.send;
     this.cdp = options.cdp;
+    this.getCanvasPageState = options.getCanvasPageState;
+    this.performCanvasPageAction = options.performCanvasPageAction;
     chrome.tabs.onRemoved.addListener(this.handleTabRemoved);
     chrome.tabs.onUpdated.addListener(this.handleTabUpdated);
     chrome.debugger.onEvent.addListener(this.handleDebuggerEvent);
@@ -296,6 +304,9 @@ export class OpsRuntime {
       case "targets.use":
         await this.withSession(message, clientId, (session) => this.handleTargetsUse(message, session));
         return;
+      case "targets.registerCanvas":
+        await this.withSession(message, clientId, (session) => this.handleTargetsRegisterCanvas(message, session));
+        return;
       case "targets.new":
         await this.withSession(message, clientId, (session) => this.handleTargetsNew(message, session));
         return;
@@ -368,6 +379,9 @@ export class OpsRuntime {
       case "dom.isChecked":
         await this.withSession(message, clientId, (session) => this.handleDomIsChecked(message, session));
         return;
+      case "canvas.applyRuntimePreviewBridge":
+        await this.withSession(message, clientId, (session) => this.handleCanvasRuntimePreviewBridge(message, session));
+        return;
       case "export.clonePage":
         await this.withSession(message, clientId, (session) => this.handleClonePage(message, session));
         return;
@@ -415,9 +429,16 @@ export class OpsRuntime {
       this.sendError(message, buildError("ops_unavailable", "No active tab to attach.", true));
       return;
     }
+    const activeTabId = activeTab.id;
 
-    if (activeTab.url) {
-      const restriction = isRestrictedUrl(activeTab.url);
+    const resolvedTab = startUrl
+      ? await this.tabs.waitForTabComplete(activeTabId)
+        .catch(() => undefined)
+        .then(async () => await this.tabs.getTab(activeTabId) ?? activeTab)
+      : activeTab;
+
+    if (resolvedTab.url) {
+      const restriction = isRestrictedUrl(resolvedTab.url);
       if (restriction.restricted) {
         this.sendError(message, buildError("restricted_url", restriction.message ?? "Restricted tab.", false));
         return;
@@ -425,21 +446,22 @@ export class OpsRuntime {
     }
 
     try {
-      await this.cdp.attach(activeTab.id);
+      await this.cdp.attach(activeTabId);
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Debugger attach failed";
       this.sendError(message, buildError("cdp_attach_failed", detail, false));
       return;
     }
-
-    await this.tabs.waitForTabComplete(activeTab.id).catch(() => undefined);
+    if (!startUrl) {
+      await this.tabs.waitForTabComplete(activeTab.id).catch(() => undefined);
+    }
 
     const leaseId = typeof message.leaseId === "string" && message.leaseId.trim().length > 0
       ? message.leaseId.trim()
       : createId();
-    const session = this.sessions.createSession(clientId, activeTab.id, leaseId, {
-      url: activeTab.url ?? undefined,
-      title: activeTab.title ?? undefined
+    const session = this.sessions.createSession(clientId, activeTabId, leaseId, {
+      url: resolvedTab.url ?? undefined,
+      title: resolvedTab.title ?? undefined
     }, {
       parallelismPolicy
     });
@@ -457,8 +479,8 @@ export class OpsRuntime {
     this.sendResponse(message, {
       opsSessionId: session.id,
       activeTargetId: session.activeTargetId,
-      url: activeTab.url ?? undefined,
-      title: activeTab.title ?? undefined,
+      url: resolvedTab.url ?? undefined,
+      title: resolvedTab.title ?? undefined,
       leaseId: session.leaseId
     });
   }
@@ -489,11 +511,12 @@ export class OpsRuntime {
     const includeUrls = payload.includeUrls === true;
     const targets = await Promise.all(Array.from(session.targets.values()).map(async (target) => {
       const tab = await this.tabs.getTab(target.tabId);
+      const synthetic = session.syntheticTargets.get(target.targetId);
       return {
         targetId: target.targetId,
         type: "page" as const,
-        title: tab?.title ?? target.title,
-        url: includeUrls ? tab?.url ?? target.url : undefined
+        title: resolveReportedTargetTitle(target, tab?.title, synthetic),
+        url: includeUrls ? resolveReportedTargetUrl(target, tab?.url, synthetic) : undefined
       };
     }));
     this.sendResponse(message, { activeTargetId: session.activeTargetId || null, targets });
@@ -512,10 +535,66 @@ export class OpsRuntime {
       await this.tabs.activateTab(target.tabId).catch(() => undefined);
     }
     const tab = target ? await this.tabs.getTab(target.tabId) : null;
+    const synthetic = target ? session.syntheticTargets.get(target.targetId) : undefined;
     this.sendResponse(message, {
       activeTargetId: targetId,
-      url: tab?.url ?? target?.url,
-      title: tab?.title ?? target?.title
+      url: target ? resolveReportedTargetUrl(target, tab?.url, synthetic) : undefined,
+      title: target ? resolveReportedTargetTitle(target, tab?.title, synthetic) : undefined
+    });
+  }
+
+  private async handleTargetsRegisterCanvas(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const targetId = typeof payload.targetId === "string" ? payload.targetId.trim() : "";
+    if (!targetId) {
+      this.sendError(message, buildError("invalid_request", "Missing targetId", false));
+      return;
+    }
+    const tabId = parseTabTargetId(targetId);
+    if (tabId === null) {
+      this.sendError(message, buildError("invalid_request", "Canvas targetId must be tab-<id>.", false));
+      return;
+    }
+    let tab = await this.tabs.getTab(tabId);
+    if (!tab) {
+      this.sendError(message, buildError("invalid_request", "Unknown targetId", false));
+      return;
+    }
+    await this.tabs.waitForTabComplete(tabId, 5000).catch(() => undefined);
+    tab = await this.tabs.getTab(tabId) ?? tab;
+    if (!this.isAllowedCanvasTargetUrl(tab.url)) {
+      this.sendError(message, buildError("restricted_url", "Only the extension canvas tab can be registered.", false));
+      return;
+    }
+    const existing = session.targets.get(targetId);
+    if (existing) {
+      existing.url = tab.url ?? existing.url;
+      existing.title = tab.title ?? existing.title;
+      session.activeTargetId = targetId;
+      this.sendResponse(message, {
+        targetId,
+        url: existing.url,
+        title: existing.title,
+        adopted: false
+      });
+      return;
+    }
+    try {
+      await this.cdp.attach(tabId);
+      await this.enableTargetDomains(tabId);
+    } catch (error) {
+      logError("ops.register_canvas_target", error, {
+        code: "canvas_target_attach_failed",
+        extra: { tabId, targetId }
+      });
+    }
+    const target = this.sessions.addTarget(session.id, tabId, { url: tab.url ?? undefined, title: tab.title ?? undefined });
+    session.activeTargetId = target.targetId;
+    this.sendResponse(message, {
+      targetId: target.targetId,
+      url: target.url,
+      title: target.title,
+      adopted: true
     });
   }
 
@@ -599,11 +678,12 @@ export class OpsRuntime {
     const pages = await Promise.all(this.sessions.listNamedTargets(session.id).map(async ({ name, targetId }) => {
       const target = session.targets.get(targetId);
       const tab = target ? await this.tabs.getTab(target.tabId) : null;
+      const synthetic = session.syntheticTargets.get(targetId);
       return {
         name,
         targetId,
-        url: tab?.url ?? target?.url,
-        title: tab?.title ?? target?.title
+        url: resolveReportedTargetUrl(target, tab?.url, synthetic),
+        title: resolveReportedTargetTitle(target, tab?.title, synthetic)
       };
     }));
     this.sendResponse(message, { pages });
@@ -656,6 +736,24 @@ export class OpsRuntime {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
     await this.tabs.activateTab(target.tabId).catch(() => undefined);
+    const targetRecord = session.targets.get(target.targetId);
+    const syntheticHtml = decodeHtmlDataUrl(url);
+    if (syntheticHtml !== null) {
+      const result = await executeInTab(target.tabId, replaceDocumentWithHtmlScript, [{ html: syntheticHtml }]);
+      session.refStore.clearTarget(target.targetId);
+      session.syntheticTargets.set(target.targetId, {
+        url,
+        title: typeof result?.title === "string" && result.title.trim().length > 0
+          ? result.title
+          : targetRecord?.title
+      });
+      this.sendResponse(message, {
+        finalUrl: url,
+        status: undefined,
+        timingMs: Date.now() - start
+      });
+      return;
+    }
     const updated = await new Promise<chrome.tabs.Tab | null>((resolve) => {
       chrome.tabs.update(target.tabId, { url }, (tab) => {
         resolve(tab ?? null);
@@ -663,10 +761,13 @@ export class OpsRuntime {
     });
     await this.tabs.waitForTabComplete(target.tabId, timeoutMs).catch(() => undefined);
     const refreshed = await this.tabs.getTab(target.tabId);
-    const targetRecord = session.targets.get(target.targetId);
+    session.syntheticTargets.delete(target.targetId);
     if (targetRecord) {
-      targetRecord.url = refreshed?.url ?? updated?.url ?? url;
-      targetRecord.title = refreshed?.title ?? updated?.title ?? targetRecord.title;
+      session.targets.set(target.targetId, {
+        ...targetRecord,
+        url: refreshed?.url ?? updated?.url ?? url,
+        title: refreshed?.title ?? updated?.title ?? targetRecord.title
+      });
     }
     this.sendResponse(message, {
       finalUrl: refreshed?.url ?? updated?.url ?? url,
@@ -687,7 +788,7 @@ export class OpsRuntime {
       const selector = this.resolveSelector(session, payload.ref, message);
       if (!selector) return;
       try {
-        await this.waitForSelector(target.tabId, selector, state, timeoutMs);
+        await this.waitForSelector(target, selector, state, timeoutMs);
         this.sendResponse(message, { timingMs: Date.now() - start });
       } catch (error) {
         this.sendError(message, buildError("timeout", error instanceof Error ? error.message : "Timeout", true));
@@ -732,10 +833,12 @@ export class OpsRuntime {
     }
 
     const tab = await this.tabs.getTab(target.tabId);
+    const targetRecord = session.targets.get(target.targetId);
+    const synthetic = session.syntheticTargets.get(target.targetId);
     this.sendResponse(message, {
       snapshotId: snapshot.snapshotId,
-      url: tab?.url ?? undefined,
-      title: tab?.title ?? undefined,
+      url: resolveReportedTargetUrl(targetRecord ?? null, tab?.url, synthetic),
+      title: resolveReportedTargetTitle(targetRecord ?? null, tab?.title, synthetic),
       content,
       truncated,
       nextCursor,
@@ -752,7 +855,7 @@ export class OpsRuntime {
     if (!target) return;
     const start = Date.now();
     const before = await this.tabs.getTab(target.tabId);
-    await this.dom.click(target.tabId, selector);
+    await this.runElementAction(target, selector, { type: "click" }, () => this.dom.click(target.tabId, selector));
     const after = await this.tabs.getTab(target.tabId);
     const navigated = Boolean(before?.url && after?.url && before.url !== after.url);
     this.sendResponse(message, { timingMs: Date.now() - start, navigated });
@@ -764,7 +867,7 @@ export class OpsRuntime {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
     const start = Date.now();
-    await this.dom.hover(target.tabId, selector);
+    await this.runElementAction(target, selector, { type: "hover" }, () => this.dom.hover(target.tabId, selector));
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -780,7 +883,12 @@ export class OpsRuntime {
     const selector = typeof payload.ref === "string" ? this.resolveSelector(session, payload.ref, message) : null;
     if (payload.ref && !selector) return;
     const start = Date.now();
-    await this.dom.press(target.tabId, selector, key);
+    await this.runCanvasPageAction(
+      target,
+      { type: "press", key },
+      selector,
+      () => this.dom.press(target.tabId, selector, key)
+    );
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -790,7 +898,12 @@ export class OpsRuntime {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
     const start = Date.now();
-    await this.dom.setChecked(target.tabId, selector, checked);
+    await this.runElementAction(
+      target,
+      selector,
+      { type: "setChecked", checked },
+      () => this.dom.setChecked(target.tabId, selector, checked)
+    );
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -807,7 +920,12 @@ export class OpsRuntime {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
     const start = Date.now();
-    await this.dom.type(target.tabId, selector, text, payload.clear === true, payload.submit === true);
+    await this.runElementAction(
+      target,
+      selector,
+      { type: "type", value: text, clear: payload.clear === true, submit: payload.submit === true },
+      () => this.dom.type(target.tabId, selector, text, payload.clear === true, payload.submit === true)
+    );
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -823,7 +941,12 @@ export class OpsRuntime {
     if (!selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    await this.dom.select(target.tabId, selector, values as string[]);
+    await this.runElementAction(
+      target,
+      selector,
+      { type: "select", values: values as string[] },
+      () => this.dom.select(target.tabId, selector, values as string[])
+    );
     this.sendResponse(message, {});
   }
 
@@ -835,7 +958,12 @@ export class OpsRuntime {
     if (ref && !selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    await this.dom.scroll(target.tabId, dy, selector);
+    await this.runCanvasPageAction(
+      target,
+      { type: "scroll", dy },
+      selector ?? null,
+      () => this.dom.scroll(target.tabId, dy, selector)
+    );
     this.sendResponse(message, {});
   }
 
@@ -845,7 +973,12 @@ export class OpsRuntime {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
     const start = Date.now();
-    await this.dom.scrollIntoView(target.tabId, selector);
+    await this.runElementAction(
+      target,
+      selector,
+      { type: "scrollIntoView" },
+      () => this.dom.scrollIntoView(target.tabId, selector)
+    );
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -861,7 +994,12 @@ export class OpsRuntime {
     if (!selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    const html = await this.dom.getOuterHtml(target.tabId, selector);
+    const html = await this.runElementAction(
+      target,
+      selector,
+      { type: "outerHTML" },
+      () => this.dom.getOuterHtml(target.tabId, selector)
+    );
     const truncated = html.length > maxChars;
     const outerHTML = truncated ? html.slice(0, maxChars) : html;
     this.sendResponse(message, { outerHTML, truncated });
@@ -879,7 +1017,12 @@ export class OpsRuntime {
     if (!selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    const text = await this.dom.getInnerText(target.tabId, selector);
+    const text = await this.runElementAction(
+      target,
+      selector,
+      { type: "innerText" },
+      () => this.dom.getInnerText(target.tabId, selector)
+    );
     const truncated = text.length > maxChars;
     this.sendResponse(message, { text: truncated ? text.slice(0, maxChars) : text, truncated });
   }
@@ -896,7 +1039,12 @@ export class OpsRuntime {
     if (!selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    const value = await this.dom.getAttr(target.tabId, selector, name);
+    const value = await this.runElementAction(
+      target,
+      selector,
+      { type: "getAttr", name },
+      () => this.dom.getAttr(target.tabId, selector, name)
+    );
     this.sendResponse(message, { value });
   }
 
@@ -911,7 +1059,12 @@ export class OpsRuntime {
     if (!selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    const value = await this.dom.getValue(target.tabId, selector);
+    const value = await this.runElementAction(
+      target,
+      selector,
+      { type: "getValue" },
+      () => this.dom.getValue(target.tabId, selector)
+    );
     this.sendResponse(message, { value });
   }
 
@@ -920,8 +1073,16 @@ export class OpsRuntime {
     if (!selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    const visible = await this.dom.isVisible(target.tabId, selector);
-    this.sendResponse(message, { value: visible });
+    const visible = await this.runElementAction(
+      target,
+      selector,
+      { type: "getSelectorState" },
+      async () => await this.dom.getSelectorState(target.tabId, selector)
+    );
+    const isVisible = typeof visible === "object" && visible !== null && "visible" in visible
+      ? Boolean((visible as { visible?: unknown }).visible)
+      : Boolean(visible);
+    this.sendResponse(message, { value: isVisible });
   }
 
   private async handleDomIsEnabled(message: OpsRequest, session: OpsSession): Promise<void> {
@@ -929,7 +1090,12 @@ export class OpsRuntime {
     if (!selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    const enabled = await this.dom.isEnabled(target.tabId, selector);
+    const enabled = await this.runElementAction(
+      target,
+      selector,
+      { type: "isEnabled" },
+      () => this.dom.isEnabled(target.tabId, selector)
+    );
     this.sendResponse(message, { value: enabled });
   }
 
@@ -938,14 +1104,39 @@ export class OpsRuntime {
     if (!selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    const checked = await this.dom.isChecked(target.tabId, selector);
+    const checked = await this.runElementAction(
+      target,
+      selector,
+      { type: "isChecked" },
+      () => this.dom.isChecked(target.tabId, selector)
+    );
     this.sendResponse(message, { value: checked });
+  }
+
+  private async handleCanvasRuntimePreviewBridge(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const bindingId = typeof payload.bindingId === "string" ? payload.bindingId.trim() : "";
+    const rootSelector = typeof payload.rootSelector === "string" ? payload.rootSelector.trim() : "";
+    const html = typeof payload.html === "string" ? payload.html : "";
+    if (!bindingId || !rootSelector) {
+      this.sendError(message, buildError("invalid_request", "Missing bindingId or rootSelector", false));
+      return;
+    }
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    const result = await this.dom.applyRuntimePreviewBridge(target.tabId, bindingId, rootSelector, html);
+    this.sendResponse(message, result);
   }
 
   private async handleClonePage(message: OpsRequest, session: OpsSession): Promise<void> {
     const payload = isRecord(message.payload) ? message.payload : {};
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
+    const canvasCapture = await this.captureCanvasPage(target.tabId, target.targetId);
+    if (canvasCapture) {
+      this.sendResponse(message, { capture: canvasCapture });
+      return;
+    }
     const capture = await this.dom.captureDom(target.tabId, "body", {
       sanitize: payload.sanitize !== false,
       maxNodes: typeof payload.maxNodes === "number" ? payload.maxNodes : undefined,
@@ -1128,10 +1319,14 @@ export class OpsRuntime {
   }
 
   private async enableSessionDomains(session: OpsSession): Promise<void> {
+    await this.enableTargetDomains(session.tabId);
+  }
+
+  private async enableTargetDomains(tabId: number): Promise<void> {
     try {
-      await this.cdp.sendCommand({ tabId: session.tabId }, "Runtime.enable", {});
-      await this.cdp.sendCommand({ tabId: session.tabId }, "Network.enable", {});
-      await this.cdp.sendCommand({ tabId: session.tabId }, "Performance.enable", {});
+      await this.cdp.sendCommand({ tabId }, "Runtime.enable", {});
+      await this.cdp.sendCommand({ tabId }, "Network.enable", {});
+      await this.cdp.sendCommand({ tabId }, "Performance.enable", {});
     } catch (error) {
       logError("ops.enable_domains", error, { code: "enable_domains_failed" });
     }
@@ -1374,7 +1569,7 @@ export class OpsRuntime {
     return session.activeTargetId || null;
   }
 
-  private requireActiveTarget(session: OpsSession, message: OpsRequest): { tabId: number; targetId: string } | null {
+  private requireActiveTarget(session: OpsSession, message: OpsRequest): { tabId: number; targetId: string; url?: string } | null {
     const targetId = this.requestedTargetId(session, message);
     if (!targetId) {
       this.sendError(message, buildError("invalid_request", "No active target", false));
@@ -1387,12 +1582,112 @@ export class OpsRuntime {
     }
     if (target.url) {
       const restriction = isRestrictedUrl(target.url);
-      if (restriction.restricted) {
+      if (restriction.restricted && !this.isAllowedCanvasTargetUrl(target.url)) {
         this.sendError(message, buildError("restricted_url", restriction.message ?? "Restricted tab.", false));
         return null;
       }
     }
-    return { tabId: target.tabId, targetId: target.targetId };
+    return { tabId: target.tabId, targetId: target.targetId, url: target.url };
+  }
+
+  private isAllowedCanvasTargetUrl(rawUrl: string | undefined): boolean {
+    if (typeof rawUrl !== "string" || rawUrl.length === 0) {
+      return false;
+    }
+    try {
+      const allowedUrl = chrome.runtime.getURL("canvas.html");
+      return rawUrl === allowedUrl || rawUrl.startsWith(`${allowedUrl}#`) || rawUrl.startsWith(`${allowedUrl}?`);
+    } catch {
+      return false;
+    }
+  }
+
+  private async captureCanvasPage(tabId: number, targetId: string): Promise<DomCapture | null> {
+    if (!this.getCanvasPageState) {
+      return null;
+    }
+    const state = this.getCanvasPageState(targetId);
+    if (!state) {
+      return null;
+    }
+    const previewHtml = typeof state.html === "string" && state.html.length > 0
+      ? extractBodyHtml(state.html)
+      : null;
+    const shouldProbeLiveStage = Boolean(state.pendingMutation)
+      || (canvasStateContainsRichMedia(state) && !htmlContainsRichMedia(previewHtml));
+    if (shouldProbeLiveStage) {
+      const liveStageCapture = await this.captureLiveCanvasStage(tabId);
+      if (liveStageCapture) {
+        return liveStageCapture;
+      }
+      const documentCapture = buildCanvasDocumentCapture(state);
+      if (documentCapture) {
+        return documentCapture;
+      }
+    }
+    if (!previewHtml) {
+      return buildCanvasDocumentCapture(state);
+    }
+    return {
+      html: previewHtml,
+      styles: {},
+      warnings: ["canvas_state_capture"],
+      inlineStyles: false
+    };
+  }
+
+  private async runElementAction<T>(
+    target: { tabId: number; targetId: string; url?: string },
+    selector: string,
+    action: CanvasPageElementAction,
+    fallback: () => Promise<T>
+  ): Promise<T> {
+    return await this.runCanvasPageAction(target, action, selector, fallback);
+  }
+
+  private async runCanvasPageAction<T>(
+    target: { tabId: number; targetId: string; url?: string },
+    action: CanvasPageElementAction,
+    selector: string | null | undefined,
+    fallback: () => Promise<T>
+  ): Promise<T> {
+    if (!this.isAllowedCanvasTargetUrl(target.url) || !this.performCanvasPageAction) {
+      return await fallback();
+    }
+    return await this.performCanvasPageAction(target.targetId, action, selector ?? null) as T;
+  }
+
+  private async captureLiveCanvasStage(tabId: number): Promise<DomCapture | null> {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const stage = document.getElementById("canvas-stage-inner");
+          if (!(stage instanceof HTMLElement)) {
+            return null;
+          }
+          const html = stage.innerHTML.trim();
+          if (!html) {
+            return null;
+          }
+          const width = stage.style.width || `${Math.max(stage.scrollWidth, 320)}px`;
+          const height = stage.style.height || `${Math.max(stage.scrollHeight, 240)}px`;
+          return `<body><main data-surface="canvas" style="position:relative;width:${width};min-height:${height};">${html}</main></body>`;
+        }
+      });
+      const html = typeof results[0]?.result === "string" ? results[0].result : null;
+      if (!html) {
+        return null;
+      }
+      return {
+        html,
+        styles: {},
+        warnings: ["canvas_state_capture"],
+        inlineStyles: true
+      };
+    } catch {
+      return null;
+    }
   }
 
   private resolveSelector(session: OpsSession, refOrPayload: unknown, message: OpsRequest): string | null {
@@ -1416,10 +1711,20 @@ export class OpsRuntime {
     return entry.selector;
   }
 
-  private async waitForSelector(tabId: number, selector: string, state: "attached" | "visible" | "hidden", timeoutMs: number): Promise<void> {
+  private async waitForSelector(
+    target: { tabId: number; targetId: string; url?: string },
+    selector: string,
+    state: "attached" | "visible" | "hidden",
+    timeoutMs: number
+  ): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const snapshot = await this.dom.getSelectorState(tabId, selector);
+      const snapshot = await this.runElementAction(
+        target,
+        selector,
+        { type: "getSelectorState" },
+        () => this.dom.getSelectorState(target.tabId, selector)
+      ) as { attached?: boolean; visible?: boolean };
       if (state === "attached" && snapshot.attached) return;
       if (state === "visible" && snapshot.visible) return;
       if (state === "hidden" && (!snapshot.attached || !snapshot.visible)) return;
@@ -1974,6 +2279,309 @@ const paginate = (lines: string[], startIndex: number, maxChars: number): { cont
 };
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const parseTabTargetId = (targetId: string): number | null => {
+  const raw = targetId.startsWith("tab-") ? targetId.slice(4) : targetId;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+};
+
+const extractBodyHtml = (html: string): string => {
+  const bodyMatch = html.match(/<body\b[^>]*>[\s\S]*<\/body>/i);
+  if (bodyMatch) {
+    return bodyMatch[0];
+  }
+  return html;
+};
+
+const htmlContainsRichMedia = (html: string | null): boolean => {
+  return typeof html === "string" && /<(img|video|audio)\b/i.test(html);
+};
+
+const canvasStateContainsRichMedia = (state: CanvasPageState): boolean => {
+  const document = isRecord(state.document) ? state.document : null;
+  const pages = Array.isArray(document?.pages) ? document.pages : [];
+  const assets = Array.isArray(document?.assets) ? document.assets : [];
+  const assetsById = new Map(assets.flatMap((asset) => typeof asset?.id === "string" ? [[asset.id, asset]] : []));
+  return pages.some((page) => Array.isArray(page?.nodes) && page.nodes.some((node) => nodeContainsRichMedia(node, assetsById)));
+};
+
+const nodeContainsRichMedia = (
+  node: CanvasPageState["document"]["pages"][number]["nodes"][number],
+  assetsById: Map<string, CanvasPageState["document"]["assets"][number]>
+): boolean => {
+  const tagName = readCanvasMediaTagName(node);
+  if (tagName === "img" || tagName === "video" || tagName === "audio") {
+    return true;
+  }
+  const assetIds = Array.isArray(node.metadata.assetIds)
+    ? node.metadata.assetIds.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+  return assetIds.some((assetId) => {
+    const asset = assetsById.get(assetId);
+    const kind = typeof asset?.kind === "string" ? asset.kind.toLowerCase() : "";
+    const mime = typeof asset?.mime === "string" ? asset.mime.toLowerCase() : "";
+    return kind === "image" || kind === "video" || kind === "audio" || mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/");
+  });
+};
+
+const readCanvasMediaTagName = (node: CanvasPageState["document"]["pages"][number]["nodes"][number]): string | null => {
+  if (typeof node.props.tagName === "string" && node.props.tagName.trim().length > 0) {
+    return node.props.tagName.trim().toLowerCase();
+  }
+  const codeSync = isRecord(node.metadata.codeSync) ? node.metadata.codeSync : null;
+  if (codeSync && typeof codeSync.tagName === "string" && codeSync.tagName.trim().length > 0) {
+    return codeSync.tagName.trim().toLowerCase();
+  }
+  return null;
+};
+
+const buildCanvasDocumentCapture = (state: CanvasPageState): DomCapture | null => {
+  const page = Array.isArray(state.document.pages) ? state.document.pages[0] : null;
+  if (!page || !Array.isArray(page.nodes) || page.nodes.length === 0) {
+    return null;
+  }
+  const { width, height } = computeCanvasDocumentBounds(page.nodes);
+  const nodes = [...page.nodes]
+    .sort(compareCanvasCaptureNodes)
+    .map((node) => renderCanvasDocumentNode(state.document, node))
+    .join("");
+  return {
+    html: `<body><main data-surface="canvas" style="position:relative;width:${width}px;min-height:${height}px;">${nodes}</main></body>`,
+    styles: {},
+    warnings: ["canvas_state_capture"],
+    inlineStyles: true
+  };
+};
+
+const computeCanvasDocumentBounds = (
+  nodes: CanvasPageState["document"]["pages"][number]["nodes"]
+): { width: number; height: number } => {
+  if (nodes.length === 0) {
+    return { width: 1600, height: 1200 };
+  }
+  const maxX = Math.max(...nodes.map((node) => node.rect.x + node.rect.width));
+  const maxY = Math.max(...nodes.map((node) => node.rect.y + node.rect.height));
+  return {
+    width: Math.max(maxX + 240, 1600),
+    height: Math.max(maxY + 240, 1200)
+  };
+};
+
+const compareCanvasCaptureNodes = (
+  left: CanvasPageState["document"]["pages"][number]["nodes"][number],
+  right: CanvasPageState["document"]["pages"][number]["nodes"][number]
+): number => {
+  const rootOrder = Number(left.parentId !== null) - Number(right.parentId !== null);
+  if (rootOrder !== 0) {
+    return rootOrder;
+  }
+  const areaOrder = (right.rect.width * right.rect.height) - (left.rect.width * left.rect.height);
+  if (areaOrder !== 0) {
+    return areaOrder;
+  }
+  const verticalOrder = left.rect.y - right.rect.y;
+  return verticalOrder !== 0 ? verticalOrder : left.rect.x - right.rect.x;
+};
+
+const renderCanvasDocumentNode = (
+  document: CanvasPageState["document"],
+  node: CanvasPageState["document"]["pages"][number]["nodes"][number]
+): string => {
+  const media = resolveCanvasDocumentMedia(document, node);
+  const text = escapeCanvasHtml(nodeTextForCapture(node) || node.name);
+  const style = serializeCanvasCaptureStyle({
+    position: "absolute",
+    left: `${node.rect.x}px`,
+    top: `${node.rect.y}px`,
+    width: `${Math.max(node.rect.width, 40)}px`,
+    minHeight: `${Math.max(node.rect.height, readCanvasMediaTagName(node) === "audio" ? 64 : 40)}px`,
+    overflow: "hidden",
+    ...node.style
+  });
+  const title = escapeCanvasAttribute(`${node.kind} • ${node.name}`);
+  if (media?.kind === "image" && media.src) {
+    return `<div data-node-id="${escapeCanvasAttribute(node.id)}" title="${title}" style="${style}"><img src="${escapeCanvasAttribute(media.src)}" alt="${escapeCanvasAttribute(media.alt ?? node.name)}" loading="lazy" draggable="false" style="width:100%;height:100%;object-fit:cover;display:block;" /></div>`;
+  }
+  if (media?.kind === "video" && media.src) {
+    const poster = media.poster ? ` poster="${escapeCanvasAttribute(media.poster)}"` : "";
+    return `<div data-node-id="${escapeCanvasAttribute(node.id)}" title="${title}" style="${style}"><video src="${escapeCanvasAttribute(media.src)}"${poster} muted loop autoplay playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover;display:block;"></video></div>`;
+  }
+  if (media?.kind === "audio" && media.src) {
+    return `<div data-node-id="${escapeCanvasAttribute(node.id)}" title="${title}" style="${style}"><audio src="${escapeCanvasAttribute(media.src)}" controls preload="metadata" style="width:100%;display:block;"></audio>${text ? `<div style="margin-top:8px;font:500 12px/1.4 sans-serif;">${text}</div>` : ""}</div>`;
+  }
+  return `<div data-node-id="${escapeCanvasAttribute(node.id)}" title="${title}" style="${style}">${text}</div>`;
+};
+
+const nodeTextForCapture = (
+  node: CanvasPageState["document"]["pages"][number]["nodes"][number]
+): string => {
+  const raw = node.props.text ?? node.metadata.text;
+  if (raw !== undefined && raw !== null) {
+    return typeof raw === "string" ? raw : String(raw);
+  }
+  return node.kind === "text" || node.kind === "note" || node.kind === "component-instance"
+    ? node.name
+    : "";
+};
+
+const resolveCanvasDocumentMedia = (
+  document: CanvasPageState["document"],
+  node: CanvasPageState["document"]["pages"][number]["nodes"][number]
+): { kind: "image" | "video" | "audio"; src: string | null; poster: string | null; alt: string | null } | null => {
+  const tagName = readCanvasMediaTagName(node);
+  const attributes = isRecord(node.props.attributes) ? node.props.attributes : {};
+  const assetIds = Array.isArray(node.metadata.assetIds)
+    ? node.metadata.assetIds.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+  const asset = assetIds.length > 0
+    ? document.assets.find((entry) => entry.id === assetIds[0])
+    : null;
+  const assetKind = typeof asset?.kind === "string" ? asset.kind.toLowerCase() : null;
+  const assetMime = typeof asset?.mime === "string" ? asset.mime.toLowerCase() : null;
+  const src = typeof node.props.src === "string"
+    ? node.props.src
+    : typeof attributes.src === "string"
+      ? attributes.src
+      : typeof asset?.url === "string"
+        ? asset.url
+        : typeof asset?.repoPath === "string"
+          ? asset.repoPath
+          : null;
+  const poster = typeof node.props.poster === "string"
+    ? node.props.poster
+    : typeof attributes.poster === "string"
+      ? attributes.poster
+      : null;
+  const alt = typeof node.props.alt === "string"
+    ? node.props.alt
+    : typeof attributes.alt === "string"
+      ? attributes.alt
+      : node.name;
+  if (tagName === "img" || assetKind === "image" || assetMime?.startsWith("image/")) {
+    return { kind: "image", src, poster: null, alt };
+  }
+  if (tagName === "video" || assetKind === "video" || assetMime?.startsWith("video/")) {
+    return { kind: "video", src, poster, alt };
+  }
+  if (tagName === "audio" || assetKind === "audio" || assetMime?.startsWith("audio/")) {
+    return { kind: "audio", src, poster: null, alt };
+  }
+  return null;
+};
+
+const serializeCanvasCaptureStyle = (style: Record<string, unknown>): string => {
+  return Object.entries(style)
+    .flatMap(([key, value]) => {
+      if (typeof value !== "string" && typeof value !== "number") {
+        return [];
+      }
+      const cssKey = key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+      const cssValue = typeof value === "number" && !CANVAS_CAPTURE_UNITLESS_STYLES.has(key) ? `${value}px` : String(value);
+      return `${cssKey}:${escapeCanvasAttribute(cssValue)};`;
+    })
+    .join("");
+};
+
+const escapeCanvasHtml = (value: string): string => {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+};
+
+const escapeCanvasAttribute = (value: string): string => {
+  return escapeCanvasHtml(value)
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+};
+
+const CANVAS_CAPTURE_UNITLESS_STYLES = new Set(["fontWeight", "lineHeight", "opacity", "zIndex"]);
+
+const resolveReportedTargetUrl = (
+  target: { url?: string; title?: string } | null | undefined,
+  liveUrl?: string,
+  synthetic?: { url: string; title?: string }
+): string | undefined => {
+  if (typeof synthetic?.url === "string" && isHtmlDataUrl(synthetic.url)) {
+    return synthetic.url;
+  }
+  if (typeof target?.url === "string" && isHtmlDataUrl(target.url)) {
+    return target.url;
+  }
+  return liveUrl ?? target?.url;
+};
+
+const resolveReportedTargetTitle = (
+  target: { url?: string; title?: string } | null | undefined,
+  liveTitle?: string,
+  synthetic?: { url: string; title?: string }
+): string | undefined => {
+  if (typeof synthetic?.title === "string" && synthetic.title.length > 0) {
+    return synthetic.title;
+  }
+  if (typeof target?.url === "string" && isHtmlDataUrl(target.url) && typeof target.title === "string" && target.title.length > 0) {
+    return target.title;
+  }
+  return liveTitle ?? target?.title;
+};
+
+const isHtmlDataUrl = (url: string): boolean => {
+  return url.startsWith("data:text/html");
+};
+
+const decodeHtmlDataUrl = (url: string): string | null => {
+  if (!isHtmlDataUrl(url)) {
+    return null;
+  }
+  const commaIndex = url.indexOf(",");
+  if (commaIndex === -1) {
+    return null;
+  }
+  const metadata = url.slice(0, commaIndex).toLowerCase();
+  const payload = url.slice(commaIndex + 1);
+  if (metadata.includes(";base64")) {
+    const decoded = atob(payload);
+    const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
+  try {
+    return decodeURIComponent(payload);
+  } catch {
+    return payload;
+  }
+};
+
+const executeInTab = async <TArg, TResult>(
+  tabId: number,
+  func: (arg: TArg) => TResult,
+  args: [TArg]
+): Promise<TResult> => {
+  return await new Promise<TResult>((resolve, reject) => {
+    chrome.scripting.executeScript(
+      { target: { tabId }, func: func as never, args },
+      (results) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
+        }
+        const [first] = results ?? [];
+        resolve((first?.result ?? null) as TResult);
+      }
+    );
+  });
+};
+
+function replaceDocumentWithHtmlScript(input: { html: string }): { title: string } {
+  document.open();
+  document.write(input.html);
+  document.close();
+  return { title: document.title };
+}
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   return await new Promise<T>((resolve, reject) => {

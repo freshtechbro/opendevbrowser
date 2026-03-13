@@ -18,20 +18,24 @@ import {
   createCoordinatorId,
   type TargetSessionRecord
 } from "../ops/target-session-coordinator.js";
-import type {
-  CanvasDocument,
-  CanvasEditorSelection,
-  CanvasEditorViewport,
-  CanvasFeedbackEvent,
-  CanvasFeedbackItem,
-  CanvasOverlayMountSummary,
-  CanvasPage,
-  CanvasPageMessage,
-  CanvasPagePortMessage,
-  CanvasPageState,
-  CanvasPreviewState,
-  CanvasTargetStateSummary,
-  CanvasNode
+import {
+  type CanvasDocument,
+  type CanvasEditorSelection,
+  type CanvasEditorViewport,
+  type CanvasFeedbackEvent,
+  type CanvasFeedbackItem,
+  type CanvasOverlayMountSummary,
+  type CanvasPage,
+  type CanvasPageMessage,
+  type CanvasPagePortMessage,
+  type CanvasPageState,
+  type CanvasSessionSummary,
+  type CanvasPreviewState,
+  type CanvasTargetStateSummary,
+  type CanvasNode,
+  type CanvasPageElementAction,
+  normalizeCanvasSessionSummary,
+  normalizeCanvasTargetStateSummaries
 } from "./model.js";
 
 type CanvasRuntimeOptions = {
@@ -43,7 +47,7 @@ type CanvasSessionExtra = {
   document: CanvasDocument;
   documentRevision: number | null;
   html: string;
-  summary: Record<string, unknown>;
+  summary: CanvasSessionSummary;
   previewMode: CanvasPreviewState;
   previewState: CanvasPreviewState;
   previewTargets: CanvasTargetStateSummary[];
@@ -91,6 +95,12 @@ export class CanvasRuntime {
   private readonly tabs = new TabManager();
   private readonly sessions = new TargetSessionCoordinator<CanvasSessionExtra>();
   private readonly pagePorts = new Map<number, Set<chrome.runtime.Port>>();
+  private readonly pendingPageActions = new Map<string, {
+    tabId: number;
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+    timeoutId: ReturnType<typeof setTimeout>;
+  }>();
 
   constructor(options: CanvasRuntimeOptions) {
     this.sendEnvelope = options.send;
@@ -117,6 +127,14 @@ export class CanvasRuntime {
       if (current && current.size === 0) {
         this.pagePorts.delete(tabId);
       }
+      for (const [requestId, pending] of this.pendingPageActions.entries()) {
+        if (pending.tabId !== tabId) {
+          continue;
+        }
+        clearTimeout(pending.timeoutId);
+        pending.reject(new Error("Canvas page disconnected before action completed."));
+        this.pendingPageActions.delete(requestId);
+      }
     });
     port.onMessage.addListener((message: unknown) => {
       const record = isRecord(message) ? message as CanvasPagePortMessage : null;
@@ -126,6 +144,44 @@ export class CanvasRuntime {
       this.handlePagePortMessage(tabId, record);
     });
     this.postCanvasState(port, this.getPageStateByTabId(tabId), "canvas-page:init");
+  }
+
+  getPageStateByTargetId(targetId: string): CanvasPageState | null {
+    try {
+      return this.getPageStateByTabId(parseTargetId(targetId));
+    } catch {
+      return null;
+    }
+  }
+
+  async performPageAction(
+    targetId: string,
+    action: CanvasPageElementAction,
+    selector?: string | null,
+    timeoutMs = 2500
+  ): Promise<unknown> {
+    const tabId = parseTargetId(targetId);
+    const port = await this.waitForPagePort(tabId, timeoutMs);
+    return await new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timeoutId = setTimeout(() => {
+        this.pendingPageActions.delete(requestId);
+        reject(new Error("Canvas page action timed out."));
+      }, timeoutMs);
+      this.pendingPageActions.set(requestId, { tabId, resolve, reject, timeoutId });
+      try {
+        port.postMessage({
+          type: "canvas-page-action-request",
+          requestId,
+          selector: selector ?? null,
+          action
+        } satisfies CanvasPageMessage);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        this.pendingPageActions.delete(requestId);
+        reject(error instanceof Error ? error : new Error("Canvas page action failed."));
+      }
+    });
   }
 
   handleMessage(message: CanvasEnvelope): void {
@@ -200,6 +256,20 @@ export class CanvasRuntime {
   }
 
   private handlePagePortMessage(tabId: number, message: CanvasPagePortMessage): void {
+    if (message.type === "canvas-page-action-response") {
+      const pending = this.pendingPageActions.get(message.requestId);
+      if (!pending) {
+        return;
+      }
+      clearTimeout(pending.timeoutId);
+      this.pendingPageActions.delete(message.requestId);
+      if (message.ok) {
+        pending.resolve(message.value);
+      } else {
+        pending.reject(new Error(message.error || "Canvas page action failed."));
+      }
+      return;
+    }
     const session = this.sessions.getByTabId(tabId);
     if (message.type === "canvas-page-ready" || message.type === "canvas-page-request-state") {
       this.broadcastCanvasState(tabId, "canvas-page:init");
@@ -334,12 +404,13 @@ export class CanvasRuntime {
     if (!existingTab) {
       throw new Error(`Canvas target is unavailable: ${tabId}`);
     }
+    const summary = normalizeCanvasSessionSummary(record.summary);
     session.document = requireCanvasDocument(record.document);
     session.documentRevision = optionalNumber(record.documentRevision);
-    session.html = renderCanvasDocumentHtml(session.document);
-    session.summary = isRecord(record.summary) ? record.summary : {};
-    session.previewTargets = parseTargetSummaries(record.targets ?? session.summary.targets);
-    session.overlayMounts = parseOverlayMounts(record.overlayMounts ?? session.summary.overlayMounts);
+    session.html = requireRenderedHtml(record);
+    session.summary = summary;
+    session.previewTargets = normalizeCanvasTargetStateSummaries(record.targets ?? summary.targets);
+    session.overlayMounts = parseOverlayMounts(record.overlayMounts ?? summary.overlayMounts);
     session.feedback = parseFeedbackEvents(record.feedback);
     session.feedbackCursor = optionalString(record.feedbackCursor) ?? lastFeedbackCursor(session.feedback);
     session.pendingMutation = false;
@@ -427,6 +498,7 @@ export class CanvasRuntime {
     const record = requireRecord(message.payload, "payload");
     const tabId = parseTargetId(requireString(record.targetId, "targetId"));
     const mountId = requireString(record.mountId, "mountId");
+    await insertCss(tabId, OVERLAY_STYLE);
     const result = await executeInTab(tabId, syncOverlayScript, [{
       mountId,
       title: session.document.title,
@@ -450,6 +522,7 @@ export class CanvasRuntime {
     const canvasSessionId = resolveCanvasSessionId(message, record);
     const clientId = requireString(message.clientId, "clientId");
     const requestedLeaseId = optionalString(message.leaseId);
+    const summary = normalizeCanvasSessionSummary(record.summary);
     const existing = this.sessions.get(canvasSessionId);
     if (existing) {
       if (existing.ownerClientId !== clientId || (requestedLeaseId && existing.leaseId !== requestedLeaseId)) {
@@ -461,10 +534,10 @@ export class CanvasRuntime {
       existing.designTabTargetId = formatTargetId(tabId);
       existing.document = document;
       existing.documentRevision = optionalNumber(record.documentRevision);
-      existing.html = renderCanvasDocumentHtml(document);
-      existing.summary = isRecord(record.summary) ? record.summary : {};
-      existing.previewTargets = parseTargetSummaries(record.targets ?? existing.summary.targets);
-      existing.overlayMounts = parseOverlayMounts(record.overlayMounts ?? existing.summary.overlayMounts);
+      existing.html = requireRenderedHtml(record);
+      existing.summary = summary;
+      existing.previewTargets = normalizeCanvasTargetStateSummaries(record.targets ?? summary.targets);
+      existing.overlayMounts = parseOverlayMounts(record.overlayMounts ?? summary.overlayMounts);
       existing.feedback = parseFeedbackEvents(record.feedback);
       existing.feedbackCursor = optionalString(record.feedbackCursor) ?? lastFeedbackCursor(existing.feedback);
       existing.previewMode = previewMode;
@@ -482,12 +555,12 @@ export class CanvasRuntime {
       designTabTargetId: formatTargetId(tabId),
       document,
       documentRevision: optionalNumber(record.documentRevision),
-      html: renderCanvasDocumentHtml(document),
-      summary: isRecord(record.summary) ? record.summary : {},
+      html: requireRenderedHtml(record),
+      summary,
       previewMode,
       previewState: previewMode,
-      previewTargets: parseTargetSummaries(record.targets ?? (isRecord(record.summary) ? record.summary.targets : undefined)),
-      overlayMounts: parseOverlayMounts(record.overlayMounts ?? (isRecord(record.summary) ? record.summary.overlayMounts : undefined)),
+      previewTargets: normalizeCanvasTargetStateSummaries(record.targets ?? summary.targets),
+      overlayMounts: parseOverlayMounts(record.overlayMounts ?? summary.overlayMounts),
       feedback: parseFeedbackEvents(record.feedback),
       feedbackCursor: optionalString(record.feedbackCursor) ?? lastFeedbackCursor(parseFeedbackEvents(record.feedback)),
       selection: defaultSelection(document.pages[0]?.id ?? null),
@@ -538,6 +611,30 @@ export class CanvasRuntime {
     return buildPageState(session, tabId);
   }
 
+  private async waitForPagePort(tabId: number, timeoutMs: number): Promise<chrome.runtime.Port> {
+    const existing = this.firstConnectedPagePort(tabId);
+    if (existing) {
+      return existing;
+    }
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      await delay(50);
+      const next = this.firstConnectedPagePort(tabId);
+      if (next) {
+        return next;
+      }
+    }
+    throw new Error("Canvas page port unavailable.");
+  }
+
+  private firstConnectedPagePort(tabId: number): chrome.runtime.Port | null {
+    const ports = this.pagePorts.get(tabId);
+    if (!ports || ports.size === 0) {
+      return null;
+    }
+    return ports.values().next().value ?? null;
+  }
+
   private sendResponse(message: CanvasRequest, payload: unknown): void {
     const response: CanvasResponse = {
       type: "canvas_response",
@@ -566,7 +663,7 @@ export class CanvasRuntime {
   private postCanvasState(
     port: chrome.runtime.Port,
     state: CanvasPageState | null,
-    type: CanvasPageMessage["type"],
+    type: "canvas-page:init" | "canvas-page:update" | "canvas-page:closed",
     extra: Record<string, unknown> = {}
   ): void {
     try {
@@ -580,7 +677,11 @@ export class CanvasRuntime {
     }
   }
 
-  private broadcastCanvasState(tabId: number, type: CanvasPageMessage["type"], extra: Record<string, unknown> = {}): void {
+  private broadcastCanvasState(
+    tabId: number,
+    type: "canvas-page:init" | "canvas-page:update" | "canvas-page:closed",
+    extra: Record<string, unknown> = {}
+  ): void {
     const ports = this.pagePorts.get(tabId);
     if (!ports || ports.size === 0) {
       return;
@@ -698,6 +799,41 @@ function requireCanvasDocument(value: unknown): CanvasDocument {
     documentId: requireString(document.documentId, "documentId"),
     title: optionalString(document.title) ?? "OpenDevBrowser Canvas",
     updatedAt: optionalString(document.updatedAt) ?? undefined,
+    bindings: Array.isArray(document.bindings)
+      ? document.bindings.flatMap((bindingValue) => {
+        const binding = isRecord(bindingValue) ? bindingValue : null;
+        if (!binding || typeof binding.id !== "string" || typeof binding.nodeId !== "string") {
+          return [];
+        }
+        return [{
+          id: binding.id,
+          nodeId: binding.nodeId,
+          kind: optionalString(binding.kind) ?? "component",
+          componentName: optionalString(binding.componentName) ?? undefined,
+          metadata: isRecord(binding.metadata) ? binding.metadata : {}
+        }];
+      })
+      : [],
+    assets: Array.isArray(document.assets)
+      ? document.assets.flatMap((assetValue) => {
+        const asset = isRecord(assetValue) ? assetValue : null;
+        if (!asset || typeof asset.id !== "string") {
+          return [];
+        }
+        return [{
+          id: asset.id,
+          sourceType: optionalString(asset.sourceType) ?? undefined,
+          kind: optionalString(asset.kind) ?? undefined,
+          repoPath: optionalString(asset.repoPath),
+          url: optionalString(asset.url),
+          mime: optionalString(asset.mime) ?? undefined,
+          metadata: isRecord(asset.metadata) ? asset.metadata : {}
+        }];
+      })
+      : [],
+    componentInventory: Array.isArray(document.componentInventory)
+      ? document.componentInventory.filter(isRecord)
+      : [],
     pages: pagesValue.map((pageValue) => {
       const page = requireRecord(pageValue, "page");
       const nodesValue = Array.isArray(page.nodes) ? page.nodes : [];
@@ -719,6 +855,7 @@ function requireCanvasDocument(value: unknown): CanvasDocument {
             rect: normalizeRect(node.rect),
             props: isRecord(node.props) ? node.props : {},
             style: isRecord(node.style) ? node.style : {},
+            bindingRefs: isRecord(node.bindingRefs) ? node.bindingRefs : {},
             metadata: isRecord(node.metadata) ? node.metadata : {}
           } satisfies CanvasNode;
         }),
@@ -726,6 +863,10 @@ function requireCanvasDocument(value: unknown): CanvasDocument {
       } satisfies CanvasPage;
     })
   };
+}
+
+function requireRenderedHtml(record: Record<string, unknown>): string {
+  return requireString(record.html, "html");
 }
 
 function normalizeRect(value: unknown): { x: number; y: number; width: number; height: number } {
@@ -738,33 +879,6 @@ function normalizeRect(value: unknown): { x: number; y: number; width: number; h
     width: typeof value.width === "number" ? value.width : 320,
     height: typeof value.height === "number" ? value.height : 180
   };
-}
-
-function parseTargetSummaries(value: unknown): CanvasTargetStateSummary[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.flatMap((entry) => {
-    if (!isRecord(entry)) {
-      return [];
-    }
-    const targetId = optionalString(entry.targetId);
-    const prototypeId = optionalString(entry.prototypeId);
-    const previewMode = normalizePreviewState(entry.previewMode);
-    const previewState = normalizePreviewState(entry.previewState);
-    if (!targetId || !prototypeId || !previewMode || !previewState) {
-      return [];
-    }
-    return [{
-      targetId,
-      prototypeId,
-      previewMode,
-      previewState,
-      renderStatus: optionalString(entry.renderStatus) ?? undefined,
-      degradeReason: optionalString(entry.degradeReason),
-      lastRenderedAt: optionalString(entry.lastRenderedAt) ?? undefined
-    }];
-  });
 }
 
 function parseOverlayMounts(value: unknown): CanvasOverlayMountSummary[] {
@@ -963,77 +1077,6 @@ function requireTabId(tab: chrome.tabs.Tab): number {
   return tabId;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function renderCanvasDocumentHtml(document: CanvasDocument): string {
-  const pages = document.pages.map((page) => renderPageHtml(page)).join("\n");
-  return [
-    "<!doctype html>",
-    "<html lang=\"en\">",
-    "<head>",
-    "  <meta charset=\"utf-8\" />",
-    "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />",
-    `  <title>${escapeHtml(document.title)}</title>`,
-    "  <style>",
-    "    body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #07111d; color: #f3f6fb; }",
-    "    .odb-canvas-root { display: grid; gap: 24px; padding: 24px; }",
-    "    .odb-canvas-page { position: relative; min-height: 900px; border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 24px; background: rgba(12,20,33,0.84); overflow: hidden; }",
-    "    .odb-canvas-node { position: absolute; display: grid; align-content: start; border-radius: 18px; border: 1px solid rgba(255,255,255,0.12); background: rgba(8,19,31,0.82); padding: 12px; overflow: hidden; }",
-    "    .odb-canvas-text { font-size: 1rem; line-height: 1.5; }",
-    "    .odb-canvas-note { border-left: 3px solid #20d5c6; color: #9aa6bd; }",
-    "  </style>",
-    "</head>",
-    "<body>",
-    `  <main class="odb-canvas-root" data-document-id="${escapeHtml(document.documentId)}">`,
-    pages,
-    "  </main>",
-    "</body>",
-    "</html>"
-  ].join("\n");
-}
-
-function renderPageHtml(page: CanvasPage): string {
-  const nodes = page.nodes.map((node) => renderNodeHtml(node)).join("");
-  return `<section class="odb-canvas-page" data-page-id="${escapeHtml(page.id)}">${nodes}</section>`;
-}
-
-function renderNodeHtml(node: CanvasNode): string {
-  const attrs = [
-    `class="odb-canvas-node odb-canvas-${escapeHtml(node.kind)}"`,
-    `data-node-id="${escapeHtml(node.id)}"`,
-    `style="${inlineStyle(node)}"`
-  ].join(" ");
-  const text = renderTextContent(node);
-  return node.kind === "text"
-    ? `<p ${attrs}>${text}</p>`
-    : node.kind === "note"
-      ? `<aside ${attrs}>${text}</aside>`
-      : `<div ${attrs}>${text}</div>`;
-}
-
-function renderTextContent(node: CanvasNode): string {
-  const raw = node.props.text ?? node.metadata.text ?? node.name;
-  return escapeHtml(typeof raw === "string" ? raw : String(raw ?? ""));
-}
-
-function inlineStyle(node: CanvasNode): string {
-  const stylePairs = Object.entries(node.style)
-    .filter(([, value]) => typeof value === "string" || typeof value === "number")
-    .map(([key, value]) => `${key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)}:${String(value)}`);
-  stylePairs.push(`left:${node.rect.x}px`);
-  stylePairs.push(`top:${node.rect.y}px`);
-  stylePairs.push(`width:${Math.max(node.rect.width, 80)}px`);
-  stylePairs.push(`height:${Math.max(node.rect.height, 48)}px`);
-  return stylePairs.join(";");
-}
-
 async function insertCss(tabId: number, css: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     chrome.scripting.insertCSS({ target: { tabId }, css }, () => {
@@ -1122,9 +1165,17 @@ function selectOverlayScript(input: { selectionHint: Record<string, unknown>; no
 }
 
 function syncOverlayScript(input: { mountId: string; title: string; selection: CanvasEditorSelection }): { overlayState: string } {
-  const root = document.getElementById(input.mountId);
+  let root = document.getElementById(input.mountId);
   if (!(root instanceof HTMLElement)) {
-    return { overlayState: "missing" };
+    root = document.createElement("div");
+    root.id = input.mountId;
+    root.className = "opendevbrowser-canvas-overlay";
+    const heading = document.createElement("strong");
+    heading.textContent = input.title;
+    const detail = document.createElement("div");
+    detail.textContent = input.selection.nodeId ? `Selected ${input.selection.nodeId}` : "Canvas overlay synced";
+    root.append(heading, detail);
+    document.body.append(root);
   }
   const strong = root.querySelector("strong");
   if (strong) {
@@ -1161,4 +1212,10 @@ function normalizeCanvasError(error: unknown): CanvasError {
     message: "Canvas request failed",
     retryable: false
   };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

@@ -31,6 +31,7 @@ export type OpsNetworkEvent = {
 
 type OpsSessionExtra = {
   refStore: OpsRefStore;
+  syntheticTargets: Map<string, { url: string; title?: string }>;
   consoleEvents: OpsConsoleEvent[];
   networkEvents: OpsNetworkEvent[];
   networkRequests: Map<string, { method: string; url: string; resourceType?: string }>;
@@ -101,6 +102,7 @@ export class OpsSessionStore {
     const parallelismPolicy = options?.parallelismPolicy ?? DEFAULT_OPS_PARALLELISM_POLICY;
     return this.coordinator.createSession(ownerClientId, tabId, leaseId, info, {
       refStore: new OpsRefStore(),
+      syntheticTargets: new Map(),
       consoleEvents: [],
       networkEvents: [],
       networkRequests: new Map(),
@@ -147,6 +149,7 @@ export class OpsSessionStore {
     session.targetQueueDepth.delete(targetId);
     session.targetQueueOldestAt.delete(targetId);
     session.refStore.clearTarget(targetId);
+    session.syntheticTargets.delete(targetId);
     return target;
   }
 

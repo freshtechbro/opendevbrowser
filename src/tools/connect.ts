@@ -32,6 +32,7 @@ export function createConnectTool(deps: ToolDeps): ToolDefinition {
       wsEndpoint: z.string().optional().describe("Full WebSocket endpoint to connect to"),
       host: z.string().optional().describe("Host for /json/version lookup"),
       port: z.number().int().optional().describe("Port for /json/version lookup"),
+      startUrl: z.string().optional().describe("Open this URL immediately after connect"),
       extensionLegacy: z.boolean().optional().describe("Use legacy extension relay (/cdp) instead of ops")
     },
     async execute(args) {
@@ -39,6 +40,9 @@ export function createConnectTool(deps: ToolDeps): ToolDefinition {
         await deps.relay?.refresh?.();
         const wsEndpoint = args.wsEndpoint;
         const extensionLegacy = args.extensionLegacy === true;
+        const startUrl = typeof args.startUrl === "string" && args.startUrl.trim().length > 0
+          ? args.startUrl.trim()
+          : undefined;
         const hasExplicitCdp = Boolean(wsEndpoint || args.host || args.port);
         const relayUrl = extensionLegacy ? deps.relay?.getCdpUrl() ?? null : deps.relay?.getOpsUrl?.() ?? null;
         const normalizedOpsEndpoint = normalizeRelayEndpoint(wsEndpoint, "ops", true);
@@ -53,7 +57,9 @@ export function createConnectTool(deps: ToolDeps): ToolDefinition {
             : normalizedOpsEndpoint;
         let result;
         if (relayEndpoint || (!hasExplicitCdp && relayUrl)) {
-          result = await deps.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
+          result = startUrl
+            ? await deps.manager.connectRelay(relayEndpoint ?? relayUrl ?? "", { startUrl })
+            : await deps.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
         } else {
           if (!hasExplicitCdp) {
             return failure("Extension relay not available. Connect the extension or pass wsEndpoint/host/port.", "extension_not_connected");
@@ -61,7 +67,8 @@ export function createConnectTool(deps: ToolDeps): ToolDefinition {
           result = await deps.manager.connect({
             wsEndpoint,
             host: args.host,
-            port: args.port
+            port: args.port,
+            startUrl
           });
         }
         return ok({

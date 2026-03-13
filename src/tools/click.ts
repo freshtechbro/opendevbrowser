@@ -10,11 +10,12 @@ export function createClickTool(deps: ToolDeps): ToolDefinition {
     description: "Click a referenced element.",
     args: {
       sessionId: z.string().describe("Session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       ref: z.string().describe("Element ref")
     },
     async execute(args) {
       try {
-        const result = await deps.manager.click(args.sessionId, args.ref);
+        const result = await deps.manager.click(args.sessionId, args.ref, args.targetId);
         return ok(result);
       } catch (error) {
         return failure(serializeError(error).message, "click_failed");

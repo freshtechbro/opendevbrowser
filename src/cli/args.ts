@@ -132,6 +132,7 @@ export const VALID_FLAGS = [
   "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms",
   "--skills-global", "--skills-local", "--no-skills",
   "--screenshot-mode", "--debug", "--context",
+  "--stored",
   "--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source",
   "--query", "--providers", "--budget", "--region", "--sort",
   "--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy",

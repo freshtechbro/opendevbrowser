@@ -10,12 +10,13 @@ export function createSelectTool(deps: ToolDeps): ToolDefinition {
     description: "Select options in a referenced select element.",
     args: {
       sessionId: z.string().describe("Session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       ref: z.string().describe("Element ref"),
       values: z.array(z.string()).describe("Values to select")
     },
     async execute(args) {
       try {
-        await deps.manager.select(args.sessionId, args.ref, args.values);
+        await deps.manager.select(args.sessionId, args.ref, args.values, args.targetId);
         return ok({});
       } catch (error) {
         return failure(serializeError(error).message, "select_failed");

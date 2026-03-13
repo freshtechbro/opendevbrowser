@@ -152,6 +152,7 @@
       display: grid;
       grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(300px, 380px);
       gap: 18px;
+      align-items: start;
       min-height: 0;
       flex: 1 1 auto;
     }
@@ -160,6 +161,7 @@
     .canvas-preview-card {
       display: grid;
       gap: 18px;
+      align-self: start;
       align-content: start;
       padding: 18px;
       border-radius: 24px;
@@ -168,6 +170,7 @@
     .canvas-stage-card {
       display: grid;
       gap: 12px;
+      align-self: start;
       padding: 14px;
       border-radius: 28px;
       min-height: 70vh;
@@ -192,8 +195,8 @@
         linear-gradient(90deg, var(--surface-grid) 1px, transparent 1px),
         var(--surface-bg);
       background-size: 32px 32px, 32px 32px, auto;
-      color: var(--surface-text);
       overflow: hidden;
+      overscroll-behavior: contain;
       cursor: grab;
     }
 
@@ -209,40 +212,163 @@
 
     .canvas-node {
       position: absolute;
-      display: grid;
-      gap: 8px;
-      align-content: start;
-      padding: 12px;
-      border-radius: 18px;
-      border: 1px solid rgba(143, 164, 187, 0.16);
-      background: rgba(9, 18, 29, 0.92);
-      color: var(--text);
-      box-shadow: 0 16px 28px rgba(0, 0, 0, 0.16);
+      display: block;
+      margin: 0;
+      border: 0;
+      background: transparent;
+      color: var(--surface-text);
+      box-shadow: none;
       user-select: none;
+      overflow: hidden;
+      transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+      will-change: transform;
     }
 
     .canvas-node[data-selected="true"] {
-      border-color: rgba(32, 213, 198, 0.42);
-      box-shadow: 0 0 0 1px rgba(32, 213, 198, 0.38), 0 18px 36px rgba(0, 0, 0, 0.22);
+      outline: 2px solid rgba(32, 213, 198, 0.7);
+      outline-offset: 3px;
     }
 
-    .canvas-node-kind {
-      color: var(--muted);
-      font-size: 0.72rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+    .canvas-node:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 28px rgba(2, 8, 23, 0.28);
+      filter: brightness(1.03);
     }
 
-    .canvas-node-name {
-      font-size: 0.95rem;
+    .canvas-node button,
+    .canvas-node input,
+    .canvas-node textarea {
+      font: inherit;
+    }
+
+    .canvas-node-row,
+    .canvas-node-tabs-trigger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 100%;
+    }
+
+    .canvas-node-tabs-trigger {
+      border-radius: inherit;
+      background: rgba(15, 23, 42, 0.06);
+      padding: 6px 10px;
+    }
+
+    .canvas-node-label {
+      line-height: 1.1;
+    }
+
+    .canvas-node-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .canvas-node-card-title {
+      font-size: 1em;
       font-weight: 700;
+      line-height: 1.2;
     }
 
-    .canvas-node-body {
-      font-size: 0.85rem;
+    .canvas-node-card-copy {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+      color: inherit;
+      opacity: 0.84;
+      font-size: 0.92em;
       line-height: 1.45;
-      color: #c7d6e6;
-      overflow: hidden;
+    }
+
+    .canvas-node-card-copy p {
+      margin: 0;
+    }
+
+    .canvas-node-inline-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .canvas-node-inline-item {
+      white-space: nowrap;
+    }
+
+    .canvas-node-icon,
+    .canvas-node-icon-stack {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      flex: none;
+    }
+
+    .canvas-node-icon {
+      width: 1.1rem;
+      height: 1.1rem;
+      border-radius: 999px;
+      font-size: 0.88rem;
+      line-height: 1;
+    }
+
+    .canvas-node-icon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .canvas-node-icon[data-library="tabler"] {
+      color: #dff5ff;
+    }
+
+    .canvas-node-icon[data-library="microsoft-fluent-ui-system-icons"] {
+      color: #fee2ff;
+    }
+
+    .canvas-node-icon[data-library="3dicons"] {
+      background: linear-gradient(145deg, #7ef9e9 0%, #22c3ee 48%, #ff7aa2 100%);
+      color: #06101a;
+    }
+
+    .canvas-node-icon[data-library="@lobehub/fluent-emoji-3d"] {
+      font-size: 1rem;
+    }
+
+    .canvas-node-media-shell {
+      display: grid;
+      place-items: center;
+      background: rgba(15, 23, 42, 0.04);
+    }
+
+    .canvas-node-media,
+    .canvas-node-media-placeholder {
+      width: 100%;
+    }
+
+    .canvas-node-media-image,
+    .canvas-node-media-video {
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .canvas-node-media-audio {
+      min-height: 52px;
+    }
+
+    .canvas-node-media-placeholder {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100%;
+      padding: 14px;
+      color: rgba(229, 239, 248, 0.7);
+      font-size: 0.84rem;
+      text-transform: capitalize;
     }
 
     .canvas-panel {
@@ -306,6 +432,16 @@
       gap: 8px;
     }
 
+    .canvas-actions-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .canvas-actions-grid .canvas-button {
+      width: 100%;
+    }
+
     .canvas-field label {
       color: var(--muted);
       font-size: 0.82rem;
@@ -324,6 +460,47 @@
     .canvas-textarea {
       min-height: 92px;
       resize: vertical;
+    }
+
+    .canvas-annotation-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .canvas-annotation-item {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(4, 11, 18, 0.52);
+    }
+
+    .canvas-annotation-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .canvas-annotation-title {
+      font-size: 0.9rem;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .canvas-annotation-meta {
+      font-size: 0.76rem;
+      color: var(--muted);
+    }
+
+    .canvas-annotation-empty {
+      font-size: 0.82rem;
+      color: var(--muted);
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px dashed rgba(148, 163, 184, 0.2);
+      text-align: center;
     }
 
     .canvas-preview-frame {
@@ -353,6 +530,18 @@
       .canvas-stage-card,
       .canvas-stage {
         min-height: 52vh;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .canvas-node {
+        transition: none;
+      }
+
+      .canvas-node:hover {
+        transform: none;
+        box-shadow: none;
+        filter: none;
       }
     }
   </style>
@@ -397,6 +586,24 @@
         <section class="canvas-panel">
           <h2>Feedback</h2>
           <div class="canvas-feedback-list" id="canvas-feedback"></div>
+        </section>
+        <section class="canvas-panel">
+          <h2>Annotations</h2>
+          <div class="canvas-actions-grid">
+            <button class="canvas-button canvas-button-primary" id="canvas-annotation-add" type="button">Add Selected</button>
+            <button class="canvas-button" id="canvas-annotation-copy" type="button">Copy All</button>
+          </div>
+          <div class="canvas-actions-grid">
+            <button class="canvas-button" id="canvas-annotation-send" type="button">Send All</button>
+            <div></div>
+          </div>
+          <div class="canvas-field">
+            <label for="canvas-annotation-context">Context</label>
+            <textarea class="canvas-textarea" id="canvas-annotation-context" placeholder="Optional context for agent payloads"></textarea>
+          </div>
+          <div class="canvas-annotation-list" id="canvas-annotation-list">
+            <div class="canvas-annotation-empty">No canvas annotations captured yet.</div>
+          </div>
         </section>
       </aside>
 

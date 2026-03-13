@@ -1,3 +1,15 @@
+import type {
+  CanvasCodeSyncBindingMetadata,
+  CanvasParityArtifact,
+  CodeSyncAttachMode,
+  CodeSyncBindingStatus,
+  CodeSyncLeaseRole,
+  CodeSyncProjectionMode,
+  CodeSyncSessionStatus,
+  CodeSyncState
+} from "./code-sync/types";
+export type { CanvasParityArtifact } from "./code-sync/types";
+
 export const CANVAS_SCHEMA_VERSION = "1.0.0";
 
 export type CanvasPreflightState =
@@ -29,6 +41,21 @@ export type CanvasGovernanceBlockKey =
 
 export type CanvasVariantSelector = Partial<Record<"viewport" | "theme" | "interaction" | "content", string>>;
 
+export type CanvasLibraryPolicy = {
+  icons: string[];
+  components: string[];
+  styling: string[];
+  motion: string[];
+  threeD: string[];
+};
+
+export type CanvasIconRoles = {
+  primary: string | null;
+  secondary: string | null;
+  secondaryAlt: string | null;
+  decorative: string | null;
+};
+
 export type CanvasNodeKind =
   | "frame"
   | "group"
@@ -47,7 +74,9 @@ export type CanvasFeedbackCategory =
   | "validation"
   | "performance"
   | "asset"
-  | "export";
+  | "export"
+  | "code-sync"
+  | "parity";
 
 export type CanvasFeedbackSeverity = "info" | "warning" | "error";
 
@@ -89,7 +118,13 @@ export type CanvasBlockerCode =
   | "revision_conflict"
   | "unsupported_target"
   | "lease_reclaim_required"
-  | "policy_violation";
+  | "policy_violation"
+  | "code_sync_required"
+  | "code_sync_conflict"
+  | "code_sync_unsupported"
+  | "code_sync_out_of_date";
+
+export type CanvasBindingKind = string;
 
 export type CanvasBlockState = "present" | "missing" | "inherited" | "locked";
 
@@ -114,10 +149,11 @@ export type CanvasVariantPatch = {
 export type CanvasBinding = {
   id: string;
   nodeId: string;
-  kind: string;
+  kind: CanvasBindingKind;
   selector?: string;
   componentName?: string;
   metadata?: Record<string, unknown>;
+  codeSync?: CanvasCodeSyncBindingMetadata;
 };
 
 export type CanvasAsset = {
@@ -245,6 +281,10 @@ export type CanvasPatch =
     binding: Omit<CanvasBinding, "nodeId"> & Partial<Pick<CanvasBinding, "nodeId">>;
   }
   | {
+    op: "binding.remove";
+    bindingId: string;
+  }
+  | {
     op: "prototype.upsert";
     prototype: CanvasPrototype;
   };
@@ -290,6 +330,17 @@ export type CanvasTargetState = {
   renderStatus: "idle" | "rendered" | "degraded";
   degradeReason?: CanvasDegradeReason;
   lastRenderedAt?: string;
+  sourceUrl?: string | null;
+  projection?: CodeSyncProjectionMode;
+  fallbackReason?: string | null;
+  parityArtifact?: CanvasParityArtifact | null;
+};
+
+export type CanvasAttachedClient = {
+  clientId: string;
+  role: CodeSyncLeaseRole;
+  attachedAt: string;
+  lastSeenAt: string;
 };
 
 export type CanvasSessionSummary = {
@@ -297,13 +348,28 @@ export type CanvasSessionSummary = {
   browserSessionId: string | null;
   documentId: string;
   leaseId: string;
+  attachModes?: CodeSyncAttachMode[];
   preflightState: CanvasPreflightState;
   planStatus: CanvasPlanStatus;
   mode: CanvasSessionMode;
   documentRevision: number;
+  libraryPolicy: CanvasLibraryPolicy;
+  componentInventoryCount: number;
+  componentSourceKinds: string[];
+  iconRoles: CanvasIconRoles;
   targets: CanvasTargetState[];
   overlayMounts: Array<{ mountId: string; targetId: string; mountedAt: string }>;
   designTabTargetId?: string | null;
+  attachedClients?: CanvasAttachedClient[];
+  leaseHolderClientId?: string | null;
+  watchState?: CodeSyncSessionStatus["watchState"];
+  codeSyncState?: CodeSyncState;
+  boundFiles?: string[];
+  conflictCount?: number;
+  driftState?: CodeSyncSessionStatus["driftState"];
+  lastImportAt?: string;
+  lastPushAt?: string;
+  bindings?: CodeSyncBindingStatus[];
 };
 
 export type CanvasCommandContext = {

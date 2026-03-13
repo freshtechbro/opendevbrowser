@@ -7,6 +7,8 @@ import type { AnnotationResponse, AnnotationTransport } from "../../relay/protoc
 
 type AnnotateArgs = {
   sessionId?: string;
+  stored?: boolean;
+  includeScreenshots?: boolean;
   url?: string;
   screenshotMode?: "visible" | "full" | "none";
   debug?: boolean;
@@ -49,6 +51,14 @@ export const parseAnnotateArgs = (rawArgs: string[]): AnnotateArgs => {
     if (arg?.startsWith("--session-id=")) {
       const value = requireValue(arg.split("=", 2)[1], "--session-id");
       parsed.sessionId = value;
+      continue;
+    }
+    if (arg === "--stored") {
+      parsed.stored = true;
+      continue;
+    }
+    if (arg === "--include-screenshots") {
+      parsed.includeScreenshots = true;
       continue;
     }
     if (arg === "--url") {
@@ -137,7 +147,19 @@ export const parseAnnotateArgs = (rawArgs: string[]): AnnotateArgs => {
 };
 
 export async function runAnnotate(args: ParsedArgs) {
-  const { sessionId, url, screenshotMode, debug, context, timeoutMs, transport, targetId, tabId } = parseAnnotateArgs(args.rawArgs);
+  const {
+    sessionId,
+    stored,
+    includeScreenshots,
+    url,
+    screenshotMode,
+    debug,
+    context,
+    timeoutMs,
+    transport,
+    targetId,
+    tabId
+  } = parseAnnotateArgs(args.rawArgs);
   if (!sessionId) throw createUsageError("Missing --session-id");
 
   const client = new DaemonClient({ autoRenew: true });
@@ -146,6 +168,8 @@ export async function runAnnotate(args: ParsedArgs) {
   try {
     const response = await client.call<AnnotationResponse>("annotate", {
       sessionId,
+      stored,
+      includeScreenshots,
       transport,
       targetId,
       tabId,
@@ -155,6 +179,14 @@ export async function runAnnotate(args: ParsedArgs) {
       context,
       timeoutMs
     }, { timeoutMs: callTimeoutMs });
+
+    if (response.status === "cancelled") {
+      return {
+        success: true,
+        message: response.error?.message ?? "Annotation cancelled.",
+        data: { cancelled: true }
+      };
+    }
 
     if (response.status !== "ok" || !response.payload) {
       const message = response.error?.message ?? "Annotation failed.";

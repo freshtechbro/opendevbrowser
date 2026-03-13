@@ -17,34 +17,58 @@ export class TabManager {
   }
 
   async waitForTabComplete(tabId: number, timeoutMs = 10000): Promise<void> {
-    const existing = await this.getTab(tabId);
-    if (existing?.status === "complete") {
+    const isComplete = async (): Promise<boolean> => {
+      const current = await this.getTab(tabId);
+      return current?.status === "complete";
+    };
+    if (await isComplete()) {
       return;
     }
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
-      const timeoutId = setTimeout(() => {
+      let pollId: number | null = null;
+      const settle = (error?: Error) => {
         if (settled) return;
         settled = true;
+        clearTimeout(timeoutId);
+        if (pollId !== null) {
+          clearInterval(pollId);
+        }
         chrome.tabs.onUpdated.removeListener(listener);
-        reject(new Error("Tab load timeout"));
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      };
+      const timeoutId = setTimeout(() => {
+        settle(new Error("Tab load timeout"));
       }, timeoutMs);
 
-      const listener = (updatedId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
+      const listener = (updatedId: number, changeInfo: chrome.tabs.OnUpdatedInfo, tab?: chrome.tabs.Tab) => {
         if (updatedId !== tabId) {
           return;
         }
-        if (changeInfo.status === "complete") {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeoutId);
-          chrome.tabs.onUpdated.removeListener(listener);
-          resolve();
+        if (changeInfo.status === "complete" || tab?.status === "complete") {
+          settle();
         }
       };
 
       chrome.tabs.onUpdated.addListener(listener);
+      const poll = () => {
+        void isComplete()
+          .then((complete) => {
+            if (complete) {
+              settle();
+            }
+          })
+          .catch(() => {
+            // Ignore transient tab lookup failures and let the timeout decide.
+          });
+      };
+      pollId = setInterval(poll, Math.min(250, Math.max(50, Math.floor(timeoutMs / 20))));
+      poll();
     });
   }
 

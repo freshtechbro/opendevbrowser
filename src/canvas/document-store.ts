@@ -8,6 +8,8 @@ import type {
   CanvasGenerationPlan,
   CanvasGovernanceBlockKey,
   CanvasGovernanceBlockState,
+  CanvasIconRoles,
+  CanvasLibraryPolicy,
   CanvasNode,
   CanvasPage,
   CanvasPatch,
@@ -17,6 +19,7 @@ import type {
   CanvasVariantSelector
 } from "./types";
 import { CANVAS_SCHEMA_VERSION } from "./types";
+import { normalizeCodeSyncBindingMetadata } from "./code-sync/types";
 
 const GOVERNANCE_KEYS: CanvasGovernanceBlockKey[] = [
   "intent",
@@ -72,11 +75,20 @@ const REQUIRED_PLAN_FIELDS = [
   "validationTargets"
 ] as const;
 
-const PROJECT_DEFAULT_LIBRARY_POLICY = {
+const PROJECT_DEFAULT_LIBRARY_POLICY: CanvasLibraryPolicy = {
   icons: ["3dicons", "tabler", "microsoft-fluent-ui-system-icons", "@lobehub/fluent-emoji-3d"],
-  components: [],
+  components: ["shadcn"],
+  styling: ["tailwindcss"],
   motion: [],
   threeD: []
+};
+
+const APPROVED_LIBRARY_ENTRIES: Record<keyof CanvasLibraryPolicy, ReadonlySet<string>> = {
+  icons: new Set(PROJECT_DEFAULT_LIBRARY_POLICY.icons),
+  components: new Set(PROJECT_DEFAULT_LIBRARY_POLICY.components),
+  styling: new Set(PROJECT_DEFAULT_LIBRARY_POLICY.styling),
+  motion: new Set(PROJECT_DEFAULT_LIBRARY_POLICY.motion),
+  threeD: new Set(PROJECT_DEFAULT_LIBRARY_POLICY.threeD)
 };
 
 const PROJECT_DEFAULT_RUNTIME_BUDGETS = {
@@ -115,6 +127,15 @@ const stableStringify = (value: unknown): string => {
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 const isNonEmptyRecord = (value: unknown): value is Record<string, unknown> => isRecord(value) && Object.keys(value).length > 0;
+
+const uniqueStrings = (values: string[]): string[] => [...new Set(values)];
+
+const normalizeLibraryPolicyField = (value: unknown, fallback: readonly string[]): string[] => {
+  if (!Array.isArray(value)) {
+    return [...fallback];
+  }
+  return uniqueStrings(value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0));
+};
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -248,10 +269,25 @@ export function normalizeCanvasDocument(input: CanvasDocument): CanvasDocument {
     })) : [],
     viewports: Array.isArray(base.viewports) ? clone(base.viewports) : [],
     themes: Array.isArray(base.themes) ? clone(base.themes) : [],
-    bindings: Array.isArray(base.bindings) ? clone(base.bindings) : [],
+    bindings: Array.isArray(base.bindings) ? base.bindings.map((binding) => normalizeBinding(binding)) : [],
     prototypes: Array.isArray(base.prototypes) ? clone(base.prototypes) : [],
     meta: isRecord(base.meta) ? clone(base.meta) : {}
   };
+}
+
+function normalizeBinding(binding: CanvasBinding): CanvasBinding {
+  const normalized: CanvasBinding = {
+    id: binding.id,
+    nodeId: binding.nodeId,
+    kind: binding.kind,
+    selector: typeof binding.selector === "string" ? binding.selector : undefined,
+    componentName: typeof binding.componentName === "string" ? binding.componentName : undefined,
+    metadata: isRecord(binding.metadata) ? clone(binding.metadata) : {}
+  };
+  if (binding.kind === "code-sync" || binding.codeSync) {
+    normalized.codeSync = normalizeCodeSyncBindingMetadata(binding.codeSync ?? binding.metadata?.codeSync);
+  }
+  return normalized;
 }
 
 export function validateGenerationPlan(plan: unknown): { ok: true } | { ok: false; missing: string[] } {
@@ -260,6 +296,27 @@ export function validateGenerationPlan(plan: unknown): { ok: true } | { ok: fals
   }
   const missing = REQUIRED_PLAN_FIELDS.filter((field) => !isNonEmptyRecord(plan[field]));
   return missing.length === 0 ? { ok: true } : { ok: false, missing: [...missing] };
+}
+
+export function resolveCanvasLibraryPolicy(document: CanvasDocument): CanvasLibraryPolicy {
+  const policy = getGovernanceBlock(document, "libraryPolicy");
+  return {
+    icons: normalizeLibraryPolicyField(policy.icons, PROJECT_DEFAULT_LIBRARY_POLICY.icons),
+    components: normalizeLibraryPolicyField(policy.components, PROJECT_DEFAULT_LIBRARY_POLICY.components),
+    styling: normalizeLibraryPolicyField(policy.styling, PROJECT_DEFAULT_LIBRARY_POLICY.styling),
+    motion: normalizeLibraryPolicyField(policy.motion, PROJECT_DEFAULT_LIBRARY_POLICY.motion),
+    threeD: normalizeLibraryPolicyField(policy.threeD, PROJECT_DEFAULT_LIBRARY_POLICY.threeD)
+  };
+}
+
+export function readCanvasIconRoles(document: CanvasDocument): CanvasIconRoles {
+  const iconPolicy = getGovernanceBlock(document, "iconSystem");
+  return {
+    primary: readString(iconPolicy, "primary"),
+    secondary: readString(iconPolicy, "secondary"),
+    secondaryAlt: readString(iconPolicy, "secondaryAlt"),
+    decorative: readString(iconPolicy, "decorative")
+  };
 }
 
 export function buildGovernanceBlockStates(document: CanvasDocument): Record<CanvasGovernanceBlockKey, CanvasGovernanceBlockState> {
@@ -350,12 +407,6 @@ export function evaluateCanvasWarnings(
   }
   if (states.typographySystem.status === "missing") {
     warnings.push(buildWarning("missing-typography-system", "designGovernance.typographySystem is missing.", { auditId: "CANVAS-02" }));
-  }
-  if (states.colorSystem.status === "missing") {
-    warnings.push(buildWarning("missing-color-role", "designGovernance.colorSystem is missing.", { auditId: "CANVAS-02" }));
-  }
-  if (states.surfaceSystem.status === "missing") {
-    warnings.push(buildWarning("missing-surface-policy", "designGovernance.surfaceSystem is missing.", { auditId: "CANVAS-02" }));
   }
   if (states.responsiveSystem.status === "missing") {
     warnings.push(buildWarning("missing-responsive-policy", "designGovernance.responsiveSystem is missing.", { auditId: "CANVAS-02" }));
@@ -483,24 +534,16 @@ function hasReducedMotionPolicy(document: CanvasDocument): boolean {
 }
 
 function hasDisallowedLibrary(document: CanvasDocument): boolean {
-  const policy = getGovernanceBlock(document, "libraryPolicy");
-  const iconLibraries = readStringArray(policy, "icons");
-  const componentLibraries = readStringArray(policy, "components");
-  const disallowedIcons = iconLibraries.some((entry) => entry === "lucide-react");
-  const disallowedComponents = componentLibraries.some((entry) => entry.startsWith("unknown:"));
-  return disallowedIcons || disallowedComponents;
+  const policy = resolveCanvasLibraryPolicy(document);
+  return (Object.entries(policy) as Array<[keyof CanvasLibraryPolicy, string[]]>)
+    .some(([category, entries]) => entries.some((entry) => !APPROVED_LIBRARY_ENTRIES[category].has(entry)));
 }
 
 function hasIconPolicyViolation(document: CanvasDocument): boolean {
-  const iconPolicy = getGovernanceBlock(document, "iconSystem");
-  const approved = new Set(PROJECT_DEFAULT_LIBRARY_POLICY.icons);
-  const families = [
-    readString(iconPolicy, "primary"),
-    readString(iconPolicy, "secondary"),
-    readString(iconPolicy, "secondaryAlt"),
-    readString(iconPolicy, "decorative")
-  ].filter((entry): entry is string => Boolean(entry));
-  return families.some((entry) => !approved.has(entry));
+  const iconRoles = readCanvasIconRoles(document);
+  return Object.values(iconRoles)
+    .filter((entry): entry is string => Boolean(entry))
+    .some((entry) => !APPROVED_LIBRARY_ENTRIES.icons.has(entry));
 }
 
 function assetRequiresProvenance(asset: CanvasDocument["assets"][number]): boolean {
@@ -534,10 +577,6 @@ function warningCodeForGovernanceBlock(key: CanvasGovernanceBlockKey): CanvasVal
       return "missing-content-model";
     case "typographySystem":
       return "missing-typography-system";
-    case "colorSystem":
-      return "missing-color-role";
-    case "surfaceSystem":
-      return "missing-surface-policy";
     case "responsiveSystem":
       return "missing-responsive-policy";
     default:
@@ -626,12 +665,8 @@ function assertNoOverlappingPaths(changes: Record<string, unknown>): void {
   for (const path of paths) {
     validatePath(path);
   }
-  for (let index = 0; index < paths.length; index += 1) {
-    const left = paths[index];
-    for (let inner = index + 1; inner < paths.length; inner += 1) {
-      const right = paths[inner];
-      /* v8 ignore next -- validatePath guarantees non-empty keys */
-      if (!left || !right) continue;
+  for (const [index, left] of paths.entries()) {
+    for (const right of paths.slice(index + 1)) {
       if (left === right || left.startsWith(`${right}.`) || right.startsWith(`${left}.`)) {
         throw new Error(`Overlapping change paths: ${left} vs ${right}`);
       }
@@ -641,20 +676,16 @@ function assertNoOverlappingPaths(changes: Record<string, unknown>): void {
 
 function setNestedValue(target: Record<string, unknown>, path: string, value: unknown): void {
   const segments = validatePath(path);
+  const [leaf, ...parents] = segments.slice().reverse();
   let current: Record<string, unknown> = target;
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    const segment = segments[index];
-    /* v8 ignore next -- validatePath guarantees non-empty segments */
-    if (!segment) {
-      throw new Error(`Invalid path segment in ${path}`);
-    }
+  for (const segment of parents.reverse()) {
     const existing = current[segment];
     if (!isRecord(existing)) {
       current[segment] = {};
     }
     current = current[segment] as Record<string, unknown>;
   }
-  current[segments[segments.length - 1] as string] = clone(value);
+  current[leaf as string] = clone(value);
 }
 
 function ensureAllowedRoots(changes: Record<string, unknown>, allowedRoots: string[]): void {
@@ -1088,14 +1119,15 @@ export class CanvasDocumentStore {
       }
       case "binding.set": {
         findNode(document, patch.nodeId);
-        const binding: CanvasBinding = {
+        const binding = normalizeBinding({
           id: patch.binding.id,
           nodeId: patch.nodeId,
           kind: patch.binding.kind,
           selector: patch.binding.selector,
           componentName: patch.binding.componentName,
-          metadata: isRecord(patch.binding.metadata) ? clone(patch.binding.metadata) : {}
-        };
+          metadata: isRecord(patch.binding.metadata) ? clone(patch.binding.metadata) : {},
+          codeSync: patch.binding.codeSync
+        });
         const existing = document.bindings.findIndex((entry) => entry.id === binding.id);
         if (existing >= 0) {
           document.bindings[existing] = binding;
@@ -1104,6 +1136,18 @@ export class CanvasDocumentStore {
         }
         const node = findNode(document, patch.nodeId);
         node.bindingRefs.primary = binding.id;
+        return;
+      }
+      case "binding.remove": {
+        const existing = document.bindings.find((entry) => entry.id === patch.bindingId);
+        if (!existing) {
+          return;
+        }
+        document.bindings = document.bindings.filter((entry) => entry.id !== patch.bindingId);
+        const node = findNode(document, existing.nodeId);
+        if (node.bindingRefs.primary === patch.bindingId) {
+          delete node.bindingRefs.primary;
+        }
         return;
       }
       case "prototype.upsert": {

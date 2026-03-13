@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseOptionalStringFlag } from "../../utils/parse";
 
 function parseTypeArgs(rawArgs: string[]): { sessionId?: string; ref?: string; text?: string; clear?: boolean; submit?: boolean } {
   const parsed: { sessionId?: string; ref?: string; text?: string; clear?: boolean; submit?: boolean } = {};
@@ -53,9 +54,17 @@ function parseTypeArgs(rawArgs: string[]): { sessionId?: string; ref?: string; t
 
 export async function runType(args: ParsedArgs) {
   const { sessionId, ref, text, clear, submit } = parseTypeArgs(args.rawArgs);
+  const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
   if (!ref) throw createUsageError("Missing --ref");
   if (!text) throw createUsageError("Missing --text");
-  const result = await callDaemon("interact.type", { sessionId, ref, text, clear, submit });
+  const result = await callDaemon("interact.type", {
+    sessionId,
+    ref,
+    text,
+    clear,
+    submit,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  });
   return { success: true, message: "Type complete.", data: result };
 }

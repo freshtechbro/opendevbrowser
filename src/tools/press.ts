@@ -10,12 +10,13 @@ export function createPressTool(deps: ToolDeps): ToolDefinition {
     description: "Press a keyboard key, optionally focusing a ref first.",
     args: {
       sessionId: z.string().describe("Active browser session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       key: z.string().describe("Keyboard key to press, e.g. Enter or ArrowDown"),
       ref: z.string().optional().describe("Optional element ref to focus first")
     },
     async execute(args) {
       try {
-        const result = await deps.manager.press(args.sessionId, args.key, args.ref);
+        const result = await deps.manager.press(args.sessionId, args.key, args.ref, args.targetId);
         return ok(result);
       } catch (error) {
         return failure(serializeError(error).message, "press_failed");

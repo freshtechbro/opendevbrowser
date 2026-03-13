@@ -121,7 +121,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--help", alias: "-h", description: "Show CLI help output." },
       { flag: "--version", alias: "-v", description: "Show CLI version." },
       { flag: "--output-format", description: "Output mode: text, json, stream-json." },
-      { flag: "--transport", description: "Annotation transport: relay (default) or native." }
+      { flag: "--transport", description: "Transport selector for transport-aware commands. `status` uses relay/native; `annotate` uses auto/direct/relay." }
     ]
   },
   {
@@ -142,7 +142,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--profile", description: "Use a named browser profile directory." },
       { flag: "--persist-profile", description: "Keep generated profile directory after exit." },
       { flag: "--chrome-path", description: "Use a specific Chrome/Chromium binary." },
-      { flag: "--start-url", description: "Open this URL immediately after launch." },
+      { flag: "--start-url", description: "Open this URL immediately after launch or connect." },
       { flag: "--flag", description: "Pass one or more extra Chrome CLI flags." },
       { flag: "--no-extension", description: "Force managed mode without extension relay." },
       { flag: "--extension-only", description: "Fail unless extension relay is connected." },
@@ -185,9 +185,10 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--cookies", description: "Inline cookie payload for cookie-import command." },
       { flag: "--cookies-file", description: "File path containing cookies for cookie-import." },
       { flag: "--strict", description: "Fail cookie import on invalid entries." },
-      { flag: "--screenshot-mode", description: "Annotation screenshot mode: crop, full, or none." },
+      { flag: "--screenshot-mode", description: "Annotation screenshot mode: visible, full, or none." },
       { flag: "--debug", description: "Enable debug-level annotation capture extras." },
-      { flag: "--context", description: "Free-form annotation context for reviewers/agents." }
+      { flag: "--context", description: "Free-form annotation context for reviewers/agents." },
+      { flag: "--stored", description: "Return the last stored annotation payload instead of starting a new capture." }
     ]
   },
   {
@@ -218,7 +219,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--product-url", description: "Target product URL for product-video/artifacts workflows." },
       { flag: "--product-name", description: "Product name override for media workflows." },
       { flag: "--provider-hint", description: "Provider hint override for product workflows." },
-      { flag: "--include-screenshots", description: "Include screenshots in product presentation output." },
+      { flag: "--include-screenshots", description: "Include screenshots in product presentation output, or prefer screenshots when fetching stored annotations." },
       { flag: "--include-all-images", description: "Include all discovered product images." },
       { flag: "--include-copy", description: "Include product marketing copy metadata." },
       { flag: "--output-dir", description: "Directory where generated artifacts are written." },
@@ -280,11 +281,12 @@ export const HELP_TOOL_ENTRIES: readonly ToolEntry[] = [
   { name: "opendevbrowser_skill_load", description: "Load a specific skill pack." }
 ];
 
-const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
+export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "docs/CLI.md", description: "Full command docs, flag matrix, and examples." },
   { label: "docs/SURFACE_REFERENCE.md", description: "Canonical CLI/tool/channel inventory matrix." },
   { label: "src/tools/index.ts", description: "Code-level tool registry (source of truth)." },
-  { label: "opendevbrowser --help", description: "Always safe first command for quick discovery." }
+  { label: "opendevbrowser --help", description: "Primary full help invocation for quick discovery." },
+  { label: "opendevbrowser help", description: "Alias that prints the same full help inventory." }
 ];
 
 function formatRows(rows: readonly { label: string; description: string }[]): string {

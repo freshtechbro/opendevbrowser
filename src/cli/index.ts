@@ -444,7 +444,7 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "annotate",
-      description: "Request interactive annotations (extension relay)",
+      description: "Request interactive annotations via direct or relay transport",
       run: async () => runAnnotate(args)
     });
 

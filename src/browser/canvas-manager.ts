@@ -15,13 +15,21 @@ import {
   evaluateCanvasWarnings,
   missingRequiredSaveBlocks,
   normalizeCanvasDocument,
+  readCanvasIconRoles,
+  resolveCanvasLibraryPolicy,
   validateCanvasSave,
   validateGenerationPlan
 } from "../canvas/document-store";
-import { renderCanvasDocumentComponent, renderCanvasDocumentHtml } from "../canvas/export";
+import {
+  buildCanvasParityArtifact,
+  renderCanvasBindingHtml,
+  renderCanvasDocumentComponent,
+  renderCanvasDocumentHtml
+} from "../canvas/export";
 import { loadCanvasDocument, loadCanvasDocumentById, resolveCanvasRepoPath, saveCanvasDocument } from "../canvas/repo-store";
 import type {
   CanvasBlocker,
+  CanvasBinding,
   CanvasDegradeReason,
   CanvasDocument,
   CanvasFeedbackItem,
@@ -29,18 +37,53 @@ import type {
   CanvasPlanStatus,
   CanvasPreflightState,
   CanvasPreviewState,
+  CanvasPrototype,
   CanvasSessionMode,
   CanvasSessionSummary,
   CanvasTargetState,
   CanvasValidationWarning
 } from "../canvas/types";
 import { CANVAS_SCHEMA_VERSION } from "../canvas/types";
+import { CanvasCodeSyncManager } from "./canvas-code-sync-manager";
+import { CanvasSessionSyncManager } from "./canvas-session-sync-manager";
+import type { CodeSyncAttachMode, CodeSyncOwnership, CodeSyncResolutionPolicy } from "../canvas/code-sync/types";
+import { applyRuntimePreviewBridge } from "./canvas-runtime-preview-bridge";
 
 type CanvasCommandParams = Record<string, unknown>;
+
+export const PUBLIC_CANVAS_COMMANDS = [
+  "canvas.session.open",
+  "canvas.session.attach",
+  "canvas.session.status",
+  "canvas.session.close",
+  "canvas.capabilities.get",
+  "canvas.plan.set",
+  "canvas.plan.get",
+  "canvas.document.load",
+  "canvas.document.patch",
+  "canvas.document.save",
+  "canvas.document.export",
+  "canvas.tab.open",
+  "canvas.tab.close",
+  "canvas.overlay.mount",
+  "canvas.overlay.unmount",
+  "canvas.overlay.select",
+  "canvas.preview.render",
+  "canvas.preview.refresh",
+  "canvas.feedback.poll",
+  "canvas.feedback.subscribe",
+  "canvas.code.bind",
+  "canvas.code.unbind",
+  "canvas.code.pull",
+  "canvas.code.push",
+  "canvas.code.status",
+  "canvas.code.resolve"
+] as const;
 
 type CanvasSession = {
   canvasSessionId: string;
   browserSessionId: string | null;
+  documentRepoPath: string | null;
   leaseId: string;
   mode: CanvasSessionMode;
   store: CanvasDocumentStore;
@@ -105,6 +148,14 @@ type DirectPageLike = {
   evaluate: <TArg, TResult>(pageFunction: (arg: TArg) => TResult | Promise<TResult>, arg: TArg) => Promise<TResult>;
 };
 
+type PreviewSyncSource = "agent" | "editor";
+
+type PreviewRenderContext = {
+  cause: "manual" | "patch_sync";
+  source?: PreviewSyncSource;
+  syncAfter?: boolean;
+};
+
 const DIRECT_OVERLAY_STYLE = `
 #opendevbrowser-canvas-overlay {
   position: fixed;
@@ -139,6 +190,8 @@ export class CanvasManager implements CanvasManagerLike {
   private readonly browserManager: BrowserManagerLike;
   private readonly config: OpenDevBrowserConfig;
   private readonly relay?: RelayLike;
+  private readonly sessionSyncManager = new CanvasSessionSyncManager();
+  private readonly codeSyncManager: CanvasCodeSyncManager;
   private readonly sessions = new Map<string, CanvasSession>();
   private canvasClient: CanvasClient | null = null;
   private canvasEndpoint: string | null = null;
@@ -153,12 +206,20 @@ export class CanvasManager implements CanvasManagerLike {
     this.browserManager = options.browserManager;
     this.config = options.config;
     this.relay = options.relay;
+    this.codeSyncManager = new CanvasCodeSyncManager({
+      worktree: this.worktree,
+      onWatchedSourceChanged: async (canvasSessionId, bindingId) => {
+        await this.handleWatchedSourceChange(canvasSessionId, bindingId);
+      }
+    });
   }
 
   async execute(command: string, params: CanvasCommandParams = {}): Promise<unknown> {
     switch (command) {
       case "canvas.session.open":
         return await this.openSession(params);
+      case "canvas.session.attach":
+        return this.attachSession(params);
       case "canvas.session.status":
         return this.getSessionStatus(params);
       case "canvas.session.close":
@@ -195,6 +256,18 @@ export class CanvasManager implements CanvasManagerLike {
         return this.pollFeedback(params);
       case "canvas.feedback.subscribe":
         return this.subscribeFeedback(params);
+      case "canvas.code.bind":
+        return await this.bindCodeSync(params);
+      case "canvas.code.unbind":
+        return await this.unbindCodeSync(params);
+      case "canvas.code.pull":
+        return await this.pullCodeSync(params);
+      case "canvas.code.push":
+        return await this.pushCodeSync(params);
+      case "canvas.code.status":
+        return await this.codeSyncStatus(params);
+      case "canvas.code.resolve":
+        return await this.resolveCodeSync(params);
       default:
         throw new Error(`Unsupported canvas command: ${command}`);
     }
@@ -213,6 +286,7 @@ export class CanvasManager implements CanvasManagerLike {
     const session: CanvasSession = {
       canvasSessionId: sessionId,
       browserSessionId,
+      documentRepoPath: repoPath ?? null,
       leaseId,
       mode,
       store: new CanvasDocumentStore(document),
@@ -232,11 +306,36 @@ export class CanvasManager implements CanvasManagerLike {
       feedbackSubscriptions: new Map()
     };
     this.sessions.set(sessionId, session);
+    this.sessionSyncManager.initializeSession(sessionId, leaseId, optionalString(params.clientId));
+    await this.registerDocumentCodeSyncBindings(session);
     return this.buildHandshake(session);
+  }
+
+  private attachSession(params: CanvasCommandParams): unknown {
+    const session = this.requireSession(params);
+    const attachMode = requireAttachMode(params.attachMode);
+    const nextLeaseId = attachMode === "lease_reclaim" ? `lease_${randomUUID()}` : session.leaseId;
+    const attached = this.sessionSyncManager.attach(
+      session.canvasSessionId,
+      nextLeaseId,
+      optionalString(params.clientId),
+      attachMode
+    );
+    session.leaseId = attached.leaseId;
+    return {
+      clientId: attached.clientId,
+      attachMode: attached.attachMode,
+      leaseId: attached.leaseId,
+      role: attached.role,
+      documentRevision: session.store.getRevision(),
+      document: session.store.getDocument(),
+      summary: this.buildSessionSummary(session)
+    };
   }
 
   private getSessionStatus(params: CanvasCommandParams): unknown {
     const session = this.requireSession(params);
+    this.sessionSyncManager.touch(session.canvasSessionId, optionalString(params.clientId));
     return this.buildSessionSummary(session);
   }
 
@@ -255,6 +354,8 @@ export class CanvasManager implements CanvasManagerLike {
       });
     }
     this.completeFeedbackSubscriptions(session, "session_closed");
+    this.sessionSyncManager.removeSession(session.canvasSessionId);
+    this.codeSyncManager.disposeSession(session.canvasSessionId);
     this.sessions.delete(session.canvasSessionId);
     return { ok: true, releasedTargets, releasedOverlays: true };
   }
@@ -306,10 +407,15 @@ export class CanvasManager implements CanvasManagerLike {
     if (Boolean(documentId) === Boolean(repoPath)) {
       throw new Error("Provide exactly one of documentId or repoPath.");
     }
-    const document = repoPath
-      ? normalizeCanvasDocument(await loadCanvasDocument(this.worktree, repoPath))
+    const sessionRepoPath = !repoPath && documentId === session.store.getDocumentId()
+      ? session.documentRepoPath
+      : null;
+    const resolvedRepoPath = repoPath ?? sessionRepoPath;
+    const document = resolvedRepoPath
+      ? normalizeCanvasDocument(await loadCanvasDocument(this.worktree, resolvedRepoPath))
       : normalizeCanvasDocument(await loadCanvasDocumentById(this.worktree, documentId as string) ?? createDefaultCanvasDocument(documentId as string));
     session.store.loadDocument(document);
+    session.documentRepoPath = resolvedRepoPath;
     session.planStatus = isNonEmptyRecord(document.designGovernance.generationPlan) ? "accepted" : "missing";
     session.preflightState = session.planStatus === "accepted" ? "plan_accepted" : "handshake_read";
     session.editorSelection = {
@@ -318,6 +424,7 @@ export class CanvasManager implements CanvasManagerLike {
       targetId: null,
       updatedAt: new Date().toISOString()
     };
+    await this.registerDocumentCodeSyncBindings(session);
     await this.syncLiveViews(session);
     return {
       documentId: session.store.getDocumentId(),
@@ -371,8 +478,315 @@ export class CanvasManager implements CanvasManagerLike {
       details: { source }
     });
     this.emitWarnings(session, result.warnings, { category: "validation" });
-    await this.syncLiveViews(session);
+    await this.registerDocumentCodeSyncBindings(session);
+    await this.syncLiveViews(session, { refreshPreviewTargets: true, source });
     return result;
+  }
+
+  private async bindCodeSync(params: CanvasCommandParams): Promise<unknown> {
+    const session = this.requireSession(params);
+    this.assertLease(session, params);
+    const nodeId = requireString(params.nodeId, "nodeId");
+    const bindingId = optionalString(params.bindingId) ?? `binding_sync_${randomUUID().slice(0, 8)}`;
+    const binding = createCodeSyncBinding(params, nodeId, bindingId);
+    const baseRevision = session.store.getRevision();
+    await this.applyDocumentPatches(session, baseRevision, [{
+      op: "binding.set",
+      nodeId,
+      binding
+    }], "agent");
+    const nextBinding = requireCanvasBinding(session.store.getDocument(), binding.id);
+    const bindingStatus = await this.codeSyncManager.bind({
+      canvasSessionId: session.canvasSessionId,
+      document: session.store.getDocument(),
+      documentRevision: session.store.getRevision(),
+      binding: nextBinding
+    });
+    this.pushFeedback(session, {
+      category: "code-sync",
+      class: "code-sync-bound",
+      severity: "info",
+      message: `Bound ${binding.codeSync?.repoPath ?? binding.selector ?? binding.id} for code sync.`,
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: [],
+      details: {
+        bindingId: binding.id,
+        nodeId
+      }
+    });
+    return {
+      ok: true,
+      binding: nextBinding,
+      bindingStatus,
+      documentRevision: session.store.getRevision(),
+      summary: this.buildSessionSummary(session)
+    };
+  }
+
+  private async unbindCodeSync(params: CanvasCommandParams): Promise<unknown> {
+    const session = this.requireSession(params);
+    this.assertLease(session, params);
+    const bindingId = requireString(params.bindingId, "bindingId");
+    requireCanvasBinding(session.store.getDocument(), bindingId);
+    await this.applyDocumentPatches(session, session.store.getRevision(), [{
+      op: "binding.remove",
+      bindingId
+    }], "agent");
+    this.codeSyncManager.unbind(session.canvasSessionId, bindingId);
+    this.pushFeedback(session, {
+      category: "code-sync",
+      class: "code-sync-unbound",
+      severity: "info",
+      message: `Removed code-sync binding ${bindingId}.`,
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: [],
+      details: { bindingId }
+    });
+    return {
+      ok: true,
+      bindingId,
+      documentRevision: session.store.getRevision(),
+      summary: this.buildSessionSummary(session)
+    };
+  }
+
+  private async pullCodeSync(params: CanvasCommandParams): Promise<unknown> {
+    const session = this.requireSession(params);
+    this.assertLease(session, params);
+    const binding = requireCodeSyncBinding(session.store.getDocument(), requireString(params.bindingId, "bindingId"));
+    this.pushFeedback(session, {
+      category: "code-sync",
+      class: "code-sync-started",
+      severity: "info",
+      message: `Pulling source into canvas for ${binding.id}.`,
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: [],
+      details: { bindingId: binding.id, direction: "pull" }
+    });
+    const result = await this.codeSyncManager.pull({
+      canvasSessionId: session.canvasSessionId,
+      document: session.store.getDocument(),
+      documentRevision: session.store.getRevision(),
+      binding,
+      resolutionPolicy: requireResolutionPolicy(optionalString(params.resolutionPolicy)),
+      applyPatches: async (patches) => {
+        const applied = await this.applyDocumentPatches(session, session.store.getRevision(), patches, "agent");
+        return { documentRevision: applied.appliedRevision };
+      }
+    });
+    if (!result.ok) {
+      this.pushFeedback(session, {
+        category: "code-sync",
+        class: "code-sync-conflict",
+        severity: "warning",
+        message: result.conflicts[0]?.message ?? "Code-sync pull failed.",
+        pageId: session.editorSelection.pageId,
+        prototypeId: null,
+        targetId: session.editorSelection.targetId,
+        evidenceRefs: [],
+        details: { bindingId: binding.id, conflicts: result.conflicts }
+      });
+      return { ...result, summary: this.buildSessionSummary(session) };
+    }
+    await this.syncLiveViews(session, { refreshPreviewTargets: true, source: "agent" });
+    this.pushFeedback(session, {
+      category: "code-sync",
+      class: "code-sync-applied",
+      severity: "info",
+      message: `Pulled ${result.patchesApplied} code-sync patch${result.patchesApplied === 1 ? "" : "es"} into the canvas document.`,
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: [],
+      details: {
+        bindingId: binding.id,
+        repoPath: result.repoPath,
+        changedNodeIds: result.changedNodeIds,
+        unsupportedRegions: result.unsupportedRegions
+      }
+    });
+    return { ...result, summary: this.buildSessionSummary(session) };
+  }
+
+  private async pushCodeSync(params: CanvasCommandParams): Promise<unknown> {
+    const session = this.requireSession(params);
+    this.assertLease(session, params);
+    const binding = requireCodeSyncBinding(session.store.getDocument(), requireString(params.bindingId, "bindingId"));
+    this.pushFeedback(session, {
+      category: "code-sync",
+      class: "code-sync-started",
+      severity: "info",
+      message: `Pushing canvas changes into source for ${binding.id}.`,
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: [],
+      details: { bindingId: binding.id, direction: "push" }
+    });
+    const result = await this.codeSyncManager.push({
+      canvasSessionId: session.canvasSessionId,
+      document: session.store.getDocument(),
+      documentRevision: session.store.getRevision(),
+      binding,
+      resolutionPolicy: requireResolutionPolicy(optionalString(params.resolutionPolicy))
+    });
+    if (!result.ok) {
+      this.pushFeedback(session, {
+        category: "code-sync",
+        class: "code-sync-conflict",
+        severity: "warning",
+        message: result.conflicts[0]?.message ?? "Code-sync push failed.",
+        pageId: session.editorSelection.pageId,
+        prototypeId: null,
+        targetId: session.editorSelection.targetId,
+        evidenceRefs: [],
+        details: { bindingId: binding.id, conflicts: result.conflicts }
+      });
+      return { ...result, summary: this.buildSessionSummary(session) };
+    }
+    await this.syncLiveViews(session, { refreshPreviewTargets: true, source: "agent" });
+    this.pushFeedback(session, {
+      category: "code-sync",
+      class: "code-sync-applied",
+      severity: "info",
+      message: `Pushed canvas changes into ${result.repoPath}.`,
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: [result.repoPath],
+      details: {
+        bindingId: binding.id,
+        changedNodeIds: result.changedNodeIds
+      }
+    });
+    return { ...result, summary: this.buildSessionSummary(session) };
+  }
+
+  private async codeSyncStatus(params: CanvasCommandParams): Promise<unknown> {
+    const session = this.requireSession(params);
+    const bindingId = optionalString(params.bindingId);
+    if (bindingId) {
+      const binding = requireCodeSyncBinding(session.store.getDocument(), bindingId);
+      let bindingStatus = await this.codeSyncManager.getBindingStatus(
+        session.canvasSessionId,
+        session.store.getDocument().documentId,
+        binding,
+        session.store.getRevision()
+      );
+      if (binding.codeSync?.syncMode === "watch" && bindingStatus.state === "drift_detected" && bindingStatus.driftState === "source_changed") {
+        await this.handleWatchedSourceChange(session.canvasSessionId, binding.id);
+        bindingStatus = await this.codeSyncManager.getBindingStatus(
+          session.canvasSessionId,
+          session.store.getDocument().documentId,
+          binding,
+          session.store.getRevision()
+        );
+      }
+      return {
+        bindingStatus,
+        summary: this.buildSessionSummary(session)
+      };
+    }
+    await this.registerDocumentCodeSyncBindings(session);
+    for (const binding of session.store.getDocument().bindings) {
+      if (binding.codeSync?.syncMode !== "watch") {
+        continue;
+      }
+      const bindingStatus = await this.codeSyncManager.getBindingStatus(
+        session.canvasSessionId,
+        session.store.getDocument().documentId,
+        binding,
+        session.store.getRevision()
+      );
+      if (bindingStatus.state === "drift_detected" && bindingStatus.driftState === "source_changed") {
+        await this.handleWatchedSourceChange(session.canvasSessionId, binding.id);
+      }
+    }
+    return this.buildSessionSummary(session);
+  }
+
+  private async resolveCodeSync(params: CanvasCommandParams): Promise<unknown> {
+    const session = this.requireSession(params);
+    this.assertLease(session, params);
+    const binding = requireCodeSyncBinding(session.store.getDocument(), requireString(params.bindingId, "bindingId"));
+    const resolutionPolicy = requireResolutionPolicy(requireString(params.resolutionPolicy, "resolutionPolicy")) ?? "manual";
+    const result = await this.codeSyncManager.resolve({
+      canvasSessionId: session.canvasSessionId,
+      document: session.store.getDocument(),
+      documentRevision: session.store.getRevision(),
+      binding,
+      resolutionPolicy,
+      applyPatches: async (patches) => {
+        const applied = await this.applyDocumentPatches(session, session.store.getRevision(), patches, "agent");
+        return { documentRevision: applied.appliedRevision };
+      }
+    });
+    if (result.ok) {
+      await this.syncLiveViews(session, { refreshPreviewTargets: true, source: "agent" });
+    }
+    return { ...result, summary: this.buildSessionSummary(session) };
+  }
+
+  private async registerDocumentCodeSyncBindings(session: CanvasSession): Promise<void> {
+    const attachedClients = this.sessionSyncManager.listAttachedClients(session.canvasSessionId);
+    const leaseHolderClientId = this.sessionSyncManager.getLeaseHolderClientId(session.canvasSessionId);
+    const knownBindings = new Set(
+      this.codeSyncManager.getSessionStatus(session.canvasSessionId, attachedClients.length, leaseHolderClientId).bindings
+        .map((entry) => entry.bindingId)
+    );
+    const nextBindings = session.store.getDocument().bindings.filter((binding) => Boolean(binding.codeSync));
+    for (const binding of nextBindings) {
+      knownBindings.delete(binding.id);
+      await this.codeSyncManager.bind({
+        canvasSessionId: session.canvasSessionId,
+        document: session.store.getDocument(),
+        documentRevision: session.store.getRevision(),
+        binding
+      });
+    }
+    for (const staleBindingId of knownBindings) {
+      this.codeSyncManager.unbind(session.canvasSessionId, staleBindingId);
+    }
+  }
+
+  private async handleWatchedSourceChange(canvasSessionId: string, bindingId: string): Promise<void> {
+    const session = this.sessions.get(canvasSessionId);
+    if (!session) {
+      return;
+    }
+    const binding = requireCodeSyncBinding(session.store.getDocument(), bindingId);
+    const result = await this.codeSyncManager.pull({
+      canvasSessionId: session.canvasSessionId,
+      document: session.store.getDocument(),
+      documentRevision: session.store.getRevision(),
+      binding,
+      resolutionPolicy: "prefer_code",
+      applyPatches: async (patches) => {
+        const applied = await this.applyDocumentPatches(session, session.store.getRevision(), patches, "agent");
+        return { documentRevision: applied.appliedRevision };
+      }
+    });
+    if (!result.ok) {
+      this.pushFeedback(session, {
+        category: "code-sync",
+        class: "code-sync-watch-conflict",
+        severity: "warning",
+        message: result.conflicts[0]?.message ?? "Watched source change could not be imported.",
+        pageId: session.editorSelection.pageId,
+        prototypeId: null,
+        targetId: session.editorSelection.targetId,
+        evidenceRefs: [],
+        details: { bindingId, conflicts: result.conflicts }
+      });
+      return;
+    }
+    await this.syncLiveViews(session, { refreshPreviewTargets: true, source: "agent" });
   }
 
   private async saveDocument(params: CanvasCommandParams): Promise<unknown> {
@@ -384,6 +798,7 @@ export class CanvasManager implements CanvasManagerLike {
       throw this.policyViolation("canvas.document.save", session, validation.missingBlocks, validation.warnings);
     }
     const repoPath = await saveCanvasDocument(this.worktree, document, optionalString(params.repoPath));
+    session.documentRepoPath = repoPath;
     this.emitWarnings(session, validation.warnings, { category: "validation" });
     return {
       repoPath,
@@ -451,12 +866,14 @@ export class CanvasManager implements CanvasManagerLike {
     this.assertLease(session, params);
     const prototypeId = requireString(params.prototypeId, "prototypeId");
     const previewMode = requireTabPreviewMode(params.previewMode, "previewMode");
+    const html = renderCanvasDocumentHtml(session.store.getDocument());
     if (session.browserSessionId) {
       const status = await this.browserManager.status(session.browserSessionId);
       if (status.mode === "extension") {
         const result = await this.requestCanvasExtension(session, "canvas.tab.open", {
           prototypeId,
           previewMode,
+          html,
           document: session.store.getDocument(),
           documentRevision: session.store.getRevision(),
           summary: this.buildSessionSummary(session),
@@ -467,6 +884,9 @@ export class CanvasManager implements CanvasManagerLike {
           selection: session.editorSelection
         });
         session.designTabTargetId = typeof result.targetId === "string" ? result.targetId : null;
+        if (session.designTabTargetId && typeof this.browserManager.registerCanvasTarget === "function") {
+          await this.browserManager.registerCanvasTarget(session.browserSessionId, session.designTabTargetId);
+        }
         return {
           targetId: session.designTabTargetId,
           targetIds: session.designTabTargetId ? [session.designTabTargetId] : [],
@@ -474,7 +894,6 @@ export class CanvasManager implements CanvasManagerLike {
           designTab: true
         };
       }
-      const html = renderCanvasDocumentHtml(session.store.getDocument());
       const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
       const page = await this.browserManager.page(session.browserSessionId, `canvas-${prototypeId}`, url);
       session.designTabTargetId = page.targetId;
@@ -611,116 +1030,7 @@ export class CanvasManager implements CanvasManagerLike {
     if (session.planStatus !== "accepted") {
       throw this.planRequired("canvas.preview.render", session);
     }
-    const prototype = session.store.getDocument().prototypes.find((entry) => entry.id === prototypeId);
-    if (!prototype) {
-      throw new Error(`Unknown prototype: ${prototypeId}`);
-    }
-    const document = session.store.getDocument();
-    const status = await this.browserManager.status(session.browserSessionId);
-    const url = resolvePreviewUrl(status.url, prototype.route);
-    if (!url) {
-      throw this.unsupportedTarget("canvas.preview.render", session, targetId);
-    }
-    const previewTarget = this.allocatePreviewTarget(session, targetId, status.activeTargetId);
-    const telemetryMode = previewTarget.previewState === "degraded"
-      ? "paused"
-      : previewTarget.previewState === "background"
-        ? "sampled"
-        : "full";
-    await this.browserManager.goto(session.browserSessionId, url, "load", 30000, undefined, targetId);
-    const screenshot = await this.browserManager.screenshot(session.browserSessionId, targetId);
-    const consoleData = telemetryMode === "paused"
-      ? { events: [], nextSeq: 0 }
-      : await this.browserManager.consolePoll(session.browserSessionId, 0, telemetryMode === "sampled" ? 5 : 25);
-    const networkData = telemetryMode === "paused"
-      ? { events: [], nextSeq: 0 }
-      : await this.browserManager.networkPoll(session.browserSessionId, 0, telemetryMode === "sampled" ? 5 : 25);
-    const perfData = telemetryMode === "paused"
-      ? { metrics: [] }
-      : await this.collectPerfMetrics(session.browserSessionId, targetId);
-    const previewState: CanvasTargetState = {
-      targetId,
-      prototypeId,
-      previewMode: previewTarget.previewMode,
-      previewState: previewTarget.previewState,
-      renderStatus: previewTarget.previewState === "degraded" ? "degraded" : "rendered",
-      degradeReason: previewTarget.degradeReason,
-      lastRenderedAt: new Date().toISOString()
-    };
-    session.activeTargets.set(targetId, previewState);
-    if (consoleData.events.length > 0) {
-      this.pushFeedback(session, {
-        category: "console",
-        class: "console-signal",
-        severity: "warning",
-        message: `Preview emitted ${consoleData.events.length} console event${consoleData.events.length === 1 ? "" : "s"}.`,
-        pageId: prototype.pageId,
-        prototypeId,
-        targetId,
-        evidenceRefs: []
-      });
-    }
-    if (networkData.events.some((event) => typeof event.status === "number" && event.status >= 400)) {
-      this.pushFeedback(session, {
-        category: "network",
-        class: "network-failure",
-        severity: "warning",
-        message: "Preview reported network failures.",
-        pageId: prototype.pageId,
-        prototypeId,
-        targetId,
-        evidenceRefs: []
-      });
-    }
-    if (perfData.metrics.length > 0) {
-      this.pushFeedback(session, {
-        category: "performance",
-        class: "perf-summary",
-        severity: "info",
-        message: `Captured ${perfData.metrics.length} performance metrics for ${previewState.previewState} preview.`,
-        pageId: prototype.pageId,
-        prototypeId,
-        targetId,
-        evidenceRefs: [],
-        details: {
-          previewState: previewState.previewState,
-          metrics: perfData.metrics
-        }
-      });
-    }
-    const warnings = evaluateCanvasWarnings(document, { degradeReason: previewState.degradeReason ?? null });
-    this.emitWarnings(session, warnings, {
-      pageId: prototype.pageId,
-      prototypeId,
-      targetId
-    });
-    this.pushFeedback(session, {
-      category: "render",
-      class: previewState.renderStatus === "degraded" ? "render-degraded" : "render-complete",
-      severity: previewState.renderStatus === "degraded" ? "warning" : "info",
-      message: previewState.renderStatus === "degraded"
-        ? "Preview render completed in degraded thumbnail-only mode."
-        : "Preview render completed.",
-      pageId: prototype.pageId,
-      prototypeId,
-      targetId,
-      evidenceRefs: screenshot.path ? [screenshot.path] : [],
-      details: {
-        previewState: previewState.previewState,
-        degradeReason: previewState.degradeReason ?? null
-      }
-    });
-    await this.syncLiveViews(session);
-    return {
-      renderStatus: previewState.renderStatus,
-      targetId,
-      prototypeId,
-      previewState: previewState.previewState,
-      previewMode: previewState.previewMode,
-      documentRevision: session.store.getRevision(),
-      degradeReason: previewState.degradeReason ?? null,
-      warnings
-    };
+    return await this.renderPreviewTarget(session, targetId, prototypeId, { cause: "manual", syncAfter: true });
   }
 
   private async refreshPreview(params: CanvasCommandParams): Promise<unknown> {
@@ -733,14 +1043,16 @@ export class CanvasManager implements CanvasManagerLike {
       throw this.unsupportedTarget("canvas.preview.refresh", session, targetId);
     }
     if (refreshMode === "full") {
-      return await this.renderPreview({
-        canvasSessionId: session.canvasSessionId,
-        leaseId: session.leaseId,
-        targetId,
-        prototypeId: existing.prototypeId
-      });
+      if (typeof existing.prototypeId !== "string" || existing.prototypeId.length === 0) {
+        throw this.unsupportedTarget("canvas.preview.refresh", session, targetId);
+      }
+      return await this.renderPreviewTarget(session, targetId, existing.prototypeId, { cause: "manual", syncAfter: true });
     }
-    const screenshot = await this.browserManager.screenshot(requireString(session.browserSessionId, "browserSessionId"), targetId);
+    const screenshot = await this.browserManager.screenshot(
+      requireString(session.browserSessionId, "browserSessionId"),
+      undefined,
+      targetId
+    );
     this.pushFeedback(session, {
       category: "render",
       class: "thumbnail-refresh",
@@ -758,6 +1070,216 @@ export class CanvasManager implements CanvasManagerLike {
       renderStatus: existing.renderStatus,
       documentRevision: session.store.getRevision(),
       degradeReason: existing.degradeReason
+    };
+  }
+
+  private async renderPreviewTarget(
+    session: CanvasSession,
+    targetId: string,
+    prototypeId: string,
+    context: PreviewRenderContext
+  ): Promise<{
+    renderStatus: CanvasTargetState["renderStatus"];
+    targetId: string;
+    prototypeId: string;
+    previewState: CanvasPreviewState;
+    previewMode: CanvasPreviewState;
+    documentRevision: number;
+    degradeReason: CanvasDegradeReason | null;
+    warnings: CanvasValidationWarning[];
+  }> {
+    const browserSessionId = requireString(session.browserSessionId, "browserSessionId");
+    const document = session.store.getDocument();
+    const prototype = this.requirePrototype(document, prototypeId);
+    const status = await this.browserManager.status(browserSessionId);
+    const existingTarget = session.activeTargets.get(targetId);
+    const previewTarget = this.allocatePreviewTarget(session, targetId, status.activeTargetId);
+    const telemetryMode = previewTarget.previewState === "degraded"
+      ? "paused"
+      : previewTarget.previewState === "background"
+        ? "sampled"
+        : "full";
+    const sourceUrl = resolvePreviewUrl(selectPreviewSourceCandidate(status.url, existingTarget?.sourceUrl), prototype.route);
+    const runtimeBinding = findPrototypeRuntimeBinding(document, prototype);
+    const html = this.buildPreviewHtml(document, prototype, targetId, sourceUrl);
+    let projection: CanvasTargetState["projection"] = "canvas_html";
+    let fallbackReason: string | null = null;
+    let parityArtifact = runtimeBinding ? buildCanvasParityArtifact(document, runtimeBinding.id, "canvas_html") : null;
+    if (
+      runtimeBinding?.codeSync?.projection === "bound_app_runtime"
+      && sourceUrl
+      && runtimeBinding.codeSync.runtimeRootSelector
+    ) {
+      try {
+        await this.browserManager.goto(browserSessionId, sourceUrl, "load", 30000, undefined, targetId);
+        const bindingHtml = renderCanvasBindingHtml(document, runtimeBinding.id);
+        if (!bindingHtml) {
+          fallbackReason = "runtime_projection_unsupported";
+        } else {
+          const bridgeResult = typeof this.browserManager.applyRuntimePreviewBridge === "function"
+            ? await this.browserManager.applyRuntimePreviewBridge(browserSessionId, targetId, {
+              bindingId: runtimeBinding.id,
+              rootSelector: runtimeBinding.codeSync?.runtimeRootSelector ?? `[data-binding-id="${runtimeBinding.id}"]`,
+              html: bindingHtml
+            })
+            : await this.browserManager.withPage(browserSessionId, targetId, async (page) => {
+              return await applyRuntimePreviewBridge(page as { evaluate: typeof page.evaluate }, {
+                bindingId: runtimeBinding.id,
+                rootSelector: runtimeBinding.codeSync?.runtimeRootSelector ?? `[data-binding-id="${runtimeBinding.id}"]`,
+                html: bindingHtml
+              });
+            });
+          if (bridgeResult.ok) {
+            projection = "bound_app_runtime";
+            fallbackReason = null;
+            parityArtifact = bridgeResult.artifact;
+          } else {
+            fallbackReason = bridgeResult.fallbackReason;
+          }
+        }
+      } catch (error) {
+        fallbackReason = "runtime_projection_failed";
+        this.pushFeedback(session, {
+          category: "parity",
+          class: "runtime-preview-bridge-failed",
+          severity: "warning",
+          message: error instanceof Error ? error.message : String(error),
+          pageId: prototype.pageId,
+          prototypeId,
+          targetId,
+          evidenceRefs: [],
+          details: {
+            bindingId: runtimeBinding.id,
+            projection: "bound_app_runtime"
+          }
+        });
+      }
+    } else if (runtimeBinding?.codeSync?.projection === "bound_app_runtime") {
+      fallbackReason = sourceUrl ? "runtime_bridge_unavailable" : "runtime_projection_unsupported";
+    }
+    if (projection === "canvas_html") {
+      const previewUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      await this.browserManager.goto(browserSessionId, previewUrl, "load", 30000, undefined, targetId);
+    }
+    const screenshot = await this.browserManager.screenshot(browserSessionId, undefined, targetId);
+    const consoleData = telemetryMode === "paused"
+      ? { events: [], nextSeq: 0 }
+      : await this.browserManager.consolePoll(browserSessionId, 0, telemetryMode === "sampled" ? 5 : 25);
+    const networkData = telemetryMode === "paused"
+      ? { events: [], nextSeq: 0 }
+      : await this.browserManager.networkPoll(browserSessionId, 0, telemetryMode === "sampled" ? 5 : 25);
+    const perfData = telemetryMode === "paused"
+      ? { metrics: [] }
+      : await this.collectPerfMetrics(browserSessionId, targetId);
+    const previewState: CanvasTargetState = {
+      targetId,
+      prototypeId,
+      previewMode: previewTarget.previewMode,
+      previewState: previewTarget.previewState,
+      renderStatus: previewTarget.previewState === "degraded" ? "degraded" : "rendered",
+      degradeReason: previewTarget.degradeReason,
+      lastRenderedAt: new Date().toISOString(),
+      sourceUrl: isPreviewSourceCandidate(sourceUrl) ? sourceUrl : existingTarget?.sourceUrl ?? null,
+      projection,
+      fallbackReason,
+      parityArtifact
+    };
+    session.activeTargets.set(targetId, previewState);
+    if (consoleData.events.length > 0) {
+      this.pushFeedback(session, {
+        category: "console",
+        class: "console-signal",
+        severity: "warning",
+        message: `Preview emitted ${consoleData.events.length} console event${consoleData.events.length === 1 ? "" : "s"}.`,
+        pageId: prototype.pageId,
+        prototypeId,
+        targetId,
+        evidenceRefs: [],
+        details: {
+          cause: context.cause,
+          source: context.source ?? null,
+          previewState: previewState.previewState
+        }
+      });
+    }
+    if (networkData.events.some((event) => typeof event.status === "number" && event.status >= 400)) {
+      this.pushFeedback(session, {
+        category: "network",
+        class: "network-failure",
+        severity: "warning",
+        message: "Preview reported network failures.",
+        pageId: prototype.pageId,
+        prototypeId,
+        targetId,
+        evidenceRefs: [],
+        details: {
+          cause: context.cause,
+          source: context.source ?? null,
+          previewState: previewState.previewState
+        }
+      });
+    }
+    if (perfData.metrics.length > 0) {
+      this.pushFeedback(session, {
+        category: "performance",
+        class: "perf-summary",
+        severity: "info",
+        message: `Captured ${perfData.metrics.length} performance metrics for ${previewState.previewState} preview.`,
+        pageId: prototype.pageId,
+        prototypeId,
+        targetId,
+        evidenceRefs: [],
+        details: {
+          cause: context.cause,
+          source: context.source ?? null,
+          previewState: previewState.previewState,
+          metrics: perfData.metrics
+        }
+      });
+    }
+    const warnings = evaluateCanvasWarnings(document, { degradeReason: previewState.degradeReason ?? null });
+    this.emitWarnings(session, warnings, {
+      pageId: prototype.pageId,
+      prototypeId,
+      targetId
+    });
+    this.pushFeedback(session, {
+      category: "render",
+      class: previewState.renderStatus === "degraded" ? "render-degraded" : "render-complete",
+      severity: previewState.renderStatus === "degraded" ? "warning" : "info",
+      message: previewState.renderStatus === "degraded"
+        ? context.cause === "patch_sync"
+          ? "Live preview refresh completed in degraded thumbnail-only mode."
+          : "Preview render completed in degraded thumbnail-only mode."
+        : context.cause === "patch_sync"
+          ? "Live preview refresh completed."
+          : "Preview render completed.",
+      pageId: prototype.pageId,
+      prototypeId,
+      targetId,
+      evidenceRefs: screenshot.path ? [screenshot.path] : [],
+        details: {
+          cause: context.cause,
+          source: context.source ?? null,
+          previewState: previewState.previewState,
+          degradeReason: previewState.degradeReason ?? null,
+          projection,
+          fallbackReason,
+          sourceUrl
+        }
+      });
+    if (context.syncAfter) {
+      await this.syncLiveViews(session);
+    }
+    return {
+      renderStatus: previewState.renderStatus,
+      targetId,
+      prototypeId,
+      previewState: previewState.previewState,
+      previewMode: previewState.previewMode,
+      documentRevision: session.store.getRevision(),
+      degradeReason: previewState.degradeReason ?? null,
+      warnings
     };
   }
 
@@ -920,10 +1442,19 @@ export class CanvasManager implements CanvasManagerLike {
     const document = session.store.getDocument();
     const governanceBlockStates = buildGovernanceBlockStates(document);
     const runtimeBudgets = getRuntimeBudgets(document);
+    const libraryPolicy = resolveCanvasLibraryPolicy(document);
+    const attachedClients = this.sessionSyncManager.listAttachedClients(session.canvasSessionId);
+    const leaseHolderClientId = this.sessionSyncManager.getLeaseHolderClientId(session.canvasSessionId);
+    const codeSyncStatus = this.codeSyncManager.getSessionStatus(
+      session.canvasSessionId,
+      attachedClients.length,
+      leaseHolderClientId
+    );
     return {
       canvasSessionId: session.canvasSessionId,
       browserSessionId: session.browserSessionId,
       leaseId: session.leaseId,
+      attachModes: ["observer", "lease_reclaim"],
       schemaVersion: CANVAS_SCHEMA_VERSION,
       policyVersion: "2026-03-09",
       documentId: session.store.getDocumentId(),
@@ -972,7 +1503,7 @@ export class CanvasManager implements CanvasManagerLike {
         ]
       },
       supportedVariantDimensions: ["viewport", "theme", "interaction", "content"],
-      allowedLibraries: CANVAS_PROJECT_DEFAULTS.libraryPolicy,
+      allowedLibraries: libraryPolicy,
       governanceBlockStates,
       runtimeBudgets,
       warningClasses: [
@@ -1002,26 +1533,53 @@ export class CanvasManager implements CanvasManagerLike {
           "canvas.plan.get",
           "canvas.plan.set",
           "canvas.document.load",
+          "canvas.session.attach",
           "canvas.session.status"
         ]
       },
-      documentContext: buildDocumentContext(document)
+      documentContext: buildDocumentContext(document),
+      attachedClients,
+      leaseHolderClientId,
+      codeSyncStatus
     };
   }
 
   private buildSessionSummary(session: CanvasSession): CanvasSessionSummary {
+    const document = session.store.getDocument();
+    const attachedClients = this.sessionSyncManager.listAttachedClients(session.canvasSessionId);
+    const leaseHolderClientId = this.sessionSyncManager.getLeaseHolderClientId(session.canvasSessionId);
+    const codeSyncStatus = this.codeSyncManager.getSessionStatus(
+      session.canvasSessionId,
+      attachedClients.length,
+      leaseHolderClientId
+    );
     return {
       canvasSessionId: session.canvasSessionId,
       browserSessionId: session.browserSessionId,
       documentId: session.store.getDocumentId(),
       leaseId: session.leaseId,
+      attachModes: ["observer", "lease_reclaim"],
       preflightState: session.preflightState,
       planStatus: session.planStatus,
       mode: session.mode,
       documentRevision: session.store.getRevision(),
+      libraryPolicy: resolveCanvasLibraryPolicy(document),
+      componentInventoryCount: document.componentInventory.length,
+      componentSourceKinds: getComponentSourceKinds(document),
+      iconRoles: readCanvasIconRoles(document),
       targets: [...session.activeTargets.values()],
       overlayMounts: [...session.overlayMounts.values()],
-      designTabTargetId: session.designTabTargetId
+      designTabTargetId: session.designTabTargetId,
+      attachedClients,
+      leaseHolderClientId,
+      watchState: codeSyncStatus.watchState,
+      codeSyncState: codeSyncStatus.state,
+      boundFiles: codeSyncStatus.boundFiles,
+      conflictCount: codeSyncStatus.conflictCount,
+      driftState: codeSyncStatus.driftState,
+      lastImportAt: codeSyncStatus.lastImportAt,
+      lastPushAt: codeSyncStatus.lastPushAt,
+      bindings: codeSyncStatus.bindings
     };
   }
 
@@ -1298,8 +1856,14 @@ export class CanvasManager implements CanvasManagerLike {
     }
   }
 
-  private async syncLiveViews(session: CanvasSession): Promise<void> {
+  private async syncLiveViews(
+    session: CanvasSession,
+    options: { refreshPreviewTargets?: boolean; source?: PreviewSyncSource } = {}
+  ): Promise<void> {
     await this.syncDesignTab(session);
+    if (options.refreshPreviewTargets) {
+      await this.syncPreviewTargets(session, options.source ?? "agent");
+    }
     await this.syncOverlays(session);
   }
 
@@ -1314,8 +1878,10 @@ export class CanvasManager implements CanvasManagerLike {
       await this.browserManager.goto(session.browserSessionId, url, "load", 30000, undefined, session.designTabTargetId).catch(() => {});
       return;
     }
+    const html = renderCanvasDocumentHtml(session.store.getDocument());
     await this.requestCanvasExtension(session, "canvas.tab.sync", {
       targetId: session.designTabTargetId,
+      html,
       document: session.store.getDocument(),
       documentRevision: session.store.getRevision(),
       summary: this.buildSessionSummary(session),
@@ -1332,16 +1898,84 @@ export class CanvasManager implements CanvasManagerLike {
       return;
     }
     const status = await this.browserManager.status(session.browserSessionId);
-    if (status.mode !== "extension") {
+    for (const mount of session.overlayMounts.values()) {
+      if (status.mode === "extension") {
+        await this.requestCanvasExtension(session, "canvas.overlay.sync", {
+          mountId: mount.mountId,
+          targetId: mount.targetId,
+          selection: session.editorSelection
+        }).catch(() => {});
+        continue;
+      }
+      await this.syncDirectOverlay(
+        session.browserSessionId,
+        mount.mountId,
+        mount.targetId,
+        session.store.getDocument().title,
+        session.editorSelection
+      ).catch(() => {});
+    }
+  }
+
+  private async syncPreviewTargets(session: CanvasSession, source: PreviewSyncSource): Promise<void> {
+    if (!session.browserSessionId || session.activeTargets.size === 0) {
       return;
     }
-    for (const mount of session.overlayMounts.values()) {
-      await this.requestCanvasExtension(session, "canvas.overlay.sync", {
-        mountId: mount.mountId,
-        targetId: mount.targetId,
-        selection: session.editorSelection
-      }).catch(() => {});
+    for (const target of [...session.activeTargets.values()]) {
+      if (target.targetId === session.designTabTargetId || typeof target.prototypeId !== "string" || target.prototypeId.length === 0) {
+        continue;
+      }
+      try {
+        await this.renderPreviewTarget(session, target.targetId, target.prototypeId, {
+          cause: "patch_sync",
+          source,
+          syncAfter: false
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.pushFeedback(session, {
+          category: "render",
+          class: "preview-sync-failed",
+          severity: "warning",
+          message,
+          pageId: null,
+          prototypeId: target.prototypeId,
+          targetId: target.targetId,
+          evidenceRefs: [],
+          details: {
+            cause: "patch_sync",
+            source
+          }
+        });
+      }
     }
+  }
+
+  private requirePrototype(document: CanvasDocument, prototypeId: string): CanvasPrototype {
+    const prototype = document.prototypes.find((entry) => entry.id === prototypeId);
+    if (!prototype) {
+      throw new Error(`Unknown prototype: ${prototypeId}`);
+    }
+    return prototype;
+  }
+
+  private buildPreviewHtml(
+    document: CanvasDocument,
+    prototype: CanvasPrototype,
+    targetId: string,
+    sourceUrl: string | null
+  ): string {
+    const baseHref = toAbsoluteUrl(sourceUrl);
+    return renderCanvasDocumentHtml(document, {
+      pageIds: [prototype.pageId],
+      baseHref,
+      rootAttributes: {
+        "data-preview-target-id": targetId,
+        "data-preview-prototype-id": prototype.id,
+        "data-preview-route": prototype.route || "",
+        "data-preview-source-url": sourceUrl ?? ""
+      }
+    });
   }
 
   private async requestCanvasExtension(
@@ -1455,6 +2089,47 @@ export class CanvasManager implements CanvasManagerLike {
     });
   }
 
+  private async syncDirectOverlay(
+    sessionId: string,
+    mountId: string,
+    targetId: string,
+    title: string,
+    selection: CanvasSession["editorSelection"]
+  ): Promise<void> {
+    await this.browserManager.withPage(sessionId, targetId, async (page: DirectPageLike) => {
+      await page.addStyleTag({ content: DIRECT_OVERLAY_STYLE });
+      await page.evaluate((input) => {
+        let root = document.getElementById(input.mountId);
+        if (!(root instanceof HTMLElement)) {
+          root = document.createElement("div");
+          root.id = input.mountId;
+          root.innerHTML = "<strong>OpenDevBrowser Canvas</strong><div></div><div></div>";
+          document.body.append(root);
+        }
+        const [heading, titleDetail, selectionDetail] = Array.from(root.children);
+        if (heading instanceof HTMLElement) {
+          heading.textContent = "OpenDevBrowser Canvas";
+        }
+        if (titleDetail instanceof HTMLElement) {
+          titleDetail.textContent = input.title;
+        }
+        if (selectionDetail instanceof HTMLElement) {
+          selectionDetail.textContent = input.selection.nodeId ? `Selected ${input.selection.nodeId}` : "Canvas overlay synced";
+        }
+        document.querySelectorAll(".opendevbrowser-canvas-highlight").forEach((element) => {
+          element.classList.remove("opendevbrowser-canvas-highlight");
+        });
+        if (input.selection.nodeId) {
+          const element = document.querySelector(`[data-node-id="${input.selection.nodeId}"]`);
+          if (element instanceof HTMLElement) {
+            element.classList.add("opendevbrowser-canvas-highlight");
+          }
+        }
+      }, { mountId, title, selection });
+      return null;
+    });
+  }
+
   private async selectDirectOverlay(
     sessionId: string,
     targetId: string,
@@ -1506,6 +2181,65 @@ function resolvePreviewUrl(currentUrl: string | undefined, route: string): strin
   }
 }
 
+function selectPreviewSourceCandidate(currentUrl: string | undefined, existingSourceUrl: string | null | undefined): string | undefined {
+  if (isPreviewSourceCandidate(currentUrl)) {
+    return currentUrl;
+  }
+  if (isPreviewSourceCandidate(existingSourceUrl)) {
+    return existingSourceUrl;
+  }
+  return currentUrl ?? existingSourceUrl ?? undefined;
+}
+
+function isPreviewSourceCandidate(url: string | null | undefined): url is string {
+  if (!url) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "file:";
+  } catch {
+    return false;
+  }
+}
+
+function findPrototypeRuntimeBinding(document: CanvasDocument, prototype: CanvasPrototype): CanvasBinding | null {
+  const page = document.pages.find((entry) => entry.id === prototype.pageId);
+  if (!page) {
+    return null;
+  }
+  const pageNodeIds = new Set(page.nodes.map((node) => node.id));
+  const candidates = document.bindings.filter((binding) => {
+    return binding.codeSync?.projection === "bound_app_runtime"
+      && pageNodeIds.has(binding.nodeId);
+  });
+  if (candidates.length === 0) {
+    return null;
+  }
+  const route = prototype.route.trim();
+  const routeMatch = route
+    ? candidates.find((binding) => binding.codeSync?.route?.trim() === route)
+    : null;
+  if (routeMatch) {
+    return routeMatch;
+  }
+  const rootBinding = page.rootNodeId
+    ? candidates.find((binding) => binding.nodeId === page.rootNodeId)
+    : null;
+  return rootBinding ?? candidates[0] ?? null;
+}
+
+function toAbsoluteUrl(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return new URL(value).toString();
+  } catch {
+    return null;
+  }
+}
+
 async function saveText(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const { writeFileAtomic } = await import("../utils/fs");
@@ -1517,6 +2251,77 @@ function requireString(value: unknown, name: string): string {
     throw new Error(`Missing ${name}`);
   }
   return value;
+}
+
+function requireAttachMode(value: unknown): CodeSyncAttachMode {
+  const normalized = optionalString(value) ?? "observer";
+  if (normalized !== "observer" && normalized !== "lease_reclaim") {
+    throw new Error(`Unsupported attachMode: ${normalized}`);
+  }
+  return normalized;
+}
+
+function requireResolutionPolicy(value: unknown): CodeSyncResolutionPolicy | undefined {
+  const normalized = optionalString(value);
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized !== "prefer_code" && normalized !== "prefer_canvas" && normalized !== "manual") {
+    throw new Error(`Unsupported resolutionPolicy: ${normalized}`);
+  }
+  return normalized;
+}
+
+function requireCanvasBinding(document: CanvasDocument, bindingId: string): CanvasBinding {
+  const binding = document.bindings.find((entry) => entry.id === bindingId);
+  if (!binding) {
+    throw new Error(`Unknown canvas binding: ${bindingId}`);
+  }
+  return binding;
+}
+
+function requireCodeSyncBinding(document: CanvasDocument, bindingId: string): CanvasBinding {
+  const binding = requireCanvasBinding(document, bindingId);
+  if (!binding.codeSync) {
+    throw attachDetails(new Error(`Binding ${bindingId} is not configured for code sync.`), {
+      code: "code_sync_required",
+      details: { bindingId }
+    });
+  }
+  return binding;
+}
+
+function createCodeSyncBinding(params: CanvasCommandParams, nodeId: string, bindingId: string): Omit<CanvasBinding, "nodeId"> & Partial<Pick<CanvasBinding, "nodeId">> {
+  const ownership: CodeSyncOwnership = isRecord(params.ownership)
+    ? params.ownership as CodeSyncOwnership
+    : {
+      structure: "shared",
+      text: "shared",
+      style: "shared",
+      tokens: "shared",
+      behavior: "code",
+      data: "code"
+    };
+  return {
+    id: bindingId,
+    nodeId,
+    kind: "code-sync",
+    selector: optionalString(params.selector) ?? undefined,
+    componentName: optionalString(params.componentName) ?? undefined,
+    metadata: {},
+    codeSync: {
+      adapter: "tsx-react-v1",
+      repoPath: requireString(params.repoPath, "repoPath"),
+      exportName: optionalString(params.exportName) ?? undefined,
+      selector: optionalString(params.selector) ?? undefined,
+      syncMode: (optionalString(params.syncMode) as "manual" | "watch" | null) ?? "manual",
+      ownership,
+      route: optionalString(params.route) ?? undefined,
+      verificationTarget: optionalString(params.verificationTarget) ?? undefined,
+      runtimeRootSelector: optionalString(params.runtimeRootSelector) ?? undefined,
+      projection: (optionalString(params.projection) as "canvas_html" | "bound_app_runtime" | null) ?? "canvas_html"
+    }
+  };
 }
 
 function requireNumber(value: unknown, name: string): number {
@@ -1617,6 +2422,20 @@ function getRuntimeBudgets(document: CanvasDocument): {
       ? runtimeBudgets.backgroundTelemetryMode
       : CANVAS_PROJECT_DEFAULTS.runtimeBudgets.backgroundTelemetryMode
   };
+}
+
+function getComponentSourceKinds(document: CanvasDocument): string[] {
+  const kinds = new Set<string>();
+  for (const component of document.componentInventory) {
+    if (!isRecord(component)) {
+      continue;
+    }
+    const sourceKind = optionalString(component.sourceKind);
+    if (sourceKind) {
+      kinds.add(sourceKind);
+    }
+  }
+  return [...kinds].sort((left, right) => left.localeCompare(right));
 }
 
 function readNumber(value: unknown, fallback: number): number {

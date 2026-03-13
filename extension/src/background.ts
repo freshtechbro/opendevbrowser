@@ -11,8 +11,13 @@ import {
 import { logError } from "./logging.js";
 import { OpsRuntime } from "./ops/ops-runtime.js";
 import { CanvasRuntime } from "./canvas/canvas-runtime.js";
+import {
+  formatDispatchSourceLabel,
+  stripAnnotationPayloadScreenshots
+} from "./annotation-payload.js";
 import type {
   AnnotationCommand,
+  AnnotationDispatchSource,
   AnnotationErrorCode,
   AnnotationPayload,
   AnnotationResponse,
@@ -23,6 +28,7 @@ import type {
   PopupAnnotationGetPayloadResponse,
   PopupAnnotationLastMetaResponse,
   PopupAnnotationMeta,
+  PopupAnnotationSendPayloadResponse,
   PopupAnnotationStartResponse,
   PopupMessage,
   RelayAnnotationCommand,
@@ -32,12 +38,14 @@ import type {
 } from "./types.js";
 
 const connection = new ConnectionManager();
-const opsRuntime = new OpsRuntime({
-  send: (message) => connection.sendOpsMessage(message),
-  cdp: connection.getCdpRouter()
-});
 const canvasRuntime = new CanvasRuntime({
   send: (message) => connection.sendCanvasMessage(message)
+});
+const opsRuntime = new OpsRuntime({
+  send: (message) => connection.sendOpsMessage(message),
+  cdp: connection.getCdpRouter(),
+  getCanvasPageState: (targetId) => canvasRuntime.getPageStateByTargetId(targetId),
+  performCanvasPageAction: (targetId, action, selector) => canvasRuntime.performPageAction(targetId, action, selector)
 });
 const nativePort = new NativePortManager({
   onMessage: (payload) => {
@@ -63,6 +71,8 @@ const ANNOTATION_MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const ANNOTATION_REQUEST_TIMEOUT_MS = 120_000;
 const LAST_ANNOTATION_META_KEY = "annotationLastMeta";
 const LAST_ANNOTATION_PAYLOAD_KEY = "annotationLastPayloadSansScreenshots";
+const LAST_AGENT_ANNOTATION_META_KEY = "annotationAgentMeta";
+const LAST_AGENT_ANNOTATION_PAYLOAD_KEY = "annotationAgentPayloadSansScreenshots";
 const BADGE_CONNECTED_DOT_COLOR = "#16a34a";
 const BADGE_DISCONNECTED_DOT_COLOR = "#dc2626";
 
@@ -79,6 +89,7 @@ type AnnotationSession = {
 
 const annotationSessions = new Map<string, AnnotationSession>();
 let lastAnnotationFull: { meta: PopupAnnotationMeta; payload: AnnotationPayload } | null = null;
+let lastAgentAnnotationFull: { meta: PopupAnnotationMeta; payload: AnnotationPayload } | null = null;
 
 connection.onAnnotationCommand((command) => {
   handleRelayAnnotationCommand(command).catch((error) => {
@@ -796,23 +807,11 @@ const generateAnnotationRequestId = (): string => {
   return crypto.randomUUID();
 };
 
-const stripScreenshots = (payload: AnnotationPayload): AnnotationPayload => {
-  const { screenshots, annotations, ...rest } = payload;
-  void screenshots;
-  return {
-    ...rest,
-    annotations: annotations.map((item) => {
-      const { screenshotId, ...restItem } = item;
-      void screenshotId;
-      return restItem;
-    })
-  };
-};
-
 const buildLastAnnotationMeta = (
   requestId: string,
   response: AnnotationResponse,
-  hasFullPayloadInMemory: boolean
+  hasFullPayloadInMemory: boolean,
+  extras: Partial<Pick<PopupAnnotationMeta, "source" | "label">> = {}
 ): PopupAnnotationMeta => {
   const payload = response.payload;
   const annotationCount = payload ? payload.annotations.length : undefined;
@@ -821,6 +820,8 @@ const buildLastAnnotationMeta = (
     requestId,
     status: response.status,
     error: response.error,
+    source: extras.source,
+    label: extras.label,
     url: payload?.url,
     title: payload?.title,
     timestamp: payload?.timestamp,
@@ -840,6 +841,13 @@ const persistLastAnnotation = async (meta: PopupAnnotationMeta, payload: Annotat
   });
 };
 
+const persistAgentAnnotation = async (meta: PopupAnnotationMeta, payload: AnnotationPayload | null): Promise<void> => {
+  await setStorage({
+    [LAST_AGENT_ANNOTATION_META_KEY]: meta,
+    [LAST_AGENT_ANNOTATION_PAYLOAD_KEY]: payload
+  });
+};
+
 const loadPersistedLastAnnotation = async (): Promise<{
   meta: PopupAnnotationMeta | null;
   payload: AnnotationPayload | null;
@@ -852,6 +860,88 @@ const loadPersistedLastAnnotation = async (): Promise<{
   const meta = metaRecord && typeof metaRecord === "object" ? metaRecord as PopupAnnotationMeta : null;
   const payload = payloadRecord && typeof payloadRecord === "object" ? payloadRecord as AnnotationPayload : null;
   return { meta, payload };
+};
+
+const loadPersistedAgentAnnotation = async (): Promise<{
+  meta: PopupAnnotationMeta | null;
+  payload: AnnotationPayload | null;
+}> => {
+  const data = await new Promise<Record<string, unknown>>((resolve) => {
+    chrome.storage.local.get([LAST_AGENT_ANNOTATION_META_KEY, LAST_AGENT_ANNOTATION_PAYLOAD_KEY], (items) => resolve(items));
+  });
+  const metaRecord = data[LAST_AGENT_ANNOTATION_META_KEY];
+  const payloadRecord = data[LAST_AGENT_ANNOTATION_PAYLOAD_KEY];
+  const meta = metaRecord && typeof metaRecord === "object" ? metaRecord as PopupAnnotationMeta : null;
+  const payload = payloadRecord && typeof payloadRecord === "object" ? payloadRecord as AnnotationPayload : null;
+  return { meta, payload };
+};
+
+const isAnnotationPayload = (value: unknown): value is AnnotationPayload => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const payload = value as Record<string, unknown>;
+  return typeof payload.url === "string"
+    && typeof payload.timestamp === "string"
+    && typeof payload.screenshotMode === "string"
+    && Array.isArray(payload.annotations);
+};
+
+const storeAgentAnnotationPayload = async (
+  payload: AnnotationPayload,
+  source: AnnotationDispatchSource,
+  label?: string
+): Promise<PopupAnnotationMeta> => {
+  if (!validatePayloadSize(payload)) {
+    throw new Error("Annotation payload exceeded size limits.");
+  }
+  const response: AnnotationResponse = {
+    version: 1,
+    requestId: crypto.randomUUID(),
+    status: "ok",
+    payload
+  };
+  const meta = buildLastAnnotationMeta(response.requestId, response, true, {
+    source,
+    label: label?.trim().length ? label.trim() : formatDispatchSourceLabel(source)
+  });
+  lastAgentAnnotationFull = { meta, payload };
+  await persistAgentAnnotation(meta, stripAnnotationPayloadScreenshots(payload));
+  return meta;
+};
+
+const loadAgentAnnotationPayload = async (includeScreenshots: boolean): Promise<AnnotationResponse> => {
+  if (includeScreenshots && lastAgentAnnotationFull) {
+    return {
+      version: 1,
+      requestId: crypto.randomUUID(),
+      status: "ok",
+      payload: lastAgentAnnotationFull.payload
+    };
+  }
+  if (lastAgentAnnotationFull) {
+    return {
+      version: 1,
+      requestId: crypto.randomUUID(),
+      status: "ok",
+      payload: stripAnnotationPayloadScreenshots(lastAgentAnnotationFull.payload)
+    };
+  }
+  const stored = await loadPersistedAgentAnnotation();
+  if (stored.payload) {
+    return {
+      version: 1,
+      requestId: crypto.randomUUID(),
+      status: "ok",
+      payload: stored.payload
+    };
+  }
+  return {
+    version: 1,
+    requestId: crypto.randomUUID(),
+    status: "error",
+    error: { code: "payload_unavailable", message: "No agent-dispatched annotation payload available." }
+  };
 };
 
 async function handleNativePortMessage(payload: unknown): Promise<void> {
@@ -881,6 +971,15 @@ const handleRelayAnnotationCommand = async (
 
   if (payload.command === "cancel") {
     await cancelAnnotationSession(payload.requestId, transport);
+    return;
+  }
+
+  if (payload.command === "fetch_stored") {
+    const stored = await loadAgentAnnotationPayload(payload.options?.includeScreenshots === true);
+    sendAnnotationResponse({
+      ...stored,
+      requestId: payload.requestId
+    }, transport);
     return;
   }
 
@@ -944,7 +1043,7 @@ const handleAnnotationComplete = (requestId: string, payload: AnnotationPayload)
   const meta = buildLastAnnotationMeta(requestId, response, true);
   lastAnnotationFull = { meta, payload };
   const storageMeta = { ...meta, hasFullPayloadInMemory: false };
-  const sanitizedPayload = stripScreenshots(payload);
+  const sanitizedPayload = stripAnnotationPayloadScreenshots(payload);
   persistLastAnnotation(storageMeta, sanitizedPayload).catch((error) => {
     logError("annotation.persist_sanitized_payload", error, { code: "annotation_persist_failed" });
   });
@@ -1409,9 +1508,9 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
       if (message.includeScreenshots) {
         const response: PopupAnnotationGetPayloadResponse = {
           type: "annotation:payloadResult",
-          payload: null,
+          payload: stored.payload,
           meta: storedMeta,
-          source: "none",
+          source: stored.payload ? "storage" : "none",
           warning: "Full payload not available; screenshots may have been dropped."
         };
         sendResponse(response);
@@ -1421,7 +1520,7 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
       if (lastAnnotationFull) {
         const response: PopupAnnotationGetPayloadResponse = {
           type: "annotation:payloadResult",
-          payload: stripScreenshots(lastAnnotationFull.payload),
+          payload: stripAnnotationPayloadScreenshots(lastAnnotationFull.payload),
           meta: { ...lastAnnotationFull.meta, hasFullPayloadInMemory: true },
           source: "memory"
         };
@@ -1455,6 +1554,44 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
         meta: null,
         source: "none",
         warning: "Background unavailable."
+      };
+      sendResponse(response);
+    });
+    return true;
+  }
+
+  if (message.type === "annotation:sendPayload") {
+    (async () => {
+      if (!isAnnotationPayload(message.payload)) {
+        const response: PopupAnnotationSendPayloadResponse = {
+          type: "annotation:sendPayloadResult",
+          ok: false,
+          meta: null,
+          error: { code: "invalid_request", message: "Invalid annotation payload." }
+        };
+        sendResponse(response);
+        return;
+      }
+      const meta = await storeAgentAnnotationPayload(
+        message.payload,
+        message.source ?? "popup_all",
+        message.label
+      );
+      const response: PopupAnnotationSendPayloadResponse = {
+        type: "annotation:sendPayloadResult",
+        ok: true,
+        meta: { ...meta, hasFullPayloadInMemory: true }
+      };
+      sendResponse(response);
+    })().catch((error) => {
+      const response: PopupAnnotationSendPayloadResponse = {
+        type: "annotation:sendPayloadResult",
+        ok: false,
+        meta: null,
+        error: {
+          code: "payload_too_large",
+          message: error instanceof Error ? error.message : "Annotation dispatch failed."
+        }
       };
       sendResponse(response);
     });

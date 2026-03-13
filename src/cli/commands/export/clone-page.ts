@@ -2,8 +2,8 @@ import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
 
-function parseClonePageArgs(rawArgs: string[]): { sessionId?: string } {
-  const parsed: { sessionId?: string } = {};
+function parseClonePageArgs(rawArgs: string[]): { sessionId?: string; targetId?: string } {
+  const parsed: { sessionId?: string; targetId?: string } = {};
   for (let i = 0; i < rawArgs.length; i += 1) {
     const arg = rawArgs[i];
     if (arg === "--session-id") {
@@ -17,13 +17,31 @@ function parseClonePageArgs(rawArgs: string[]): { sessionId?: string } {
       parsed.sessionId = arg.split("=", 2)[1];
       continue;
     }
+    if (arg === "--target-id") {
+      const value = rawArgs[i + 1];
+      if (!value) throw createUsageError("Missing value for --target-id");
+      parsed.targetId = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("--target-id=")) {
+      parsed.targetId = arg.split("=", 2)[1];
+      continue;
+    }
   }
   return parsed;
 }
 
 export async function runClonePage(args: ParsedArgs) {
-  const { sessionId } = parseClonePageArgs(args.rawArgs);
+  const { sessionId, targetId } = parseClonePageArgs(args.rawArgs);
   if (!sessionId) throw createUsageError("Missing --session-id");
-  const result = await callDaemon("export.clonePage", { sessionId });
+  const result = await callDaemon("export.clonePage", {
+    sessionId,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  });
   return { success: true, message: "Page cloned.", data: result };
 }
+
+export const __test__ = {
+  parseClonePageArgs
+};

@@ -7,6 +7,7 @@ type ConnectArgs = {
   wsEndpoint?: string;
   host?: string;
   port?: number;
+  startUrl?: string;
   headless?: boolean;
   extensionLegacy?: boolean;
 };
@@ -50,6 +51,19 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       const value = arg.split("=", 2)[1];
       if (!value) throw createUsageError("Missing value for --cdp-port");
       parsed.port = parseNumberFlag(value, "--cdp-port", { min: 1, max: 65535 });
+      continue;
+    }
+    if (arg === "--start-url") {
+      const value = rawArgs[i + 1];
+      if (!value) throw createUsageError("Missing value for --start-url");
+      parsed.startUrl = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("--start-url=")) {
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --start-url");
+      parsed.startUrl = value;
       continue;
     }
     if (arg === "--extension-legacy") {

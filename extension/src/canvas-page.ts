@@ -1,19 +1,40 @@
-import type {
-  CanvasDocument,
-  CanvasEditorSelection,
-  CanvasEditorViewport,
-  CanvasFeedbackEvent,
-  CanvasNode,
-  CanvasPageMessage,
-  CanvasPagePortMessage,
-  CanvasPageState
+import {
+  type CanvasDocument,
+  type CanvasEditorSelection,
+  type CanvasEditorViewport,
+  type CanvasFeedbackEvent,
+  type CanvasNode,
+  type CanvasPageElementAction,
+  type CanvasPageMessage,
+  type CanvasPagePortMessage,
+  type CanvasPageState,
+  type CanvasSessionSummary,
+  summarizeCanvasProjectionState,
+  normalizeCanvasSessionSummary,
+  normalizeCanvasTargetStateSummaries
 } from "./canvas/model.js";
+import {
+  buildCanvasAnnotationPayload,
+  describeAnnotationItem,
+  type CanvasAnnotationDraft
+} from "./annotation-payload.js";
+import {
+  DEFAULT_EDITOR_VIEWPORT,
+  computeFittedViewport,
+  computeViewportCanvasCenter,
+  isDefaultEditorViewport
+} from "./canvas/viewport-fit.js";
+import type {
+  AnnotationDispatchSource,
+  PopupAnnotationSendPayloadResponse
+} from "./types.js";
 
 const DB_NAME = "opendevbrowser-canvas";
 const DB_VERSION = 2;
 const STORE_NAME = "editor-state";
 const CHANNEL_NAME = "opendevbrowser-canvas";
 const SAVE_DEBOUNCE_MS = 180;
+const UNIT_LESS_STYLES = new Set(["fontWeight", "lineHeight", "opacity", "zIndex"]);
 
 const titleElement = requiredElement("canvas-title");
 const badgesElement = requiredElement("canvas-badges");
@@ -32,6 +53,11 @@ const textInput = requiredElement("canvas-node-text") as HTMLTextAreaElement;
 const addNoteButton = requiredElement("canvas-add-note") as HTMLButtonElement;
 const resetViewButton = requiredElement("canvas-reset-view") as HTMLButtonElement;
 const deleteNodeButton = requiredElement("canvas-delete-node") as HTMLButtonElement;
+const annotationAddButton = requiredElement("canvas-annotation-add") as HTMLButtonElement;
+const annotationCopyButton = requiredElement("canvas-annotation-copy") as HTMLButtonElement;
+const annotationSendButton = requiredElement("canvas-annotation-send") as HTMLButtonElement;
+const annotationContextInput = requiredElement("canvas-annotation-context") as HTMLTextAreaElement;
+const annotationListElement = requiredElement("canvas-annotation-list");
 
 const broadcastChannel = typeof BroadcastChannel === "function" ? new BroadcastChannel(CHANNEL_NAME) : null;
 const port = chrome.runtime.connect({ name: "canvas-page" });
@@ -40,6 +66,8 @@ let currentState: CanvasPageState | null = null;
 let currentTabId: number | null = null;
 let databasePromise: Promise<IDBDatabase | null> | null = null;
 let persistTimer: number | null = null;
+let fitViewportFrame: number | null = null;
+let annotationDrafts: CanvasAnnotationDraft[] = [];
 let draggingNode: {
   nodeId: string;
   originX: number;
@@ -79,6 +107,7 @@ async function bootstrap(): Promise<void> {
   bindStageInteractions();
   bindInspector();
   bindToolbar();
+  bindAnnotationPanel();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       flushPersist();
@@ -100,7 +129,11 @@ function bindToolbar(): void {
     }
     const nodeId = `node_note_${crypto.randomUUID().slice(0, 8)}`;
     const parentId = currentState.selection.nodeId ?? page.rootNodeId;
-    const center = viewportCanvasCenter(currentState.viewport);
+    const center = computeViewportCanvasCenter(
+      currentState.viewport,
+      stageElement.clientWidth,
+      stageElement.clientHeight
+    );
     const noteNode = {
       id: nodeId,
       kind: "note",
@@ -128,7 +161,7 @@ function bindToolbar(): void {
     if (!currentState) {
       return;
     }
-    currentState.viewport = { x: 120, y: 96, zoom: 1 };
+    currentState.viewport = resolvePreferredViewport(currentState);
     postViewState();
     renderState();
     schedulePersist(currentState);
@@ -143,6 +176,24 @@ function bindToolbar(): void {
       pageId: currentState.selection.pageId,
       nodeId: null,
       targetId: currentState.selection.targetId
+    });
+  });
+}
+
+function bindAnnotationPanel(): void {
+  annotationAddButton.addEventListener("click", () => {
+    addSelectedAnnotationDraft();
+  });
+  annotationCopyButton.addEventListener("click", () => {
+    void copyCanvasAnnotation(undefined, annotationCopyButton).catch((error) => {
+      setCanvasButtonFeedback(annotationCopyButton, "Copy failed");
+      console.error("[opendevbrowser canvas]", error);
+    });
+  });
+  annotationSendButton.addEventListener("click", () => {
+    void sendCanvasAnnotation(undefined, "canvas_all", "Canvas annotation payload", annotationSendButton).catch((error) => {
+      setCanvasButtonFeedback(annotationSendButton, "Send failed");
+      console.error("[opendevbrowser canvas]", error);
     });
   });
 }
@@ -283,15 +334,29 @@ function bindStageInteractions(): void {
 }
 
 function handlePortMessage(message: CanvasPageMessage): void {
-  if (!message || (message.type !== "canvas-page:init" && message.type !== "canvas-page:update" && message.type !== "canvas-page:closed")) {
+  if (!message) {
+    return;
+  }
+  if (message.type === "canvas-page-action-request") {
+    const response = runCanvasPageAction(message.selector ?? null, message.action);
+    port.postMessage({
+      type: "canvas-page-action-response",
+      requestId: message.requestId,
+      ...(response.ok ? { ok: true, value: response.value } : { ok: false, error: response.error })
+    } satisfies CanvasPagePortMessage);
+    return;
+  }
+  if (message.type !== "canvas-page:init" && message.type !== "canvas-page:update" && message.type !== "canvas-page:closed") {
     return;
   }
   if (message.type === "canvas-page:closed") {
     currentState = null;
+    annotationDrafts = [];
     previewElement.srcdoc = "";
     emptyElement.hidden = false;
     renderMeta(`Canvas closed${message.reason ? `: ${message.reason}` : "."}`);
     stageInnerElement.innerHTML = "";
+    renderAnnotationPanel();
     return;
   }
   const state = normalizeCanvasPageState(message.state);
@@ -299,6 +364,190 @@ function handlePortMessage(message: CanvasPageMessage): void {
     return;
   }
   applyState(state, true);
+}
+
+function runCanvasPageAction(
+  selector: string | null,
+  action: CanvasPageElementAction
+): { ok: true; value?: unknown } | { ok: false; error: string } {
+  const resolveElement = (allowActive = false): Element | null => {
+    if (selector && selector.trim().length > 0) {
+      return document.querySelector(selector);
+    }
+    return allowActive ? document.activeElement : null;
+  };
+  const dispatchPointer = (target: Element, type: string, buttons: number) => {
+    const rect = target.getBoundingClientRect();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+      button: 0,
+      buttons
+    };
+    if (typeof PointerEvent === "function") {
+      target.dispatchEvent(new PointerEvent(type, init));
+      return;
+    }
+    target.dispatchEvent(new MouseEvent(type.replace(/^pointer/, "mouse"), init));
+  };
+  const dispatchMouse = (target: Element, type: string, buttons: number) => {
+    const rect = target.getBoundingClientRect();
+    target.dispatchEvent(new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+      button: 0,
+      buttons
+    }));
+  };
+  const dispatchHover = (target: Element) => {
+    dispatchPointer(target, "pointerover", 0);
+    dispatchPointer(target, "pointerenter", 0);
+    dispatchMouse(target, "mouseover", 0);
+    dispatchMouse(target, "mouseenter", 0);
+    dispatchPointer(target, "pointermove", 0);
+    dispatchMouse(target, "mousemove", 0);
+  };
+  const dispatchClick = (target: Element) => {
+    dispatchHover(target);
+    dispatchPointer(target, "pointerdown", 1);
+    dispatchMouse(target, "mousedown", 1);
+    if (target instanceof HTMLElement) {
+      target.focus();
+    }
+    dispatchPointer(target, "pointerup", 0);
+    dispatchMouse(target, "mouseup", 0);
+    if (target instanceof HTMLElement) {
+      target.click();
+      return;
+    }
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, composed: true, view: window }));
+  };
+  const selectorState = (target: Element | null) => {
+    if (!target) {
+      return { attached: false, visible: false };
+    }
+    const style = window.getComputedStyle(target);
+    const rect = target.getBoundingClientRect();
+    return {
+      attached: true,
+      visible: style.display !== "none"
+        && style.visibility !== "hidden"
+        && style.opacity !== "0"
+        && rect.width > 0
+        && rect.height > 0
+    };
+  };
+
+  if (action.type === "scroll") {
+    const target = resolveElement(false);
+    if (target instanceof HTMLElement) {
+      target.scrollBy(0, action.dy);
+      return { ok: true, value: true };
+    }
+    window.scrollBy(0, action.dy);
+    return { ok: true, value: true };
+  }
+
+  if (action.type === "getSelectorState") {
+    return { ok: true, value: selectorState(resolveElement(false)) };
+  }
+
+  const target = resolveElement(action.type === "press");
+  if (!target) {
+    return { ok: false, error: "Element not found" };
+  }
+
+  switch (action.type) {
+    case "outerHTML":
+      return { ok: true, value: target.outerHTML };
+    case "innerText":
+      return { ok: true, value: target instanceof HTMLElement ? target.innerText || target.textContent || "" : target.textContent || "" };
+    case "getAttr":
+      return { ok: true, value: target.getAttribute(action.name) };
+    case "getValue":
+      if ("value" in target) {
+        return { ok: true, value: String((target as HTMLInputElement).value ?? "") };
+      }
+      return { ok: true, value: null };
+    case "isEnabled":
+      if ("disabled" in target) {
+        return { ok: true, value: !(target as HTMLInputElement).disabled };
+      }
+      return { ok: true, value: true };
+    case "isChecked":
+      if ("checked" in target) {
+        return { ok: true, value: Boolean((target as HTMLInputElement).checked) };
+      }
+      return { ok: true, value: false };
+    case "click":
+      dispatchClick(target);
+      return { ok: true, value: true };
+    case "hover":
+      dispatchHover(target);
+      return { ok: true, value: true };
+    case "focus":
+      if (target instanceof HTMLElement) {
+        target.focus();
+      }
+      return { ok: true, value: true };
+    case "press": {
+      if (target instanceof HTMLElement) {
+        target.focus();
+      }
+      const init = { key: action.key, bubbles: true, cancelable: true };
+      target.dispatchEvent(new KeyboardEvent("keydown", init));
+      target.dispatchEvent(new KeyboardEvent("keypress", init));
+      target.dispatchEvent(new KeyboardEvent("keyup", init));
+      return { ok: true, value: true };
+    }
+    case "type": {
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+        return { ok: false, error: "Element does not support typing" };
+      }
+      if (action.clear) {
+        target.value = "";
+      }
+      target.value = String(action.value ?? "");
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      target.dispatchEvent(new Event("change", { bubbles: true }));
+      if (action.submit) {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      }
+      return { ok: true, value: true };
+    }
+    case "setChecked":
+      if (!("checked" in target)) {
+        return { ok: false, error: "Element does not support checked state" };
+      }
+      (target as HTMLInputElement).checked = Boolean(action.checked);
+      target.dispatchEvent(new Event("change", { bubbles: true }));
+      return { ok: true, value: true };
+    case "select":
+      if (!(target instanceof HTMLSelectElement)) {
+        return { ok: false, error: "Element is not a select" };
+      }
+      const wanted = new Set(action.values);
+      for (const option of Array.from(target.options)) {
+        option.selected = wanted.has(option.value);
+      }
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      target.dispatchEvent(new Event("change", { bubbles: true }));
+      return { ok: true, value: true };
+    case "scrollIntoView":
+      if (target instanceof HTMLElement) {
+        target.scrollIntoView({ block: "center", inline: "center", behavior: "auto" });
+      } else {
+        target.scrollIntoView();
+      }
+      return { ok: true, value: true };
+  }
 }
 
 function applyState(state: CanvasPageState, persist: boolean): void {
@@ -312,6 +561,7 @@ function applyState(state: CanvasPageState, persist: boolean): void {
   renderState();
   previewElement.srcdoc = state.html;
   emptyElement.hidden = Boolean(state.html);
+  queueViewportFitIfNeeded();
   if (persist) {
     schedulePersist(state);
   }
@@ -319,21 +569,36 @@ function applyState(state: CanvasPageState, persist: boolean): void {
 
 function renderState(): void {
   if (!currentState) {
+    renderAnnotationPanel();
     return;
   }
-  stageMetaElement.textContent = `${currentState.document.pages[0]?.nodes.length ?? 0} nodes • ${currentState.pendingMutation ? "sync pending" : "live"}`;
+  const projectionSummary = summarizeCanvasProjectionState(currentState.summary, currentState.targets);
+  const syncFragments = [
+    currentState.pendingMutation ? "sync pending" : "live",
+    currentState.summary.codeSyncState ?? null,
+    projectionSummary.conflictCount > 0 ? `${projectionSummary.conflictCount} conflict${projectionSummary.conflictCount === 1 ? "" : "s"}` : null
+  ].filter((entry): entry is string => typeof entry === "string");
+  stageMetaElement.textContent = `${currentState.document.pages[0]?.nodes.length ?? 0} nodes • ${syncFragments.join(" • ")}`;
   renderStage();
   renderInspector();
+  syncAnnotationDrafts();
 }
 
 function renderBadges(state: CanvasPageState): void {
   badgesElement.innerHTML = "";
+  const projectionSummary = summarizeCanvasProjectionState(state.summary, state.targets);
   for (const label of [
     state.previewState,
     state.previewMode,
     state.documentRevision === null ? "revision pending" : `revision ${state.documentRevision}`,
-    state.pendingMutation ? "sync pending" : "synced"
+    state.pendingMutation ? "sync pending" : "synced",
+    state.summary.codeSyncState,
+    projectionSummary.activeProjections[0],
+    projectionSummary.conflictCount > 0 ? `${projectionSummary.conflictCount} conflicts` : null
   ]) {
+    if (typeof label !== "string" || label.trim().length === 0) {
+      continue;
+    }
     const badge = document.createElement("span");
     badge.className = "canvas-badge";
     badge.textContent = label;
@@ -345,14 +610,29 @@ function renderMeta(text: string): void {
   metaElement.textContent = text;
 }
 
-function renderSummary(summary: Record<string, unknown>, state: CanvasPageState): void {
+function renderSummary(summary: CanvasSessionSummary, state: CanvasPageState): void {
   summaryElement.innerHTML = "";
+  const componentLibraries = formatSummaryList(readSummaryLibraryList(summary, "components"));
+  const iconLibraries = formatSummaryList(readSummaryLibraryList(summary, "icons"));
+  const stylingLibraries = formatSummaryList(readSummaryLibraryList(summary, "styling"));
+  const inventorySources = formatSummaryList(readSummaryStringArray(summary.componentSourceKinds));
+  const projectionSummary = summarizeCanvasProjectionState(state.summary, state.targets);
   const items: Array<[string, string]> = [
     ["Target", state.targetId],
     ["Session", formatSummaryValue(summary.canvasSessionId)],
     ["Mode", formatSummaryValue(summary.mode)],
     ["Plan", formatSummaryValue(summary.planStatus)],
     ["Preflight", formatSummaryValue(summary.preflightState)],
+    ["Attached clients", formatAttachedClients(state.summary.attachedClients)],
+    ["Lease holder", state.summary.leaseHolderClientId ?? "none"],
+    ["Code sync", formatCodeSyncStatus(state.summary, projectionSummary.watchConflict)],
+    ["Projection", formatProjectionSummary(projectionSummary)],
+    ["Fallbacks", formatSummaryList(projectionSummary.fallbackReasons)],
+    ["Components", componentLibraries],
+    ["Icons", iconLibraries],
+    ["Styling", stylingLibraries],
+    ["Inventory", `${formatSummaryValue(summary.componentInventoryCount)} mapped`],
+    ["Inventory sources", inventorySources],
     ["Targets", String(state.targets.length)],
     ["Overlays", String(state.overlayMounts.length)],
     ["Feedback", String(countFeedbackItems(state.feedback))]
@@ -418,26 +698,518 @@ function renderStage(): void {
   stageInnerElement.style.height = `${bounds.height}px`;
   stageInnerElement.style.transform = `translate(${currentState.viewport.x}px, ${currentState.viewport.y}px) scale(${currentState.viewport.zoom})`;
   stageInnerElement.innerHTML = "";
-  for (const node of page.nodes) {
-    const element = document.createElement(node.kind === "text" ? "p" : node.kind === "note" ? "aside" : "div");
-    element.className = "canvas-node";
-    element.dataset.nodeId = node.id;
-    element.dataset.selected = String(currentState.selection.nodeId === node.id);
-    element.style.left = `${node.rect.x}px`;
-    element.style.top = `${node.rect.y}px`;
-    element.style.width = `${Math.max(node.rect.width, 80)}px`;
-    element.style.height = `${Math.max(node.rect.height, 48)}px`;
-    const kind = document.createElement("div");
-    kind.className = "canvas-node-kind";
-    kind.textContent = node.kind;
-    const title = document.createElement("div");
-    title.className = "canvas-node-name";
-    title.textContent = node.name;
+  const sortedNodes = [...page.nodes].sort(compareStageNodes);
+  for (const node of sortedNodes) {
+    stageInnerElement.append(buildStageNodeElement(currentState.document, node, currentState.selection.nodeId === node.id));
+  }
+}
+
+function compareStageNodes(left: CanvasNode, right: CanvasNode): number {
+  const rootOrder = Number(left.parentId !== null) - Number(right.parentId !== null);
+  if (rootOrder !== 0) {
+    return rootOrder;
+  }
+  const areaOrder = (right.rect.width * right.rect.height) - (left.rect.width * left.rect.height);
+  if (areaOrder !== 0) {
+    return areaOrder;
+  }
+  const verticalOrder = left.rect.y - right.rect.y;
+  return verticalOrder !== 0 ? verticalOrder : left.rect.x - right.rect.x;
+}
+
+function buildStageNodeElement(
+  documentState: CanvasDocument,
+  node: CanvasNode,
+  selected: boolean
+): HTMLElement {
+  const binding = resolveStageBinding(documentState, node);
+  const componentKind = resolveStageComponentKind(node, binding);
+  const media = resolveStageMediaDescriptor(documentState, node);
+  const text = nodeText(node);
+  const tag = componentKind === "button"
+    ? "button"
+    : media
+      ? "div"
+    : node.kind === "text"
+      ? "p"
+      : node.kind === "note"
+        ? "aside"
+        : "div";
+  const element = document.createElement(tag);
+  element.className = [
+    "canvas-node",
+    componentKind ? `canvas-node-${componentKind}` : "",
+    binding?.sourceKind ? `canvas-node-source-${binding.sourceKind.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}` : ""
+  ].filter(Boolean).join(" ");
+  element.dataset.nodeId = node.id;
+  element.dataset.selected = String(selected);
+  const accessibleLabel = describeStageNode(node, componentKind, media, text);
+  element.title = accessibleLabel;
+  element.setAttribute("aria-label", selected ? `${accessibleLabel}, selected` : accessibleLabel);
+  element.setAttribute("aria-roledescription", componentKind ?? node.kind);
+  if (element instanceof HTMLButtonElement) {
+    element.type = "button";
+  } else {
+    element.setAttribute("role", "button");
+    element.tabIndex = 0;
+  }
+  element.style.left = `${node.rect.x}px`;
+  element.style.top = `${node.rect.y}px`;
+  element.style.width = `${Math.max(node.rect.width, 40)}px`;
+  element.style.minHeight = `${Math.max(node.rect.height, node.kind === "connector" ? 2 : componentKind === "badge" ? 28 : 40)}px`;
+  applyDeclaredStageStyles(element, node.style);
+  if (text.includes("\n") && element.style.whiteSpace.length === 0) {
+    element.style.whiteSpace = "pre-line";
+  }
+  const icons = readStageIcons(node);
+  if (componentKind === "button" || componentKind === "badge" || componentKind === "tabs") {
+    appendStageButtonLikeContent(element, text || node.name, icons, componentKind);
+    return element;
+  }
+  if (componentKind === "card" || componentKind === "dialog" || componentKind === "motion") {
+    appendStageCardContent(element, text || node.name, icons);
+    return element;
+  }
+  if (media) {
+    appendStageMediaContent(element, media, text || node.name);
+    return element;
+  }
+  if (node.kind === "connector") {
+    return element;
+  }
+  appendStageTextContent(element, text || node.name);
+  return element;
+}
+
+function describeStageNode(
+  node: CanvasNode,
+  componentKind: "badge" | "button" | "card" | "dialog" | "motion" | "tabs" | null,
+  media: { kind: "image" | "video" | "audio"; src: string | null; poster: string | null; alt: string | null } | null,
+  text: string
+): string {
+  const parts = [
+    node.name.trim(),
+    text.trim() && text.trim() !== node.name.trim() ? text.trim() : "",
+    media ? media.kind : "",
+    componentKind ?? node.kind
+  ].filter((value) => value.length > 0);
+  return parts.join(" • ");
+}
+
+function resolveStageBinding(
+  documentState: CanvasDocument,
+  node: CanvasNode
+): { componentName: string | null; sourceKind: string | null } | null {
+  const bindingId = typeof node.bindingRefs.primary === "string" ? node.bindingRefs.primary : null;
+  if (!bindingId) {
+    return null;
+  }
+  const binding = documentState.bindings.find((entry) => entry.id === bindingId);
+  if (!binding) {
+    return null;
+  }
+  const metadata = isRecord(binding.metadata) ? binding.metadata : {};
+  return {
+    componentName: typeof binding.componentName === "string" ? binding.componentName : null,
+    sourceKind: typeof metadata.sourceKind === "string" ? metadata.sourceKind : null
+  };
+}
+
+function resolveStageComponentKind(
+  node: CanvasNode,
+  binding: { componentName: string | null; sourceKind: string | null } | null
+): "badge" | "button" | "card" | "dialog" | "motion" | "tabs" | null {
+  const componentName = binding?.componentName?.toLowerCase() ?? "";
+  if (componentName.includes("button")) {
+    return "button";
+  }
+  if (componentName.includes("badge")) {
+    return "badge";
+  }
+  if (componentName.includes("tabs")) {
+    return "tabs";
+  }
+  if (componentName.includes("card")) {
+    return "card";
+  }
+  if (componentName.includes("dialog")) {
+    return "dialog";
+  }
+  if (componentName.includes("motion")) {
+    return "motion";
+  }
+  if (node.kind !== "component-instance") {
+    return null;
+  }
+  const lineCount = nodeText(node).split("\n").filter((entry) => entry.trim().length > 0).length;
+  if (lineCount > 1 || node.rect.height >= 96) {
+    return "card";
+  }
+  if (node.rect.height <= 56) {
+    return "badge";
+  }
+  return "button";
+}
+
+function readStageIcons(node: CanvasNode): Array<{ identifier: string; sourceLibrary: string }> {
+  const refs = Array.isArray(node.metadata.iconRefs)
+    ? node.metadata.iconRefs
+    : node.metadata.iconRef
+      ? [node.metadata.iconRef]
+      : [];
+  return refs.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.sourceLibrary !== "string") {
+      return [];
+    }
+    return [{
+      identifier: typeof entry.identifier === "string" ? entry.identifier : "generic",
+      sourceLibrary: entry.sourceLibrary
+    }];
+  });
+}
+
+function readStageAttributes(node: CanvasNode): Record<string, unknown> {
+  return isRecord(node.props.attributes) ? node.props.attributes : {};
+}
+
+function resolveStageTagName(node: CanvasNode): string | null {
+  if (typeof node.props.tagName === "string" && node.props.tagName.trim().length > 0) {
+    return node.props.tagName.trim().toLowerCase();
+  }
+  const codeSync = isRecord(node.metadata.codeSync) ? node.metadata.codeSync : null;
+  if (codeSync && typeof codeSync.tagName === "string" && codeSync.tagName.trim().length > 0) {
+    return codeSync.tagName.trim().toLowerCase();
+  }
+  return null;
+}
+
+function resolveStageMediaDescriptor(
+  documentState: CanvasDocument,
+  node: CanvasNode
+): { kind: "image" | "video" | "audio"; src: string | null; poster: string | null; alt: string | null } | null {
+  const tagName = resolveStageTagName(node);
+  const attributes = readStageAttributes(node);
+  const assetIds = Array.isArray(node.metadata.assetIds)
+    ? node.metadata.assetIds.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+  const asset = assetIds.length > 0
+    ? documentState.assets.find((entry) => entry.id === assetIds[0])
+    : null;
+  const assetKind = typeof asset?.kind === "string" ? asset.kind.toLowerCase() : null;
+  const assetMime = typeof asset?.mime === "string" ? asset.mime.toLowerCase() : null;
+  const src = typeof node.props.src === "string"
+    ? node.props.src
+    : typeof attributes.src === "string"
+      ? attributes.src
+      : typeof asset?.url === "string"
+        ? asset.url
+        : typeof asset?.repoPath === "string"
+          ? asset.repoPath
+          : null;
+  const poster = typeof node.props.poster === "string"
+    ? node.props.poster
+    : typeof attributes.poster === "string"
+      ? attributes.poster
+      : null;
+  const alt = typeof node.props.alt === "string"
+    ? node.props.alt
+    : typeof attributes.alt === "string"
+      ? attributes.alt
+      : node.name;
+  if (tagName === "img" || assetKind === "image" || assetMime?.startsWith("image/")) {
+    return { kind: "image", src, poster: null, alt };
+  }
+  if (tagName === "video" || assetKind === "video" || assetMime?.startsWith("video/")) {
+    return { kind: "video", src, poster, alt };
+  }
+  if (tagName === "audio" || assetKind === "audio" || assetMime?.startsWith("audio/")) {
+    return { kind: "audio", src, poster: null, alt };
+  }
+  return null;
+}
+
+function appendStageMediaContent(
+  element: HTMLElement,
+  media: { kind: "image" | "video" | "audio"; src: string | null; poster: string | null; alt: string | null },
+  label: string
+): void {
+  element.classList.add("canvas-node-media-shell");
+  if (!media.src) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "canvas-node-media-placeholder";
+    placeholder.textContent = `${media.kind} source missing`;
+    element.append(placeholder);
+    return;
+  }
+  if (media.kind === "image") {
+    const image = document.createElement("img");
+    image.className = "canvas-node-media canvas-node-media-image";
+    image.src = media.src;
+    image.alt = media.alt ?? label;
+    image.loading = "lazy";
+    image.draggable = false;
+    image.style.pointerEvents = "none";
+    element.append(image);
+    return;
+  }
+  if (media.kind === "video") {
+    const video = document.createElement("video");
+    video.className = "canvas-node-media canvas-node-media-video";
+    video.src = media.src;
+    if (media.poster) {
+      video.poster = media.poster;
+    }
+    video.muted = true;
+    video.loop = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.style.pointerEvents = "none";
+    element.append(video);
+    return;
+  }
+  const audio = document.createElement("audio");
+  audio.className = "canvas-node-media canvas-node-media-audio";
+  audio.src = media.src;
+  audio.controls = true;
+  audio.preload = "metadata";
+  audio.style.pointerEvents = "none";
+  element.append(audio);
+}
+
+function appendStageButtonLikeContent(
+  element: HTMLElement,
+  text: string,
+  icons: Array<{ identifier: string; sourceLibrary: string }>,
+  componentKind: "badge" | "button" | "tabs"
+): void {
+  const row = document.createElement(componentKind === "tabs" ? "div" : "span");
+  row.className = componentKind === "tabs" ? "canvas-node-tabs-trigger" : "canvas-node-row";
+  for (const icon of icons) {
+    row.append(buildStageIconElement(icon));
+  }
+  const label = document.createElement("span");
+  label.className = "canvas-node-label";
+  label.textContent = text;
+  row.append(label);
+  element.append(row);
+}
+
+function appendStageCardContent(
+  element: HTMLElement,
+  text: string,
+  icons: Array<{ identifier: string; sourceLibrary: string }>
+): void {
+  const lines = text.split("\n").map((entry) => entry.trim()).filter(Boolean);
+  const header = document.createElement("div");
+  header.className = "canvas-node-card-header";
+  const title = document.createElement("div");
+  title.className = "canvas-node-card-title";
+  title.textContent = lines[0] ?? text;
+  header.append(title);
+  if (icons.length > 0) {
+    const iconWrap = document.createElement("span");
+    iconWrap.className = "canvas-node-icon-stack";
+    for (const icon of icons) {
+      iconWrap.append(buildStageIconElement(icon));
+    }
+    header.append(iconWrap);
+  }
+  element.append(header);
+  if (lines.length > 1) {
     const body = document.createElement("div");
-    body.className = "canvas-node-body";
-    body.textContent = nodeText(node);
-    element.append(kind, title, body);
-    stageInnerElement.append(element);
+    body.className = "canvas-node-card-copy";
+    for (const line of lines.slice(1)) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = line;
+      body.append(paragraph);
+    }
+    element.append(body);
+  }
+}
+
+function appendStageTextContent(element: HTMLElement, text: string): void {
+  const inlineItems = text.split(/\s{2,}/).map((entry) => entry.trim()).filter(Boolean);
+  if (inlineItems.length > 1) {
+    const list = document.createElement("div");
+    list.className = "canvas-node-inline-list";
+    for (const item of inlineItems) {
+      const chip = document.createElement("span");
+      chip.className = "canvas-node-inline-item";
+      chip.textContent = item;
+      list.append(chip);
+    }
+    element.append(list);
+    return;
+  }
+  element.textContent = text;
+}
+
+function buildStageIconElement(icon: { identifier: string; sourceLibrary: string }): HTMLElement {
+  const span = document.createElement("span");
+  span.className = "canvas-node-icon";
+  span.dataset.library = icon.sourceLibrary;
+  if (icon.sourceLibrary === "tabler") {
+    span.append(buildStageTablerIcon(icon.identifier));
+    return span;
+  }
+  if (icon.sourceLibrary === "microsoft-fluent-ui-system-icons") {
+    span.append(buildStageFluentIcon(icon.identifier));
+    return span;
+  }
+  if (icon.sourceLibrary === "3dicons") {
+    span.style.background = "linear-gradient(145deg, #7ef9e9 0%, #22c3ee 48%, #ff7aa2 100%)";
+    span.style.boxShadow = "0 8px 18px rgba(34, 195, 238, 0.28)";
+    span.textContent = "";
+    return span;
+  }
+  span.textContent = icon.identifier.includes("party") ? "🎉" : "✨";
+  return span;
+}
+
+function buildStageIconSvg(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  svg.setAttribute("aria-hidden", "true");
+  return svg;
+}
+
+function appendStageStrokePath(svg: SVGSVGElement, attributes: Record<string, string>): void {
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  path.setAttribute("stroke-width", "1.85");
+  for (const [key, value] of Object.entries(attributes)) {
+    path.setAttribute(key, value);
+  }
+  svg.append(path);
+}
+
+function buildStageTablerIcon(identifier: string): SVGSVGElement {
+  const svg = buildStageIconSvg();
+  switch (identifier) {
+    case "arrow-right":
+      appendStageStrokePath(svg, { d: "M5 12h14" });
+      appendStageStrokePath(svg, { d: "m12 5 7 7-7 7" });
+      return svg;
+    case "rocket":
+      appendStageStrokePath(svg, { d: "M5 19c2.5-6.5 7.5-11.5 14-14-2.5 6.5-7.5 11.5-14 14Z" });
+      appendStageStrokePath(svg, { d: "m9 15-4 4" });
+      {
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", "14.5");
+        circle.setAttribute("cy", "9.5");
+        circle.setAttribute("r", "1.75");
+        circle.setAttribute("stroke", "currentColor");
+        circle.setAttribute("stroke-width", "1.85");
+        svg.append(circle);
+      }
+      return svg;
+    case "components":
+    case "layout-dashboard": {
+      const shapes: Array<[string, string, string, string]> = identifier === "components"
+        ? [
+          ["4", "4", "7", "7"],
+          ["13", "4", "7", "7"],
+          ["8.5", "13", "7", "7"]
+        ]
+        : [
+          ["4", "4", "7", "7"],
+          ["13", "4", "7", "5"],
+          ["13", "11", "7", "9"],
+          ["4", "13", "7", "7"]
+        ];
+      for (const [x, y, width, height] of shapes) {
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", x);
+        rect.setAttribute("y", y);
+        rect.setAttribute("width", width);
+        rect.setAttribute("height", height);
+        rect.setAttribute("rx", "2");
+        rect.setAttribute("stroke", "currentColor");
+        rect.setAttribute("stroke-width", "1.85");
+        svg.append(rect);
+      }
+      return svg;
+    }
+    default:
+      appendStageStrokePath(svg, { d: "M12 9v6" });
+      appendStageStrokePath(svg, { d: "M9 12h6" });
+      {
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", "12");
+        circle.setAttribute("cy", "12");
+        circle.setAttribute("r", "7");
+        circle.setAttribute("stroke", "currentColor");
+        circle.setAttribute("stroke-width", "1.85");
+        svg.append(circle);
+      }
+      return svg;
+  }
+}
+
+function buildStageFluentIcon(identifier: string): SVGSVGElement {
+  const svg = buildStageIconSvg();
+  switch (identifier) {
+    case "grid-dots-24":
+      for (let index = 0; index < 9; index += 1) {
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", String(7 + (index % 3) * 5));
+        circle.setAttribute("cy", String(7 + Math.floor(index / 3) * 5));
+        circle.setAttribute("r", "1.4");
+        circle.setAttribute("fill", "currentColor");
+        svg.append(circle);
+      }
+      return svg;
+    case "chat-bubbles-24": {
+      const bubble = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      bubble.setAttribute("d", "M5.5 8.5a3.5 3.5 0 0 1 3.5-3.5h8a3.5 3.5 0 0 1 3.5 3.5v4A3.5 3.5 0 0 1 17 16H11l-4.5 3v-3.1A3.49 3.49 0 0 1 5.5 12.5v-4Z");
+      bubble.setAttribute("stroke", "currentColor");
+      bubble.setAttribute("stroke-width", "1.8");
+      svg.append(bubble);
+      const lines = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      lines.setAttribute("d", "M8 9.75h7M8 12.75h4.5");
+      lines.setAttribute("stroke", "currentColor");
+      lines.setAttribute("stroke-linecap", "round");
+      lines.setAttribute("stroke-width", "1.8");
+      svg.append(lines);
+      return svg;
+    }
+    case "branch-24":
+      appendStageStrokePath(svg, { d: "M8 7.5v9" });
+      appendStageStrokePath(svg, { d: "M8 12.5h7" });
+      appendStageStrokePath(svg, { d: "M15 12.5V7.5" });
+      for (const [cx, cy] of [["8", "6"], ["15", "6"], ["15", "18"]] as Array<[string, string]>) {
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", cx);
+        circle.setAttribute("cy", cy);
+        circle.setAttribute("r", "2");
+        circle.setAttribute("fill", "currentColor");
+        svg.append(circle);
+      }
+      return svg;
+    case "sparkle-24":
+    default: {
+      const sparkle = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      sparkle.setAttribute("d", "M12 3.5 14.4 9l5.6 2.4-5.6 2.4L12 19.5l-2.4-5.7L4 11.4 9.6 9 12 3.5Z");
+      sparkle.setAttribute("fill", "currentColor");
+      svg.append(sparkle);
+      return svg;
+    }
+  }
+}
+
+function applyDeclaredStageStyles(element: HTMLElement, style: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(style)) {
+    if (typeof value !== "string" && typeof value !== "number") {
+      continue;
+    }
+    const cssName = key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+    const cssValue = typeof value === "number" && !UNIT_LESS_STYLES.has(key) ? `${value}px` : String(value);
+    element.style.setProperty(cssName, cssValue);
   }
 }
 
@@ -471,6 +1243,218 @@ function renderSelectionMeta(): void {
     row.append(title, body);
     selectionMetaElement.append(row);
   }
+}
+
+function renderAnnotationPanel(): void {
+  const node = getSelectedNode();
+  annotationAddButton.disabled = !node || !currentState || annotationDrafts.some((entry) => entry.nodeId === node.id);
+  annotationCopyButton.disabled = annotationDrafts.length === 0 || !currentState;
+  annotationSendButton.disabled = annotationDrafts.length === 0 || !currentState;
+
+  annotationListElement.innerHTML = "";
+  if (!currentState || annotationDrafts.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "canvas-annotation-empty";
+    empty.textContent = currentState ? "No canvas annotations captured yet." : "Waiting for canvas state...";
+    annotationListElement.append(empty);
+    return;
+  }
+
+  for (const draft of annotationDrafts) {
+    const itemPayload = buildCanvasAnnotationPayloadForDrafts([draft]);
+    const annotation = itemPayload?.annotations[0];
+    const nodeLabel = annotation ? describeAnnotationItem(annotation) : draft.nodeId;
+    const row = document.createElement("div");
+    row.className = "canvas-annotation-item";
+
+    const head = document.createElement("div");
+    head.className = "canvas-annotation-head";
+
+    const summary = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "canvas-annotation-title";
+    title.textContent = nodeLabel;
+    const meta = document.createElement("div");
+    meta.className = "canvas-annotation-meta";
+    meta.textContent = annotation ? `${annotation.tag} • ${Math.round(annotation.rect.width)}×${Math.round(annotation.rect.height)}` : draft.nodeId;
+    summary.append(title, meta);
+
+    const removeButton = document.createElement("button");
+    removeButton.className = "canvas-button";
+    removeButton.type = "button";
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => {
+      removeAnnotationDraft(draft.nodeId);
+    });
+
+    head.append(summary, removeButton);
+
+    const noteField = document.createElement("textarea");
+    noteField.className = "canvas-textarea";
+    noteField.value = draft.note ?? "";
+    noteField.placeholder = "Add note for this node";
+    noteField.addEventListener("input", () => {
+      updateAnnotationDraft(draft.nodeId, { note: noteField.value });
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "canvas-actions-grid";
+
+    const copyButton = document.createElement("button");
+    copyButton.className = "canvas-button";
+    copyButton.type = "button";
+    copyButton.textContent = "Copy item";
+    copyButton.addEventListener("click", () => {
+      void copyCanvasAnnotation([draft], copyButton).catch((error) => {
+        setCanvasButtonFeedback(copyButton, "Copy failed");
+        console.error("[opendevbrowser canvas]", error);
+      });
+    });
+
+    const sendButton = document.createElement("button");
+    sendButton.className = "canvas-button";
+    sendButton.type = "button";
+    sendButton.textContent = "Send item";
+    sendButton.addEventListener("click", () => {
+      void sendCanvasAnnotation([draft], "canvas_item", nodeLabel, sendButton).catch((error) => {
+        setCanvasButtonFeedback(sendButton, "Send failed");
+        console.error("[opendevbrowser canvas]", error);
+      });
+    });
+
+    actions.append(copyButton, sendButton);
+    row.append(head, noteField, actions);
+    annotationListElement.append(row);
+  }
+}
+
+function buildCanvasAnnotationPayloadForDrafts(drafts: CanvasAnnotationDraft[]): ReturnType<typeof buildCanvasAnnotationPayload> | null {
+  if (!currentState) {
+    return null;
+  }
+  const page = currentState.document.pages[0];
+  if (!page || drafts.length === 0) {
+    return null;
+  }
+  return buildCanvasAnnotationPayload({
+    document: currentState.document,
+    page,
+    drafts,
+    context: annotationContextInput.value.trim() || undefined
+  });
+}
+
+function addSelectedAnnotationDraft(): void {
+  const node = getSelectedNode();
+  if (!node || annotationDrafts.some((entry) => entry.nodeId === node.id)) {
+    renderAnnotationPanel();
+    return;
+  }
+  annotationDrafts = [...annotationDrafts, { nodeId: node.id, note: "" }];
+  renderAnnotationPanel();
+}
+
+function updateAnnotationDraft(nodeId: string, patch: Partial<CanvasAnnotationDraft>): void {
+  annotationDrafts = annotationDrafts.map((entry) => entry.nodeId === nodeId ? { ...entry, ...patch } : entry);
+}
+
+function removeAnnotationDraft(nodeId: string): void {
+  annotationDrafts = annotationDrafts.filter((entry) => entry.nodeId !== nodeId);
+  renderAnnotationPanel();
+}
+
+function syncAnnotationDrafts(): void {
+  if (!currentState) {
+    annotationDrafts = [];
+    renderAnnotationPanel();
+    return;
+  }
+  const page = currentState.document.pages[0];
+  const validIds = new Set(page?.nodes.map((node) => node.id) ?? []);
+  const next = annotationDrafts.filter((entry) => validIds.has(entry.nodeId));
+  if (next.length !== annotationDrafts.length) {
+    annotationDrafts = next;
+  }
+  renderAnnotationPanel();
+}
+
+async function copyCanvasAnnotation(drafts: CanvasAnnotationDraft[] | undefined, button: HTMLButtonElement): Promise<void> {
+  const payload = buildCanvasAnnotationPayloadForDrafts(drafts ?? annotationDrafts);
+  if (!payload) {
+    setCanvasButtonFeedback(button, "No items");
+    return;
+  }
+  await writeTextToClipboard(JSON.stringify(payload, null, 2));
+  setCanvasButtonFeedback(button, "Copied");
+}
+
+async function sendCanvasAnnotation(
+  drafts: CanvasAnnotationDraft[] | undefined,
+  source: AnnotationDispatchSource,
+  label: string,
+  button: HTMLButtonElement
+): Promise<void> {
+  const payload = buildCanvasAnnotationPayloadForDrafts(drafts ?? annotationDrafts);
+  if (!payload) {
+    setCanvasButtonFeedback(button, "No items");
+    return;
+  }
+  const response = await new Promise<PopupAnnotationSendPayloadResponse>((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        type: "annotation:sendPayload",
+        payload,
+        source,
+        label
+      },
+      (message) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
+        }
+        resolve(message as PopupAnnotationSendPayloadResponse);
+      }
+    );
+  });
+  if (!response.ok) {
+    throw new Error(response.error?.message ?? "Canvas annotation send failed.");
+  }
+  setCanvasButtonFeedback(button, "Sent");
+}
+
+async function writeTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall back to execCommand below.
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.append(textarea);
+  textarea.select();
+  const ok = document.execCommand("copy");
+  textarea.remove();
+  if (!ok) {
+    throw new Error("Clipboard copy failed");
+  }
+}
+
+function setCanvasButtonFeedback(button: HTMLButtonElement, label: string): void {
+  const original = button.dataset.originalLabel ?? button.textContent ?? "Action";
+  if (!button.dataset.originalLabel) {
+    button.dataset.originalLabel = original;
+  }
+  button.textContent = label;
+  window.setTimeout(() => {
+    button.textContent = original;
+  }, 1500);
 }
 
 function getSelectedNode(): CanvasNode | null {
@@ -534,6 +1518,7 @@ function applyLocalPatchMutation(document: CanvasDocument, patches: unknown[]): 
         } : { x: 0, y: 0, width: 240, height: 120 },
         props: isRecord(node.props) ? { ...node.props } : {},
         style: isRecord(node.style) ? { ...node.style } : {},
+        bindingRefs: isRecord(node.bindingRefs) ? { ...node.bindingRefs } : {},
         metadata: isRecord(node.metadata) ? { ...node.metadata } : {}
       };
       page.nodes.push(inserted);
@@ -698,6 +1683,7 @@ function normalizeCanvasPageState(value: unknown): CanvasPageState | null {
   ) {
     return null;
   }
+  const summary = normalizeCanvasSessionSummary(value.summary);
   return {
     tabId: value.tabId,
     targetId: value.targetId,
@@ -710,8 +1696,8 @@ function normalizeCanvasPageState(value: unknown): CanvasPageState | null {
     previewMode: normalizePreviewState(value.previewMode) ?? "background",
     previewState: normalizePreviewState(value.previewState) ?? "background",
     updatedAt: value.updatedAt,
-    summary: isRecord(value.summary) ? value.summary : {},
-    targets: Array.isArray(value.targets) ? value.targets.filter(isRecord) as CanvasPageState["targets"] : [],
+    summary,
+    targets: normalizeCanvasTargetStateSummaries(value.targets ?? summary.targets),
     overlayMounts: Array.isArray(value.overlayMounts) ? value.overlayMounts.filter(isRecord) as CanvasPageState["overlayMounts"] : [],
     feedback: Array.isArray(value.feedback) ? value.feedback.filter(isRecord) as CanvasFeedbackEvent[] : [],
     feedbackCursor: typeof value.feedbackCursor === "string" ? value.feedbackCursor : null,
@@ -726,7 +1712,12 @@ function normalizeDocument(value: Record<string, unknown>): CanvasDocument {
     documentId: typeof value.documentId === "string" ? value.documentId : "dc_unknown",
     title: typeof value.title === "string" ? value.title : "OpenDevBrowser Canvas",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
-    pages: Array.isArray(value.pages) ? value.pages.flatMap((entry) => normalizePage(entry)) : []
+    pages: Array.isArray(value.pages) ? value.pages.flatMap((entry) => normalizePage(entry)) : [],
+    bindings: Array.isArray(value.bindings) ? value.bindings.flatMap((entry) => normalizeBinding(entry)) : [],
+    assets: Array.isArray(value.assets) ? value.assets.flatMap((entry) => normalizeAsset(entry)) : [],
+    componentInventory: Array.isArray(value.componentInventory)
+      ? value.componentInventory.filter(isRecord)
+      : []
   };
 }
 
@@ -765,6 +1756,35 @@ function normalizeNode(value: unknown, pageId: string): CanvasNode[] {
     } : { x: 0, y: 0, width: 240, height: 120 },
     props: isRecord(value.props) ? value.props : {},
     style: isRecord(value.style) ? value.style : {},
+    bindingRefs: isRecord(value.bindingRefs) ? value.bindingRefs : {},
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeBinding(value: unknown): CanvasDocument["bindings"] {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.nodeId !== "string") {
+    return [];
+  }
+  return [{
+    id: value.id,
+    nodeId: value.nodeId,
+    kind: typeof value.kind === "string" ? value.kind : "component",
+    componentName: typeof value.componentName === "string" ? value.componentName : undefined,
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeAsset(value: unknown): CanvasDocument["assets"] {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return [];
+  }
+  return [{
+    id: value.id,
+    sourceType: typeof value.sourceType === "string" ? value.sourceType : undefined,
+    kind: typeof value.kind === "string" ? value.kind : undefined,
+    repoPath: typeof value.repoPath === "string" ? value.repoPath : null,
+    url: typeof value.url === "string" ? value.url : null,
+    mime: typeof value.mime === "string" ? value.mime : undefined,
     metadata: isRecord(value.metadata) ? value.metadata : {}
   }];
 }
@@ -789,18 +1809,23 @@ function normalizeSelection(value: unknown): CanvasEditorSelection {
 
 function normalizeViewport(value: unknown): CanvasEditorViewport {
   if (!isRecord(value)) {
-    return { x: 120, y: 96, zoom: 1 };
+    return { ...DEFAULT_EDITOR_VIEWPORT };
   }
   return {
-    x: typeof value.x === "number" ? value.x : 120,
-    y: typeof value.y === "number" ? value.y : 96,
-    zoom: typeof value.zoom === "number" ? value.zoom : 1
+    x: typeof value.x === "number" ? value.x : DEFAULT_EDITOR_VIEWPORT.x,
+    y: typeof value.y === "number" ? value.y : DEFAULT_EDITOR_VIEWPORT.y,
+    zoom: typeof value.zoom === "number" ? value.zoom : DEFAULT_EDITOR_VIEWPORT.zoom
   };
 }
 
 function nodeText(node: CanvasNode): string {
-  const raw = node.props.text ?? node.metadata.text ?? node.name;
-  return typeof raw === "string" ? raw : String(raw ?? "");
+  const raw = node.props.text ?? node.metadata.text;
+  if (raw !== undefined && raw !== null) {
+    return typeof raw === "string" ? raw : String(raw);
+  }
+  return node.kind === "text" || node.kind === "note" || node.kind === "component-instance"
+    ? node.name
+    : "";
 }
 
 function formatSummaryValue(value: unknown): string {
@@ -811,6 +1836,50 @@ function formatSummaryValue(value: unknown): string {
     return String(value);
   }
   return "n/a";
+}
+
+function formatAttachedClients(clients: CanvasSessionSummary["attachedClients"]): string {
+  if (clients.length === 0) {
+    return "none";
+  }
+  return clients
+    .map((entry) => `${entry.clientId} (${entry.role === "lease_holder" ? "lease" : "observer"})`)
+    .join(", ");
+}
+
+function formatCodeSyncStatus(summary: CanvasSessionSummary, watchConflict: boolean): string {
+  if (!summary.codeSyncState && !summary.watchState && summary.bindings.length === 0) {
+    return "not bound";
+  }
+  const segments = [
+    summary.watchState ?? "idle",
+    summary.codeSyncState ?? "idle",
+    summary.driftState ?? "clean",
+    watchConflict ? "watch conflict" : null
+  ].filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+  return segments.join(" • ");
+}
+
+function formatProjectionSummary(summary: ReturnType<typeof summarizeCanvasProjectionState>): string {
+  if (summary.activeProjections.length === 0) {
+    return "n/a";
+  }
+  return summary.activeProjections.join(", ");
+}
+
+function readSummaryLibraryList(summary: Record<string, unknown>, key: "components" | "icons" | "styling"): string[] {
+  const libraryPolicy = isRecord(summary.libraryPolicy) ? summary.libraryPolicy : null;
+  return libraryPolicy ? readSummaryStringArray(libraryPolicy[key]) : [];
+}
+
+function readSummaryStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+}
+
+function formatSummaryList(values: string[]): string {
+  return values.length > 0 ? values.join(", ") : "none";
 }
 
 function formatTimestamp(value: string): string {
@@ -838,11 +1907,44 @@ function computeDocumentBounds(nodes: CanvasNode[]): { width: number; height: nu
   };
 }
 
-function viewportCanvasCenter(viewport: CanvasEditorViewport): { x: number; y: number } {
-  return {
-    x: (480 - viewport.x) / viewport.zoom,
-    y: (320 - viewport.y) / viewport.zoom
-  };
+function queueViewportFitIfNeeded(): void {
+  if (!currentState || !isDefaultEditorViewport(currentState.viewport)) {
+    return;
+  }
+  const page = currentState.document.pages[0];
+  if (!page || page.nodes.length === 0) {
+    return;
+  }
+  if (fitViewportFrame !== null) {
+    cancelAnimationFrame(fitViewportFrame);
+  }
+  fitViewportFrame = requestAnimationFrame(() => {
+    fitViewportFrame = null;
+    if (!currentState || !isDefaultEditorViewport(currentState.viewport)) {
+      return;
+    }
+    const nextViewport = resolvePreferredViewport(currentState);
+    if (
+      nextViewport.x === currentState.viewport.x
+      && nextViewport.y === currentState.viewport.y
+      && nextViewport.zoom === currentState.viewport.zoom
+    ) {
+      return;
+    }
+    currentState.viewport = nextViewport;
+    toolbarMetaElement.textContent = formatViewport(currentState.viewport);
+    renderStage();
+    postViewState();
+    schedulePersist(currentState);
+  });
+}
+
+function resolvePreferredViewport(state: CanvasPageState): CanvasEditorViewport {
+  const page = state.document.pages[0];
+  if (!page || page.nodes.length === 0) {
+    return { ...DEFAULT_EDITOR_VIEWPORT };
+  }
+  return computeFittedViewport(page.nodes, stageElement.clientWidth, stageElement.clientHeight);
 }
 
 function findNode(document: CanvasDocument | null, nodeId: string): CanvasNode | null {

@@ -18,11 +18,14 @@ type CookieImportRecord = {
   sameSite?: "Strict" | "Lax" | "None";
 };
 
-type BrowserManagerMethodKey = {
-  [K in keyof BrowserManagerLike]: BrowserManagerLike[K] extends (...args: never[]) => unknown ? K : never;
-}[keyof BrowserManagerLike];
+type BrowserManagerMethods = {
+  [K in keyof BrowserManagerLike as Extract<BrowserManagerLike[K], (...args: never[]) => unknown> extends never ? never : K]-?:
+    Extract<BrowserManagerLike[K], (...args: never[]) => unknown>;
+};
 
-type CallResult<K extends BrowserManagerMethodKey> = Awaited<ReturnType<BrowserManagerLike[K]>>;
+type BrowserManagerMethodKey = keyof BrowserManagerMethods;
+
+type CallResult<K extends BrowserManagerMethodKey> = Awaited<ReturnType<BrowserManagerMethods[K]>>;
 
 function isLegacyRelayEndpoint(wsEndpoint: string): boolean {
   try {
@@ -49,10 +52,22 @@ export class RemoteManager implements BrowserManagerLike {
     return this.client.call<CallResult<"connect">>("session.connect", options as Record<string, unknown>);
   }
 
-  connectRelay(wsEndpoint: string): ReturnType<BrowserManagerLike["connectRelay"]> {
+  connectRelay(wsEndpoint: string, options?: { startUrl?: string }): ReturnType<BrowserManagerLike["connectRelay"]> {
+    const startUrl = typeof options?.startUrl === "string" && options.startUrl.trim().length > 0
+      ? options.startUrl.trim()
+      : undefined;
     return this.client.call<CallResult<"connectRelay">>(
       "session.connect",
-      isLegacyRelayEndpoint(wsEndpoint) ? { wsEndpoint, extensionLegacy: true } : { wsEndpoint }
+      isLegacyRelayEndpoint(wsEndpoint)
+        ? {
+          wsEndpoint,
+          extensionLegacy: true,
+          ...(startUrl ? { startUrl } : {})
+        }
+        : {
+          wsEndpoint,
+          ...(startUrl ? { startUrl } : {})
+        }
     );
   }
 

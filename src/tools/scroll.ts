@@ -10,12 +10,13 @@ export function createScrollTool(deps: ToolDeps): ToolDefinition {
     description: "Scroll the page or a referenced element.",
     args: {
       sessionId: z.string().describe("Session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       dy: z.number().describe("Scroll delta in pixels"),
       ref: z.string().optional().describe("Optional element ref to scroll")
     },
     async execute(args) {
       try {
-        await deps.manager.scroll(args.sessionId, args.dy, args.ref);
+        await deps.manager.scroll(args.sessionId, args.dy, args.ref, args.targetId);
         return ok({});
       } catch (error) {
         return failure(serializeError(error).message, "scroll_failed");

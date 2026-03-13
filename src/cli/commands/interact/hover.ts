@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseOptionalStringFlag } from "../../utils/parse";
 
 function parseHoverArgs(rawArgs: string[]): { sessionId?: string; ref?: string } {
   const parsed: { sessionId?: string; ref?: string } = {};
@@ -34,8 +35,13 @@ function parseHoverArgs(rawArgs: string[]): { sessionId?: string; ref?: string }
 
 export async function runHover(args: ParsedArgs) {
   const { sessionId, ref } = parseHoverArgs(args.rawArgs);
+  const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
   if (!ref) throw createUsageError("Missing --ref");
-  const result = await callDaemon("interact.hover", { sessionId, ref });
+  const result = await callDaemon("interact.hover", {
+    sessionId,
+    ref,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  });
   return { success: true, message: "Hover complete.", data: result };
 }

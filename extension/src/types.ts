@@ -3,6 +3,12 @@ export type ConnectionStatus = "connected" | "disconnected";
 export type PopupAnnotationStartMessage = { type: "annotation:start"; options?: AnnotationCommand["options"] };
 export type PopupAnnotationLastMetaMessage = { type: "annotation:lastMeta" };
 export type PopupAnnotationGetPayloadMessage = { type: "annotation:getPayload"; includeScreenshots?: boolean };
+export type PopupAnnotationSendPayloadMessage = {
+  type: "annotation:sendPayload";
+  payload: AnnotationPayload;
+  source?: AnnotationDispatchSource;
+  label?: string;
+};
 export type PopupAnnotationProbeMessage = { type: "annotation:probe" };
 
 export type PopupMessage =
@@ -12,6 +18,7 @@ export type PopupMessage =
   | PopupAnnotationStartMessage
   | PopupAnnotationLastMetaMessage
   | PopupAnnotationGetPayloadMessage
+  | PopupAnnotationSendPayloadMessage
   | PopupAnnotationProbeMessage;
 
 export type BackgroundMessage = {
@@ -238,7 +245,11 @@ export type CanvasErrorCode =
   | "revision_conflict"
   | "unsupported_target"
   | "lease_reclaim_required"
-  | "policy_violation";
+  | "policy_violation"
+  | "code_sync_required"
+  | "code_sync_conflict"
+  | "code_sync_unsupported"
+  | "code_sync_out_of_date";
 
 export type CanvasError = {
   code: CanvasErrorCode;
@@ -309,8 +320,16 @@ export type CanvasEventType =
   | "canvas_session_closed"
   | "canvas_session_expired"
   | "canvas_target_closed"
+  | "canvas_document_snapshot"
+  | "canvas_document_update"
+  | "canvas_presence"
+  | "canvas_lease_changed"
   | "canvas_feedback_item"
   | "canvas_patch_requested"
+  | "canvas_code_sync_started"
+  | "canvas_code_sync_applied"
+  | "canvas_code_sync_conflict"
+  | "canvas_code_sync_failed"
   | "canvas_client_disconnected";
 
 export type CanvasEvent = {
@@ -393,16 +412,25 @@ export type RelayHealthResponse = {
 
 export type AnnotationScreenshotMode = "visible" | "full" | "none";
 
+export type AnnotationDispatchSource =
+  | "annotate_item"
+  | "annotate_all"
+  | "popup_item"
+  | "popup_all"
+  | "canvas_item"
+  | "canvas_all";
+
 export type AnnotationCommand = {
   version: 1;
   requestId: string;
-  command: "start" | "cancel";
+  command: "start" | "cancel" | "fetch_stored";
   url?: string;
   tabId?: number;
   options?: {
     screenshotMode?: AnnotationScreenshotMode;
     debug?: boolean;
     context?: string;
+    includeScreenshots?: boolean;
   };
 };
 
@@ -416,6 +444,7 @@ export type AnnotationErrorCode =
   | "restricted_url"
   | "injection_failed"
   | "capture_failed"
+  | "payload_unavailable"
   | "cancelled"
   | "unknown";
 
@@ -505,6 +534,8 @@ export type PopupAnnotationMeta = {
   requestId: string;
   status: AnnotationResponse["status"];
   error?: AnnotationResponse["error"];
+  source?: AnnotationDispatchSource;
+  label?: string;
   url?: string;
   title?: string;
   timestamp?: string;
@@ -536,6 +567,13 @@ export type PopupAnnotationGetPayloadResponse = {
   warning?: string;
 };
 
+export type PopupAnnotationSendPayloadResponse = {
+  type: "annotation:sendPayloadResult";
+  ok: boolean;
+  meta: PopupAnnotationMeta | null;
+  error?: { code: AnnotationErrorCode; message: string };
+};
+
 export type PopupAnnotationProbeResponse = {
   type: "annotation:probeResult";
   injected: boolean;
@@ -547,6 +585,7 @@ export type PopupResponse =
   | PopupAnnotationStartResponse
   | PopupAnnotationLastMetaResponse
   | PopupAnnotationGetPayloadResponse
+  | PopupAnnotationSendPayloadResponse
   | PopupAnnotationProbeResponse;
 
 export type AnnotationEvent = {

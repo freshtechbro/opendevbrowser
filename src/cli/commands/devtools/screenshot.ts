@@ -5,6 +5,7 @@ import { parseNumberFlag } from "../../utils/parse";
 
 type ScreenshotArgs = {
   sessionId?: string;
+  targetId?: string;
   path?: string;
   timeoutMs?: number;
 };
@@ -25,6 +26,15 @@ function parseScreenshotArgs(rawArgs: string[]): ScreenshotArgs {
     }
     if (arg?.startsWith("--session-id=")) {
       parsed.sessionId = requireValue(arg.split("=", 2)[1], "--session-id");
+      continue;
+    }
+    if (arg === "--target-id") {
+      parsed.targetId = requireValue(rawArgs[i + 1], "--target-id");
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("--target-id=")) {
+      parsed.targetId = requireValue(arg.split("=", 2)[1], "--target-id");
       continue;
     }
     if (arg === "--path") {
@@ -50,9 +60,13 @@ function parseScreenshotArgs(rawArgs: string[]): ScreenshotArgs {
 }
 
 export async function runScreenshot(args: ParsedArgs) {
-  const { sessionId, path, timeoutMs } = parseScreenshotArgs(args.rawArgs);
+  const { sessionId, targetId, path, timeoutMs } = parseScreenshotArgs(args.rawArgs);
   if (!sessionId) throw createUsageError("Missing --session-id");
-  const params = { sessionId, path };
+  const params = {
+    sessionId,
+    path,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  };
   const result = typeof timeoutMs === "number"
     ? await callDaemon("page.screenshot", params, { timeoutMs })
     : await callDaemon("page.screenshot", params);

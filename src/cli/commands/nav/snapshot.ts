@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseOptionalStringFlag } from "../../utils/parse";
 
 function parseSnapshotArgs(rawArgs: string[]): { sessionId?: string; mode?: string; maxChars?: number; cursor?: string } {
   const parsed: { sessionId?: string; mode?: string; maxChars?: number; cursor?: string } = {};
@@ -56,7 +57,14 @@ function parseSnapshotArgs(rawArgs: string[]): { sessionId?: string; mode?: stri
 
 export async function runSnapshot(args: ParsedArgs) {
   const { sessionId, mode, maxChars, cursor } = parseSnapshotArgs(args.rawArgs);
+  const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
-  const result = await callDaemon("nav.snapshot", { sessionId, mode, maxChars, cursor });
+  const result = await callDaemon("nav.snapshot", {
+    sessionId,
+    mode,
+    maxChars,
+    cursor,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  });
   return { success: true, message: "Snapshot captured.", data: result };
 }

@@ -24,3 +24,23 @@ export function parseNumberFlag(value: string, flag: string, options: NumberFlag
   return parsed;
 }
 
+export function parseOptionalStringFlag(rawArgs: string[], flag: string): string | undefined {
+  for (let i = 0; i < rawArgs.length; i += 1) {
+    const arg = rawArgs[i];
+    if (arg === flag) {
+      const value = rawArgs[i + 1];
+      if (!value) {
+        throw createUsageError(`Missing value for ${flag}`);
+      }
+      return value;
+    }
+    if (arg?.startsWith(`${flag}=`)) {
+      const value = arg.split("=", 2)[1];
+      if (!value) {
+        throw createUsageError(`Missing value for ${flag}`);
+      }
+      return value;
+    }
+  }
+  return undefined;
+}

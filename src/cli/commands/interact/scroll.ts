@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseOptionalStringFlag } from "../../utils/parse";
 
 function parseScrollArgs(rawArgs: string[]): { sessionId?: string; ref?: string; dy?: number } {
   const parsed: { sessionId?: string; ref?: string; dy?: number } = {};
@@ -45,8 +46,14 @@ function parseScrollArgs(rawArgs: string[]): { sessionId?: string; ref?: string;
 
 export async function runScroll(args: ParsedArgs) {
   const { sessionId, ref, dy } = parseScrollArgs(args.rawArgs);
+  const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
   if (typeof dy !== "number" || Number.isNaN(dy)) throw createUsageError("Missing --dy");
-  const result = await callDaemon("interact.scroll", { sessionId, ref, dy });
+  const result = await callDaemon("interact.scroll", {
+    sessionId,
+    ref,
+    dy,
+    ...(typeof targetId === "string" ? { targetId } : {})
+  });
   return { success: true, message: "Scroll complete.", data: result };
 }

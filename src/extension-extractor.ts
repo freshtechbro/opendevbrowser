@@ -74,7 +74,7 @@ export function extractExtension(): string | null {
   try {
     // Step 1: Copy to staging
     mkdirSync(stagingDir, { recursive: true });
-    const itemsToCopy = ["manifest.json", "popup.html", "dist", "icons"];
+    const itemsToCopy = ["manifest.json", "popup.html", "canvas.html", "dist", "icons"];
     for (const item of itemsToCopy) {
       const src = join(bundledPath, item);
       const dest = join(stagingDir, item);

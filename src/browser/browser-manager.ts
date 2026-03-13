@@ -46,6 +46,11 @@ import {
   type ParallelismGovernorSnapshot,
   type ParallelismGovernorState
 } from "./parallelism-governor";
+import {
+  applyRuntimePreviewBridge as runRuntimePreviewBridge,
+  type RuntimePreviewBridgeInput,
+  type RuntimePreviewBridgeResult
+} from "./canvas-runtime-preview-bridge";
 
 export type LaunchOptions = {
   profile?: string;
@@ -62,6 +67,7 @@ export type ConnectOptions = {
   wsEndpoint?: string;
   host?: string;
   port?: number;
+  startUrl?: string;
 };
 
 export type ManagedSession = {
@@ -428,13 +434,26 @@ export class BrowserManager {
 
   async connect(options: ConnectOptions): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
     const wsEndpoint = await this.resolveWsEndpoint(options);
-    return this.connectWithEndpoint(wsEndpoint, "cdpConnect");
+    const result = await this.connectWithEndpoint(wsEndpoint, "cdpConnect");
+    const startUrl = options.startUrl?.trim();
+    if (startUrl && result.activeTargetId) {
+      await this.goto(result.sessionId, startUrl);
+    }
+    return result;
   }
 
-  async connectRelay(wsEndpoint: string): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string; leaseId?: string }> {
+  async connectRelay(
+    wsEndpoint: string,
+    options?: { startUrl?: string }
+  ): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string; leaseId?: string }> {
     ensureLocalEndpoint(wsEndpoint, this.config.security.allowNonLocalCdp);
     const { connectEndpoint, reportedEndpoint } = await this.resolveRelayEndpoints(wsEndpoint);
-    return this.connectWithEndpoint(connectEndpoint, "extension", reportedEndpoint);
+    const result = await this.connectWithEndpoint(connectEndpoint, "extension", reportedEndpoint);
+    const startUrl = options?.startUrl?.trim();
+    if (startUrl && result.activeTargetId) {
+      await this.goto(result.sessionId, startUrl);
+    }
+    return result;
   }
 
   async closeAll(): Promise<void> {
@@ -579,6 +598,21 @@ export class BrowserManager {
       await this.waitForExtensionTargetReady(page, "withPage");
     }
     return await fn(page);
+  }
+
+  async applyRuntimePreviewBridge(
+    sessionId: string,
+    targetId: string | null,
+    input: RuntimePreviewBridgeInput
+  ): Promise<RuntimePreviewBridgeResult> {
+    return await this.withPage(sessionId, targetId, async (page) => {
+      return await runRuntimePreviewBridge(page as {
+        evaluate: <TArg, TResult>(
+          pageFunction: (arg: TArg) => TResult | Promise<TResult>,
+          arg: TArg
+        ) => Promise<TResult>;
+      }, input);
+    });
   }
 
   async listTargets(sessionId: string, includeUrls = false): Promise<{ activeTargetId: string | null; targets: TargetInfo[] }> {
@@ -2924,7 +2958,7 @@ export class BrowserManager {
         }
       } else {
         targets.registerExistingPages(pages);
-        if (mode === "extension") {
+        if (mode === "extension" || mode === "cdpConnect") {
           const entries = targets.listPageEntries();
           for (const entry of entries) {
             try {

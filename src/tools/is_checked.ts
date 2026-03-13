@@ -10,11 +10,12 @@ export function createIsCheckedTool(deps: ToolDeps): ToolDefinition {
     description: "Check if an element is checked by ref.",
     args: {
       sessionId: z.string().describe("Active browser session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       ref: z.string().describe("Element ref from snapshot")
     },
     async execute(args) {
       try {
-        const result = await deps.manager.domIsChecked(args.sessionId, args.ref);
+        const result = await deps.manager.domIsChecked(args.sessionId, args.ref, args.targetId);
         return ok(result);
       } catch (error) {
         return failure(serializeError(error).message, "is_checked_failed");

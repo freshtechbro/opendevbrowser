@@ -30,6 +30,41 @@ type AnnotationOptions = {
 };
 
 type AnnotationErrorCode = "capture_failed" | "unknown";
+type AnnotationDispatchSource = "annotate_item" | "annotate_all" | "popup_item" | "popup_all" | "canvas_item" | "canvas_all";
+type AnnotationRect = { x: number; y: number; width: number; height: number };
+type AnnotationStyle = {
+  color?: string;
+  backgroundColor?: string;
+  fontSize?: string;
+  fontFamily?: string;
+  fontWeight?: string;
+  lineHeight?: string;
+  display?: string;
+  position?: string;
+};
+type AnnotationPayload = {
+  url: string;
+  title?: string;
+  timestamp: string;
+  context?: string;
+  screenshotMode: AnnotationScreenshotMode;
+  screenshots?: Array<{ id: string; label: string; base64: string; mime: "image/png"; width?: number; height?: number }>;
+  annotations: Array<{
+    id: string;
+    selector: string;
+    tag: string;
+    idAttr?: string;
+    classes?: string[];
+    text?: string;
+    rect: AnnotationRect;
+    attributes?: Record<string, string>;
+    a11y?: Record<string, unknown>;
+    styles?: AnnotationStyle;
+    note?: string;
+    screenshotId?: string;
+    debug?: Record<string, unknown>;
+  }>;
+};
 
 type AnnotationSession = {
   requestId: string | null;
@@ -136,6 +171,7 @@ const ensureRoot = () => {
       <div class="odb-title">Annotate</div>
       <div class="odb-actions">
         <button class="odb-btn odb-btn-ghost" data-action="copy">Copy</button>
+        <button class="odb-btn odb-btn-ghost" data-action="send">Send</button>
         <button class="odb-btn odb-btn-ghost" data-action="cancel">Cancel</button>
         <button class="odb-btn odb-btn-primary" data-action="submit">Submit</button>
         <button class="odb-btn odb-btn-icon" data-action="close" aria-label="Close">×</button>
@@ -201,6 +237,12 @@ const ensureRoot = () => {
       copyPayload().catch((error) => {
         logError("annotation.copy_payload", error, { code: "annotation_copy_failed" });
         setCopyFeedback("Copy failed");
+      });
+    }
+    if (action === "send") {
+      sendPayload(undefined, "annotate_all", "Annotation payload").catch((error) => {
+        logError("annotation.send_payload", error, { code: "annotation_send_failed" });
+        setCopyFeedback("Send failed");
       });
     }
     if (action === "cancel") {
@@ -350,8 +392,14 @@ const handleClick = (event: MouseEvent) => {
   if (isUiElement(event.target as Element)) return;
   event.preventDefault();
   event.stopPropagation();
-  const target = state.hoverEl;
+  const clickedTarget = event.target instanceof Element && !isUiElement(event.target)
+    ? event.target
+    : null;
+  const target = clickedTarget ?? state.hoverEl;
   if (!target) return;
+  state.hoverEl = target;
+  state.hoverChain = buildAncestorChain(target);
+  state.hoverIndex = 0;
   if (event.shiftKey) {
     toggleSelection(target);
   } else {
@@ -447,17 +495,43 @@ const createNote = (element: Element, id: string): HTMLDivElement => {
   note.innerHTML = `
     <div class="odb-note-header">
       <span>${describeElement(element)}</span>
-      <button class="odb-note-close" aria-label="Remove">x</button>
+      <div class="odb-actions">
+        <button class="odb-btn odb-btn-ghost" data-role="copy-item" type="button">Copy</button>
+        <button class="odb-btn odb-btn-ghost" data-role="send-item" type="button">Send</button>
+        <button class="odb-note-close" data-role="remove-item" aria-label="Remove" type="button">x</button>
+      </div>
     </div>
     <textarea class="odb-note-input" rows="3" placeholder="Add annotation..."></textarea>
   `;
 
-  const close = note.querySelector("button") as HTMLButtonElement;
+  const close = note.querySelector("button[data-role='remove-item']") as HTMLButtonElement;
   close.addEventListener("click", () => {
     note.remove();
     state.selections.delete(id);
     updateCount();
     scheduleConnectorUpdate();
+  });
+
+  const copyButton = note.querySelector("button[data-role='copy-item']") as HTMLButtonElement;
+  copyButton.addEventListener("click", () => {
+    void copyPayload([id], copyButton).catch((error) => {
+      logError("annotation.copy_item_payload", error, { code: "annotation_copy_item_failed", extra: { id } });
+      setButtonFeedback(copyButton, "Copy failed");
+    });
+  });
+
+  const sendButton = note.querySelector("button[data-role='send-item']") as HTMLButtonElement;
+  sendButton.addEventListener("click", () => {
+    const selection = state.selections.get(id);
+    void sendPayload(
+      [id],
+      "annotate_item",
+      selection ? describeAnnotationItem(buildAnnotationItem(selection)) : "Annotation item",
+      sendButton
+    ).catch((error) => {
+      logError("annotation.send_item_payload", error, { code: "annotation_send_item_failed", extra: { id } });
+      setButtonFeedback(sendButton, "Send failed");
+    });
   });
 
   const textarea = note.querySelector("textarea") as HTMLTextAreaElement;
@@ -583,7 +657,7 @@ const updateConnectors = () => {
   }
 };
 
-const buildPayload = async () => {
+const buildCompletePayload = async (): Promise<AnnotationPayload> => {
   const url = window.location.href;
   const title = document.title;
   const timestamp = new Date().toISOString();
@@ -608,6 +682,16 @@ const buildPayload = async () => {
     screenshots,
     annotations
   };
+};
+
+const buildPayload = async (annotationIds?: string[]): Promise<AnnotationPayload> => {
+  const payload = await buildCompletePayload();
+  if (!annotationIds || annotationIds.length === 0) {
+    return payload;
+  }
+  return filterAnnotationPayload(payload, annotationIds, {
+    includeScreenshots: Boolean(payload.screenshots?.length)
+  });
 };
 
 const extractBase64 = (dataUrl: string): string => {
@@ -972,11 +1056,90 @@ const mergeOptions = (options?: Partial<AnnotationOptions>): AnnotationOptions =
   };
 };
 
-const copyPayload = async () => {
-  const payload = await buildPayload();
+const filterAnnotationPayload = (
+  payload: AnnotationPayload,
+  annotationIds: string[],
+  options: { includeScreenshots?: boolean } = {}
+): AnnotationPayload => {
+  const includeScreenshots = options.includeScreenshots ?? true;
+  const wanted = new Set(annotationIds);
+  const annotations = payload.annotations.filter((annotation) => wanted.has(annotation.id));
+  const screenshotIds = new Set(
+    annotations
+      .map((annotation) => annotation.screenshotId)
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+  );
+  const filtered: AnnotationPayload = {
+    ...payload,
+    screenshotMode: includeScreenshots ? payload.screenshotMode : "none",
+    annotations: annotations.map((annotation) => {
+      if (includeScreenshots) {
+        return annotation;
+      }
+      const { screenshotId, ...next } = annotation;
+      void screenshotId;
+      return next;
+    })
+  };
+  if (includeScreenshots) {
+    filtered.screenshots = payload.screenshots?.filter((screenshot) => screenshotIds.has(screenshot.id));
+  } else {
+    delete filtered.screenshots;
+  }
+  return filtered;
+};
+
+const describeAnnotationItem = (item: AnnotationPayload["annotations"][number]): string => {
+  const selector = item.selector?.trim().length ? item.selector : item.tag;
+  const label = item.note?.trim().length ? item.note.trim() : item.text?.trim();
+  return label ? `${selector} — ${label}` : selector;
+};
+
+const copyPayload = async (annotationIds?: string[], button?: HTMLButtonElement) => {
+  const payload = await buildPayload(annotationIds);
   const text = JSON.stringify(payload);
   await writeClipboard(text);
+  if (button) {
+    setButtonFeedback(button, "Copied");
+    return;
+  }
   setCopyFeedback("Copied");
+};
+
+const sendPayload = async (
+  annotationIds: string[] | undefined,
+  source: AnnotationDispatchSource,
+  label: string,
+  button?: HTMLButtonElement
+) => {
+  const payload = await buildPayload(annotationIds);
+  await new Promise<void>((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        type: "annotation:sendPayload",
+        payload,
+        source,
+        label
+      },
+      (response) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
+        }
+        if (!response || response.ok !== true) {
+          reject(new Error(response?.error?.message ?? "Send failed"));
+          return;
+        }
+        resolve();
+      }
+    );
+  });
+  if (button) {
+    setButtonFeedback(button, "Sent");
+    return;
+  }
+  setCopyFeedback("Sent");
 };
 
 const writeClipboard = async (value: string): Promise<void> => {
@@ -1005,17 +1168,24 @@ const writeClipboard = async (value: string): Promise<void> => {
 const setCopyFeedback = (label: string) => {
   const button = state.copyButton;
   if (!button) return;
-  const original = button.dataset.originalLabel ?? button.textContent ?? "Copy";
+  setButtonFeedback(button, label, true);
+};
+
+const setButtonFeedback = (button: HTMLButtonElement, label: string, useSharedTimer = false) => {
+  const original = button.dataset.originalLabel ?? button.textContent ?? button.getAttribute("aria-label") ?? "Action";
   if (!button.dataset.originalLabel) {
     button.dataset.originalLabel = original;
   }
   button.textContent = label;
-  if (state.copyTimeout !== null) {
+  if (useSharedTimer && state.copyTimeout !== null) {
     window.clearTimeout(state.copyTimeout);
   }
-  state.copyTimeout = window.setTimeout(() => {
+  const restore = window.setTimeout(() => {
     button.textContent = original;
   }, 1500);
+  if (useSharedTimer) {
+    state.copyTimeout = restore;
+  }
 };
 
 const bootstrap = () => {

@@ -10,11 +10,12 @@ export function createCloneComponentTool(deps: ToolDeps): ToolDefinition {
     description: "Export a selected element subtree as a React component and CSS bundle.",
     args: {
       sessionId: z.string().describe("Active browser session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       ref: z.string().describe("Element ref from snapshot")
     },
     async execute(args) {
       try {
-        const result = await deps.manager.cloneComponent(args.sessionId, args.ref);
+        const result = await deps.manager.cloneComponent(args.sessionId, args.ref, args.targetId);
         return ok({ component: result.component, css: result.css, warnings: result.warnings });
       } catch (error) {
         return failure(serializeError(error).message, "clone_component_failed");

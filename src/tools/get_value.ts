@@ -10,11 +10,12 @@ export function createGetValueTool(deps: ToolDeps): ToolDefinition {
     description: "Get the input value for an element by ref.",
     args: {
       sessionId: z.string().describe("Active browser session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       ref: z.string().describe("Element ref from snapshot")
     },
     async execute(args) {
       try {
-        const result = await deps.manager.domGetValue(args.sessionId, args.ref);
+        const result = await deps.manager.domGetValue(args.sessionId, args.ref, args.targetId);
         return ok(result);
       } catch (error) {
         return failure(serializeError(error).message, "get_value_failed");

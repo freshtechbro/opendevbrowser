@@ -3,6 +3,7 @@ import type { AddressInfo } from "net";
 import { timingSafeEqual, randomUUID } from "crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import {
+  AnnotationCommand,
   AnnotationErrorCode,
   AnnotationResponse,
   CanvasEnvelope,
@@ -101,6 +102,7 @@ export class RelayServer {
   private httpAttempts = new Map<string, { count: number; resetAt: number }>();
   private cdpAllowlist: Set<string> | null = null;
   private annotationPending = new Map<string, { createdAt: number }>();
+  private annotationDirectPending = new Map<string, { resolve: (response: AnnotationResponse) => void; timeout: NodeJS.Timeout }>();
   private static readonly MAX_HANDSHAKE_ATTEMPTS = 5;
   private static readonly RATE_LIMIT_WINDOW_MS = 60_000;
   private static readonly MAX_HTTP_ATTEMPTS = 60;
@@ -482,6 +484,16 @@ export class RelayServer {
       this.annotationSocket.close(1000, "Relay stopped");
       this.annotationSocket = null;
     }
+    for (const [requestId, pending] of this.annotationDirectPending.entries()) {
+      clearTimeout(pending.timeout);
+      pending.resolve({
+        version: 1,
+        requestId,
+        status: "error",
+        error: { code: "relay_unavailable", message: "Relay stopped." }
+      });
+    }
+    this.annotationDirectPending.clear();
 
     for (const socket of this.opsClients.values()) {
       socket.close(1000, "Relay stopped");
@@ -535,6 +547,44 @@ export class RelayServer {
 
   getAnnotationUrl(): string | null {
     return this.baseUrl ? `${this.baseUrl}/annotation` : null;
+  }
+
+  async requestAnnotation(command: AnnotationCommand, timeoutMs = RelayServer.ANNOTATION_REQUEST_TIMEOUT_MS): Promise<AnnotationResponse> {
+    if (!this.hasReadyExtensionSocket()) {
+      return {
+        version: 1,
+        requestId: command.requestId,
+        status: "error",
+        error: { code: "relay_unavailable", message: "Extension not connected to relay." }
+      };
+    }
+
+    if (this.annotationDirectPending.has(command.requestId)) {
+      return {
+        version: 1,
+        requestId: command.requestId,
+        status: "error",
+        error: { code: "invalid_request", message: "Duplicate annotation requestId." }
+      };
+    }
+
+    return await new Promise<AnnotationResponse>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.annotationDirectPending.delete(command.requestId);
+        resolve({
+          version: 1,
+          requestId: command.requestId,
+          status: "error",
+          error: { code: "timeout", message: "Annotation request timed out." }
+        });
+      }, timeoutMs);
+
+      this.annotationDirectPending.set(command.requestId, { resolve, timeout });
+      this.sendJson(this.extensionSocket, {
+        type: "annotationCommand",
+        payload: command
+      } satisfies RelayAnnotationCommand);
+    });
   }
 
   getOpsUrl(): string | null {
@@ -1013,7 +1063,7 @@ export class RelayServer {
     }
 
     const command = payload;
-    if (!this.extensionSocket || !this.extensionHandshakeComplete) {
+    if (!this.hasReadyExtensionSocket()) {
       this.sendAnnotationError(command.requestId, "relay_unavailable", "Extension not connected to relay.");
       return;
     }
@@ -1206,6 +1256,12 @@ export class RelayServer {
     }
 
     const requestId = payload.requestId;
+    const directPending = this.annotationDirectPending.get(requestId);
+    if (directPending) {
+      clearTimeout(directPending.timeout);
+      this.annotationDirectPending.delete(requestId);
+      directPending.resolve(payload);
+    }
     if (!this.annotationPending.has(requestId)) {
       return;
     }
@@ -1255,6 +1311,16 @@ export class RelayServer {
       this.sendAnnotationError(requestId, code, message);
     }
     this.annotationPending.clear();
+    for (const [requestId, pending] of this.annotationDirectPending.entries()) {
+      clearTimeout(pending.timeout);
+      pending.resolve({
+        version: 1,
+        requestId,
+        status: "error",
+        error: { code, message }
+      });
+    }
+    this.annotationDirectPending.clear();
   }
 
   private buildHealthStatus(): RelayHealthStatus {
@@ -1375,6 +1441,10 @@ export class RelayServer {
       return;
     }
     socket.send(JSON.stringify(payload));
+  }
+
+  private hasReadyExtensionSocket(): boolean {
+    return Boolean(this.extensionSocket && this.extensionSocket.readyState === WebSocket.OPEN && this.extensionHandshakeComplete);
   }
 
   private isPairingTokenValid(handshake: RelayHandshake): boolean {
@@ -1503,7 +1573,7 @@ const isAnnotationCommand = (value: unknown): value is RelayAnnotationCommand["p
   if (!isRecord(value)) return false;
   if (value.version !== 1) return false;
   if (typeof value.requestId !== "string") return false;
-  if (value.command !== "start" && value.command !== "cancel") return false;
+  if (value.command !== "start" && value.command !== "cancel" && value.command !== "fetch_stored") return false;
   if (value.options && !isRecord(value.options)) return false;
   return true;
 };

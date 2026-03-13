@@ -10,11 +10,12 @@ export function createScreenshotTool(deps: ToolDeps): ToolDefinition {
     description: "Capture a screenshot of the active page.",
     args: {
       sessionId: z.string().describe("Active browser session id"),
+      targetId: z.string().optional().describe("Optional target id"),
       path: z.string().optional().describe("Optional output file path")
     },
     async execute(args) {
       try {
-        const result = await deps.manager.screenshot(args.sessionId, args.path);
+        const result = await deps.manager.screenshot(args.sessionId, args.path, args.targetId);
         return ok(result);
       } catch (error) {
         return failure(serializeError(error).message, "screenshot_failed");
