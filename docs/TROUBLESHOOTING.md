@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Status: active  
-Last updated: 2026-03-10
+Last updated: 2026-03-13
 
 ## Hub daemon status
 
@@ -246,7 +246,7 @@ For broad regression checks, run:
 By default it skips auth-gated provider cases, high-friction provider cases, and social post probes (research-first mode). Add `--include-auth-gated`, `--include-high-friction`, or `--include-social-posts` when you intentionally want those checks.
 
 For release hardening, use strict gate mode:
-- `node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/v0.0.16/provider-live-matrix.json`
+- `node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-live-matrix.json`
 - `node scripts/live-regression-matrix.mjs --release-gate`
 
 ## Chrome version too old

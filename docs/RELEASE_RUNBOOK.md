@@ -1,6 +1,6 @@
 # Public Release Runbook
 
-Last updated: 2026-02-25
+Last updated: 2026-03-13
 
 Canonical runbook for shipping OpenDevBrowser public releases (npm package + GitHub release artifacts) from this repository.
 
@@ -11,7 +11,7 @@ This runbook covers:
 - tagged release execution through `.github/workflows/release-public.yml`
 - post-release validation and rollback controls
 
-It does not cover website hosting deploys. Website deploy cutover is handled in `docs/CUTOVER_CHECKLIST.md` and private-repo docs.
+It does not cover website hosting deploys. Website deploy cutover is handled in `docs/CUTOVER_CHECKLIST.md` plus the private-repo deployment docs.
 
 ## Required inputs
 
@@ -34,18 +34,21 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
 ## Preflight checklist
 
 - [ ] `package.json` version is updated to target semver.
-- [ ] `extension/manifest.json` is synced (`npm run extension:sync`).
+- [ ] Extension version metadata is synced (`npm run extension:sync` updates `extension/manifest.json` and `extension/package.json`).
 - [ ] Local quality gates pass:
   - `npm run version:check`
   - `npm run test:release-gate` (grouped release-gate units; rerun only failed group with `npm run test:release-gate:g<N>`)
   - `node scripts/audit-zombie-files.mjs`
   - `node scripts/docs-drift-check.mjs`
   - `node scripts/chrome-store-compliance-check.mjs`
+  - `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
   - `npm run lint`
   - `npm run typecheck`
   - `npm run test`
   - `npm run build`
   - `npm run extension:build`
+  - `npm run extension:pack`
+  - `npm pack`
 - [ ] First-time global install dry run passes (`docs/FIRST_RUN_ONBOARDING.md`) with daemon + extension + mode validation evidence captured.
 - [ ] Release branch is merged to `main`.
 

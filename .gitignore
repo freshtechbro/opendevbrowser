@@ -51,6 +51,7 @@ frontend/.validation/
 
 # Continuity ledger (local-only)
 CONTINUITY*.md
+CONTINUITY.md
 sub_continuity.md
 
 # Auto Claude data directory

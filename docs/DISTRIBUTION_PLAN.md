@@ -1,6 +1,6 @@
 # OpenDevBrowser Distribution Plan
 
-Last updated: 2026-02-25
+Last updated: 2026-03-13
 
 This document is the active distribution plan for the split model:
 - public repo for runtime + release artifacts
@@ -34,7 +34,7 @@ Public repo no longer carries the `frontend/` application directory.
 
 1. Prepare release branch:
 - bump `package.json` version
-- sync extension version (`npm run extension:sync`)
+- sync extension version metadata (`npm run extension:sync`)
 - update release notes/docs as needed
 
 2. Validate locally:
@@ -45,13 +45,16 @@ npm run test:release-gate
 node scripts/audit-zombie-files.mjs
 node scripts/docs-drift-check.mjs
 node scripts/chrome-store-compliance-check.mjs
+./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 npm run lint
 npm run typecheck
 npm run test
 npm run build
 npm run extension:build
-node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/v0.0.16/provider-live-matrix.json
+node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-live-matrix.json
 node scripts/live-regression-matrix.mjs --release-gate
+npm run extension:pack
+npm pack
 ```
 
 If one grouped release-gate unit fails, rerun only that unit:

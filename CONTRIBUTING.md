@@ -267,7 +267,7 @@ When making changes, update relevant documentation:
 - **docs/CLI.md**: CLI commands and options
 - **docs/ARCHITECTURE.md**: System design changes
 - **docs/TROUBLESHOOTING.md**: Common issues and solutions
-- **docs/RELEASE_RUNBOOK.md** and **docs/RELEASE_0.0.16_EVIDENCE.md**: Release-gate or release process changes
+- **docs/RELEASE_RUNBOOK.md** and the current version-scoped release evidence doc (for this cycle **docs/RELEASE_0.0.17_EVIDENCE.md**): Release-gate or release process changes
 - **AGENTS.md**: Development conventions (nearest to changed code)
 
 ### Documentation Standards
