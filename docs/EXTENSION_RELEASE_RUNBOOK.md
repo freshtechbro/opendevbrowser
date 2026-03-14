@@ -35,6 +35,8 @@ Configure in public GitHub repo secrets:
 - [ ] `package.json` version equals intended release version.
 - [ ] `npm run extension:sync` keeps `extension/manifest.json` and `extension/package.json` aligned with the root package version.
 - [ ] `npm run extension:build` passes.
+- [ ] `node scripts/generate-store-assets.mjs` refreshes `extension/store-assets/` from the current icon set and popup surfaces.
+- [ ] Review `extension/store-assets/LISTING.md` for current homepage, privacy URL, upload copy, and permission/privacy answers.
 - [ ] `node scripts/chrome-store-compliance-check.mjs` passes.
 - [ ] `npm run extension:pack` creates `opendevbrowser-extension.zip`.
 - [ ] `npm run version:check` passes.
@@ -67,6 +69,7 @@ Workflow behavior:
 
 ```bash
 npm run extension:build
+node scripts/generate-store-assets.mjs
 npm run extension:pack
 npm run extension:store -- --zip opendevbrowser-extension.zip --publish-target default --publish
 ```
