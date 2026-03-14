@@ -1,7 +1,7 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-03-12
+Last updated: 2026-03-13
 
 This document tracks runtime and build dependencies across the repository.
 
@@ -45,7 +45,7 @@ This public repository no longer tracks website package manifests or lockfiles. 
 ## Extension package (`/extension`)
 
 The extension is built with the root toolchain (`npm run extension:build`) and does not maintain an independent runtime dependency graph.
-Version synchronization is handled by `npm run extension:sync`.
+Version synchronization is handled by `npm run extension:sync`, which keeps `extension/manifest.json` and `extension/package.json` aligned with the root package version.
 
 ## Dependency update workflow
 

@@ -28,10 +28,11 @@ When command/tool/channel surface changes:
 - relevant `AGENTS.md` files
 
 When canvas session/code-sync/projection behavior changes:
-- `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`
-- `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`
 - `docs/CLI.md`
 - `docs/SURFACE_REFERENCE.md`
+- `docs/ARCHITECTURE.md`
+- `docs/EXTENSION.md`
+- `docs/TROUBLESHOOTING.md`
 - relevant `AGENTS.md` files under `src/`, `src/browser/`, `src/canvas/`, and `extension/`
 
 When extension behavior changes:
@@ -43,7 +44,7 @@ When extension behavior changes:
 When release-gate automation changes:
 - `docs/RELEASE_RUNBOOK.md`
 - `docs/DISTRIBUTION_PLAN.md`
-- `docs/RELEASE_0.0.16_EVIDENCE.md`
+- the current version-scoped release evidence doc (for this release: `docs/RELEASE_0.0.17_EVIDENCE.md`)
 - automation scripts:
   - `scripts/audit-zombie-files.mjs`
   - `scripts/docs-drift-check.mjs`

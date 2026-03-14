@@ -132,8 +132,8 @@ jobs:
       - name: Run strict live release gates
         if: steps.meta.outputs.run_live_gates == 'true'
         run: |
-          mkdir -p artifacts/release/v0.0.16
-          node scripts/provider-live-matrix.mjs --release-gate --use-global-env --out artifacts/release/v0.0.16/provider-live-matrix.json
+          mkdir -p "artifacts/release/v${{ steps.meta.outputs.release_version }}"
+          node scripts/provider-live-matrix.mjs --release-gate --use-global-env --out "artifacts/release/v${{ steps.meta.outputs.release_version }}/provider-live-matrix.json"
           node scripts/live-regression-matrix.mjs --release-gate
 
       - name: Pack extension artifact

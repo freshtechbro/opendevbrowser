@@ -2,7 +2,7 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-12
+Last updated: 2026-03-13
 
 OpenDevBrowser exposes 49 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); use continuity guidance only for long-running handoff/compaction.
@@ -46,7 +46,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.16.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.17.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -1331,7 +1331,7 @@ Strict release gate mode (forces auth-gated + high-friction + social-post scenar
 
 ```bash
 npm run build
-node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/v0.0.16/provider-live-matrix.json
+node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-live-matrix.json
 ```
 
 CI-safe smoke mode (reduced cases, deterministic gating checks, no long workflow probes by default):
@@ -1367,7 +1367,7 @@ npm run test -- tests/providers-performance-gate.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ```
 
-Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.16_EVIDENCE.md`.
+Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.17_EVIDENCE.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
 ### Latest validation (2026-03-01)

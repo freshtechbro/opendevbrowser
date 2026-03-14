@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(ROOT, "dist", "cli", "index.js");
+const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 
 /**
  * @typedef {"pass" | "fail" | "env_limited" | "expected_timeout"} StepStatus
@@ -46,7 +47,8 @@ const EXTENSION_WAIT_TIMEOUT_MS = Math.max(
   30_000,
   Number.parseInt(process.env.LIVE_MATRIX_EXTENSION_WAIT_TIMEOUT_MS ?? "60_000", 10) || 60_000
 );
-const RELEASE_ARTIFACT_DIR = path.join(ROOT, "artifacts", "release", "v0.0.16");
+const RELEASE_VERSION = String(PACKAGE_JSON.version ?? "");
+const RELEASE_ARTIFACT_DIR = path.join(ROOT, "artifacts", "release", `v${RELEASE_VERSION || "unknown"}`);
 const ownedHeadlessMarkers = new Set();
 const ownedHeadlessProfileDirs = new Set();
 let headlessCleanupHooksInstalled = false;

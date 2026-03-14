@@ -1,6 +1,6 @@
 # Extension Release Runbook
 
-Last updated: 2026-02-25
+Last updated: 2026-03-13
 
 Operational runbook for publishing extension artifacts from the public repo.
 
@@ -33,8 +33,7 @@ Configure in public GitHub repo secrets:
 ## Preflight checklist
 
 - [ ] `package.json` version equals intended release version.
-- [ ] `extension/manifest.json` version is synced.
-- [ ] `extension/package.json` version is synced.
+- [ ] `npm run extension:sync` keeps `extension/manifest.json` and `extension/package.json` aligned with the root package version.
 - [ ] `npm run extension:build` passes.
 - [ ] `node scripts/chrome-store-compliance-check.mjs` passes.
 - [ ] `npm run extension:pack` creates `opendevbrowser-extension.zip`.
