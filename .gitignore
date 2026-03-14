@@ -33,6 +33,8 @@ pnpm-debug.log*
 tmp/
 .cache/
 artifacts/
+!skills/**/artifacts/
+!skills/**/artifacts/**
 
 # Playwright
 test-results/
