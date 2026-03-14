@@ -809,6 +809,8 @@ describe("bundled best-practices skill assets", () => {
     "artifacts/fingerprint-tiers.md",
     "artifacts/macro-workflows.md",
     "artifacts/browser-agent-known-issues-matrix.md",
+    "artifacts/command-channel-reference.md",
+    "artifacts/canvas-governance-playbook.md",
     "assets/templates/robustness-checklist.json",
     "scripts/odb-workflow.sh",
     "scripts/run-robustness-audit.sh",
