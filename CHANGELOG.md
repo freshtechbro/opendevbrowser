@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.17] - 2026-03-13
+
+### Added
+- Design canvas runtime delivery across core, CLI, tool, relay, and extension surfaces, including the extension-hosted `canvas.html` editor, overlay coordination, preview feedback, and repo-backed code-sync flows.
+- Canvas governance/supporting asset pack updates for `opendevbrowser-best-practices`, including `/canvas` handshake, blocker, feedback-evaluation, and robustness templates.
+- Release-cycle documents for v0.0.17, including current evidence tracking and a restored cutover checklist for the public/private website handoff.
+
+### Changed
+- Updated repo-wide active release docs, onboarding examples, and distribution runbooks to target `0.0.17`.
+- Release artifact paths now follow the active release version in workflows/runtime scripts instead of staying pinned to `v0.0.16`.
+- Packaging docs now align GitHub release, npm tarball, extension packaging, and private-site sync guidance around the current release cycle.
+
+### Fixed
+- `npm run extension:sync` now syncs both `extension/manifest.json` and `extension/package.json`, matching the `version:check` contract.
+- Active documentation references no longer point at the removed cutover doc or stale `0.0.16` packaging examples.
+
 ## [0.0.16] - 2026-02-28
 
 ### Added
@@ -140,7 +156,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.16...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.17...HEAD
+[0.0.17]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.16...v0.0.17
 [0.0.16]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.15...v0.0.16
 [0.0.15]: https://github.com/freshtechbro/opendevbrowser/compare/ebb109e...eaced1e
 [0.0.14]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.13...ebb109e

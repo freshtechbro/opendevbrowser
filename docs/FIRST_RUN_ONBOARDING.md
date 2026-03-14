@@ -1,7 +1,7 @@
 # First-Run Onboarding (Pre-Release)
 
 Status: active  
-Last updated: 2026-03-12
+Last updated: 2026-03-13
 
 This guide is the shipping checklist for validating OpenDevBrowser as a new user **before npm distribution is live**.
 
@@ -25,7 +25,7 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 ```bash
 cd <public-repo-root>
 npm pack
-# -> opendevbrowser-0.0.16.tgz
+# -> opendevbrowser-0.0.17.tgz
 ```
 
 ## 2) Simulate a brand-new user workspace
@@ -34,7 +34,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.16.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.17.tgz
 npx --no-install opendevbrowser version --output-format json
 ```
 

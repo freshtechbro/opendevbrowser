@@ -87,7 +87,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.16.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.17.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -237,7 +237,13 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ## Recent Features
 
-### v0.0.16 (Latest)
+### v0.0.17 (Latest)
+
+- **Design canvas runtime is now shipped end-to-end** across core, CLI, tool, relay, and extension surfaces, including `canvas.html`, overlay control, preview feedback, and repo-backed code sync.
+- **Canvas surface governance and skill-pack coverage** now include current `/canvas` inventories, handshake/blocker templates, and feedback-evaluation artifacts.
+- **Release packaging/docs were refreshed for v0.0.17**, including current tarball examples, extension version sync, release evidence, and public/private cutover guidance.
+
+### v0.0.16
 
 - **Release-gate hardening** with dedicated audit/compliance scripts (`audit-zombie-files`, `docs-drift-check`, `chrome-store-compliance-check`) and grouped release-gate tests.
 - **Live matrix robustness upgrades** across `live-regression-matrix` and `provider-live-matrix` (strict `--release-gate`, extension/CDP recovery paths, deterministic strict-mode semantics).
@@ -805,19 +811,22 @@ Uniform versioning is required (source of truth: `package.json`):
 1. Bump `package.json` version.
 2. Run: `npm run extension:sync`
 3. Run: `npm run version:check`
-4. Run: `npm run build`
-5. Run: `npm run extension:build`
-6. Run release audits:
+4. Run: `npm run test:release-gate`
+5. Run: `npm run build`
+6. Run: `npm run extension:build`
+7. Run release audits:
    - `node scripts/audit-zombie-files.mjs`
    - `node scripts/docs-drift-check.mjs`
    - `node scripts/chrome-store-compliance-check.mjs`
-7. Run strict live release gates:
-   - `node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/v0.0.16/provider-live-matrix.json`
+   - `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+8. Run strict live release gates:
+   - `node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-live-matrix.json`
    - `node scripts/live-regression-matrix.mjs --release-gate`
-8. Run first-time global install dry run checklist from `docs/FIRST_RUN_ONBOARDING.md`.
-9. Run: `npm run extension:pack` (outputs `./opendevbrowser-extension.zip`)
-10. Tag `vX.Y.Z` and let `.github/workflows/release-public.yml` publish npm + GitHub release artifacts.
-11. Dispatch website content sync to private repo through `.github/workflows/dispatch-private-sync.yml`.
+9. Run first-time global install dry run checklist from `docs/FIRST_RUN_ONBOARDING.md`.
+10. Run: `npm run extension:pack` (outputs `./opendevbrowser-extension.zip`)
+11. Run: `npm pack`
+12. Tag `vX.Y.Z` and let `.github/workflows/release-public.yml` publish npm + GitHub release artifacts.
+13. Dispatch website content sync to private repo through `.github/workflows/dispatch-private-sync.yml`.
 
 Runbooks:
 - `docs/DISTRIBUTION_PLAN.md`

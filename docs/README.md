@@ -29,7 +29,8 @@ Canonical documentation map for OpenDevBrowser runtime, extension, and distribut
 
 ## Version-scoped evidence
 
-- `<public-repo-root>/docs/RELEASE_0.0.16_EVIDENCE.md` - v0.0.16-specific release evidence ledger; treat as version-scoped, not evergreen operational guidance
+- `<public-repo-root>/docs/RELEASE_0.0.17_EVIDENCE.md` - current release evidence ledger for the active ship cycle
+- `<public-repo-root>/docs/RELEASE_0.0.16_EVIDENCE.md` - historical v0.0.16 release evidence; keep as archival context, not evergreen guidance
 
 ## Planning/spec docs (historical or in-flight)
 

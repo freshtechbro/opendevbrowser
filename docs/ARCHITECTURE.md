@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-03-12
+Last updated: 2026-03-13
 
 ---
 
@@ -350,7 +350,7 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 - **Parity gate** via `tests/parity-matrix.test.ts` (CLI/tool/runtime surface checks + mode coverage).
 - **Provider performance gate** via `tests/providers-performance-gate.test.ts` (deterministic fixture SLO checks).
 - **Strict live release gates** via `node scripts/provider-live-matrix.mjs --release-gate` and `node scripts/live-regression-matrix.mjs --release-gate`.
-- **Release checklist** in `docs/RELEASE_RUNBOOK.md` with evidence tracking in `docs/RELEASE_0.0.16_EVIDENCE.md`.
+- **Release checklist** in `docs/RELEASE_RUNBOOK.md` with evidence tracking in the current version-scoped release ledger (for this cycle: `docs/RELEASE_0.0.17_EVIDENCE.md`).
 - **Benchmark fixture manifest** in `docs/benchmarks/provider-fixtures.md`.
 - **First-run onboarding checklist** in `docs/FIRST_RUN_ONBOARDING.md`.
 
