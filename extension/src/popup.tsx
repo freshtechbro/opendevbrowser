@@ -86,7 +86,7 @@ if (
   throw new Error("Popup DOM missing required elements");
 }
 
-const defaultNote = "Local relay only. Tokens stay on-device.";
+const defaultNote = "Local relay only. Page data and tokens stay on-device.";
 const defaultAnnotationNote = "No annotations captured yet.";
 const LAST_ANNOTATION_META_KEY = "annotationLastMeta";
 let lastAnnotationPayload: AnnotationPayload | null = null;

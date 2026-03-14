@@ -161,8 +161,17 @@ const runTool = async (
   args: Record<string, unknown>
 ) => parse(await tools[name].execute(args as never));
 
+const expectToolCases = async (
+  tools: Record<string, ExecutableTool>,
+  cases: Array<[string, Record<string, unknown>, Record<string, unknown>]>
+) => {
+  for (const [name, args, expected] of cases) {
+    expect(await runTool(tools, name, args)).toMatchObject(expected);
+  }
+};
+
 describe("tools", () => {
-  it("executes lifecycle and interaction tool handlers", async () => {
+  it("executes lifecycle and navigation tool handlers", async () => {
     const { tools } = await loadTools();
     const cases: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
       ["opendevbrowser_launch", { profile: "default", noExtension: true }, { ok: true }],
@@ -179,7 +188,15 @@ describe("tools", () => {
       ["opendevbrowser_goto", { sessionId: "s1", url: "https://" }, { ok: true, meta: { blockerState: "active", blocker: { type: "auth_required" } } }],
       ["opendevbrowser_wait", { sessionId: "s1", until: "load" }, { ok: true, meta: { blockerState: "clear" } }],
       ["opendevbrowser_wait", { sessionId: "s1", ref: "r1" }, { ok: true, meta: { blockerState: "clear" } }],
-      ["opendevbrowser_snapshot", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_snapshot", { sessionId: "s1" }, { ok: true }]
+    ];
+
+    await expectToolCases(tools, cases);
+  }, 30000);
+
+  it("executes interaction tool handlers", async () => {
+    const { tools } = await loadTools();
+    const cases: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
       ["opendevbrowser_click", { sessionId: "s1", ref: "r1" }, { ok: true }],
       ["opendevbrowser_hover", { sessionId: "s1", ref: "r1" }, { ok: true }],
       ["opendevbrowser_press", { sessionId: "s1", key: "Enter" }, { ok: true }],
@@ -191,9 +208,7 @@ describe("tools", () => {
       ["opendevbrowser_scroll_into_view", { sessionId: "s1", ref: "r1" }, { ok: true }]
     ];
 
-    for (const [name, args, expected] of cases) {
-      expect(await runTool(tools, name, args)).toMatchObject(expected);
-    }
+    await expectToolCases(tools, cases);
   }, 30000);
 
   it("executes DOM, diagnostics, and storage tool handlers", async () => {

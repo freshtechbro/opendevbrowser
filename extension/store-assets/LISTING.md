@@ -1,110 +1,187 @@
 # Chrome Web Store Listing
 
-## Title (45 chars max)
-OpenDevBrowser Relay
+## Official URLs
 
-## Summary (132 chars max)
-Connect OpenCode AI to your browser for automated testing, web scraping, and development workflows via Chrome DevTools Protocol.
+- Homepage URL: `https://opendevbrowser.dev`
+- Privacy policy URL: `https://github.com/freshtechbro/opendevbrowser/blob/main/docs/privacy.md`
+- Support / source URL: `https://github.com/freshtechbro/opendevbrowser`
 
-## Description
+## Primary Store Fields
 
-### Overview
-OpenDevBrowser Relay bridges the OpenDevBrowser plugin with your Chrome browser, enabling AI-powered browser automation for local development and testing.
+### Title
 
-### Key Features
-- **Zero Config**: Works out of the box with sensible defaults
-- **Local Only**: All communication stays on your machine (localhost)
-- **Secure**: Token-based pairing prevents unauthorized access
-- **Lightweight**: Permissions scoped to local relay + automation workflows, with background alarms used only for reconnect retries
+- Limit: `45` chars
+- Count: `20`
+- Value: `OpenDevBrowser Relay`
 
-### How It Works
-1. Install the extension
-2. Start OpenDevBrowser in OpenCode
-3. The extension automatically connects to the local relay
-4. AI can now interact with your browser tabs
+### Summary
 
-### Use Cases
-- Automated testing of web applications
-- Web scraping and data extraction
-- Form filling and validation testing
-- Screenshot capture and visual regression
-- Interactive debugging with AI assistance
+- Limit: `132` chars
+- Count: `108`
+- Value: `Attach OpenDevBrowser to logged-in Chrome tabs so agents can inspect, automate, annotate, and debug locally.`
 
-### Privacy First
-- No data collection or telemetry
-- No external server communication
-- All automation happens locally
-- Open source and auditable
+### Single Purpose Description
 
-### Privacy Policy URL
-https://github.com/freshtechbro/opendevbrowser/blob/main/docs/privacy.md
+- Count: `105`
+- Value: `Connect OpenDevBrowser to existing Chrome tabs so it can inspect and automate them through a local relay.`
+
+### Detailed Description
+
+OpenDevBrowser Relay connects OpenDevBrowser to the Chrome tabs you already have open. It lets the runtime attach to a real headed browser session, reuse logged-in state, inspect the page, drive actions, and capture annotations without launching a separate browser.
+
+What it delivers today:
+- Reuses existing Chrome tabs through a local relay on `127.0.0.1`
+- Attaches Chrome DevTools Protocol with `debugger` for inspect and action loops
+- Injects page-side helpers with `scripting` for annotation, DOM capture, and in-tab automation
+- Stores relay settings plus the last local annotation payload metadata so the popup can reconnect and reopen recent results
+- Shows relay, handshake, annotate, injected, `CDP`, pairing, and native fallback health directly in the popup
+
+Important behavior notes:
+- The relay and optional native host stay on-device
+- OpenDevBrowser does not send browsing data, page content, or annotation payloads to the developer or third-party analytics services
+- The extension can act on user-opened sites because it needs `<all_urls>` for automation, annotation, DOM capture, and screenshot fallback
+- Restricted pages such as `chrome://`, `chrome-extension://`, and Chrome Web Store pages are not supported targets
 
 ## Category
-Developer Tools
+
+- `Developer Tools`
 
 ## Language
-English (United States)
 
-## Permission Justifications
+- `English (United States)`
 
-| Permission | Justification |
-|------------|---------------|
-| **debugger** | Required to access Chrome DevTools Protocol (CDP) for browser automation. Enables clicking, typing, screenshots, and DOM access. |
-| **alarms** | Required to schedule reconnect retries when the relay is temporarily unavailable. |
-| **tabs** | Required to list available browser tabs and identify targets for automation. |
-| **storage** | Required to persist user preferences (relay port, pairing token) locally in Chrome. |
-| **scripting** | Required to inject runtime/annotation scripts into active pages. |
-| **activeTab** | Required for user-initiated actions against the currently active tab. |
-| **nativeMessaging** | Required for optional local native-host fallback integration. |
+## Upload Justifications
 
-## Host Permissions
+### Single Purpose Justification
 
-| Host | Justification |
-|------|---------------|
-| `http://127.0.0.1/*` | Connect to local relay server running on your machine |
-| `http://localhost/*` | Alternative localhost binding for relay connection |
-| `<all_urls>` | Required to run automation and annotation flows across user-opened websites during local sessions |
+The extension has one purpose: bridge OpenDevBrowser to the Chrome tabs the user already has open so the runtime can inspect, automate, and annotate those tabs through the local relay.
 
-## Screenshots Required
+### Permission Justification
 
-1. **screenshot-popup-disconnected.png** (1280x800)
-   - Extension popup showing "Disconnected" state
-   - Relay settings visible (port, token fields)
+The permission set is limited to three needs: attach to Chrome tabs, inject page helpers for automation/annotation, and reach the local relay or optional local native host that keeps the workflow on-device.
 
-2. **screenshot-popup-connected.png** (1280x800)
-   - Extension popup showing "Connected" state
-   - Active target information displayed
+### `debugger` Justification
 
-3. **screenshot-automation-demo.png** (1280x800)
-   - Split view: terminal with OpenCode on left, browser on right
-   - Shows automation command and resulting browser action
+`debugger` is required to attach Chrome DevTools Protocol to the selected tab and forward inspect, snapshot, click, type, and screenshot commands from OpenDevBrowser.
 
-## Promotional Images Required
+### `alarms` Justification
 
-1. **promo-small-440x280.png**
-   - OpenDevBrowser logo centered
-   - Tagline: "AI-Powered Browser Automation"
-   - Clean, professional design
+`alarms` is required for background reconnect and retry scheduling when the local relay is temporarily unavailable.
 
-2. **promo-marquee-1400x560.png** (optional)
-   - Feature showcase with icons
-   - Logo + tagline + key benefits
+### `tabs` Justification
 
-## Store Icon
-- **icon-store-128.png**: 128x128 PNG with square corners, no padding
-- Use existing icon128.png from extension/icons/
+`tabs` is required to read, activate, update, create, and close Chrome tabs so OpenDevBrowser can attach to the right user-opened page and keep that target in sync.
 
-## Additional Notes
+### `storage` Justification
 
-### Review Expectations
-- `debugger` permission triggers manual review (3-7 extra business days)
-- Ensure privacy policy URL is accessible before submission
-- All permissions are justified with clear use cases
+`storage` is required to keep relay settings, pairing state, relay identity metadata, and the last local annotation payload metadata on-device in `chrome.storage.local`.
 
-### Compliance Checklist
-- [x] Manifest V3 compliant
-- [x] No eval() or remote code execution
-- [x] No keyword stuffing in listing
-- [x] Privacy policy hosted and accessible
-- [x] All permissions are minimal and justified
-- [x] Host permissions documented with localhost relay endpoints plus `<all_urls>` for automation scope
+### `scripting` Justification
+
+`scripting` is required to inject annotation and runtime helpers into the active page for DOM capture, overlay rendering, and in-tab automation tasks.
+
+### `activeTab` Justification
+
+`activeTab` is required for user-triggered actions from the popup or command shortcut against the current tab, including attach fallback and visible-tab capture flows.
+
+### `nativeMessaging` Justification
+
+`nativeMessaging` is required only for the optional local native-host fallback path when the relay is unavailable.
+
+### Host Permission Justification
+
+`http://127.0.0.1/*` is required for local relay discovery, pairing, and extension transport on the user’s machine. `<all_urls>` is required so the extension can inject helpers, inspect DOM state, capture annotations, and automate whichever user-opened site is the active target.
+
+## Recommended Privacy Questionnaire Answers
+
+Use these answers as the starting point for the current Chrome Web Store dashboard wording.
+
+### Data Handling Summary
+
+- The extension may access page URLs, titles, page content, and screenshots locally when the user runs automation or annotation flows.
+- The extension stores relay settings, pairing state, relay identity metadata, and the last local annotation payload metadata on-device.
+- The extension does not sell browsing data.
+- The extension does not send browsing data, page content, or annotation payloads to the developer or third-party analytics services.
+
+### Recommended Responses
+
+- Does the extension sell user data? `No`
+- Does the extension use user data for unrelated purposes such as ads or profiling? `No`
+- Does the developer receive browsing data, page content, or annotation payloads from the extension? `No`
+- Does the extension access website content or user-opened pages to provide its feature? `Yes, locally on-device as part of automation and annotation`
+- Is the retained extension state stored locally? `Yes`
+- Is remote transmission to OpenDevBrowser-operated servers required for the extension feature to work? `No`
+
+### Data Types To Disclose If The Form Asks For Accessed Data
+
+- Website content
+- Page URLs and titles
+- User-triggered screenshots / visible-tab captures
+- Extension settings and pairing state
+- Local annotation payload metadata
+
+## Reviewer Test Instructions
+
+### Prerequisites
+
+- Chrome `125+`
+- Node.js `18+`
+- A normal `http` or `https` tab open in Chrome
+
+### Steps
+
+1. Clone the repo and run `npm install`.
+2. Build the package and extension:
+   - `npm run build`
+   - `npm run extension:build`
+3. In Chrome, open `chrome://extensions`, enable Developer Mode, and load the unpacked `extension/` directory from this repo.
+4. Start the local relay:
+   - `npx opendevbrowser serve`
+5. Open a normal `http` or `https` tab.
+6. Open the extension popup and keep the default settings:
+   - Relay port `8787`
+   - Auto-connect `on`
+   - Auto-pair `on`
+   - Require pairing token `on`
+   - Native fallback `off`
+7. Click `Connect`.
+8. Expected result:
+   - Status pill changes to `Connected`
+   - Status note shows `Connected to 127.0.0.1:8787`
+   - Diagnostics populate for relay / handshake / `CDP`
+   - The annotation panel remains visible
+9. To verify the disconnected state, stop the relay or click `Disconnect`, then reopen the popup.
+
+### Reviewer Notes
+
+- The extension cannot attach to `chrome://`, `chrome-extension://`, or Chrome Web Store pages.
+- The extension’s relay/native-host paths are local-only.
+- `<all_urls>` is needed because the feature works on whichever user-opened site is the current automation target.
+
+## Asset Checklist
+
+### Screenshots
+
+1. `screenshot-popup-connected.png`
+   - Full current popup
+   - `Connected` status pill
+   - Settings, diagnostics, annotation panel, and `Disconnect` CTA visible
+
+2. `screenshot-popup-disconnected.png`
+   - Full current popup
+   - `Disconnected` status pill
+   - Default relay settings visible
+   - Diagnostics and annotation panel still visible
+
+3. `screenshot-automation-demo.png`
+   - OpenDevBrowser driving a real Chrome tab through the local relay
+   - OpenCode / terminal action on one side and the browser outcome on the other
+
+### Promo Images
+
+1. `promo-small-440x280.png`
+2. `promo-marquee-1400x560.png`
+
+### Store Icon
+
+- `icon-store-128.png` should match `extension/icons/icon128.png`
