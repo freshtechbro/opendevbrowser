@@ -23,6 +23,7 @@ Public repo no longer carries the `frontend/` application directory.
   - publishes npm package and GitHub release assets
 - `.github/workflows/dispatch-private-sync.yml`
   - dispatches `repository_dispatch` to private website repo on docs/skills/assets/changelog/tool index updates
+  - warns and skips instead of failing the public push when the dispatch token is missing or cannot access the configured private repo
 - `.github/workflows/chrome-store-publish.yml` (optional lane)
   - manual Chrome Web Store upload/publish workflow
 

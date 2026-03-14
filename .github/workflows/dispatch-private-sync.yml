@@ -68,16 +68,61 @@ jobs:
             echo "client_payload=${payload}"
           } >>"${GITHUB_OUTPUT}"
 
-      - name: Warn when dispatch token is missing
-        if: ${{ secrets.PRIVATE_REPO_DISPATCH_TOKEN == '' }}
-        run: |
-          echo "PRIVATE_REPO_DISPATCH_TOKEN is not configured; skipping private repo dispatch."
-
       - name: Dispatch sync event to private repo
-        if: ${{ secrets.PRIVATE_REPO_DISPATCH_TOKEN != '' }}
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.PRIVATE_REPO_DISPATCH_TOKEN }}
-          repository: ${{ steps.payload.outputs.target_repo }}
-          event-type: opendevbrowser_public_sync
-          client-payload: ${{ steps.payload.outputs.client_payload }}
+        shell: bash
+        env:
+          PRIVATE_REPO_DISPATCH_TOKEN: ${{ secrets.PRIVATE_REPO_DISPATCH_TOKEN }}
+          TARGET_REPO: ${{ steps.payload.outputs.target_repo }}
+          CLIENT_PAYLOAD: ${{ steps.payload.outputs.client_payload }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${PRIVATE_REPO_DISPATCH_TOKEN:-}" ]]; then
+            echo "PRIVATE_REPO_DISPATCH_TOKEN is not configured; skipping private repo dispatch."
+            exit 0
+          fi
+
+          api_base="https://api.github.com/repos/${TARGET_REPO}"
+          response_file="$(mktemp)"
+          headers=(
+            -H "Authorization: Bearer ${PRIVATE_REPO_DISPATCH_TOKEN}"
+            -H "Accept: application/vnd.github+json"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
+          repo_status=$(curl -sS -o "${response_file}" -w "%{http_code}" "${headers[@]}" "${api_base}")
+          case "${repo_status}" in
+            200)
+              ;;
+            401|403|404)
+              body="$(tr '\n' ' ' <"${response_file}")"
+              echo "::warning::Skipping private repo dispatch for ${TARGET_REPO}; token cannot access target repo (HTTP ${repo_status}). ${body}"
+              exit 0
+              ;;
+            *)
+              echo "Unexpected response probing ${TARGET_REPO} (HTTP ${repo_status})." >&2
+              cat "${response_file}" >&2
+              exit 1
+              ;;
+          esac
+
+          dispatch_payload="$(printf '{"event_type":"opendevbrowser_public_sync","client_payload":%s}' "${CLIENT_PAYLOAD}")"
+          dispatch_status=$(curl -sS -o "${response_file}" -w "%{http_code}" -X POST \
+            "${headers[@]}" \
+            "${api_base}/dispatches" \
+            -d "${dispatch_payload}")
+
+          case "${dispatch_status}" in
+            204)
+              echo "Private repo dispatch accepted for ${TARGET_REPO}."
+              ;;
+            401|403|404)
+              body="$(tr '\n' ' ' <"${response_file}")"
+              echo "::warning::Skipping private repo dispatch for ${TARGET_REPO}; dispatch endpoint returned HTTP ${dispatch_status}. ${body}"
+              ;;
+            *)
+              echo "Private repo dispatch failed for ${TARGET_REPO} (HTTP ${dispatch_status})." >&2
+              cat "${response_file}" >&2
+              exit 1
+              ;;
+          esac
