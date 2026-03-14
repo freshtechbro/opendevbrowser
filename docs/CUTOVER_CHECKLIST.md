@@ -29,6 +29,7 @@ Use this checklist when a public release changes mirrored docs, skills, assets, 
 
 - [ ] Merge or push the public docs/source update that should mirror into the private repo.
 - [ ] Confirm `.github/workflows/dispatch-private-sync.yml` fired, or manually dispatch it with the intended `public_ref` and `public_sha`.
+- [ ] If the workflow warns that `PRIVATE_REPO_DISPATCH_TOKEN` cannot access `PRIVATE_WEBSITE_REPO`, treat that as an infra credential issue, fix the token/repo access, and re-dispatch manually.
 - [ ] Record the public SHA sent to the private repo.
 
 ## Private Repo Validation
