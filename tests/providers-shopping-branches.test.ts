@@ -1073,6 +1073,10 @@ describe("shopping provider branches", () => {
       code: "unavailable",
       reasonCode: "env_limited",
       details: {
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "target_shell_page"
+        },
         providerShell: "target_shell_page",
         title: "\"wireless mouse\" : Target",
         message: expect.stringContaining("skip to main content")
@@ -1094,8 +1098,10 @@ describe("shopping provider branches", () => {
 
     await expect(provider.search?.({ query: "wireless mouse" }, context)).rejects.toMatchObject({
       code: "unavailable",
-      reasonCode: "env_limited",
+      reasonCode: "challenge_detected",
       details: {
+        blockerType: "anti_bot_challenge",
+        reasonCode: "challenge_detected",
         providerShell: "temu_challenge_shell"
       }
     });
@@ -1118,8 +1124,10 @@ describe("shopping provider branches", () => {
 
     await expect(provider.search?.({ query: "wireless mouse" }, context)).rejects.toMatchObject({
       code: "unavailable",
-      reasonCode: "env_limited",
+      reasonCode: "challenge_detected",
       details: {
+        blockerType: "anti_bot_challenge",
+        reasonCode: "challenge_detected",
         providerShell: "temu_challenge_shell",
         title: "Temu verification"
       }
@@ -1138,6 +1146,10 @@ describe("shopping provider branches", () => {
       code: "unavailable",
       reasonCode: "env_limited",
       details: {
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "temu_empty_shell"
+        },
         providerShell: "temu_empty_shell"
       }
     });
@@ -1162,6 +1174,10 @@ describe("shopping provider branches", () => {
       code: "unavailable",
       reasonCode: "env_limited",
       details: {
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "target_shell_page"
+        },
         providerShell: "target_shell_page",
         title: "\"wireless mouse\" : Target",
         message: "\"wireless mouse\" : Target"

@@ -233,6 +233,35 @@ describe("shopping providers", () => {
     ]);
   });
 
+  it("keeps extracted search-card availability on shopping offers", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <a href="https://amazon.com/dp/B012345678">Wireless mouse with contoured shell and silent clicks for all-day work</a>
+            <div>USD 29.99 4.7 out of 5 81 reviews only 2 left</div>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "wireless mouse", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.attributes.retrievalPath).toBe("shopping:search:result-card");
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      availability: "limited",
+      price: {
+        amount: 29.99,
+        currency: "USD"
+      },
+      rating: 4.7,
+      reviews_count: 81
+    });
+  });
+
   it("maps auth/rate-limit/unavailable status codes through the default fetcher", async () => {
     const provider = createShoppingProvider(amazonProfile);
 
@@ -542,7 +571,12 @@ describe("shopping providers", () => {
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
         provider: "shopping/temu",
         operation: "search",
-        reasonCode: "env_limited"
+        reasonCode: "challenge_detected",
+        details: expect.objectContaining({
+          blockerType: "anti_bot_challenge",
+          providerShell: "temu_challenge_shell",
+          reasonCode: "challenge_detected"
+        })
       }));
     } finally {
       vi.unstubAllGlobals();
@@ -616,10 +650,11 @@ describe("shopping providers", () => {
         }
       )).rejects.toMatchObject({
         code: "unavailable",
-        reasonCode: "env_limited",
+        reasonCode: "challenge_detected",
         details: expect.objectContaining({
-          browserRequired: true,
-          providerShell: "temu_challenge_shell"
+          blockerType: "anti_bot_challenge",
+          providerShell: "temu_challenge_shell",
+          reasonCode: "challenge_detected"
         })
       });
     } finally {
@@ -877,6 +912,10 @@ describe("shopping providers", () => {
         reasonCode: "env_limited",
         details: expect.objectContaining({
           providerShell: "duckduckgo_non_js_redirect",
+          constraint: expect.objectContaining({
+            kind: "render_required",
+            evidenceCode: "duckduckgo_non_js_redirect"
+          }),
           reasonCode: "env_limited"
         })
       });
@@ -921,6 +960,10 @@ describe("shopping providers", () => {
       expect(request?.details).toMatchObject({
         browserRequired: true,
         providerShell: "duckduckgo_non_js_redirect",
+        constraint: expect.objectContaining({
+          kind: "render_required",
+          evidenceCode: "duckduckgo_non_js_redirect"
+        }),
         title: "DuckDuckGo Lite"
       });
     } finally {
@@ -1178,9 +1221,59 @@ describe("shopping providers", () => {
         preferredModes: ["managed_headed", "extension"],
         details: expect.objectContaining({
           browserRequired: true,
-          providerShell: "target_shell_page"
+          providerShell: "target_shell_page",
+          constraint: expect.objectContaining({
+            kind: "render_required",
+            evidenceCode: "target_shell_page"
+          })
         })
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces auth-required no-candidate shopping shells from custom fetchers", async () => {
+    const provider = createShoppingProviderById("shopping/costco", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><head><title>Sign In | Costco</title></head><body>Please sign in to continue.</body></html>"
+      })
+    });
+
+    await expect(provider.search?.({ query: "wireless mouse", limit: 1 }, context)).rejects.toMatchObject({
+      code: "auth",
+      reasonCode: "token_required",
+      message: "Authentication required for https://www.costco.com/CatalogSearch?dept=All&keyword=wireless%20mouse",
+      details: expect.objectContaining({
+        title: "Sign In | Costco",
+        message: "Sign In | Costco Please sign in to continue.",
+        blockerType: "auth_required",
+        constraint: {
+          kind: "session_required",
+          evidenceCode: "auth_required",
+          message: "Sign In | Costco Please sign in to continue."
+        }
+      })
+    });
+  });
+
+  it("surfaces auth-required shopping fetch pages through the shared surface-issue path", async () => {
+    const provider = createShoppingProviderById("shopping/costco");
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign In | Costco</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.fetch?.(
+        { url: "https://www.costco.com/wireless-mouse.html" },
+        context
+      )).rejects.toMatchObject({
+        reasonCode: "token_required"
+      });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1224,12 +1317,35 @@ describe("shopping providers", () => {
         preferredModes: ["managed_headed", "extension"],
         details: expect.objectContaining({
           browserRequired: true,
-          providerShell: "target_shell_page"
+          providerShell: "target_shell_page",
+          constraint: expect.objectContaining({
+            kind: "render_required",
+            evidenceCode: "target_shell_page"
+          })
         })
       }));
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("keeps generic env-limited no-offer pages as tagged fallback rows", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><body>This provider is not available in this environment right now.</body></html>"
+      })
+    });
+
+    const rows = await provider.search?.({ query: "wireless mouse", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.attributes).toMatchObject({
+      reasonCode: "env_limited",
+      blockerType: "env_limited",
+      retrievalPath: "shopping:search:index"
+    });
   });
 
   it("routes Temu empty shell pages through browser fallback", async () => {
@@ -1269,9 +1385,56 @@ describe("shopping providers", () => {
         reasonCode: "env_limited",
         details: expect.objectContaining({
           browserRequired: true,
-          providerShell: "temu_empty_shell"
+          providerShell: "temu_empty_shell",
+          constraint: expect.objectContaining({
+            kind: "render_required",
+            evidenceCode: "temu_empty_shell"
+          })
         })
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces challenge no-candidate shopping shells from custom fetchers", async () => {
+    const provider = createShoppingProviderById("shopping/temu", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><head><title>Robot or human?</title></head><body>Activate and hold the button to confirm that you're human.</body></html>"
+      })
+    });
+
+    await expect(provider.search?.({ query: "wireless mouse", limit: 1 }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "challenge_detected",
+      message: "Detected anti-bot challenge while retrieving https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+      details: expect.objectContaining({
+        blockerType: "anti_bot_challenge",
+        reasonCode: "challenge_detected",
+        title: "Robot or human?"
+      })
+    });
+  });
+
+  it("surfaces challenge shopping fetch pages through the shared surface-issue path", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body><script src=\"https://static.kwcdn.com/upload-static/assets/chl/js/challenge.js\"></script><script>window.challenge=true</script></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.fetch?.(
+        { url: "https://www.temu.com/g-601099522700389.html" },
+        context
+      )).rejects.toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        message: "Detected anti-bot challenge while retrieving https://www.temu.com/g-601099522700389.html"
+      });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1311,10 +1474,12 @@ describe("shopping providers", () => {
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
         provider: "shopping/temu",
         operation: "search",
-        reasonCode: "env_limited",
+        reasonCode: "challenge_detected",
         details: expect.objectContaining({
           browserRequired: true,
-          providerShell: "temu_challenge_shell"
+          providerShell: "temu_challenge_shell",
+          blockerType: "anti_bot_challenge",
+          reasonCode: "challenge_detected"
         })
       }));
     } finally {
@@ -1360,15 +1525,19 @@ describe("shopping providers", () => {
           redirect: "follow"
         })
       );
-      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
-        provider: "shopping/others",
-        operation: "search",
-        reasonCode: "env_limited",
-        details: expect.objectContaining({
-          browserRequired: true,
-          providerShell: "duckduckgo_non_js_redirect"
-        })
-      }));
+        expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+          provider: "shopping/others",
+          operation: "search",
+          reasonCode: "env_limited",
+          details: expect.objectContaining({
+            browserRequired: true,
+            providerShell: "duckduckgo_non_js_redirect",
+            constraint: expect.objectContaining({
+              kind: "render_required",
+              evidenceCode: "duckduckgo_non_js_redirect"
+            })
+          })
+        }));
     } finally {
       vi.unstubAllGlobals();
     }

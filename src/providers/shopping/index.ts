@@ -1,5 +1,6 @@
 import { classifyBlockerSignal } from "../blocker";
-import { ProviderRuntimeError, toProviderError } from "../errors";
+import { applyProviderIssueHint, classifyProviderIssue } from "../constraint";
+import { providerErrorCodeFromReasonCode, ProviderRuntimeError, toProviderError } from "../errors";
 import { normalizeRecord, normalizeRecords } from "../normalize";
 import { providerRequestHeaders } from "../shared/request-headers";
 import { canonicalizeUrl } from "../web/crawler";
@@ -444,6 +445,30 @@ export const validateShoppingLegalReviewChecklist = (
 const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operation, context }) => {
   const providerId = provider;
   const profile = getShoppingProviderProfile(providerId) ?? SHOPPING_PROVIDER_PROFILES.at(-1)!;
+  const buildSurfaceIssueError = (
+    responseUrl: string,
+    issue: ReturnType<typeof classifyProviderIssue>,
+    details: Record<string, JsonValue>
+  ): ProviderRuntimeError => {
+    /* c8 ignore next -- browser-assistance classification always returns a reasonCode when issue is present */
+    const reasonCode = issue?.reasonCode ?? "env_limited";
+    const message = reasonCode === "token_required"
+      ? `Authentication required for ${responseUrl}`
+      : reasonCode === "challenge_detected"
+        ? `Detected anti-bot challenge while retrieving ${responseUrl}`
+        : `Browser assistance required for ${responseUrl}`;
+    return new ProviderRuntimeError(
+      providerErrorCodeFromReasonCode(reasonCode),
+      message,
+      {
+        provider: providerId,
+        source: SHOPPING_SOURCE,
+        retryable: reasonCode === "env_limited",
+        reasonCode,
+        details: applyProviderIssueHint(details, issue)
+      }
+    );
+  };
   const detectFetchedPageError = (
     responseUrl: string,
     status: number,
@@ -488,20 +513,23 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
     const requirement = requiresBrowserAssistance(profile, responseUrl, html);
     if (!requirement) return null;
 
-    return new ProviderRuntimeError("unavailable", `Browser assistance required for ${responseUrl}`, {
-      provider: providerId,
-      source: SHOPPING_SOURCE,
-      retryable: true,
-      reasonCode: "env_limited",
-      details: {
-        status,
-        url: responseUrl,
-        browserRequired: true,
-        providerShell: requirement.reason,
-        ...(requirement.title ? { title: requirement.title } : {}),
-        ...(requirement.message ? { message: requirement.message } : {}),
-        reasonCode: "env_limited"
-      }
+    const issue = classifyProviderIssue({
+      url: responseUrl,
+      title: requirement.title,
+      message: requirement.message,
+      providerShell: requirement.reason,
+      browserRequired: true,
+      status,
+      providerErrorCode: "unavailable",
+      retryable: true
+    });
+    return buildSurfaceIssueError(responseUrl, issue, {
+      status,
+      url: responseUrl,
+      browserRequired: true,
+      providerShell: requirement.reason,
+      ...(requirement.title ? { title: requirement.title } : {}),
+      ...(requirement.message ? { message: requirement.message } : {})
     });
   };
   const resolveFallbackOrThrow = async (error: ProviderRuntimeError): Promise<ShoppingFetchRecord> => {
@@ -1043,7 +1071,7 @@ const extractGenericSearchCandidates = (
       || readAttribute(anchorTag, "title");
     if (!title || title.length < 20 || GENERIC_NOISE_TITLE_RE.test(title) || isPriceOnlyTitle(title)) continue;
 
-    const matchIndex = match.index ?? 0;
+    const matchIndex = match.index as number;
     const start = Math.max(0, matchIndex - 400);
     const end = Math.min(html.length, matchIndex + inner.length + 1800);
     const context = toSnippet(extractText(html.slice(start, end)), 1800);
@@ -1238,6 +1266,16 @@ const createDefaultSearch = (
   );
   const content = toSnippet(extracted.text, 2000);
   const candidates = extractSearchCandidates(fetched.html, fetched.url, profile, limit);
+  const pageIssue = candidates.length === 0
+    ? classifyProviderIssue({
+      url: fetched.url,
+      title: typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined,
+      message: content,
+      status: fetched.status,
+      providerErrorCode: "unavailable",
+      retryable: true
+    })
+    : null;
 
   if (candidates.length > 0) {
     return candidates.map((candidate, index) => ({
@@ -1265,6 +1303,30 @@ const createDefaultSearch = (
     }));
   }
 
+  if (pageIssue && (pageIssue.reasonCode !== "env_limited" || pageIssue.constraint)) {
+    const reasonCode = pageIssue.reasonCode;
+    throw new ProviderRuntimeError(
+      providerErrorCodeFromReasonCode(reasonCode),
+      reasonCode === "token_required"
+        ? `Authentication required for ${fetched.url}`
+        : reasonCode === "challenge_detected"
+          ? `Detected anti-bot challenge while retrieving ${fetched.url}`
+          : `Browser assistance required for ${fetched.url}`,
+      {
+        provider: providerId,
+        source: SHOPPING_SOURCE,
+        retryable: reasonCode === "env_limited",
+        reasonCode,
+        details: applyProviderIssueHint({
+          status: fetched.status,
+          url: fetched.url,
+          ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
+          ...(content ? { message: content } : {})
+        }, pageIssue)
+      }
+    );
+  }
+
   const rows: ShoppingSearchRecord[] = [
     {
       url: fetched.url,
@@ -1281,7 +1343,10 @@ const createDefaultSearch = (
         }),
         status: fetched.status,
         links,
-        retrievalPath: isHttpUrl(query) ? "shopping:search:url" : "shopping:search:index"
+        retrievalPath: isHttpUrl(query) ? "shopping:search:url" : "shopping:search:index",
+        ...(pageIssue ? { reasonCode: pageIssue.reasonCode } : {}),
+        ...(pageIssue?.blockerType ? { blockerType: pageIssue.blockerType } : {}),
+        ...(pageIssue?.constraint ? { constraint: pageIssue.constraint } : {})
       }
     }
   ];

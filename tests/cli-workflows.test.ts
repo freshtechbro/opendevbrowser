@@ -149,6 +149,36 @@ describe("workflow CLI commands", () => {
     });
   });
 
+  it("surfaces provider follow-up requirements in workflow completion messages", async () => {
+    callDaemon.mockResolvedValue({
+      meta: {
+        failures: [{
+          provider: "shopping/costco",
+          error: {
+            code: "auth",
+            reasonCode: "token_required",
+            details: {
+              constraint: {
+                kind: "session_required",
+                evidenceCode: "auth_required"
+              }
+            }
+          }
+        }]
+      }
+    });
+
+    const result = await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless mouse",
+      "--providers=shopping/costco"
+    ]));
+
+    expect(result.message).toBe(
+      "Shopping workflow completed with provider follow-up required: Costco requires login or an existing session."
+    );
+  });
+
   it("supports explicit timeout for macro-resolve execution", async () => {
     callDaemon.mockResolvedValue({ ok: true });
 

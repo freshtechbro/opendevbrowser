@@ -954,6 +954,44 @@ describe("workflow branch coverage", () => {
     });
   });
 
+  it("propagates primary constraint summaries into research meta and compact empty-state output", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/linkedin"],
+        failures: [makeFailure("social/linkedin", "social", {
+          code: "auth",
+          message: "Authentication required",
+          retryable: false,
+          reasonCode: "token_required",
+          details: {
+            blockerType: "auth_required",
+            constraint: {
+              kind: "session_required",
+              evidenceCode: "auth_required"
+            }
+          }
+        })],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "browser automation linkedin",
+      sourceSelection: "social",
+      mode: "compact",
+      days: 7
+    });
+
+    expect(output.meta).toMatchObject({
+      primary_constraint_summary: "Linkedin requires login or an existing session.",
+      primaryConstraintSummary: "Linkedin requires login or an existing session."
+    });
+    expect(output.summary).toContain("No records matched the requested timebox.");
+    expect(output.summary).toContain("Primary constraint: Linkedin requires login or an existing session.");
+  });
+
   it("threads cookie overrides and aggregates cookie diagnostics across failures, records, and attempt chains", async () => {
     const search = vi.fn(async (_input, options) => {
       expect(options).toMatchObject({
@@ -1928,6 +1966,301 @@ describe("workflow branch coverage", () => {
     }).failures[0]?.error.details.title).toBeUndefined();
   });
 
+  it("promotes carried shopping constraints into no-offer failures and primary summaries", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/costco"],
+        records: [makeRecord({
+          id: "membership-gated-shell",
+          source: "shopping",
+          provider: "shopping/costco",
+          url: "https://www.costco.com/CatalogSearch?keyword=wireless%20mouse",
+          title: "Sign In | Costco",
+          content: "Please sign in to continue.",
+          attributes: {
+            retrievalPath: "shopping:search:index",
+            reasonCode: "token_required",
+            blockerType: "auth_required",
+            constraint: {
+              kind: "session_required",
+              evidenceCode: "auth_required"
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "membership gate",
+      providers: ["shopping/costco"],
+      mode: "compact"
+    });
+
+    expect(output.meta).toMatchObject({
+      primary_constraint_summary: "Costco requires login or an existing session.",
+      primaryConstraintSummary: "Costco requires login or an existing session.",
+      failures: [{
+        provider: "shopping/costco",
+        error: {
+          code: "auth",
+          reasonCode: "token_required",
+          details: {
+            noOfferRecords: true,
+            blockerType: "auth_required",
+            constraint: {
+              kind: "session_required",
+              evidenceCode: "auth_required"
+            }
+          }
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: Costco requires login or an existing session.");
+  });
+
+  it("promotes carried render-required shopping constraints into no-offer failures and primary summaries", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/target"],
+        records: [makeRecord({
+          id: "target-shell",
+          source: "shopping",
+          provider: "shopping/target",
+          url: "https://www.target.com/s?searchTerm=wireless%20mouse",
+          title: "\"wireless mouse\" : Target",
+          content: "Skip to main content",
+          attributes: {
+            retrievalPath: "shopping:search:index",
+            reasonCode: "env_limited",
+            blockerType: "env_limited",
+            providerShell: "target_shell_page",
+            constraint: {
+              kind: "render_required",
+              evidenceCode: "target_shell_page"
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "target shell",
+      providers: ["shopping/target"],
+      mode: "compact"
+    });
+
+    expect(output.meta).toMatchObject({
+      primary_constraint_summary: "Target requires a live browser-rendered page.",
+      primaryConstraintSummary: "Target requires a live browser-rendered page.",
+      failures: [{
+        provider: "shopping/target",
+        error: {
+          reasonCode: "env_limited",
+          details: {
+            blockerType: "env_limited",
+            providerShell: "target_shell_page",
+            constraint: {
+              kind: "render_required",
+              evidenceCode: "target_shell_page"
+            }
+          }
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: Target requires a live browser-rendered page.");
+  });
+
+  it("upgrades higher-priority auth_required no-offer records even when url and title are missing", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/costco"],
+        records: [
+          makeRecord({
+            id: "render-shell-first",
+            source: "shopping",
+            provider: "shopping/costco",
+            url: "https://www.costco.com/CatalogSearch?keyword=wireless%20mouse",
+            title: "Costco shell",
+            content: "Skip to main content",
+            attributes: {
+              retrievalPath: "shopping:search:index",
+              reasonCode: "env_limited",
+              blockerType: "env_limited",
+              providerShell: "target_shell_page",
+              constraint: {
+                kind: "render_required",
+                evidenceCode: "target_shell_page"
+              }
+            }
+          }),
+          makeRecord({
+            id: "auth-shell-second",
+            source: "shopping",
+            provider: "shopping/costco",
+            url: undefined,
+            title: "   ",
+            content: "Please sign in to continue.",
+            attributes: {
+              retrievalPath: "shopping:search:index",
+              reasonCode: "auth_required",
+              blockerType: "auth_required",
+              constraint: {
+                kind: "session_required",
+                evidenceCode: "auth_required"
+              }
+            }
+          })
+        ]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "membership gate",
+      providers: ["shopping/costco"],
+      mode: "compact"
+    });
+
+    expect(output.meta).toMatchObject({
+      primary_constraint_summary: "Costco requires login or an existing session.",
+      primaryConstraintSummary: "Costco requires login or an existing session.",
+      failures: [{
+        provider: "shopping/costco",
+        error: {
+          code: "auth",
+          reasonCode: "auth_required",
+          details: {
+            noOfferRecords: true,
+            blockerType: "auth_required",
+            constraint: {
+              kind: "session_required",
+              evidenceCode: "auth_required"
+            }
+          }
+        }
+      }]
+    });
+
+    const failureDetails = ((output.meta as {
+      failures: Array<{ error: { details: Record<string, unknown> } }>;
+    }).failures[0]?.error.details ?? {});
+    expect(failureDetails.url).toBeUndefined();
+    expect(failureDetails.title).toBeUndefined();
+    expect(failureDetails.providerShell).toBeUndefined();
+    expect(output.summary).toContain("Primary constraint: Costco requires login or an existing session.");
+  });
+
+  it("prioritizes carried challenge diagnostics over render-required no-offer records", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/temu"],
+        records: [
+          makeRecord({
+            id: "temu-render-shell",
+            source: "shopping",
+            provider: "shopping/temu",
+            url: "https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+            title: "Temu shell",
+            content: "Temu returned an empty shell page.",
+            attributes: {
+              retrievalPath: "shopping:search:index",
+              reasonCode: "env_limited",
+              blockerType: "env_limited",
+              providerShell: "temu_empty_shell",
+              constraint: {
+                kind: "render_required",
+                evidenceCode: "temu_empty_shell"
+              }
+            }
+          }),
+          makeRecord({
+            id: "temu-challenge-shell",
+            source: "shopping",
+            provider: "shopping/temu",
+            url: "https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+            title: "Temu verification",
+            content: "Challenge page",
+            attributes: {
+              retrievalPath: "shopping:search:index",
+              reasonCode: "challenge_detected",
+              blockerType: "anti_bot_challenge",
+              providerShell: "temu_challenge_shell"
+            }
+          })
+        ]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "temu challenge",
+      providers: ["shopping/temu"],
+      mode: "compact"
+    });
+
+    expect(output.meta).toMatchObject({
+      primary_constraint_summary: "Temu hit an anti-bot challenge that requires manual completion.",
+      primaryConstraintSummary: "Temu hit an anti-bot challenge that requires manual completion.",
+      failures: [{
+        provider: "shopping/temu",
+        error: {
+          code: "unavailable",
+          reasonCode: "challenge_detected",
+          details: {
+            blockerType: "anti_bot_challenge",
+            providerShell: "temu_challenge_shell"
+          }
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: Temu hit an anti-bot challenge that requires manual completion.");
+  });
+
+  it("keeps subtype-free env-limited no-offer failures explicit about manual browser follow-up", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/costco"],
+        records: [makeRecord({
+          id: "costco-generic-shell",
+          source: "shopping",
+          provider: "shopping/costco",
+          url: "https://www.costco.com/CatalogSearch?keyword=wireless%20mouse",
+          title: "wireless mouse search",
+          content: "No usable product cards were extracted from this search page.",
+          attributes: {
+            retrievalPath: "shopping:search:index",
+            reasonCode: "env_limited"
+          }
+        })]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "wireless mouse",
+      providers: ["shopping/costco"],
+      mode: "compact"
+    });
+
+    expect(output.meta).toMatchObject({
+      primary_constraint_summary: "Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.",
+      primaryConstraintSummary: "Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.",
+      failures: [{
+        provider: "shopping/costco",
+        error: {
+          reasonCode: "env_limited",
+          details: {
+            noOfferRecords: true,
+            reasonCode: "env_limited"
+          }
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.");
+  });
+
   it("aggregates transcript strategy failures while ignoring malformed attempt-chain entries", async () => {
     const runtime = toRuntime({
       search: async () => makeAggregate({
@@ -2442,7 +2775,9 @@ describe("workflow branch coverage", () => {
 
     await expect(runProductVideoWorkflow(runtime, {
       product_name: "sample"
-    })).rejects.toThrow("Unable to resolve product URL from product_name");
+    })).rejects.toThrow(
+      "Amazon requires manual browser follow-up; this run did not determine whether login or page rendering is required."
+    );
 
     const missingUrlRuntime = toRuntime({
       search: async () => makeAggregate({
@@ -2474,6 +2809,36 @@ describe("workflow branch coverage", () => {
     await expect(runProductVideoWorkflow(missingUrlRuntime, {
       product_name: "missing-url"
     })).rejects.toThrow("Unable to resolve product URL");
+  });
+
+  it("prefers shopping constraint summaries when product-name resolution returns no offers", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/target"],
+        failures: [makeFailure("shopping/target", "shopping", {
+          code: "unavailable",
+          message: "Browser assistance required",
+          retryable: true,
+          reasonCode: "env_limited",
+          details: {
+            blockerType: "env_limited",
+            providerShell: "target_shell_page",
+            constraint: {
+              kind: "render_required",
+              evidenceCode: "target_shell_page"
+            }
+          }
+        })],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_name: "ergonomic wireless mouse",
+      provider_hint: "shopping/target"
+    })).rejects.toThrow("Target requires a live browser-rendered page.");
   });
 
   it("threads provider hints into product-name shopping resolution before fetching the product page", async () => {
@@ -3353,8 +3718,36 @@ describe("workflow branch coverage", () => {
     expect(output.screenshots).toEqual([]);
   });
 
-  it("surfaces product detail fetch failures", async () => {
-    const runtime = toRuntime({
+  it("prefers canonical summaries for product detail fetch failures and keeps generic fallbacks", async () => {
+    const constrainedRuntime = toRuntime({
+      fetch: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/temu"],
+        error: {
+          code: "unavailable",
+          message: "Product details unavailable upstream",
+          retryable: false
+        },
+        failures: [makeFailure("shopping/temu", "shopping", {
+          code: "unavailable",
+          message: "blocked",
+          retryable: false,
+          reasonCode: "challenge_detected",
+          details: {
+            blockerType: "anti_bot_challenge",
+            providerShell: "temu_challenge_shell"
+          }
+        })],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    await expect(runProductVideoWorkflow(constrainedRuntime, {
+      product_url: "https://www.temu.com/item"
+    })).rejects.toThrow("Temu hit an anti-bot challenge that requires manual completion.");
+
+    const upstreamRuntime = toRuntime({
       fetch: async () => makeAggregate({
         ok: false,
         sourceSelection: "shopping",
@@ -3373,7 +3766,7 @@ describe("workflow branch coverage", () => {
       })
     });
 
-    await expect(runProductVideoWorkflow(runtime, {
+    await expect(runProductVideoWorkflow(upstreamRuntime, {
       product_url: "https://shop.example/item"
     })).rejects.toThrow("Product details unavailable upstream");
 

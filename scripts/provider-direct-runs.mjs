@@ -364,6 +364,8 @@ function evaluateShoppingCase(testCase, result) {
       failureSamples: summarizeFailures(execution.failures),
       blockerType: execution.blocker?.type ?? firstFailure?.error?.blockerType ?? failureDetails.blockerType ?? null,
       blockerReason: execution.blocker?.reason ?? firstFailure?.error?.blockerReason ?? failureDetails.blockerReason ?? null,
+      constraintKind: failureDetails.constraint?.kind ?? null,
+      constraint: failureDetails.constraint ?? null,
       providerShell: firstFailure?.error?.providerShell ?? failureDetails.providerShell ?? null,
       artifactPath: execution.data?.artifact_path ?? execution.data?.path ?? null
     }

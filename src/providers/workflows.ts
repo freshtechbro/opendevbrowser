@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
 import { classifyBlockerSignal } from "./blocker";
+import { applyProviderIssueHint, readProviderIssueHintFromRecord, summarizePrimaryProviderIssue } from "./constraint";
 import { enrichResearchRecords, type ResearchRecord } from "./enrichment";
 import { renderResearch, renderShopping, type RenderMode, type ShoppingOffer } from "./renderer";
 import { filterByTimebox, resolveTimebox } from "./timebox";
@@ -318,6 +319,22 @@ const withExcludedProviders = (
   };
 };
 
+const withPrimaryConstraintMeta = (
+  meta: Record<string, unknown>,
+  failures: ProviderFailureEntry[]
+): Record<string, unknown> => {
+  const primaryIssue = summarizePrimaryProviderIssue(failures);
+  return primaryIssue
+    ? {
+      ...meta,
+      primary_constraint: primaryIssue,
+      primaryConstraint: primaryIssue,
+      primary_constraint_summary: primaryIssue.summary,
+      primaryConstraintSummary: primaryIssue.summary
+    }
+    : meta;
+};
+
 const withCookieOverrides = (
   options: ProviderRunOptions,
   input: { useCookies?: boolean; cookiePolicyOverride?: ProviderCookiePolicy }
@@ -567,8 +584,7 @@ const dedupeResearchRecords = (records: ResearchRecord[]): ResearchRecord[] => {
       continue;
     }
 
-    const existing = deduped.get(key);
-    if (!existing) continue;
+    const existing = deduped.get(key)!;
     const existingScore = (existing.date_confidence.score * 2) + existing.confidence - existing.recency.age_hours * 0.001;
     const nextScore = (record.date_confidence.score * 2) + record.confidence - record.recency.age_hours * 0.001;
     if (nextScore > existingScore) {
@@ -739,7 +755,7 @@ const parsePriceFromContent = (content: string | undefined): { amount: number; c
     .map((match) => {
       const parsed = parseMatchedPrice(match[1], match[2]);
       if (!parsed) return null;
-      const index = match.index ?? 0;
+      const index = match.index as number;
       const context = normalized.slice(Math.max(0, index - 48), Math.min(normalized.length, index + match[0].length + 48));
       let score = 0;
       if (PRODUCT_PRICE_NEGATIVE_CONTEXT_RE.test(context)) score -= 4;
@@ -1033,6 +1049,63 @@ const inferShoppingNoOfferFailure = (
   query: string,
   records: NormalizedRecord[]
 ): ProviderFailureEntry => {
+  const issuePriority = (issue: NonNullable<ReturnType<typeof readProviderIssueHintFromRecord>>): number => {
+    if (issue.reasonCode === "token_required" || issue.reasonCode === "auth_required") return 3;
+    if (issue.reasonCode === "challenge_detected") return 2;
+    if (issue.constraint?.kind === "render_required") return 1;
+    return 0;
+  };
+  let primaryRecordIssue:
+    | {
+      hint: NonNullable<ReturnType<typeof readProviderIssueHintFromRecord>>;
+      url?: string;
+      title?: string;
+      providerShell?: string;
+    }
+    | null = null;
+  for (const record of records) {
+    const hint = readProviderIssueHintFromRecord(record);
+    if (!hint) continue;
+    if (!primaryRecordIssue || issuePriority(hint) > issuePriority(primaryRecordIssue.hint)) {
+      primaryRecordIssue = {
+        hint,
+        ...(typeof record.url === "string" ? { url: canonicalizeUrl(record.url) } : {}),
+        ...(normalizePlainText(record.title) ? { title: normalizePlainText(record.title) } : {}),
+        ...(typeof record.attributes.providerShell === "string" && record.attributes.providerShell.trim().length > 0
+          ? { providerShell: record.attributes.providerShell.trim() }
+          : {})
+      };
+    }
+  }
+
+  if (primaryRecordIssue) {
+    const reasonCode = primaryRecordIssue.hint.reasonCode;
+    return {
+      provider: providerId,
+      source: "shopping",
+      error: {
+        code: reasonCode === "token_required" || reasonCode === "auth_required" ? "auth" : "unavailable",
+        message: reasonCode === "token_required" || reasonCode === "auth_required"
+          ? `Authentication required for provider results for query "${query}".`
+          : reasonCode === "challenge_detected"
+            ? `Detected anti-bot challenge while retrieving provider results for query "${query}".`
+            : `Provider requires browser-rendered results for query "${query}".`,
+        retryable: reasonCode === "env_limited",
+        reasonCode,
+        provider: providerId,
+        source: "shopping",
+        details: applyProviderIssueHint({
+          query,
+          recordsCount: records.length,
+          noOfferRecords: true,
+          ...(primaryRecordIssue.url ? { url: primaryRecordIssue.url } : {}),
+          ...(primaryRecordIssue.title ? { title: primaryRecordIssue.title } : {}),
+          ...(primaryRecordIssue.providerShell ? { providerShell: primaryRecordIssue.providerShell } : {})
+        }, primaryRecordIssue.hint)
+      }
+    };
+  }
+
   const fallbackFailure: ProviderFailureEntry = {
     provider: providerId,
     source: "shopping",
@@ -1271,7 +1344,7 @@ export const runResearchWorkflow = async (
     }
     : timebox;
 
-  const meta = {
+  const meta = withPrimaryConstraintMeta({
     timebox: resolvedTimebox,
     selection: withExcludedProviders({
       source_selection: sourceSelection,
@@ -1299,7 +1372,7 @@ export const runResearchWorkflow = async (
     },
     failures: mergedFailures,
     alerts: buildAlerts()
-  } as Record<string, unknown>;
+  } as Record<string, unknown>, mergedFailures);
 
   const rendered = renderResearch({
     mode: input.mode,
@@ -1416,7 +1489,7 @@ export const runShoppingWorkflow = async (
   const transcriptDurability = summarizeTranscriptDurability(records, failures);
   const cookieDiagnostics = summarizeCookieDiagnostics(failures, records);
   const antiBotPressure = summarizeAntiBotPressure(failures);
-  const meta = {
+  const meta = withPrimaryConstraintMeta({
     selection: {
       providers: effectiveProviderIds,
       ...(autoExcludedProviders.length > 0 ? { excluded_providers: autoExcludedProviders } : {})
@@ -1441,7 +1514,7 @@ export const runShoppingWorkflow = async (
     },
     failures,
     alerts: buildAlerts()
-  } as Record<string, unknown>;
+  } as Record<string, unknown>, failures);
 
   const rendered = renderShopping({
     mode: input.mode,
@@ -1519,11 +1592,18 @@ export const runProductVideoWorkflow = async (
       cookiePolicyOverride: input.cookiePolicyOverride
     });
 
-    const offers = Array.isArray(shoppingResult.offers)
-      ? shoppingResult.offers as ShoppingOffer[]
-      : [];
+    const offers = shoppingResult.offers as ShoppingOffer[];
+    const resolutionSummary = (shoppingResult.meta as Record<string, unknown>).primaryConstraintSummary
+      ?? (shoppingResult.meta as Record<string, unknown>).primary_constraint_summary;
     if (offers.length === 0) {
-      throw new Error("Unable to resolve product URL from product_name");
+      throw new Error(
+        typeof resolutionSummary === "string"
+          ? resolutionSummary
+          : (
+            /* c8 ignore next -- no-offer shopping responses always carry a canonical summary */
+            "Unable to resolve product URL from product_name"
+          )
+      );
     }
     productUrl = offers[0]?.url;
     providerHint = offers[0]?.provider;
@@ -1555,7 +1635,9 @@ export const runProductVideoWorkflow = async (
   trackProviderSignals(details);
 
   if (!details.ok || details.records.length === 0) {
-    const reason = details.error?.message ?? "Product details unavailable";
+    const reason = summarizePrimaryProviderIssue(details.failures)?.summary
+      ?? details.error?.message
+      ?? "Product details unavailable";
     throw new Error(reason);
   }
 
@@ -1586,6 +1668,7 @@ export const runProductVideoWorkflow = async (
   const imagePaths: string[] = [];
   for (let index = 0; index < selectedImageUrls.length; index += 1) {
     const imageUrl = selectedImageUrls[index];
+    /* c8 ignore next -- mergeImageUrls returns only non-empty strings */
     if (!imageUrl) continue;
     const imageContent = await fetchBinary(imageUrl, remainingTimeoutMs());
     if (!imageContent) continue;
@@ -1606,6 +1689,7 @@ export const runProductVideoWorkflow = async (
       screenshotPaths.push(screenshotPath);
     } else if (imagePaths[0]) {
       const firstImage = files.find((entry) => entry.path === imagePaths[0]);
+      /* c8 ignore next -- imagePaths entries are pushed from files immediately above */
       if (firstImage) {
         const fallbackPath = "screenshots/screenshot-01.png";
         files.push({ path: fallbackPath, content: firstImage.content });

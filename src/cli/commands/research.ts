@@ -2,6 +2,7 @@ import type { ParsedArgs } from "../args";
 import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
+import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 
 type ResearchCommandArgs = {
   topic?: string;
@@ -260,7 +261,7 @@ export async function runResearchCommand(args: ParsedArgs) {
 
   return {
     success: true,
-    message: "Research workflow completed.",
+    message: buildWorkflowCompletionMessage("Research workflow", data),
     data
   };
 }

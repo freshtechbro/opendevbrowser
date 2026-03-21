@@ -33,6 +33,15 @@ export type ProviderReasonCode =
   | "cooldown_active"
   | "strategy_unapproved";
 
+export type ProviderConstraintKind = "session_required" | "render_required";
+
+export type ProviderConstraint = {
+  kind: ProviderConstraintKind;
+  evidenceCode: string;
+  providerShell?: string;
+  message?: string;
+};
+
 export type ProviderCookiePolicy = "off" | "auto" | "required";
 
 export type ProviderCookieImportRecord = {

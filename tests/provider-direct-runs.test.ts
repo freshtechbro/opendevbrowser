@@ -74,8 +74,8 @@ describe("provider-direct-runs", () => {
 
   it("preserves nested shopping provider shell diagnostics", () => {
     const step = evaluateShoppingCase({
-      id: "provider.shopping.temu.search",
-      providerId: "shopping/temu",
+      id: "provider.shopping.target.search",
+      providerId: "shopping/target",
       args: ["shopping", "run"]
     }, {
       status: 0,
@@ -89,8 +89,12 @@ describe("provider-direct-runs", () => {
                   code: "unavailable",
                   reasonCode: "env_limited",
                   details: {
-                    providerShell: "temu_challenge_shell",
-                    blockerReason: "challenge"
+                    constraint: {
+                      kind: "render_required",
+                      evidenceCode: "target_shell_page"
+                    },
+                    providerShell: "target_shell_page",
+                    blockerReason: "render_required"
                   }
                 }
               }
@@ -100,8 +104,9 @@ describe("provider-direct-runs", () => {
       }
     });
 
-    expect(step.data.providerShell).toBe("temu_challenge_shell");
-    expect(step.data.blockerReason).toBe("challenge");
+    expect(step.data.providerShell).toBe("target_shell_page");
+    expect(step.data.constraintKind).toBe("render_required");
+    expect(step.data.blockerReason).toBe("render_required");
   });
 
   it("treats timeout-only provider failures as fail instead of env-limited", () => {

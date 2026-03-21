@@ -136,6 +136,39 @@ describe("social platform adapters", () => {
     }
   });
 
+  it("classifies 200 auth-wall social search pages before traversal rows are returned", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        details: {
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          }
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("exposes normalized capability metadata for all configured platforms", () => {
     expect(providers).toHaveLength(9);
 
@@ -225,6 +258,164 @@ describe("social platform adapters", () => {
       "https://threads.net/@acct/post/4"
     ]);
     expect(result?.every((record) => typeof record.attributes.extractionQuality === "object")).toBe(true);
+  });
+
+  it("sorts duplicate canonical rows by title and skips queued links beyond hop limits", async () => {
+    const fetch = vi.fn(async () => {
+      throw new Error("fetch should not run when hopLimit=0");
+    });
+    const provider = createSocialProvider("threads", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 0,
+        expansionPerRecord: 2,
+        maxRecords: 4
+      },
+      search: async () => ([
+        {
+          url: "https://threads.net/@acct/post/1",
+          title: "z-last",
+          attributes: {
+            links: ["https://threads.net/@acct/post/2"]
+          }
+        },
+        {
+          url: "https://threads.net/@acct/post/1"
+        }
+      ]),
+      fetch
+    });
+
+    const result = await provider.search?.({ query: "release", limit: 4 }, context("threads-dedupe-hop-limit"));
+
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.title).toBeUndefined();
+    expect(result?.[0]?.attributes.platform).toBe("threads");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("stops thread expansion cleanly when no fetch implementation is configured", async () => {
+    const provider = createSocialProvider("threads", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 2,
+        expansionPerRecord: 2,
+        maxRecords: 4
+      },
+      search: async () => ([
+        {
+          url: "https://threads.net/@acct/post/1",
+          title: "root",
+          attributes: {
+            links: ["https://threads.net/@acct/post/2"]
+          }
+        }
+      ])
+    });
+
+    const result = await provider.search?.({ query: "release", limit: 4 }, context("threads-no-fetch"));
+
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.url).toBe("https://threads.net/@acct/post/1");
+  });
+
+  it("rethrows unexpected expansion errors instead of silently skipping them", async () => {
+    const provider = createSocialProvider("threads", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 2,
+        expansionPerRecord: 1,
+        maxRecords: 4
+      },
+      search: async () => [{
+        url: "https://threads.net/@acct/post/1",
+        title: "root",
+        attributes: {
+          links: ["https://threads.net/@acct/post/2"]
+        }
+      }],
+      fetch: async () => {
+        throw new Error("unexpected expansion failure");
+      }
+    });
+
+    await expect(provider.search?.({ query: "release", limit: 4 }, context("threads-expansion-error")))
+      .rejects.toThrow("unexpected expansion failure");
+  });
+
+  it("sorts duplicate rows with missing titles and skips queued links beyond the hop limit", async () => {
+    const fetchSpy = vi.fn(async () => ({
+      title: "expanded",
+      content: "expanded",
+      attributes: {
+        links: ["https://threads.net/@acct/post/4"]
+      }
+    }));
+    const provider = createSocialProvider("threads", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 1,
+        maxRecords: 3
+      },
+      search: async () => [
+        {
+          url: "https://threads.net/@acct/post/1",
+          title: "Zulu"
+        },
+        {
+          url: "https://threads.net/@acct/post/1"
+        },
+        {
+          url: "https://threads.net/@acct/post/2",
+          title: "Alpha",
+          attributes: {
+            links: ["https://threads.net/@acct/post/3"]
+          }
+        }
+      ],
+      fetch: fetchSpy
+    });
+
+    const result = await provider.search?.({ query: "release", limit: 3 }, context("threads-hop-limit"));
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result?.map((record) => record.url)).toEqual([
+      "https://threads.net/@acct/post/1",
+      "https://threads.net/@acct/post/2",
+      "https://threads.net/@acct/post/3"
+    ]);
+    expect(result?.[0]?.attributes.platform).toBe("threads");
+    expect(result?.[0]?.attributes.traversal).toMatchObject({
+      page: 1,
+      hop: 0
+    });
+  });
+
+  it("keeps duplicate canonical rows sortable when only the right-side title is missing", async () => {
+    const provider = createSocialProvider("threads", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 1,
+        maxRecords: 2
+      },
+      search: async () => [
+        {
+          url: "https://threads.net/@acct/post/1"
+        },
+        {
+          url: "https://threads.net/@acct/post/1",
+          title: "Zulu"
+        }
+      ]
+    });
+
+    const result = await provider.search?.({ query: "release", limit: 2 }, context("threads-right-title-fallback"));
+
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.url).toBe("https://threads.net/@acct/post/1");
+    expect(result?.[0]?.title).toBeUndefined();
   });
 
   it("skips non-document social expansion links and tolerates recoverable expansion failures", async () => {

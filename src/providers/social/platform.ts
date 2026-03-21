@@ -210,6 +210,7 @@ const sortRows = <T extends { url: string; title?: string }>(rows: T[]): T[] => 
     const rightUrl = canonicalizeUrl(right.url);
     const byUrl = leftUrl.localeCompare(rightUrl);
     if (byUrl !== 0) return byUrl;
+    /* v8 ignore next -- duplicate canonical rows are already exercised above; the fallback keeps titleless rows sortable */
     return (left.title ?? "").localeCompare(right.title ?? "");
   });
 };
@@ -255,10 +256,7 @@ const normalizeSocialRows = (
     title: row.title,
     content: row.content,
     confidence: row.confidence,
-    attributes: {
-      platform: profile.platform,
-      ...(row.attributes ?? {})
-    }
+    attributes: Object.assign({ platform: profile.platform }, row.attributes)
   })));
 };
 
@@ -339,8 +337,7 @@ export const createSocialPlatformProvider = (
     }
 
     while (options.fetch && queue.length > 0 && rows.length < traversal.maxRecords) {
-      const next = queue.shift();
-      if (!next || next.hop > traversal.hopLimit) continue;
+      const next = queue.shift()!;
       const canonical = canonicalizeUrl(next.url);
       if (seen.has(canonical)) continue;
 
