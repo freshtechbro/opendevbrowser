@@ -1,0 +1,100 @@
+{
+  "name": "Marketing Landing",
+  "version": "9001",
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "name": "Document",
+    "children": [
+      {
+        "id": "1:1",
+        "type": "CANVAS",
+        "name": "Landing",
+        "children": [
+          {
+            "id": "2:1",
+            "type": "FRAME",
+            "name": "Hero",
+            "absoluteBoundingBox": { "x": 0, "y": 0, "width": 1440, "height": 720 },
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 24,
+            "paddingTop": 32,
+            "paddingRight": 32,
+            "paddingBottom": 32,
+            "paddingLeft": 32,
+            "children": [
+              {
+                "id": "3:1",
+                "type": "TEXT",
+                "name": "Headline",
+                "characters": "Ship faster",
+                "absoluteBoundingBox": { "x": 32, "y": 32, "width": 480, "height": 96 },
+                "fills": [
+                  {
+                    "type": "SOLID",
+                    "color": { "r": 0.07, "g": 0.13, "b": 0.18, "a": 1 }
+                  }
+                ],
+                "boundVariables": {
+                  "fills": {
+                    "id": "var-color-primary"
+                  }
+                }
+              },
+              {
+                "id": "4:1",
+                "type": "INSTANCE",
+                "name": "CTA/Button",
+                "componentId": "ButtonComponent",
+                "absoluteBoundingBox": { "x": 32, "y": 168, "width": 180, "height": 56 },
+                "boundVariables": {
+                  "paddingLeft": {
+                    "id": "var-spacing-md"
+                  }
+                }
+              },
+              {
+                "id": "5:1",
+                "type": "RECTANGLE",
+                "name": "Screenshot",
+                "absoluteBoundingBox": { "x": 32, "y": 256, "width": 640, "height": 360 },
+                "fills": [
+                  {
+                    "type": "IMAGE",
+                    "imageRef": "image_ref_1"
+                  }
+                ]
+              },
+              {
+                "id": "6:1",
+                "type": "VECTOR",
+                "name": "Sparkle",
+                "absoluteBoundingBox": { "x": 700, "y": 80, "width": 80, "height": 80 },
+                "fillGeometry": [
+                  {
+                    "path": "M0 0 L10 10"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "components": {
+    "ButtonComponent": {
+      "key": "ButtonComponent",
+      "name": "Button",
+      "description": "Primary CTA button",
+      "componentSetId": "ButtonSet"
+    }
+  },
+  "componentSets": {
+    "ButtonSet": {
+      "key": "ButtonSet",
+      "name": "Button Set",
+      "description": "Button variants"
+    }
+  }
+}
