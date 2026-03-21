@@ -52,6 +52,44 @@ jobs:
       - name: Validate docs drift invariants
         run: node scripts/docs-drift-check.mjs
 
+  cli-help-parity:
+    name: cli-help-parity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate CLI help parity
+        run: npm run test -- tests/cli-help-parity.test.ts
+
+  skill-assets:
+    name: skill-assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate bundled skill assets
+        run: ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+
   chrome-store-compliance-check:
     name: chrome-store-compliance-check
     runs-on: ubuntu-latest

@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { createDefaultRuntime } from "../src/providers";
 import { canonicalizeUrl, crawlWeb } from "../src/providers/web/crawler";
 import { createWebProvider } from "../src/providers/web";
-import { extractLinks, extractSelectors, extractText, toSnippet } from "../src/providers/web/extract";
+import {
+  extractLinks,
+  extractMetadata,
+  extractSelectors,
+  extractStructuredContent,
+  extractText,
+  toSnippet
+} from "../src/providers/web/extract";
 import { evaluateWebCrawlPolicy } from "../src/providers/web/policy";
 
 const pages: Record<string, string> = {
@@ -113,8 +120,37 @@ describe("web provider + crawler", () => {
     expect(withInvalidOverrides).toBeDefined();
   });
 
+  it("carries explicit robots metadata and worker-thread crawl settings", async () => {
+    const provider = createWebProvider({
+      fetcher: async (url) => ({
+        status: 200,
+        url,
+        html: "<html><body><a href=\"https://worker.example/next\">next</a></body></html>"
+      }),
+      policy: {
+        allowCrossHost: false,
+        robotsMode: "strict"
+      },
+      workerThreads: 2
+    });
+
+    expect(provider.capabilities().metadata).toMatchObject({
+      crawler: true,
+      robotsMode: "strict"
+    });
+
+    const crawled = await provider.crawl?.({
+      seedUrls: ["https://worker.example"]
+    }, context("crawl-worker-threads"));
+    expect(crawled).toBeDefined();
+  });
+
   it("covers fallback search URL validation and extraction-quality defaults", async () => {
     const fallbackProvider = createWebProvider({ fetcher });
+    expect(fallbackProvider.capabilities().metadata).toMatchObject({
+      crawler: true,
+      robotsMode: "warn"
+    });
     await expect(fallbackProvider.search?.({ query: "keyword" }, context("search-url-required")))
       .rejects.toMatchObject({ code: "invalid_input" });
 
@@ -130,6 +166,73 @@ describe("web provider + crawler", () => {
       hasContent: false,
       contentChars: 0,
       linkCount: 0
+    });
+  });
+
+  it("hydrates URL fallback search results with structured metadata branches", async () => {
+    const html = `
+      <html>
+        <head>
+          <title>Travel Monitor Pro 14</title>
+          <meta property="og:description" content="A bright travel monitor with dual USB-C inputs and a folding cover." />
+          <meta property="og:site_name" content="DeskCo" />
+          <meta property="og:image" content="https://shop.example/assets/travel-monitor-pro-14.png" />
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "Product",
+              "name": "Travel Monitor Pro 14",
+              "brand": { "@type": "Brand", "name": "DeskCo" },
+              "image": ["https://shop.example/assets/travel-monitor-pro-14.png"],
+              "offers": {
+                "@type": "Offer",
+                "price": 249,
+                "priceCurrency": "USD"
+              }
+            }
+          </script>
+        </head>
+        <body>
+          <div class="feature">Dual USB-C inputs for one-cable laptop setups.</div>
+          <div class="feature">Protective folding cover with adjustable stand.</div>
+        </body>
+      </html>
+    `;
+
+    const provider = createWebProvider({
+      fetcher: async (url) => ({
+        status: 200,
+        url,
+        html
+      })
+    });
+
+    const records = await provider.search?.({
+      query: "https://shop.example/products/travel-monitor-pro-14"
+    }, context("search-url-structured"));
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]).toMatchObject({
+      url: "https://shop.example/products/travel-monitor-pro-14",
+      title: "Travel Monitor Pro 14",
+      content: "A bright travel monitor with dual USB-C inputs and a folding cover."
+    });
+    expect(records?.[0]?.attributes).toMatchObject({
+      description: "A bright travel monitor with dual USB-C inputs and a folding cover.",
+      brand: "DeskCo",
+      image_urls: ["https://shop.example/assets/travel-monitor-pro-14.png"],
+      features: [
+        "Dual USB-C inputs for one-cable laptop setups.",
+        "Protective folding cover with adjustable stand."
+      ],
+      shopping_offer: {
+        provider: "web/default",
+        metadata_source: "jsonld:price",
+        price: {
+          amount: 249,
+          currency: "USD"
+        }
+      }
     });
   });
 
@@ -183,6 +286,515 @@ describe("web provider + crawler", () => {
     });
     expect(toSnippet("abcdef", 5)).toBe("abcd…");
     expect(toSnippet("abc", 5)).toBe("abc");
+  });
+
+  it("extracts structured product metadata for product detail pages", async () => {
+    const appleHtml = `
+      <html>
+        <head>
+          <title>Buy iPhone 16 and iPhone 16 Plus - Apple</title>
+          <meta property="og:title" content="Buy iPhone 16 and iPhone 16 Plus" />
+          <meta property="og:description" content="Get $35 - $685 off a new iPhone 16 or iPhone 16 Plus when you trade in an iPhone 8 or newer. 0% financing available. Buy now with free shipping." />
+          <meta property="og:site_name" content="Apple" />
+          <meta property="og:image" content="https://store.storeimages.cdn-apple.com/iphone-16.jpg" />
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "Product",
+              "name": "iPhone 16",
+              "url": "https://www.apple.com/shop/buy-iphone/iphone-16",
+              "brand": { "@type": "Brand", "name": "Apple" },
+              "offers": [
+                {
+                  "@type": "AggregateOffer",
+                  "lowPrice": 699.00,
+                  "highPrice": 729.00,
+                  "priceCurrency": "USD"
+                }
+              ],
+              "image": "https://store.storeimages.cdn-apple.com/iphone-16.jpg"
+            }
+          </script>
+        </head>
+        <body>
+          <div class="dd-feature"><p>Apple Intelligence</p></div>
+          <div class="dd-feature"><p>Camera Control for faster access to photo and video tools</p></div>
+        </body>
+      </html>
+    `;
+
+    const provider = createWebProvider({
+      fetcher: async () => ({
+        status: 200,
+        html: appleHtml
+      })
+    });
+
+    const records = await provider.fetch?.({
+      url: "https://www.apple.com/shop/buy-iphone/iphone-16"
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]).toMatchObject({
+      title: "Buy iPhone 16 and iPhone 16 Plus",
+      content: "Get $35 - $685 off a new iPhone 16 or iPhone 16 Plus when you trade in an iPhone 8 or newer. 0% financing available. Buy now with free shipping."
+    });
+    expect(records?.[0]?.attributes.brand).toBe("Apple");
+    expect(records?.[0]?.attributes.image_urls).toEqual([
+      "https://store.storeimages.cdn-apple.com/iphone-16.jpg"
+    ]);
+    expect(records?.[0]?.attributes.features).toEqual([
+      "Apple Intelligence",
+      "Camera Control for faster access to photo and video tools"
+    ]);
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      title: "Buy iPhone 16 and iPhone 16 Plus",
+      price: {
+        amount: 699,
+        currency: "USD"
+      }
+    });
+  });
+
+  it("extractMetadata flattens JSON-LD arrays and @graph nodes with exact-price and mixed image shapes", () => {
+    const metadata = extractMetadata(`
+      <html>
+        <head>
+          <script type="application/ld+json">
+            [
+              {
+                "@context": "https://schema.org",
+                "@type": ["Product", "Thing"],
+                "name": "Graph Phone",
+                "description": "Primary device description",
+                "brand": { "@type": "Brand", "name": "Graph Brand" },
+                "image": ["https://cdn.example.com/graph-phone.png"],
+                "offers": {
+                  "@type": "Offer",
+                  "price": "1,299.50",
+                  "priceCurrency": "CAD"
+                }
+              },
+              {
+                "@graph": [
+                  {
+                    "@type": "Product",
+                    "image": { "url": "/gallery/graph-phone-alt.png" }
+                  },
+                  {
+                    "@type": ["AggregateOffer"],
+                    "lowPrice": "1299.50",
+                    "priceCurrency": "CAD"
+                  }
+                ]
+              }
+            ]
+          </script>
+        </head>
+      </html>
+    `, "https://shop.example/products/graph-phone");
+
+    expect(metadata).toMatchObject({
+      title: "Graph Phone",
+      description: "Primary device description",
+      brand: "Graph Brand",
+      price: {
+        amount: 1299.5,
+        currency: "CAD",
+        source: "jsonld:price"
+      }
+    });
+    expect(metadata.imageUrls).toEqual([
+      "https://cdn.example.com/graph-phone.png",
+      "https://shop.example/gallery/graph-phone-alt.png"
+    ]);
+  });
+
+  it("extractMetadata skips empty or malformed JSON-LD and falls back through title, unquoted meta attrs, site-name brand, and recursive priceSpecification", () => {
+    const metadata = extractMetadata(`
+      <html>
+        <head>
+          <title>Fallback Product</title>
+          <meta name=description content=Fallback&#32;desc>
+          <meta name=application-name content=FallbackApp>
+          <script type="application/ld+json">   </script>
+          <script type="application/ld+json">{ "bad": </script>
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "Product",
+              "offers": {
+                "@type": "Offer",
+                "priceSpecification": {
+                  "lowPrice": "88.40",
+                  "priceCurrency": "EUR"
+                }
+              }
+            }
+          </script>
+        </head>
+      </html>
+    `, "https://shop.example/fallback-product");
+
+    expect(metadata).toEqual({
+      title: "Fallback Product",
+      description: "Fallback desc",
+      brand: "FallbackApp",
+      siteName: "FallbackApp",
+      imageUrls: [],
+      features: [],
+      price: {
+        amount: 88.4,
+        currency: "EUR",
+        source: "jsonld:lowPrice"
+      }
+    });
+  });
+
+  it("extractMetadata handles record image urls, offer arrays, and blank product fields without leaking empty metadata", () => {
+    const metadata = extractMetadata(`
+      <html>
+        <head>
+          <script type="application/ld+json">
+            [
+              {
+                "@context": "https://schema.org",
+                "@type": "Product",
+                "name": "   ",
+                "description": "   ",
+                "brand": { "name": "   " },
+                "image": { "url": "/images/device.png" },
+                "offers": [
+                  "bad-offer",
+                  {
+                    "@type": "Offer",
+                    "price": "77.50",
+                    "priceCurrency": "GBP"
+                  }
+                ]
+              },
+              {
+                "@type": "Offer",
+                "price": "not-a-number",
+                "priceCurrency": "USD",
+                "priceSpecification": {
+                  "price": "0",
+                  "priceCurrency": "USD"
+                }
+              }
+            ]
+          </script>
+        </head>
+      </html>
+    `, "https://shop.example/products/device");
+
+    expect(metadata).toEqual({
+      imageUrls: ["https://shop.example/images/device.png"],
+      features: [],
+      price: {
+        amount: 77.5,
+        currency: "GBP",
+        source: "jsonld:price"
+      }
+    });
+  });
+
+  it("preserves non-finite numeric entities and ignores record image entries without a usable url", () => {
+    const hugeHexEntity = `&#x${"f".repeat(400)};`;
+    const hugeDecEntity = `&#${"9".repeat(400)};`;
+
+    expect(extractText(`<p>${hugeHexEntity} ${hugeDecEntity}</p>`)).toBe(`${hugeHexEntity} ${hugeDecEntity}`);
+
+    const metadata = extractMetadata(`
+      <html>
+        <head>
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "Product",
+              "name": "Entity Safe Device",
+              "image": { "url": "   ", "caption": "ignored" },
+              "offers": {
+                "@type": "Offer",
+                "price": "99.95",
+                "priceCurrency": "USD"
+              }
+            }
+          </script>
+        </head>
+      </html>
+    `, "https://shop.example/products/entity-safe-device");
+
+    expect(metadata).toEqual({
+      title: "Entity Safe Device",
+      imageUrls: [],
+      features: [],
+      price: {
+        amount: 99.95,
+        currency: "USD",
+        source: "jsonld:price"
+      }
+    });
+  });
+
+  it("returns no price when offer arrays contain only invalid entries", () => {
+    const metadata = extractMetadata(`
+      <html>
+        <head>
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "Product",
+              "name": "Offerless Device",
+              "offers": [
+                "bad-offer",
+                {
+                  "@type": "Offer",
+                  "price": "not-a-number",
+                  "priceCurrency": "USD"
+                }
+              ]
+            }
+          </script>
+        </head>
+      </html>
+    `, "https://shop.example/products/offerless-device");
+
+    expect(metadata).toEqual({
+      title: "Offerless Device",
+      imageUrls: [],
+      features: []
+    });
+  });
+
+  it("extractStructuredContent decodes entities and rejects, dedupes, and caps feature candidates", () => {
+    const structured = extractStructuredContent(`
+      <html>
+        <body>
+          <p>Encoded &amp; text &#169; &#x2603; &bogus;</p>
+          <div class="feature-card">Feature zero remains readable and useful for daily workflows.</div>
+          <div class="feature-card">Quick View</div>
+          <div class="feature-card">Feature zero remains readable and useful for daily workflows.</div>
+          <ul>
+            <li>Feature 01 keeps layout stable across responsive breakpoints.</li>
+            <li>Feature 02 provides keyboard-friendly actions for every important control.</li>
+            <li>Feature 03 synchronizes data without hidden loading flashes.</li>
+            <li>Feature 04 supports collaborative review with durable annotations.</li>
+            <li>Feature 05 preserves visual hierarchy during empty and loading states.</li>
+            <li>Feature 06 keeps motion subtle while still explaining interface changes.</li>
+            <li>Feature 07 makes pricing details legible in dense comparison tables.</li>
+            <li>Feature 08 avoids jarring jumps when results stream into view.</li>
+            <li>Feature 09 keeps calls to action obvious even in long documents.</li>
+            <li>Feature 10 highlights important constraints before a user commits work.</li>
+            <li>Feature 11 keeps export surfaces aligned with the live preview.</li>
+            <li>Feature 12 clarifies ownership boundaries for stateful interactions.</li>
+            <li>Feature 13 should be dropped because the feature cap is twelve.</li>
+            <li>Free Shipping</li>
+            <li>Will this work?</li>
+            <li>$19.99</li>
+          </ul>
+        </body>
+      </html>
+    `, "https://shop.example/feature-page");
+
+    expect(structured.text).toContain("Encoded & text © ☃ &bogus;");
+    expect(structured.metadata.features).toHaveLength(12);
+    expect(structured.metadata.features).toContain("Feature zero remains readable and useful for daily workflows.");
+    expect(structured.metadata.features).toContain("Feature 11 keeps export surfaces aligned with the live preview.");
+    expect(structured.metadata.features).not.toContain("Feature 13 should be dropped because the feature cap is twelve.");
+    expect(structured.metadata.features).not.toContain("Quick View");
+    expect(structured.metadata.features.filter((entry) =>
+      entry === "Feature zero remains readable and useful for daily workflows."
+    )).toHaveLength(1);
+  });
+
+  it("extractStructuredContent stops at the feature-block cap before falling through to list items", () => {
+    const featureBlocks = Array.from({ length: 13 }, (_, index) => `
+      <div class="feature-highlight">Feature ${String(index + 1).padStart(2, "0")} keeps product workflows deterministic and reviewable.</div>
+    `).join("\n");
+
+    const structured = extractStructuredContent(`
+      <html>
+        <body>
+          ${featureBlocks}
+          <ul>
+            <li>Learn more</li>
+            <li>$19 off should never become a feature bullet.</li>
+            <li>Feature list item that should never be reached because block parsing already hit the cap.</li>
+          </ul>
+        </body>
+      </html>
+    `, "https://shop.example/feature-cap");
+
+    expect(structured.metadata.features).toHaveLength(12);
+    expect(structured.metadata.features[0]).toBe("Feature 01 keeps product workflows deterministic and reviewable.");
+    expect(structured.metadata.features[11]).toBe("Feature 12 keeps product workflows deterministic and reviewable.");
+    expect(structured.metadata.features).not.toContain(
+      "Feature list item that should never be reached because block parsing already hit the cap."
+    );
+  });
+
+  it("extractStructuredContent rejects question, price, and short features while keeping valid list fallbacks", () => {
+    const structured = extractStructuredContent(`
+      <html>
+        <body>
+          <div class="feature-highlight">Short</div>
+          <div class="feature-highlight">Can I use this internationally?</div>
+          <div class="feature-highlight">$19 monthly plan required.</div>
+          <ul>
+            <li>Learn more</li>
+            <li>Battery lasts 18 hours through review and capture sessions.</li>
+            <li>12345</li>
+          </ul>
+        </body>
+      </html>
+    `, "https://shop.example/feature-reject");
+
+    expect(structured.metadata.features).toEqual([
+      "Battery lasts 18 hours through review and capture sessions."
+    ]);
+  });
+
+  it("ignores malformed metadata primitives and invalid meta images", () => {
+    const metadata = extractMetadata(`
+      <html>
+        <head>
+          <meta property="og:image">
+          <meta property="twitter:image" content="javascript:alert('xss')">
+          <meta name=description>
+          <script type="application/ld+json">
+            [
+              null,
+              {
+                "@context": "https://schema.org",
+                "@type": [],
+                "name": "   ",
+                "description": "   ",
+                "brand": { "name": "   " },
+                "image": { "url": "   " },
+                "offers": [
+                  "bad-offer",
+                  {
+                    "@type": "Offer",
+                    "price": "not-a-number",
+                    "priceCurrency": "USD",
+                    "priceSpecification": "invalid"
+                  }
+                ]
+              }
+            ]
+          </script>
+        </head>
+      </html>
+    `, "https://shop.example/weird");
+
+    expect(metadata).toEqual({
+      imageUrls: [],
+      features: []
+    });
+  });
+
+  it("extractMetadata handles direct offer nodes, invalid record image urls, and fallback low prices", () => {
+    const metadata = extractMetadata(`
+      <html>
+        <head>
+          <script type="application/ld+json">
+            [
+              {
+                "@type": "Offer",
+                "price": "bad-number",
+                "priceCurrency": "USD",
+                "priceSpecification": {
+                  "lowPrice": "19.25",
+                  "priceCurrency": "USD"
+                }
+              },
+              {
+                "@type": "Product",
+                "image": { "url": "javascript:alert('xss')" }
+              }
+            ]
+          </script>
+        </head>
+      </html>
+    `, "https://shop.example/products/direct-offer");
+
+    expect(metadata).toEqual({
+      imageUrls: [],
+      features: [],
+      price: {
+        amount: 19.25,
+        currency: "USD",
+        source: "jsonld:lowPrice"
+      }
+    });
+  });
+
+  it("extractMetadata collects image candidates from img and srcset surfaces when metadata images are absent", () => {
+    const metadata = extractMetadata(`
+      <html>
+        <body>
+          <img src="/assets/logo.svg" />
+          <img data-src="https://cdn.example.com/products/device-primary" />
+          <source srcset="https://cdn.example.com/products/device-primary 1x, https://cdn.example.com/products/device-primary@2x 2x" />
+          <img src="https://cdn.example.com/tracking-pixel.png?pixel=1" />
+        </body>
+      </html>
+    `, "https://shop.example/products/device");
+
+    expect(metadata).toEqual({
+      imageUrls: [
+        "https://cdn.example.com/products/device-primary",
+        "https://cdn.example.com/products/device-primary@2x"
+      ],
+      features: []
+    });
+  });
+
+  it("extractMetadata accepts lazy image attributes and rejects icon-like data-srcset entries", () => {
+    const metadata = extractMetadata(`
+      <html>
+        <body>
+          <img data-lazy-src="/assets/device-lazy.webp" />
+          <source data-srcset="https://cdn.example.com/assets/favicon.ico 1x, /assets/device-alt.webp 2x" />
+        </body>
+      </html>
+    `, "https://shop.example/products/device");
+
+    expect(metadata).toEqual({
+      imageUrls: [
+        "https://shop.example/assets/device-lazy.webp",
+        "https://shop.example/assets/device-alt.webp"
+      ],
+      features: []
+    });
+  });
+
+  it("extractStructuredContent caps list-derived features at twelve when no feature blocks exist", () => {
+    const listItems = Array.from({ length: 13 }, (_, index) => `
+      <li>Feature ${String(index + 1).padStart(2, "0")} keeps product decisions auditable and easy to compare.</li>
+    `).join("\n");
+
+    const structured = extractStructuredContent(`
+      <html>
+        <body>
+          <ul>
+            ${listItems}
+          </ul>
+        </body>
+      </html>
+    `, "https://shop.example/list-feature-cap");
+
+    expect(structured.metadata.features).toHaveLength(12);
+    expect(structured.metadata.features[0]).toBe(
+      "Feature 01 keeps product decisions auditable and easy to compare."
+    );
+    expect(structured.metadata.features[11]).toBe(
+      "Feature 12 keeps product decisions auditable and easy to compare."
+    );
+    expect(structured.metadata.features).not.toContain(
+      "Feature 13 keeps product decisions auditable and easy to compare."
+    );
   });
 
   it("ignores selector matches that do not expose capture groups", () => {

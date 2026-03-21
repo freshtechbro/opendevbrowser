@@ -7,7 +7,7 @@ import {
   type ProviderExecutor
 } from "../src/providers/workflows";
 import type { ResearchRecord } from "../src/providers/enrichment";
-import { SHOPPING_PROVIDER_IDS } from "../src/providers/shopping";
+import { SHOPPING_PROVIDER_IDS, SHOPPING_PROVIDER_PROFILES } from "../src/providers/shopping";
 import type {
   NormalizedRecord,
   ProviderAggregateResult,
@@ -204,6 +204,126 @@ describe("workflow branch coverage", () => {
       warnSpy.mock.calls.some((call) => String(call[0]).includes("\"event\":\"provider.signal.transition\""))
     ).toBe(true);
     warnSpy.mockRestore();
+  });
+
+  it("keeps degraded alerts active during healthy-window cooldown recovery", async () => {
+    const provider = "web/recovery-cooldown";
+    let callCount = 0;
+    const runtime = toRuntime({
+      search: async () => {
+        callCount += 1;
+        if (callCount <= 2) {
+          return makeAggregate({
+            ok: false,
+            sourceSelection: "web",
+            providerOrder: [provider],
+            failures: [makeFailure(provider, "web", {
+              code: "rate_limited",
+              message: "rate limited",
+              retryable: true
+            })],
+            metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: [provider],
+          records: [makeRecord({
+            id: "recovered-once",
+            source: "web",
+            provider
+          })]
+        });
+      }
+    });
+
+    await runResearchWorkflow(runtime, {
+      topic: "recovery stage one",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+    await runResearchWorkflow(runtime, {
+      topic: "recovery stage two",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+    const recoveredOnce = await runResearchWorkflow(runtime, {
+      topic: "recovery stage three",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    const alerts = (recoveredOnce.meta as {
+      alerts: Array<{ provider: string; state: string; reason: string }>;
+    }).alerts;
+    expect(alerts).toContainEqual(expect.objectContaining({
+      provider,
+      state: "degraded",
+      reason: "signal ratio >= 25% for two consecutive windows"
+    }));
+  });
+
+  it("clears alerts after enough healthy windows following a degraded period", async () => {
+    const provider = "web/recovery-waiting";
+    let callCount = 0;
+    const runtime = toRuntime({
+      search: async () => {
+        callCount += 1;
+        if (callCount <= 2) {
+          return makeAggregate({
+            ok: false,
+            sourceSelection: "web",
+            providerOrder: [provider],
+            failures: [makeFailure(provider, "web", {
+              code: "rate_limited",
+              message: "rate limited",
+              retryable: true
+            })],
+            metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: [provider],
+          records: [makeRecord({
+            id: `healthy-${callCount}`,
+            source: "web",
+            provider
+          })]
+        });
+      }
+    });
+
+    await runResearchWorkflow(runtime, {
+      topic: "recovery waiting seed one",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+    await runResearchWorkflow(runtime, {
+      topic: "recovery waiting seed two",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    let finalOutput: Record<string, unknown> | null = null;
+    for (let index = 0; index < 12; index += 1) {
+      finalOutput = await runResearchWorkflow(runtime, {
+        topic: `recovery waiting healthy ${index}`,
+        sourceSelection: "web",
+        days: 1,
+        mode: "json"
+      });
+    }
+
+    const alerts = (finalOutput?.meta as {
+      alerts: Array<{ provider: string; state: string; reason: string }>;
+    }).alerts;
+    expect(alerts).toEqual([]);
   });
 
   it("orders research records by timebox status and date confidence", () => {
@@ -484,8 +604,249 @@ describe("workflow branch coverage", () => {
     });
   });
 
+  it("covers helper branches for feature sanitization and price parsing", () => {
+    const sanitized = workflowTestUtils.sanitizeFeatureList([
+      "short",
+      "1234567890",
+      "Save $199 instantly on launch day.",
+      "Will my carrier support this device after setup?",
+      "Feature 01 keeps device setup simple for remote teams.",
+      "Feature 01 keeps device setup simple for remote teams.",
+      "Feature 02 keeps cable routing clean in compact desks.",
+      "Feature 03 keeps brightness stable in bright offices.",
+      "Feature 04 keeps the stand steady on shared tables.",
+      "Feature 05 keeps webcam framing comfortable all day.",
+      "Feature 06 keeps accessory pairing predictable and fast.",
+      "Feature 07 keeps daily travel packing lightweight.",
+      "Feature 08 keeps media playback smooth on long flights.",
+      "Feature 09 keeps typing posture comfortable in hotel desks.",
+      "Feature 10 keeps review screenshots readable at a glance.",
+      "Feature 11 keeps power delivery reliable during demos.",
+      "Feature 12 keeps contrast strong for spreadsheet work.",
+      "Feature 13 should be dropped once the feature cap is reached.",
+      "L".repeat(170)
+    ]);
+
+    expect(sanitized).toHaveLength(12);
+    expect(sanitized).toContain("Feature 01 keeps device setup simple for remote teams.");
+    expect(sanitized).not.toContain("short");
+    expect(sanitized).not.toContain("1234567890");
+    expect(sanitized).not.toContain("Save $199 instantly on launch day.");
+    expect(sanitized).not.toContain("Will my carrier support this device after setup?");
+    expect(sanitized).not.toContain("Feature 13 should be dropped once the feature cap is reached.");
+
+    expect(workflowTestUtils.parsePriceFromContent(undefined)).toEqual({
+      amount: 0,
+      currency: "USD"
+    });
+    expect(workflowTestUtils.parsePriceFromContent(
+      "Buy now for €1,299.00 with a travel sleeve included."
+    )).toEqual({
+      amount: 1299,
+      currency: "EUR"
+    });
+    expect(workflowTestUtils.parsePriceFromContent(
+      "Save $999 today with trade-in credits and a $5 /mo service fee."
+    )).toEqual({
+      amount: 0,
+      currency: "USD"
+    });
+    expect(workflowTestUtils.parsePriceFromContent(
+      "From £799.00 unlocked or buy for $999.00 with extra accessories."
+    )).toEqual({
+      amount: 799,
+      currency: "GBP"
+    });
+    expect(workflowTestUtils.parsePriceFromContent(
+      "Buy now for $199.00 with keyboard cover included. Buy now for $149.00 with stylus included."
+    )).toEqual({
+      amount: 149,
+      currency: "USD"
+    });
+    expect(workflowTestUtils.parsePriceFromContent(
+      "Buy now for $129.00 with travel stand. Buy now for $129.00 with matte sleeve."
+    )).toEqual({
+      amount: 129,
+      currency: "USD"
+    });
+    expect(workflowTestUtils.parsePriceFromContent(
+      "Standard bundle lists $199.00 with keyboard cover. Alternate bundle lists $149.00 with stylus dock."
+    )).toEqual({
+      amount: 149,
+      currency: "USD"
+    });
+    expect(workflowTestUtils.parsePriceFromContent(
+      "Model A bundle lists $129.00 with carrying sleeve. Model B bundle lists $129.00 with desk stand."
+    )).toEqual({
+      amount: 129,
+      currency: "USD"
+    });
+    expect(workflowTestUtils.parsePriceFromContent(
+      "Starting at $249.00 for the base trim and buy for $199.00 with the travel keyboard included."
+    )).toEqual({
+      amount: 199,
+      currency: "USD"
+    });
+  });
+
+  it("covers helper branches for shopping url resolution and metadata refresh gating", () => {
+    expect(workflowTestUtils.resolveShoppingProviderIdForUrl("https://www.amazon.com/dp/B0TEST1234"))
+      .toBe("shopping/amazon");
+    expect(workflowTestUtils.resolveShoppingProviderIdForUrl("https://unknown.example/product"))
+      .toBe("shopping/others");
+    expect(workflowTestUtils.resolveShoppingProviderIdForUrl("not-a-valid-url"))
+      .toBeNull();
+
+    expect(workflowTestUtils.needsProductMetadataRefresh(
+      makeRecord({
+        title: "Ignored title",
+        attributes: {
+          brand: "Trusted Brand",
+          shopping_offer: {
+            price: {
+              amount: 199,
+              currency: "USD"
+            }
+          }
+        }
+      }),
+      "product-name-only"
+    )).toBe(false);
+
+    expect(workflowTestUtils.needsProductMetadataRefresh(
+      makeRecord({
+        title: "https://shop.example/product",
+        attributes: {
+          brand: "unknown",
+          shopping_offer: "invalid-shape" as never
+        }
+      }),
+      "https://shop.example/product"
+    )).toBe(true);
+
+    expect(workflowTestUtils.needsProductMetadataRefresh(
+      makeRecord({
+        title: "Travel Monitor Pro",
+        attributes: {
+          brand: "DeskCo",
+          shopping_offer: {
+            price: {
+              amount: 0,
+              currency: "USD"
+            }
+          }
+        }
+      }),
+      "https://shop.example/product"
+    )).toBe(true);
+
+    expect(workflowTestUtils.needsProductMetadataRefresh(
+      makeRecord({
+        title: "Travel Monitor Pro",
+        attributes: {
+          brand: "DeskCo",
+          shopping_offer: {
+            price: {
+              amount: 199,
+              currency: "USD"
+            }
+          }
+        }
+      }),
+      "https://shop.example/product"
+    )).toBe(false);
+  });
+
+  it("covers transcript success, brand inference, and offer-record gating helpers", () => {
+    expect(workflowTestUtils.hasTranscriptSuccess(makeRecord({
+      attributes: {
+        transcript_available: true
+      }
+    }))).toBe(true);
+    expect(workflowTestUtils.hasTranscriptSuccess(makeRecord({
+      attributes: {
+        transcript_strategy: "fallback_captions"
+      }
+    }))).toBe(true);
+    expect(workflowTestUtils.hasTranscriptSuccess(makeRecord({
+      attributes: {
+        transcript_strategy: "   "
+      }
+    }))).toBe(false);
+
+    expect(workflowTestUtils.inferBrandFromUrl(undefined)).toBeUndefined();
+    expect(workflowTestUtils.inferBrandFromUrl("not-a-valid-url")).toBeUndefined();
+    expect(workflowTestUtils.inferBrandFromUrl("https://www.amazon.com/dp/B0TEST1234")).toBe("Amazon");
+    expect(workflowTestUtils.inferBrandFromUrl("https://checkout.walmart.com/item/desk")).toBe("Walmart");
+    expect(workflowTestUtils.inferBrandFromUrl("https://www.newegg.com/p/N82E16834156399")).toBe("Newegg");
+    expect(workflowTestUtils.inferBrandFromUrl("https://unknown.example/product")).toBeUndefined();
+
+    expect(workflowTestUtils.isLikelyOfferRecord(makeRecord({
+      provider: "shopping/amazon",
+      url: "https://www.amazon.com/s?k=portable+monitor",
+      title: "Amazon search: portable monitor",
+      attributes: {
+        retrievalPath: "shopping:search:index"
+      }
+    }))).toBe(false);
+    expect(workflowTestUtils.isLikelyOfferRecord(makeRecord({
+      provider: "shopping/amazon",
+      url: "https://cdn.example.com/product.png",
+      title: "Travel Monitor Pro",
+      attributes: {
+        retrievalPath: "shopping:search:result-card"
+      }
+    }))).toBe(false);
+    expect(workflowTestUtils.isLikelyOfferRecord(makeRecord({
+      provider: "shopping/amazon",
+      url: "https://www.amazon.com/dp/B0TEST1234",
+      title: "https://www.amazon.com/dp/B0TEST1234",
+      attributes: {
+        retrievalPath: "shopping:search:result-card"
+      }
+    }))).toBe(false);
+    expect(workflowTestUtils.isLikelyOfferRecord(makeRecord({
+      provider: "shopping/amazon",
+      url: "https://other.example/product",
+      title: "Travel Monitor Pro",
+      attributes: {
+        retrievalPath: "shopping:search:result-card"
+      }
+    }))).toBe(false);
+    expect(workflowTestUtils.isLikelyOfferRecord(makeRecord({
+      provider: "shopping/amazon",
+      url: "https://www.amazon.com/dp/B0TEST1234",
+      title: "Travel Monitor Pro - Amazon",
+      attributes: {
+        retrievalPath: "shopping:search:result-card"
+      }
+    }))).toBe(true);
+    expect(workflowTestUtils.isLikelyOfferRecord(makeRecord({
+      provider: "shopping/amazon",
+      url: "http://[bad",
+      title: "Travel Monitor Pro",
+      attributes: {
+        retrievalPath: "shopping:search:result-card"
+      }
+    }))).toBe(false);
+  });
+
   it("returns an empty object when redaction output is not a plain object", () => {
     expect(workflowTestUtils.redactRawCapture(["authorization=Bearer token"])).toEqual({});
+  });
+
+  it("falls back to shopping provider profile domains when the host is not in the static brand map", () => {
+    const profile = SHOPPING_PROVIDER_PROFILES.find((entry) => entry.id === "shopping/bestbuy");
+    expect(profile).toBeDefined();
+
+    const customDomain = "bestbuy-custom.example";
+    const originalDomains = [...(profile?.domains ?? [])];
+    profile!.domains = [...originalDomains, customDomain];
+    try {
+      expect(workflowTestUtils.inferBrandFromUrl(`https://offers.${customDomain}/sku/123`)).toBe("Best Buy");
+    } finally {
+      profile!.domains = originalDomains;
+    }
   });
 
   it("returns null when image fetch throws in workflow fetchBinary helper", async () => {
@@ -493,6 +854,22 @@ describe("workflow branch coverage", () => {
       throw new Error("network down");
     }) as unknown as typeof fetch);
     await expect(workflowTestUtils.fetchBinary("https://cdn.example.com/image.jpg")).resolves.toBeNull();
+  });
+
+  it("applies a timeout signal to workflow fetchBinary helper calls when requested", async () => {
+    let capturedSignal: AbortSignal | null | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      capturedSignal = init?.signal;
+      return {
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+      };
+    }) as unknown as typeof fetch);
+
+    await expect(workflowTestUtils.fetchBinary("https://cdn.example.com/image.jpg", 4321)).resolves.toEqual(
+      Buffer.from([1, 2, 3])
+    );
+    expect(capturedSignal).toBeDefined();
   });
 
   it("fails default shopping routing when every default provider is in degraded exclusion state", async () => {
@@ -1100,6 +1477,95 @@ describe("workflow branch coverage", () => {
     expect((fastest.offers as Array<{ provider: string }>)[0]?.provider).toBe("shopping/others");
   });
 
+  it("drops shopping offers with missing or out-of-budget prices when a budget is supplied", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [
+            makeRecord({
+              id: "under-budget",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0UNDER0001",
+              title: "Under Budget Monitor",
+              content: "$59.99",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "under-budget",
+                  title: "Under Budget Monitor",
+                  url: "https://www.amazon.com/dp/B0UNDER0001",
+                  price: { amount: 59.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.7,
+                  reviews_count: 20
+                }
+              }
+            }),
+            makeRecord({
+              id: "missing-price",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0MISS00001",
+              title: "Missing Price Monitor",
+              content: "Price unavailable",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "missing-price",
+                  title: "Missing Price Monitor",
+                  url: "https://www.amazon.com/dp/B0MISS00001",
+                  price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.9,
+                  reviews_count: 10
+                }
+              }
+            }),
+            makeRecord({
+              id: "over-budget",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0OVER00001",
+              title: "Over Budget Monitor",
+              content: "$399.99",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "over-budget",
+                  title: "Over Budget Monitor",
+                  url: "https://www.amazon.com/dp/B0OVER00001",
+                  price: { amount: 399.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.8,
+                  reviews_count: 30
+                }
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "portable monitor",
+      providers: ["shopping/amazon"],
+      budget: 100,
+      mode: "json"
+    });
+
+    expect((output.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual(["Under Budget Monitor"]);
+  });
+
   it("covers shopping offer extraction fallbacks and availability mapping branches", async () => {
     const runtime = toRuntime({
       search: async (_input, options) => {
@@ -1272,6 +1738,194 @@ describe("workflow branch coverage", () => {
     expect(offer?.shipping).toMatchObject({ amount: 0, currency: "EUR" });
     expect(offer?.rating).toBe(0);
     expect(offer?.reviews_count).toBe(0);
+  });
+
+  it("filters malformed shopping pseudo-offers and emits an empty-result failure when nothing usable remains", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [
+          makeRecord({
+            id: "unexpected-search-path",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/dp/B0BAD00001",
+            title: "Unexpected search row",
+            attributes: {
+              retrievalPath: "shopping:search:unexpected",
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "unexpected-search-path",
+                title: "Unexpected search row",
+                url: "https://www.amazon.com/dp/B0BAD00001",
+                price: { amount: 10, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4,
+                reviews_count: 1
+              }
+            }
+          }),
+          makeRecord({
+            id: "url-title",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/dp/B0BAD00002",
+            title: "https://www.amazon.com/dp/B0BAD00002",
+            attributes: {
+              retrievalPath: "shopping:search:result-card"
+            }
+          }),
+          makeRecord({
+            id: "asset-url",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://images-na.ssl-images-amazon.com/logo.png",
+            title: "Amazon asset",
+            attributes: {
+              retrievalPath: "shopping:search:result-card"
+            }
+          }),
+          makeRecord({
+            id: "non-http-url",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "data:text/html,not-a-product",
+            title: "Portable monitor with bright matte display",
+            attributes: {
+              retrievalPath: "shopping:search:result-card"
+            }
+          }),
+          makeRecord({
+            id: "provider-domain-mismatch",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://store.example.com/item-22",
+            title: "Portable monitor with vivid panel and folding stand",
+            attributes: {
+              retrievalPath: "shopping:search:result-card"
+            }
+          })
+        ]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "portable monitor",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      failures: [{
+        provider: "shopping/amazon",
+        error: {
+          reasonCode: "env_limited",
+          details: {
+            noOfferRecords: true,
+            recordsCount: 5
+          }
+        }
+      }],
+      metrics: {
+        total_offers: 0,
+        failed_providers: ["shopping/amazon"],
+        reason_code_distribution: {
+          env_limited: 1
+        }
+      }
+    });
+  });
+
+  it("preserves restricted-target blockers when empty shopping runs only surface browser-owned URLs", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "restricted-target-shell",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "chrome://settings",
+          title: "   ",
+          content: "   ",
+          attributes: {
+            retrievalPath: "shopping:search:index"
+          }
+        })]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "browser-owned target",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      failures: [{
+        provider: "shopping/amazon",
+        error: {
+          reasonCode: "env_limited",
+          details: {
+            blockerType: "restricted_target",
+            reasonCode: "env_limited",
+            url: "chrome://settings"
+          }
+        }
+      }]
+    });
+  });
+
+  it("preserves blocker envelopes when empty shopping runs only surface message-only env-limited shells", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "message-only-env-limited",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: undefined,
+          title: "   ",
+          content: "This provider is not available in this environment right now.",
+          attributes: {
+            retrievalPath: "shopping:search:index"
+          }
+        })]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "message only env limited",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      failures: [{
+        provider: "shopping/amazon",
+        error: {
+          reasonCode: "env_limited",
+          details: {
+            noOfferRecords: true,
+            recordsCount: 1,
+            blockerType: "env_limited",
+            reasonCode: "env_limited"
+          }
+        }
+      }]
+    });
+    expect((output.meta as {
+      failures: Array<{ error: { details: Record<string, unknown> } }>;
+    }).failures[0]?.error.details.url).toBeUndefined();
+    expect((output.meta as {
+      failures: Array<{ error: { details: Record<string, unknown> } }>;
+    }).failures[0]?.error.details.title).toBeUndefined();
   });
 
   it("aggregates transcript strategy failures while ignoring malformed attempt-chain entries", async () => {
@@ -1545,6 +2199,26 @@ describe("workflow branch coverage", () => {
     expect((prefixedHint.product as { provider: string }).provider).toBe("shopping/amazon");
   });
 
+  it("refreshes metadata when shopping offers are missing structured price objects", () => {
+    expect(workflowTestUtils.needsProductMetadataRefresh(makeRecord({
+      title: "Resolved Product",
+      attributes: {
+        brand: "Acme",
+        shopping_offer: "bad-shape"
+      }
+    }), "https://shop.example.com/product/acme")).toBe(true);
+
+    expect(workflowTestUtils.needsProductMetadataRefresh(makeRecord({
+      title: "Resolved Product",
+      attributes: {
+        brand: "Acme",
+        shopping_offer: {
+          price: "bad-shape"
+        }
+      }
+    }), "https://shop.example.com/product/acme")).toBe(true);
+  });
+
   it("pins product-video fetch to a normalized shopping provider id for shopping-domain URLs", async () => {
     const fetch = vi.fn(async () => makeAggregate({
       sourceSelection: "shopping",
@@ -1641,6 +2315,124 @@ describe("workflow branch coverage", () => {
     });
   });
 
+  it("forwards explicit timeout overrides into shopping workflow searches", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "timeout-forwarded",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/timeout-forwarded",
+        title: "Timeout Forwarded Offer",
+        content: "$29.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "timeout-forwarded",
+            title: "Timeout Forwarded Offer",
+            url: "https://www.amazon.com/dp/timeout-forwarded",
+            price: { amount: 29.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.5,
+            reviews_count: 14
+          }
+        }
+      })]
+    }));
+
+    await runShoppingWorkflow(toRuntime({ search }), {
+      query: "timeout forwarded",
+      providers: ["shopping/amazon"],
+      timeoutMs: 4321,
+      mode: "json"
+    });
+
+    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      timeoutMs: 4321
+    }));
+  });
+
+  it("forwards explicit timeout overrides through product-video search and fetch", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "product-timeout-forwarded-search",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/product-timeout-forwarded",
+        title: "Product Timeout Forwarded",
+        content: "$39.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "product-timeout-forwarded-search",
+            title: "Product Timeout Forwarded",
+            url: "https://www.amazon.com/dp/product-timeout-forwarded",
+            price: { amount: 39.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.7,
+            reviews_count: 18
+          }
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "product-timeout-forwarded-fetch",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/product-timeout-forwarded",
+        title: "Product Timeout Forwarded",
+        content: "Feature one with enough detail. Feature two with enough detail.",
+        attributes: {
+          links: [],
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "product-timeout-forwarded-fetch",
+            title: "Product Timeout Forwarded",
+            url: "https://www.amazon.com/dp/product-timeout-forwarded",
+            price: { amount: 39.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.7,
+            reviews_count: 18
+          }
+        }
+      })]
+    }));
+
+    await runProductVideoWorkflow(toRuntime({ search, fetch }), {
+      product_name: "product timeout forwarded",
+      provider_hint: "amazon",
+      timeoutMs: 4321,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      timeoutMs: 4321
+    }));
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://www.amazon.com/dp/product-timeout-forwarded" },
+      expect.objectContaining({
+        source: "shopping",
+        providerIds: ["shopping/amazon"],
+        timeoutMs: 4321
+      })
+    );
+  });
+
   it("validates product-video prerequisites and unresolved name flows", async () => {
     const runtime = toRuntime({
       search: async () => makeAggregate({ sourceSelection: "shopping", providerOrder: ["shopping/amazon"] })
@@ -1682,6 +2474,81 @@ describe("workflow branch coverage", () => {
     await expect(runProductVideoWorkflow(missingUrlRuntime, {
       product_name: "missing-url"
     })).rejects.toThrow("Unable to resolve product URL");
+  });
+
+  it("threads provider hints into product-name shopping resolution before fetching the product page", async () => {
+    const search = vi.fn(async (_input, options) => {
+      expect(options).toMatchObject({
+        source: "shopping",
+        providerIds: ["shopping/amazon"]
+      });
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "provider-hint-resolution",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/B0HINT00001",
+          title: "Hint Resolved Product",
+          content: "$41.99",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "provider-hint-resolution",
+              title: "Hint Resolved Product",
+              url: "https://www.amazon.com/dp/B0HINT00001",
+              price: { amount: 41.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.6,
+              reviews_count: 27
+            }
+          }
+        })]
+      });
+    });
+    const fetch = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "provider-hint-fetch",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/B0HINT00001",
+        title: "Hint Resolved Product",
+        content: "$41.99",
+        attributes: {
+          links: [],
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "provider-hint-fetch",
+            title: "Hint Resolved Product",
+            url: "https://www.amazon.com/dp/B0HINT00001",
+            price: { amount: 41.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.6,
+            reviews_count: 27
+          }
+        }
+      })]
+    }));
+
+    const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), {
+      product_name: "hint resolved product",
+      provider_hint: "amazon",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith({ url: "https://www.amazon.com/dp/B0HINT00001" }, {
+      source: "shopping",
+      providerIds: ["shopping/amazon"]
+    });
+    expect((output.product as { provider: string }).provider).toBe("shopping/amazon");
   });
 
   it("builds product assets with image/screenshot fallback and web-source resolution", async () => {
@@ -1747,6 +2614,50 @@ describe("workflow branch coverage", () => {
     expect((output.product as { provider: string }).provider).toBe("web/default");
   });
 
+  it("uses captured screenshots directly when the browser capture succeeds", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "product-screenshot-direct",
+          source: "web",
+          provider: "web/default",
+          url: "https://shop.example/direct-screenshot",
+          title: "Direct Screenshot Product",
+          content: "Feature alpha with enough detail. Feature beta with enough detail.",
+          attributes: {
+            links: [],
+            brand: "Acme",
+            shopping_offer: {
+              provider: "shopping/others",
+              product_id: "direct-screenshot",
+              title: "Direct Screenshot Product",
+              url: "https://shop.example/direct-screenshot",
+              price: { amount: 32, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.4,
+              reviews_count: 12
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://shop.example/direct-screenshot",
+      include_screenshots: true,
+      include_all_images: false,
+      include_copy: false
+    }, {
+      captureScreenshot: async () => Buffer.from([9, 8, 7, 6])
+    });
+
+    expect(output.images).toEqual([]);
+    expect(output.screenshots).toEqual(["screenshots/screenshot-01.png"]);
+  });
+
   it("handles non-ok image fetches and empty product content safely", async () => {
     const runtime = toRuntime({
       fetch: async () => makeAggregate({
@@ -1793,6 +2704,547 @@ describe("workflow branch coverage", () => {
     expect(output.screenshots).toEqual([]);
     expect((output.product as { brand: string }).brand).toBe("unknown");
     expect((output.product as { features: string[] }).features).toEqual([]);
+  });
+
+  it("defaults product-video image extensions to jpg when source urls omit one", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "product-no-extension-image",
+          source: "web",
+          provider: "web/default",
+          url: "https://shop.example/item",
+          title: "https://shop.example/item",
+          content: "Feature alpha with enough detail. Feature beta with enough detail.",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/others",
+              product_id: "p-no-extension",
+              title: "https://shop.example/item",
+              url: "https://shop.example/item",
+              price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.2,
+              reviews_count: 9
+            }
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === "https://shop.example/item") {
+        return {
+          ok: true,
+          url,
+          text: async () => `
+            <html>
+              <head>
+                <meta property="og:image" content="https://cdn.example.com/assets/no-extension-image" />
+              </head>
+              <body>No extension image metadata</body>
+            </html>
+          `
+        };
+      }
+      return {
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+      };
+    }) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://shop.example/item",
+      include_screenshots: false,
+      include_all_images: true,
+      include_copy: false
+    });
+
+    expect(output.images).toEqual(["images/image-01.jpg"]);
+  });
+
+  it("uses structured shopping image urls without file extensions before metadata refresh", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/bestbuy"],
+        records: [makeRecord({
+          id: "bestbuy-no-extension-image",
+          source: "shopping",
+          provider: "shopping/bestbuy",
+          url: "https://www.bestbuy.com/site/sample-product/6501234.p?skuId=6501234",
+          title: "Sample Best Buy Product",
+          content: "Feature alpha with enough detail. Feature beta with enough detail.",
+          attributes: {
+            brand: "Best Buy",
+            image_urls: [
+              "https://pisces.bbystatic.com/image2/BestBuy_US/images/products/6501/6501234_sa"
+            ],
+            shopping_offer: {
+              provider: "shopping/bestbuy",
+              product_id: "6501234",
+              title: "Sample Best Buy Product",
+              url: "https://www.bestbuy.com/site/sample-product/6501234.p?skuId=6501234",
+              price: { amount: 89.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.6,
+              reviews_count: 51
+            }
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+    })) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://www.bestbuy.com/site/sample-product/6501234.p?skuId=6501234",
+      include_screenshots: false,
+      include_all_images: true,
+      include_copy: false
+    });
+
+    expect(output.images).toEqual(["images/image-01.jpg"]);
+    expect(output.screenshots).toEqual([]);
+  });
+
+  it("prefers structured metadata over noisy raw copy in product-video outputs", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "apple-product",
+          source: "web",
+          provider: "web/default",
+          url: "https://www.apple.com/shop/buy-iphone/iphone-16",
+          title: "Buy iPhone 16 and iPhone 16 Plus",
+          content: "Save up to $441.36. No trade-in needed. This is noisy promotional copy.",
+          attributes: {
+            description: "Get $35 - $685 off a new iPhone 16 or iPhone 16 Plus when you trade in an iPhone 8 or newer. 0% financing available. Buy now with free shipping.",
+            brand: "Apple",
+            features: [
+              "Apple Intelligence",
+              "Camera Control for faster access to photo and video tools"
+            ],
+            image_urls: ["https://store.storeimages.cdn-apple.com/iphone-16.jpg"],
+            shopping_offer: {
+              provider: "web/default",
+              product_id: "",
+              title: "Buy iPhone 16 and iPhone 16 Plus",
+              url: "https://www.apple.com/shop/buy-iphone/iphone-16",
+              price: { amount: 699, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "unknown",
+              rating: 0,
+              reviews_count: 0
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://www.apple.com/shop/buy-iphone/iphone-16",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 699,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      title: "Buy iPhone 16 and iPhone 16 Plus",
+      brand: "Apple",
+      features: [
+        "Apple Intelligence",
+        "Camera Control for faster access to photo and video tools"
+      ],
+      copy: "Get $35 - $685 off a new iPhone 16 or iPhone 16 Plus when you trade in an iPhone 8 or newer. 0% financing available. Buy now with free shipping."
+    });
+  });
+
+  it("refreshes weak product metadata before building product-video outputs", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "apple-weak-product",
+          source: "web",
+          provider: "web/default",
+          url: "https://www.apple.com/shop/buy-iphone/iphone-16",
+          title: "https://www.apple.com/shop/buy-iphone/iphone-16",
+          content: "Save up to $441.36. No trade-in needed. Frequently Asked Questions. Carrier deals everywhere.",
+          attributes: {
+            links: []
+          }
+        })]
+      })
+    });
+
+    const seenSignals: AbortSignal[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      if (init?.signal) {
+        seenSignals.push(init.signal);
+      }
+      const accept = String(init?.headers && "accept" in (init.headers as Record<string, string>)
+        ? (init.headers as Record<string, string>).accept
+        : "");
+      if (accept.includes("text/html")) {
+        return {
+          ok: true,
+          url: "https://www.apple.com/shop/buy-iphone/iphone-16",
+          text: async () => `
+            <html>
+              <head>
+                <title>Buy iPhone 16 and iPhone 16 Plus - Apple</title>
+                <meta property="og:title" content="Buy iPhone 16 and iPhone 16 Plus" />
+                <meta property="og:description" content="Get $35 - $685 off a new iPhone 16 or iPhone 16 Plus when you trade in an iPhone 8 or newer. 0% financing available. Buy now with free shipping." />
+                <meta property="og:site_name" content="Apple" />
+                <meta property="og:image" content="https://store.storeimages.cdn-apple.com/iphone-16.jpg" />
+                <script type="application/ld+json">
+                  {
+                    "@context": "https://schema.org",
+                    "@type": "Product",
+                    "name": "iPhone 16",
+                    "url": "https://www.apple.com/shop/buy-iphone/iphone-16",
+                    "offers": [{ "@type": "AggregateOffer", "lowPrice": 699.00, "priceCurrency": "USD" }],
+                    "description": "Get $35 - $685 off a new iPhone 16 or iPhone 16 Plus when you trade in an iPhone 8 or newer. 0% financing available. Buy now with free shipping."
+                  }
+                </script>
+              </head>
+              <body>
+                <div class="dd-feature"><p>Apple Intelligence</p></div>
+                <div class="dd-feature"><p>Camera Control for faster access to photo and video tools</p></div>
+              </body>
+            </html>
+          `
+        };
+      }
+      return {
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([5, 6, 7]).buffer
+      };
+    }) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://www.apple.com/shop/buy-iphone/iphone-16",
+      timeoutMs: 4321,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 699,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      title: "Buy iPhone 16 and iPhone 16 Plus",
+      brand: "Apple",
+      features: [
+        "Apple Intelligence",
+        "Camera Control for faster access to photo and video tools"
+      ],
+      copy: "Get $35 - $685 off a new iPhone 16 or iPhone 16 Plus when you trade in an iPhone 8 or newer. 0% financing available. Buy now with free shipping."
+    });
+    expect(output.images).toEqual(["images/image-01.jpg"]);
+    expect(seenSignals.length).toBeGreaterThan(0);
+  });
+
+  it("compacts refreshed image urls after skipping empty entries in product-video assets", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "empty-refreshed-image-product",
+          source: "web",
+          provider: "web/default",
+          url: "https://shop.example/refreshed-images",
+          title: "https://shop.example/refreshed-images",
+          content: "Buy now for $249.00 with the travel keyboard included.",
+          attributes: {
+            links: []
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      const accept = String(init?.headers && "accept" in (init.headers as Record<string, string>)
+        ? (init.headers as Record<string, string>).accept
+        : "");
+      if (accept.includes("text/html")) {
+        return {
+          ok: true,
+          url: "https://shop.example/refreshed-images",
+          text: async () => `
+            <html>
+              <head>
+                <meta property="og:title" content="Refreshed Image Product" />
+                <meta property="og:description" content="Detachable keyboard and bright matte display." />
+                <meta property="og:image" content="" />
+                <meta property="og:image" content="https://cdn.example.com/refreshed-image.png" />
+              </head>
+              <body></body>
+            </html>
+          `
+        };
+      }
+      return {
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([7, 8, 9]).buffer
+      };
+    }) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://shop.example/refreshed-images",
+      include_screenshots: true,
+      include_all_images: true,
+      include_copy: false
+    }, {
+      captureScreenshot: async () => null
+    });
+
+    expect(output.images).toEqual(["images/image-01.jpg"]);
+    expect(output.screenshots).toEqual(["screenshots/screenshot-01.png"]);
+  });
+
+  it("falls back cleanly when weak product metadata refresh fails", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "refresh-failure-product",
+          source: "web",
+          provider: "web/default",
+          url: "https://www.apple.com/shop/buy-iphone/iphone-16",
+          title: "https://www.apple.com/shop/buy-iphone/iphone-16",
+          content: "Buy now for $699. Super Retina XDR display keeps colors visible outdoors.",
+          attributes: {
+            description: "Fallback description title. Additional backup copy survives."
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      text: async () => ""
+    })) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://www.apple.com/shop/buy-iphone/iphone-16",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 699,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      title: "Fallback description title.",
+      brand: "Apple",
+      copy: "Fallback description title. Additional backup copy survives."
+    });
+    expect(output.images).toEqual([]);
+  });
+
+  it("uses site_name brand fallback and preserves the product url when refreshed metadata stays empty", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/others"],
+        records: [makeRecord({
+          id: "site-name-fallback-product",
+          source: "shopping",
+          provider: "shopping/others",
+          url: "https://brandless.example/item",
+          title: "https://brandless.example/item",
+          content: undefined,
+          attributes: {
+            site_name: "Acme Surface",
+            shopping_offer: {
+              provider: "shopping/others",
+              product_id: "site-name-fallback",
+              title: "",
+              url: "https://brandless.example/item",
+              price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "std" },
+              availability: "unknown",
+              rating: 0,
+              reviews_count: 0
+            }
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: "",
+      text: async () => "<html><body><main></main></body></html>"
+    })) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://brandless.example/item",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.product).toMatchObject({
+      brand: "Acme Surface",
+      title: "https://brandless.example/item",
+      copy: ""
+    });
+    expect(output.images).toEqual([]);
+    expect(output.screenshots).toEqual([]);
+  });
+
+  it("refreshes malformed shopping-offer payloads and still resolves stable product output", async () => {
+    const makeRuntime = (shoppingOffer: unknown) => toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/others"],
+        records: [makeRecord({
+          id: "malformed-shopping-offer",
+          source: "shopping",
+          provider: "shopping/others",
+          url: "https://fallback.example/device",
+          title: "https://fallback.example/device",
+          content: undefined,
+          attributes: {
+            site_name: "Fallback Site",
+            shopping_offer: shoppingOffer as never
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: "",
+      text: async () => "<html><body></body></html>"
+    })) as unknown as typeof fetch);
+
+    const fromString = await runProductVideoWorkflow(makeRuntime("bad-payload"), {
+      product_url: "https://fallback.example/device",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+    const fromMissingPrice = await runProductVideoWorkflow(makeRuntime({ provider: "shopping/others" }), {
+      product_url: "https://fallback.example/device",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect((fromString.product as { brand: string; title: string }).brand).toBe("Fallback Site");
+    expect((fromString.product as { title: string }).title).toBe("https://fallback.example/device");
+    expect((fromMissingPrice.product as { brand: string; title: string }).brand).toBe("Fallback Site");
+    expect((fromMissingPrice.product as { title: string }).title).toBe("https://fallback.example/device");
+  });
+
+  it("sanitizes noisy feature lists and ignores negative-context promotional prices", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "price-sanitized-product",
+          source: "web",
+          provider: "web/default",
+          url: "https://example.com/design-monitor",
+          title: "Design Monitor Pro",
+          content: [
+            "Trade-in credit saves $441.36 during launch week.",
+            "Unlocked model costs $699 today for direct purchase.",
+            "Setup fee is $5.",
+            "Brilliant OLED panel stays color-accurate in daylight studio work.",
+            "Battery life lasts up to 18 hours for travel-friendly review sessions.",
+            "Frequently Asked Questions.",
+            "Privacy policy."
+          ].join(" "),
+          attributes: {
+            brand: "Studio Display Co."
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "not-a-url",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 699,
+      currency: "USD"
+    });
+    expect((output.product as { brand: string }).brand).toBe("Studio Display Co.");
+    expect((output.product as { features: string[] }).features).toEqual([
+      "Brilliant OLED panel stays color-accurate in daylight studio work.",
+      "Battery life lasts up to 18 hours for travel-friendly review sessions."
+    ]);
+  });
+
+  it("drops invalid fallback features and returns zero price when only negative-context pricing exists", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "negative-only-pricing",
+          source: "web",
+          provider: "web/default",
+          url: "not-a-url",
+          title: "Negative Only Pricing Example",
+          content: [
+            "12345",
+            "Can I use this internationally?",
+            "$5 monthly service fee applies after activation.",
+            "Trade-in credit saves $441.36 during launch week.",
+            "Battery lasts 18 hours through review and capture sessions.",
+            "Privacy policy."
+          ].join("\n"),
+          attributes: {}
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "not-a-url",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 0,
+      currency: "USD"
+    });
+    expect((output.product as { features: string[] }).features).toEqual([
+      "Battery lasts 18 hours through review and capture sessions."
+    ]);
   });
 
   it("routes known shopping domains through shopping source and applies image extension fallback", async () => {

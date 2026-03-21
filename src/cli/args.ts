@@ -136,6 +136,7 @@ export const VALID_FLAGS = [
   "--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source",
   "--query", "--providers", "--budget", "--region", "--sort",
   "--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy",
+  "--use-cookies", "--cookie-policy-override", "--cookie-policy",
   "--output-dir", "--ttl-hours", "--expired-only"
 ] as const;
 
@@ -186,6 +187,9 @@ export const VALID_EQUALS_FLAGS = [
   "--include-screenshots",
   "--include-all-images",
   "--include-copy",
+  "--use-cookies",
+  "--cookie-policy-override",
+  "--cookie-policy",
   "--output-dir",
   "--ttl-hours"
 ] as const;

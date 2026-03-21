@@ -158,6 +158,11 @@ const toError = (error: unknown, fallback: string): Error => {
   return new Error(error === undefined ? fallback : String(error));
 };
 
+const emptyMetadata = (): ExtractedContent["metadata"] => ({
+  imageUrls: [],
+  features: []
+});
+
 export class CrawlWorkerPool {
   private readonly queueMax: number;
   private readonly queue: CrawlTask[] = [];
@@ -369,7 +374,8 @@ export class CrawlWorkerPool {
           text: typedExtracted.text,
           links: typedExtracted.links
             .filter((value): value is string => typeof value === "string"),
-          selectors
+          selectors,
+          metadata: emptyMetadata()
         }
       };
     }

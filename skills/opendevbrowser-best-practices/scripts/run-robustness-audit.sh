@@ -26,6 +26,7 @@ skills=(
   "opendevbrowser-shopping:ISSUE-06 ISSUE-09 ISSUE-10 ISSUE-11 ISSUE-12"
   "opendevbrowser-product-presentation-asset:ISSUE-10 ISSUE-11 ISSUE-12"
   "opendevbrowser-research:ISSUE-06 ISSUE-09 ISSUE-10 ISSUE-12"
+  "opendevbrowser-design-agent:ISSUE-01 ISSUE-07 ISSUE-08 ISSUE-12"
 )
 
 canvas_issue_ids=(

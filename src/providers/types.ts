@@ -419,6 +419,8 @@ export interface BrowserFallbackRequest {
   reasonCode: ProviderReasonCode;
   trace: TraceContext;
   url?: string;
+  timeoutMs?: number;
+  signal?: AbortSignal;
   details?: Record<string, JsonValue>;
   preferredModes?: BrowserFallbackMode[];
   useCookies?: boolean;

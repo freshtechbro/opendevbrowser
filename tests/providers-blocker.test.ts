@@ -43,6 +43,15 @@ describe("provider blocker classifier + artifacts", () => {
     });
     expect(auth401?.type).toBe("auth_required");
 
+    const authLoginHtml = classifyBlockerSignal({
+      source: "navigation",
+      finalUrl: "https://www.temu.com/login.html?from=https%3A%2F%2Fwww.temu.com%2Fsearch_result.html",
+      title: "Temu | Login",
+      status: 200
+    });
+    expect(authLoginHtml?.type).toBe("auth_required");
+    expect(authLoginHtml?.reasonCode).toBe("token_required");
+
     const challenge = classifyBlockerSignal({
       source: "network",
       title: "Please complete captcha challenge",
@@ -72,6 +81,22 @@ describe("provider blocker classifier + artifacts", () => {
       status: 200
     });
     expect(challengeFromTitleAndRecaptchaHost?.type).toBe("anti_bot_challenge");
+
+    const robotOrHuman = classifyBlockerSignal({
+      source: "network",
+      title: "Robot or human?",
+      message: "Activate and hold the button to confirm that you're human.",
+      status: 200
+    });
+    expect(robotOrHuman?.type).toBe("anti_bot_challenge");
+
+    const ebayChallenge = classifyBlockerSignal({
+      source: "network",
+      title: "Pardon Our Interruption",
+      message: "Checking your browser before you access eBay.",
+      status: 200
+    });
+    expect(ebayChallenge?.type).toBe("anti_bot_challenge");
 
     const localhostChallengeBypass = classifyBlockerSignal({
       source: "navigation",

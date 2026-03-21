@@ -48,6 +48,7 @@ Use a two-layer check for each offer:
 - Apply shared concurrency policy from `../opendevbrowser-best-practices/SKILL.md` ("Parallel Operations").
 - Validate shopping workflows across `managed`, `extension`, and `cdpConnect` when browser-backed provider paths are exercised.
 - Keep one session per worker for parallel offer collection and avoid session-level target contention.
+- For browser-backed release proof and mode sweeps, follow the canonical direct-run evidence policy in `../opendevbrowser-best-practices/SKILL.md`.
 
 ## Savings Math
 

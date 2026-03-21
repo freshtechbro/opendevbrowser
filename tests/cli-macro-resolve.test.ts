@@ -133,7 +133,8 @@ describe("macro-resolve CLI command", () => {
         expression: "@web.search(\"openai\")",
         defaultProvider: undefined,
         includeCatalog: false,
-        execute: true
+        execute: true,
+        timeoutMs: 120000
       },
       { timeoutMs: 120000 }
     );

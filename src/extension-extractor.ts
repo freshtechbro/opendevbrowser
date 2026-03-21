@@ -6,6 +6,12 @@ import { fileURLToPath } from "url";
 const EXTENSION_DIR_NAME = "opendevbrowser";
 const VERSION_FILE = ".version";
 
+export type ExtensionRuntimePathOptions = {
+  requiredFiles?: string[];
+  bundledPath?: string | null;
+  installedPath?: string | null;
+};
+
 function getConfigDir(): string {
   return join(homedir(), ".config", "opencode", EXTENSION_DIR_NAME, "extension");
 }
@@ -49,6 +55,10 @@ function getBundledExtensionPath(): string | null {
 function isCompleteInstall(dir: string): boolean {
   const required = ["manifest.json", VERSION_FILE];
   return required.every(file => existsSync(join(dir, file)));
+}
+
+function hasRequiredFiles(dir: string, requiredFiles: string[]): boolean {
+  return requiredFiles.every((file) => existsSync(join(dir, file)));
 }
 
 export function extractExtension(): string | null {
@@ -136,4 +146,24 @@ export function getExtensionPath(): string | null {
     return destDir;
   }
   return getBundledExtensionPath();
+}
+
+export function getExtensionRuntimePath(options: ExtensionRuntimePathOptions = {}): string | null {
+  const requiredFiles = options.requiredFiles ?? [];
+  const destDir = getConfigDir();
+  const candidates = [
+    options.bundledPath ?? getBundledExtensionPath(),
+    options.installedPath ?? (isCompleteInstall(destDir) ? destDir : null)
+  ];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    if (requiredFiles.length === 0 || hasRequiredFiles(candidate, requiredFiles)) {
+      return candidate;
+    }
+  }
+  return null;
 }

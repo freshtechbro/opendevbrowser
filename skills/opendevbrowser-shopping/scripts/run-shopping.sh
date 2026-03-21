@@ -11,7 +11,11 @@ mode="${2:-context}"
 sort="${3:-best_deal}"
 providers="${4:-}"
 
-cmd=(opendevbrowser shopping run --query "$query" --mode "$mode" --sort "$sort")
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
+source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+
+cmd=("${ODB_CLI[@]}" shopping run --query "$query" --mode "$mode" --sort "$sort")
 if [[ -n "$providers" ]]; then
   cmd+=(--providers "$providers")
 fi

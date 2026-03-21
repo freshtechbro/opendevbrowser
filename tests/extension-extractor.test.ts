@@ -66,6 +66,55 @@ describe("extension-extractor", () => {
     expect(result).not.toBe(destDir);
   });
 
+  it("prefers bundled runtime assets over cached extracted assets", async () => {
+    const bundledDir = mkdtempSync(join(tmpdir(), "ext-bundled-"));
+    const installedDir = mkdtempSync(join(tmpdir(), "ext-installed-"));
+    try {
+      mkdirSync(join(bundledDir, "dist"), { recursive: true });
+      mkdirSync(join(installedDir, "dist"), { recursive: true });
+      writeFileSync(join(bundledDir, "dist", "annotate-content.js"), "// bundled");
+      writeFileSync(join(bundledDir, "dist", "annotate-content.css"), "/* bundled */");
+      writeFileSync(join(installedDir, "dist", "annotate-content.js"), "// installed");
+      writeFileSync(join(installedDir, "dist", "annotate-content.css"), "/* installed */");
+
+      const { getExtensionRuntimePath } = await import("../src/extension-extractor");
+      const result = getExtensionRuntimePath({
+        requiredFiles: ["dist/annotate-content.js", "dist/annotate-content.css"],
+        bundledPath: bundledDir,
+        installedPath: installedDir
+      });
+
+      expect(result).toBe(bundledDir);
+    } finally {
+      rmSync(bundledDir, { recursive: true, force: true });
+      rmSync(installedDir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to installed runtime assets when bundled assets are incomplete", async () => {
+    const bundledDir = mkdtempSync(join(tmpdir(), "ext-bundled-"));
+    const installedDir = mkdtempSync(join(tmpdir(), "ext-installed-"));
+    try {
+      mkdirSync(join(bundledDir, "dist"), { recursive: true });
+      mkdirSync(join(installedDir, "dist"), { recursive: true });
+      writeFileSync(join(bundledDir, "dist", "annotate-content.js"), "// bundled");
+      writeFileSync(join(installedDir, "dist", "annotate-content.js"), "// installed");
+      writeFileSync(join(installedDir, "dist", "annotate-content.css"), "/* installed */");
+
+      const { getExtensionRuntimePath } = await import("../src/extension-extractor");
+      const result = getExtensionRuntimePath({
+        requiredFiles: ["dist/annotate-content.js", "dist/annotate-content.css"],
+        bundledPath: bundledDir,
+        installedPath: installedDir
+      });
+
+      expect(result).toBe(installedDir);
+    } finally {
+      rmSync(bundledDir, { recursive: true, force: true });
+      rmSync(installedDir, { recursive: true, force: true });
+    }
+  });
+
   it("extracts to destDir and creates .version file", async () => {
     const destDir = getTestConfigDir();
     const parentDir = dirname(destDir);

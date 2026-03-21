@@ -9,12 +9,16 @@ fi
 query="$1"
 providers="${2:-}"
 
-cmd=(opendevbrowser shopping run --query "$query" --mode json --output-format json)
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
+source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+
+cmd=("${ODB_CLI[@]}" shopping run --query "$query" --mode json --output-format json)
 if [[ -n "$providers" ]]; then
   cmd+=(--providers "$providers")
 fi
 
-raw="$(${cmd[@]})"
+raw="$("${cmd[@]}")"
 printf '%s\n' "$raw" | node -e '
 const fs=require("fs");
 const input=fs.readFileSync(0,"utf8");

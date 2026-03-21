@@ -12,17 +12,22 @@ import type {
 
 const AUTH_URL_PATTERNS: Array<{ id: string; regex: RegExp; confidence: number }> = [
   { id: "redirect_login_flow", regex: /\/i\/flow\/login/i, confidence: 0.97 },
-  { id: "auth_login_path", regex: /\/(login|signin|sign-in|auth)(\/|\?|$)/i, confidence: 0.9 }
+  { id: "auth_login_path", regex: /\/(login|signin|sign-in|auth)(?:[./?]|$)/i, confidence: 0.9 }
 ];
 
 const AUTH_TITLE_PATTERNS: Array<{ id: string; regex: RegExp; confidence: number }> = [
-  { id: "title_login", regex: /\b(log in|sign in)\b/i, confidence: 0.92 },
+  { id: "title_login", regex: /\b(log ?in|sign ?in|login|signin)\b/i, confidence: 0.92 },
   { id: "title_auth_required", regex: /authentication required/i, confidence: 0.9 }
 ];
 
 const CHALLENGE_PATTERNS: Array<{ id: string; regex: RegExp; confidence: number }> = [
   { id: "challenge_keyword", regex: /\b(challenge|captcha|verify|interstitial|cf_chl|bot)\b/i, confidence: 0.88 },
-  { id: "prove_humanity", regex: /prove your humanity/i, confidence: 0.96 }
+  { id: "prove_humanity", regex: /prove your humanity/i, confidence: 0.96 },
+  { id: "robot_or_human", regex: /robot or human/i, confidence: 0.98 },
+  { id: "confirm_human", regex: /confirm that you(?:'|’)re human/i, confidence: 0.96 },
+  { id: "press_and_hold", regex: /activate and hold the button/i, confidence: 0.95 },
+  { id: "pardon_interruption", regex: /pardon our interruption/i, confidence: 0.97 },
+  { id: "checking_browser_gate", regex: /checking your browser before you access/i, confidence: 0.97 }
 ];
 
 const RECAPTCHA_HOST_PATTERNS = [/recaptcha/i, /hcaptcha/i, /challenges\.cloudflare\.com/i];

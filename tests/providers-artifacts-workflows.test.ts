@@ -38,6 +38,8 @@ describe("artifact and workflow runtime", () => {
   afterEach(async () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    vi.doUnmock("fs/promises");
+    vi.resetModules();
     workflowTestUtils.resetProviderSignalState();
     await Promise.all(createdDirs.map(async (directory) => {
       await rm(directory, { recursive: true, force: true });
@@ -96,6 +98,70 @@ describe("artifact and workflow runtime", () => {
     expect(cleaned.skipped).toContain(missingManifestRun);
     expect(cleaned.skipped).toContain(manifestAsDirectoryRun);
     expect(cleaned.skipped).toContain(invalidExpiryRun);
+  });
+
+  it("falls back to legacy manifest.json during artifact cleanup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-legacy-"));
+    createdDirs.push(root);
+
+    const legacy = await createArtifactBundle({
+      namespace: "research",
+      outputDir: root,
+      ttlHours: 1,
+      manifestFileName: "manifest.json",
+      now: new Date("2026-02-01T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    });
+
+    await expect(stat(join(legacy.basePath, "bundle-manifest.json"))).rejects.toThrow();
+    expect(await readFile(join(legacy.basePath, "manifest.json"), "utf8")).toContain(`"run_id": "${legacy.runId}"`);
+
+    const cleaned = await cleanupExpiredArtifacts(root, new Date("2026-02-16T12:00:00.000Z"));
+    expect(cleaned.removed).toContain(legacy.basePath);
+  });
+
+  it("skips runs when a discovered manifest stops being a file before readback", async () => {
+    const root = "/virtual-artifacts";
+    const namespacePath = join(root, "research");
+    const runPath = join(namespacePath, "run-1");
+    const manifestPath = join(runPath, "bundle-manifest.json");
+    let manifestStatCount = 0;
+    vi.doMock("fs/promises", () => ({
+      readdir: vi.fn(async (target: string) => {
+        if (target === root) {
+          return ["research"];
+        }
+        if (target === namespacePath) {
+          return ["run-1"];
+        }
+        throw new Error(`unexpected path ${target}`);
+      }),
+      stat: vi.fn(async (target: string) => {
+        if (target !== manifestPath) {
+          throw new Error(`unexpected stat ${target}`);
+        }
+        manifestStatCount += 1;
+        return {
+          isFile: () => manifestStatCount === 1
+        };
+      }),
+      readFile: vi.fn(async () => {
+        throw new Error("read should not occur for non-file manifests");
+      }),
+      rm: vi.fn(async () => undefined),
+      mkdir: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined)
+    }));
+
+    const mockedFs = await import("fs/promises");
+    const { cleanupExpiredArtifacts: cleanupWithMocks } = await import("../src/providers/artifacts");
+    const cleaned = await cleanupWithMocks(root, new Date("2026-02-20T00:00:00.000Z"));
+
+    expect(cleaned).toEqual({
+      removed: [],
+      skipped: [runPath]
+    });
+    expect(mockedFs.readFile).not.toHaveBeenCalled();
   });
 
   it("runs research workflow with strict source resolution and artifacts", async () => {
@@ -220,6 +286,253 @@ describe("artifact and workflow runtime", () => {
       providers: ["invalid-provider"],
       mode: "json"
     })).rejects.toThrow("No valid shopping providers");
+  });
+
+  it("marks empty shopping provider runs as env-limited failures instead of silent success", async () => {
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/walmart";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [{
+            id: `${providerId}-index`,
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.walmart.com/search?q=portable+monitor",
+            title: "Walmart search: portable monitor",
+            content: "$10",
+            timestamp: "2026-02-16T00:00:00.000Z",
+            confidence: 0.4,
+            attributes: {
+              retrievalPath: "shopping:search:index",
+              shopping_offer: {
+                provider: providerId,
+                product_id: "index-row",
+                title: "Walmart search: portable monitor",
+                url: "https://www.walmart.com/search?q=portable+monitor",
+                price: { amount: 10, currency: "USD", retrieved_at: "2026-02-16T00:00:00.000Z" },
+                shipping: { amount: 0, currency: "USD", notes: "unknown" },
+                availability: "unknown",
+                rating: 0,
+                reviews_count: 0
+              }
+            }
+          }]
+        });
+      }),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "portable monitor",
+      providers: ["shopping/walmart"],
+      mode: "json"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect((output.meta as {
+      failures: Array<{ provider: string; error: { reasonCode?: string; details?: { noOfferRecords?: boolean } } }>;
+      metrics: {
+        failed_providers: string[];
+        reason_code_distribution: Record<string, number>;
+      };
+    })).toMatchObject({
+      failures: [{
+        provider: "shopping/walmart",
+        error: {
+          reasonCode: "env_limited",
+          details: {
+            noOfferRecords: true
+          }
+        }
+      }],
+      metrics: {
+        failed_providers: ["shopping/walmart"],
+        reason_code_distribution: {
+          env_limited: 1
+        }
+      }
+    });
+  });
+
+  it("preserves auth-required blocker reasons when empty shopping runs are actually login pages", async () => {
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/temu";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [{
+            id: `${providerId}-login`,
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.temu.com/login.html?from=https%3A%2F%2Fwww.temu.com%2Fsearch_result.html",
+            title: "Temu | Login",
+            content: "Please log in to continue shopping.",
+            timestamp: "2026-02-16T00:00:00.000Z",
+            confidence: 0.6,
+            attributes: {
+              retrievalPath: "shopping:search:index"
+            }
+          }]
+        });
+      }),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "wireless mouse",
+      providers: ["shopping/temu"],
+      mode: "json"
+    });
+
+    expect((output.meta as {
+      failures: Array<{ provider: string; error: { reasonCode?: string; details?: { blockerType?: string; title?: string } } }>;
+      metrics: {
+        reason_code_distribution: Record<string, number>;
+      };
+    })).toMatchObject({
+      failures: [{
+        provider: "shopping/temu",
+        error: {
+          reasonCode: "token_required",
+          details: {
+            blockerType: "auth_required",
+            title: "Temu | Login"
+          }
+        }
+      }],
+      metrics: {
+        reason_code_distribution: {
+          token_required: 1
+        }
+      }
+    });
+  });
+
+  it("filters search-index and asset rows out of shopping offers", async () => {
+    const now = "2026-02-16T00:00:00.000Z";
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [
+          {
+            id: "amazon-index",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/s?k=portable+monitor",
+            title: "Amazon search: portable monitor",
+            content: "$10",
+            timestamp: now,
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "shopping:search:index",
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "index",
+                title: "Amazon search: portable monitor",
+                url: "https://www.amazon.com/s?k=portable+monitor",
+                price: { amount: 10, currency: "USD", retrieved_at: now },
+                shipping: { amount: 0, currency: "USD", notes: "unknown" },
+                availability: "limited",
+                rating: 0,
+                reviews_count: 0
+              }
+            }
+          },
+          {
+            id: "amazon-asset",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://images-na.ssl-images-amazon.com/logo.png",
+            title: "https://images-na.ssl-images-amazon.com/logo.png",
+            content: "$10",
+            timestamp: now,
+            confidence: 0.4,
+            attributes: {
+              retrievalPath: "shopping:search:link",
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "asset",
+                title: "https://images-na.ssl-images-amazon.com/logo.png",
+                url: "https://images-na.ssl-images-amazon.com/logo.png",
+                price: { amount: 10, currency: "USD", retrieved_at: now },
+                shipping: { amount: 0, currency: "USD", notes: "unknown" },
+                availability: "limited",
+                rating: 0,
+                reviews_count: 0
+              }
+            }
+          },
+          {
+            id: "amazon-cdn-card",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://m.media-amazon.com/images/I/portable-monitor.jpg",
+            title: "UPERFECT Portable Monitor 15.6 inch USB-C Travel Display",
+            content: "$69.99",
+            timestamp: now,
+            confidence: 0.8,
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "cdn-card",
+                title: "UPERFECT Portable Monitor 15.6 inch USB-C Travel Display",
+                url: "https://m.media-amazon.com/images/I/portable-monitor.jpg",
+                price: { amount: 69.99, currency: "USD", retrieved_at: now },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.8,
+                reviews_count: 29
+              }
+            }
+          },
+          {
+            id: "amazon-valid-card",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/dp/B0TEST1234",
+            title: "UPERFECT Portable Monitor 15.6 inch USB-C Travel Display",
+            content: "$69.99",
+            timestamp: now,
+            confidence: 0.9,
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "valid-card",
+                title: "UPERFECT Portable Monitor 15.6 inch USB-C Travel Display",
+                url: "https://www.amazon.com/dp/B0TEST1234",
+                price: { amount: 69.99, currency: "USD", retrieved_at: now },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.8,
+                reviews_count: 29
+              }
+            }
+          }
+        ]
+      })),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "portable monitor",
+      providers: ["shopping/amazon"],
+      sort: "lowest_price",
+      mode: "json"
+    });
+
+    expect(output.offers).toMatchObject([
+      {
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/B0TEST1234",
+        title: "UPERFECT Portable Monitor 15.6 inch USB-C Travel Display"
+      }
+    ]);
   });
 
   it("blocks shopping workflows when legal review approval is expired", async () => {

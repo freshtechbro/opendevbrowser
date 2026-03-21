@@ -9,7 +9,11 @@ fi
 TOPIC="$1"
 OUTDIR="$2"
 
-json_output="$(opendevbrowser research run --topic "$TOPIC" --mode path --output-dir "$OUTDIR" --output-format json)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
+source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+
+json_output="$("${ODB_CLI[@]}" research run --topic "$TOPIC" --mode path --output-dir "$OUTDIR" --output-format json)"
 printf '%s\n' "$json_output"
 
 artifact_path="$(printf '%s\n' "$json_output" | node -e 'const fs=require("fs");const lines=fs.readFileSync(0,"utf8").split(/\r?\n/).map((line)=>line.trim()).filter(Boolean);let payload=null;for(const line of lines){try{payload=JSON.parse(line);}catch{}}const p=payload?.data?.path; if(typeof p==="string") process.stdout.write(p);')"

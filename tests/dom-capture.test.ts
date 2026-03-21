@@ -101,6 +101,15 @@ describe("captureDom", () => {
     expect(result.html).not.toContain("data:");
   });
 
+  it("returns empty html when sanitization removes the selected root element", async () => {
+    document.body.innerHTML = "<script id=\"root\">alert(1)</script>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#root");
+
+    expect(result.html).toBe("");
+    expect(result.warnings).toEqual([]);
+  });
+
   it("removes dangerous srcset entries", async () => {
     document.body.innerHTML = `
       <div id="root">
@@ -185,6 +194,38 @@ describe("captureDom", () => {
     const page = createPage();
     const result = await captureDom(page as never, "#root", { maxNodes: 1 });
 
+    expect(result.warnings[0]).toContain("Export truncated");
+  });
+
+  it("tolerates missing cloned nodes when truncation reaches beyond the cloned subtree", async () => {
+    const originalClone = Element.prototype.cloneNode;
+    Element.prototype.cloneNode = function () {
+      return originalClone.call(this, false);
+    };
+
+    document.body.innerHTML = "<div id=\"root\"><span>One</span><span>Two</span></div>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#root", { maxNodes: 1 });
+
+    Element.prototype.cloneNode = originalClone;
+    expect(result.html).toContain("id=\"root\"");
+    expect(result.warnings[0]).toContain("Export truncated");
+  });
+
+  it("tolerates sparse cloned descendants during truncation cleanup", async () => {
+    const originalClone = Element.prototype.cloneNode;
+    Element.prototype.cloneNode = function (deep?: boolean) {
+      const clone = originalClone.call(this, deep);
+      clone.querySelectorAll = (() => [undefined]) as typeof clone.querySelectorAll;
+      return clone;
+    };
+
+    document.body.innerHTML = "<div id=\"root\"><span>One</span><span>Two</span></div>";
+    const page = createPage();
+    const result = await captureDom(page as never, "#root", { maxNodes: 1 });
+
+    Element.prototype.cloneNode = originalClone;
+    expect(result.html).toContain("id=\"root\"");
     expect(result.warnings[0]).toContain("Export truncated");
   });
 

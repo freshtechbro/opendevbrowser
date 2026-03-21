@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
+import { runMacroResolve } from "../src/cli/commands/macro-resolve";
 import { runProductVideoCommand } from "../src/cli/commands/product-video";
 import { runResearchCommand } from "../src/cli/commands/research";
 import { runShoppingCommand } from "../src/cli/commands/shopping";
@@ -65,6 +66,35 @@ describe("workflow CLI commands", () => {
     expect(result).toMatchObject({ success: true });
   });
 
+  it("supports explicit timeout for research workflows", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runResearchCommand(makeArgs("research", [
+      "run",
+      "--topic=browser automation",
+      "--timeout-ms=45000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("research.run", {
+      topic: "browser automation",
+      days: undefined,
+      from: undefined,
+      to: undefined,
+      sourceSelection: undefined,
+      sources: undefined,
+      mode: "compact",
+      includeEngagement: false,
+      limitPerSource: undefined,
+      timeoutMs: 45000,
+      outputDir: undefined,
+      ttlHours: undefined,
+      useCookies: undefined,
+      cookiePolicyOverride: undefined
+    }, {
+      timeoutMs: 45000
+    });
+  });
+
   it("parses and dispatches shopping run payload", async () => {
     callDaemon.mockResolvedValue({ ok: true });
 
@@ -119,6 +149,26 @@ describe("workflow CLI commands", () => {
     });
   });
 
+  it("supports explicit timeout for macro-resolve execution", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runMacroResolve(makeArgs("macro-resolve", [
+      "--expression=@media.search(\"browser automation x\", \"x\", 5)",
+      "--execute",
+      "--timeout-ms=45000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("macro.resolve", {
+      expression: "@media.search(\"browser automation x\", \"x\", 5)",
+      defaultProvider: undefined,
+      includeCatalog: false,
+      execute: true,
+      timeoutMs: 45000
+    }, {
+      timeoutMs: 45000
+    });
+  });
+
   it("parses and dispatches product-video run payload", async () => {
     callDaemon.mockResolvedValue({ ok: true });
 
@@ -142,10 +192,9 @@ describe("workflow CLI commands", () => {
       include_copy: false,
       output_dir: "/tmp/assets",
       ttl_hours: 48,
+      timeoutMs: 120000,
       useCookies: undefined,
       cookiePolicyOverride: undefined
-    }, {
-      timeoutMs: 120000
     });
   });
 
@@ -167,10 +216,9 @@ describe("workflow CLI commands", () => {
       include_copy: undefined,
       output_dir: undefined,
       ttl_hours: undefined,
+      timeoutMs: 45000,
       useCookies: undefined,
       cookiePolicyOverride: undefined
-    }, {
-      timeoutMs: 45000
     });
   });
 
@@ -211,7 +259,7 @@ describe("workflow CLI commands", () => {
       product_name: "Device",
       useCookies: false,
       cookiePolicyOverride: "off"
-    }), { timeoutMs: 120000 });
+    }));
   });
 
   it("enforces run subcommand and required input", async () => {

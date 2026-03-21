@@ -15,6 +15,8 @@ Use this skill when you need:
 - diagnostics for QA/debug (`console`, `network`, trace context),
 - safe write flows with explicit policy notice.
 
+For frontend, design-system, screenshot-to-code, or `/canvas` composition tasks, load `opendevbrowser-design-agent` immediately after this pack so the work is design-contract-first instead of operations-only.
+
 ## Pack Contents
 
 - `artifacts/provider-workflows.md` — canonical provider execution flows.
@@ -67,6 +69,13 @@ npx opendevbrowser help
 ./skills/opendevbrowser-best-practices/scripts/run-robustness-audit.sh
 ```
 
+6. Pair with the dedicated design pack for frontend work:
+
+```bash
+./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-design-agent/scripts/design-workflow.sh contract-first
+```
+
 ## Agent Sync Targets
 
 Skill-pack installation and discovery are synchronized for:
@@ -83,7 +92,7 @@ Legacy compatibility aliases `claude` and `amp` are preserved in installer targe
 - Use one action per decision loop: snapshot -> action -> snapshot.
 - Keep a single correlation context (`requestId`, `sessionId`) across a run.
 - Run the same workflow shape across all three modes before claiming parity.
-- Default to read/research workflows. Social posting probes remain disabled unless explicitly requested via matrix opt-in (`--include-social-posts`).
+- Default to read/research workflows. Social posting probes remain disabled unless explicitly requested via direct-run opt-in (`--include-social-posts`).
 - Apply rate-limit/backoff discipline (`Retry-After` aware) whenever 429 pressure appears.
 - Re-check extension readiness on resume when a run crosses idle windows.
 
@@ -171,6 +180,7 @@ Use the router script to avoid retyping flows:
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh qa-debug
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh social-readonly-check
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh parity-check
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh release-direct-gates
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh surface-audit
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh ops-channel-check
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh cdp-channel-check
@@ -194,16 +204,24 @@ Parity gate test:
 npm run test -- tests/parity-matrix.test.ts
 ```
 
+Treat `tests/parity-matrix.test.ts` as contract coverage only. Live release proof comes from the direct-run harnesses below.
+This pack is the canonical owner of direct-run release evidence policy; other docs and skill packs should point here instead of restating the full policy.
+
 Real-world provider+mode scenario harness (soak replacement):
 
 ```bash
 npm run build
-node scripts/provider-live-matrix.mjs --use-global-env --skip-live-regression --out artifacts/provider-live-realworld.json
+node scripts/provider-direct-runs.mjs --out artifacts/provider-direct-realworld.json
+node scripts/live-regression-direct.mjs --out artifacts/live-regression-direct.json
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (56 CLI commands, 49 tools, 38 `/ops` commands, 26 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
+- `docs/SURFACE_REFERENCE.md` (56 CLI commands, 49 tools, 44 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
+
+Direct-run release note:
+- `scripts/live-regression-direct.mjs` is the preferred release harness for `/canvas`, annotate, and CLI smoke. It uses temporary managed profiles for managed probes, waits for `/ops` drain before the legacy `/cdp` step, and keeps manual annotation timeouts as explicit `skipped` boundaries in `--release-gate` mode.
+- `scripts/provider-direct-runs.mjs --use-global-env --include-high-friction --include-auth-gated` is the preferred provider release harness. Treat `provider-live-matrix` and `live-regression-matrix` as debug-only helpers, not refreshed release evidence.
 
 ## Canvas Governance Handshake
 
@@ -233,20 +251,21 @@ Recommended command order:
    - `validationTargets`
 4. Only after the plan is accepted, call `canvas.document.patch`.
 5. Use `canvas.preview.render`, `canvas.tab.open`, `canvas.overlay.mount`, and `canvas.overlay.select` when a browser-backed live view is required.
-6. Use `canvas.feedback.poll` between mutation rounds and `canvas.document.save` or `canvas.document.export` to persist artifacts.
+6. Use `canvas.feedback.poll` for snapshot audits between mutation rounds, and use `canvas.feedback.subscribe` -> `canvas.feedback.next` -> `canvas.feedback.unsubscribe` when a live pull-stream is needed.
+7. Use `canvas.document.save` or `canvas.document.export` to persist artifacts.
 
 Code-sync surface:
 - `canvas.session.attach` joins an existing canvas session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
 - `canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` manage TSX-first document bindings when a canvas file is round-tripped to repo code.
 
 Current `/canvas` parity notes:
-- All 26 public `canvas.*` commands are agent-callable through `opendevbrowser_canvas` and `opendevbrowser canvas --command ...`.
+- All 35 public `canvas.*` commands are agent-callable through `opendevbrowser_canvas` and `opendevbrowser canvas --command ...`.
 - `canvas.feedback.subscribe` live streaming is public through the CLI only: use `--output-format stream-json` for the built-in polling bridge.
-- Tool-driven agents can achieve the same behavior by calling `canvas.feedback.subscribe` once and then looping on `canvas.feedback.poll` with the returned cursor.
+- Tool-driven agents can achieve the same public streaming behavior by calling `canvas.feedback.subscribe`, then repeating `canvas.feedback.next`, and finally `canvas.feedback.unsubscribe`.
 - `canvas.tab.sync` and `canvas.overlay.sync` are internal extension runtime helpers, not public commands.
 - `canvas_html` is still the default preview/export contract. `bound_app_runtime` is opt-in and only valid when runtime preflight and app-side instrumentation succeed.
 - Component and icon libraries currently render semantically, not package-faithfully. Treat `shadcn`, `tailwindcss`, `tabler`, `microsoft-fluent-ui-system-icons`, `3dicons`, and `@lobehub/fluent-emoji-3d` as metadata and constrained render lanes, not as general library import/export parity.
-- Annotation remains a separate surface today, but popup and canvas both ship per-item and combined `Copy` / `Send` actions. The remaining gap is that `Send` persists payloads for later `annotate --stored` retrieval instead of proactively injecting them into the active agent chat.
+- Annotation remains a separate surface today, but popup and canvas both ship per-item and combined `Copy` / `Send` actions. `Send` now delivers directly into the active agent chat when scope is safe and degrades to stored-only `annotate --stored` retrieval when scope is missing, ambiguous, or relay enqueue fails.
 
 Tailwind usage rule:
 - When `allowedLibraries.styling` includes `tailwindcss`, use it for layout, spacing, responsive, and state styling over canonical tokens/theme variables.
@@ -257,6 +276,7 @@ Failure handling:
 - `plan_required`: immediately call `canvas.plan.set`.
 - `revision_conflict`: reload with `canvas.document.load` and replay the patch batch against the latest revision.
 - `unsupported_target` or `restricted_url`: move the preview to a normal http(s) tab or fall back to managed mode.
+- If a freshly rebuilt unpacked extension still shows old `/canvas` or popup behavior, reload the extension in Chrome before trusting the live result; stale MV3 runtime state can preserve old service-worker logic after `npm run extension:build`.
 
 Operational references:
 - `artifacts/canvas-governance-playbook.md`

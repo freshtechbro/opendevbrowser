@@ -56,5 +56,6 @@ describe("skill nudge", () => {
     const message = buildSkillNudgeMessage();
     expect(message).toContain(SKILL_NUDGE_MARKER);
     expect(message).toContain('skill("opendevbrowser-best-practices", "quick start")');
+    expect(message).toContain('skill("opendevbrowser-design-agent")');
   });
 });

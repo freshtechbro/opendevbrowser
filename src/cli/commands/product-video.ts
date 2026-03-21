@@ -178,9 +178,10 @@ export async function runProductVideoCommand(args: ParsedArgs) {
     include_copy: parsed.includeCopy,
     output_dir: parsed.outputDir,
     ttl_hours: parsed.ttlHours,
+    timeoutMs,
     useCookies: parsed.useCookies,
     cookiePolicyOverride: parsed.cookiePolicyOverride
-  }, { timeoutMs });
+  });
 
   return {
     success: true,

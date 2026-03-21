@@ -40,6 +40,43 @@ describe("social platform adapters", () => {
     }
   });
 
+  it("times out social retrieval when the response body never resolves after headers arrive", async () => {
+    const cancel = vi.fn(async () => undefined);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => await new Promise<string>(() => undefined),
+      body: {
+        cancel
+      }
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        budgets: {
+          timeoutMs: {
+            search: 25,
+            fetch: 25,
+            crawl: 25,
+            post: 25
+          }
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "social", providerIds: ["social/facebook"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error.code).toBe("timeout");
+      expect(result.failures[0]?.error.message).toContain("25ms");
+      expect(cancel).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("falls back to browser retrieval for auth-blocked social defaults across all social platforms (including reddit)", async () => {
     const fallbackResolve = vi.fn(async (request: {
       reasonCode: "token_required" | "auth_required" | "challenge_detected" | "rate_limited" | "env_limited" | "ip_blocked";

@@ -3,8 +3,8 @@
   "expectedCounts": {
     "cliCommands": 56,
     "tools": 49,
-    "opsCommands": 38,
-    "canvasCommands": 26
+    "opsCommands": 44,
+    "canvasCommands": 35
   },
   "docsMustCover": [
     "README.md",

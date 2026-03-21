@@ -347,7 +347,12 @@ const fetchRuntimeDocument = async (args: {
   }
 
   const resolvedUrl = canonicalizeUrl(response.url || args.url);
-  const html = await response.text();
+  const html = await readResponseTextWithAbort(response, {
+    signal: args.signal,
+    provider: args.provider,
+    source: args.source,
+    url: args.url
+  });
   const extracted = extractStructuredContent(html, resolvedUrl);
   return {
     url: resolvedUrl,
@@ -356,6 +361,61 @@ const fetchRuntimeDocument = async (args: {
     text: extracted.text,
     links: extracted.links
   };
+};
+
+const readResponseTextWithAbort = async (
+  response: Response,
+  args: {
+    signal?: AbortSignal;
+    provider: string;
+    source: RuntimeFetchSource;
+    url: string;
+  }
+): Promise<string> => {
+  if (!args.signal) {
+    return response.text();
+  }
+
+  const timeoutError = (cause?: unknown) => new ProviderRuntimeError("timeout", `Timed out retrieving ${args.url}`, {
+    provider: args.provider,
+    source: args.source,
+    retryable: true,
+    ...(cause !== undefined ? { cause } : {})
+  });
+
+  if (args.signal.aborted) {
+    try {
+      void response.body?.cancel?.();
+    } catch {
+      // Best effort only.
+    }
+    throw timeoutError(args.signal.reason);
+  }
+
+  let removeAbortListener: (() => void) | undefined;
+  const abortPromise = new Promise<string>((_, reject) => {
+    const onAbort = () => {
+      try {
+        void response.body?.cancel?.();
+      } catch {
+        // Best effort only.
+      }
+      reject(timeoutError(args.signal?.reason));
+    };
+    args.signal?.addEventListener("abort", onAbort, { once: true });
+    removeAbortListener = () => args.signal?.removeEventListener("abort", onAbort);
+  });
+
+  try {
+    return await Promise.race([response.text(), abortPromise]);
+  } catch (error) {
+    if (args.signal.aborted) {
+      throw timeoutError(error);
+    }
+    throw error;
+  } finally {
+    removeAbortListener?.();
+  }
 };
 
 const fetchRuntimeDocumentWithFallback = async (args: {

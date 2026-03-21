@@ -79,7 +79,8 @@ export async function runMacroResolve(args: ParsedArgs) {
     expression: parsed.expression,
     defaultProvider: parsed.defaultProvider,
     includeCatalog: parsed.includeCatalog ?? false,
-    execute: parsed.execute ?? false
+    execute: parsed.execute ?? false,
+    ...(typeof parsed.timeoutMs === "number" ? { timeoutMs: parsed.timeoutMs } : {})
   };
   const result = typeof parsed.timeoutMs === "number"
     ? await callDaemon("macro.resolve", params, { timeoutMs: parsed.timeoutMs })

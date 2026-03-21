@@ -102,7 +102,11 @@ describe("crawl worker pool", () => {
     await expect(second).resolves.toEqual({
       text: "Second",
       links: ["https://example.com/two"],
-      selectors: { p: ["Second"] }
+      selectors: { p: ["Second"] },
+      metadata: {
+        imageUrls: [],
+        features: []
+      }
     });
 
     await pool.close();
@@ -246,7 +250,11 @@ describe("crawl worker pool", () => {
     })).toEqual({
       text: "helper",
       links: [],
-      selectors: { h3: ["helper"] }
+      selectors: { h3: ["helper"] },
+      metadata: {
+        imageUrls: [],
+        features: []
+      }
     });
   });
 
@@ -379,6 +387,10 @@ describe("crawl worker pool", () => {
         links: [],
         selectors: {
           p: []
+        },
+        metadata: {
+          imageUrls: [],
+          features: []
         }
       }
     });

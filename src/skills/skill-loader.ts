@@ -2,15 +2,18 @@ import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import * as os from "os";
 import type { SkillInfo, SkillMetadata } from "./types";
+import { findBundledSkillsDir } from "../utils/package-assets";
 
 export class SkillLoader {
   private rootDir: string;
   private additionalPaths: string[];
+  private bundledSkillsDir: string | null;
   private skillCache: SkillInfo[] | null = null;
 
   constructor(rootDir: string, additionalPaths: string[] = []) {
     this.rootDir = rootDir;
     this.additionalPaths = additionalPaths.map((p) => this.expandPath(p));
+    this.bundledSkillsDir = findBundledSkillsDir();
   }
 
   private expandPath(p: string): string {
@@ -90,7 +93,8 @@ export class SkillLoader {
       join(this.getClaudeCodeHome(), "skills"),
       join(this.rootDir, ".amp", "skills"),
       join(this.getAmpHome(), "skills"),
-      ...this.additionalPaths
+      ...this.additionalPaths,
+      ...(this.bundledSkillsDir ? [this.bundledSkillsDir] : [])
     ];
 
     return Array.from(new Set(searchPaths));

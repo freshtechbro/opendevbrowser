@@ -146,7 +146,8 @@ describe("workflow tools", () => {
     const response = parse(await tool.execute({
       product_url: "https://example.com/product",
       include_screenshots: true,
-      include_all_images: false
+      include_all_images: false,
+      timeoutMs: 9876
     } as never));
 
     expect(response.ok).toBe(true);
@@ -154,6 +155,10 @@ describe("workflow tools", () => {
     expect(deps.manager.launch).toHaveBeenCalledTimes(1);
     expect(deps.manager.screenshot).toHaveBeenCalledTimes(1);
     expect(deps.manager.disconnect).toHaveBeenCalledTimes(1);
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/product" },
+      expect.objectContaining({ timeoutMs: 9876 })
+    );
   });
 
   it("returns structured errors when required workflow input is missing", async () => {

@@ -43,6 +43,7 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
       include_copy: z.boolean().optional().describe("Include product copy extraction (default true)"),
       output_dir: z.string().optional().describe("Optional output directory"),
       ttl_hours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
+      timeoutMs: z.number().int().positive().optional().describe("Workflow timeout in milliseconds"),
       useCookies: z.boolean().optional().describe("Enable/disable provider cookie injection for this run"),
       cookiePolicyOverride: cookiePolicySchema.optional().describe("Override cookie policy: off|auto|required")
     },
@@ -60,6 +61,7 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
           include_copy: args.include_copy,
           output_dir: args.output_dir,
           ttl_hours: args.ttl_hours,
+          timeoutMs: args.timeoutMs,
           useCookies: args.useCookies,
           cookiePolicyOverride: args.cookiePolicyOverride
         }, {

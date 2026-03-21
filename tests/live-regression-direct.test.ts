@@ -1,0 +1,88 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildChildArgs,
+  buildScenarioCases,
+  classifyScenarioPreflight,
+  parseCliOptions
+} from "../scripts/live-regression-direct.mjs";
+import { parseJsonFromStdout } from "../scripts/live-direct-utils.mjs";
+
+describe("live-regression-direct", () => {
+  it("parses --release-gate", () => {
+    const parsed = parseCliOptions(["--release-gate"]);
+    expect(parsed.releaseGate).toBe(true);
+  });
+
+  it("builds explicit direct scenario cases", () => {
+    const scenarios = buildScenarioCases();
+    const ids = scenarios.map((entry) => entry.id);
+    const cdp = scenarios.find((entry) => entry.id === "feature.canvas.cdp");
+
+    expect(ids).toEqual([
+      "feature.canvas.managed_headless",
+      "feature.canvas.managed_headed",
+      "feature.canvas.extension",
+      "feature.canvas.cdp",
+      "feature.annotate.relay",
+      "feature.annotate.direct",
+      "feature.cli.smoke"
+    ]);
+    expect(cdp?.requiresOpsDisconnect).toBeUndefined();
+  });
+
+  it("only forwards --release-gate to child scripts that support it", () => {
+    const scenarios = buildScenarioCases();
+    const canvas = scenarios.find((entry) => entry.id === "feature.canvas.extension");
+    const annotate = scenarios.find((entry) => entry.id === "feature.annotate.relay");
+
+    expect(buildChildArgs(canvas, true)).toEqual(["--surface", "extension"]);
+    expect(buildChildArgs(annotate, true)).toEqual(["--transport", "relay", "--release-gate"]);
+  });
+
+  it("fails extension scenarios when the relay disconnects after a healthy initial preflight", () => {
+    const result = classifyScenarioPreflight({
+      scenario: { id: "feature.canvas.cdp", requiresExtension: true },
+      initialDaemonOk: true,
+      initialExtensionReady: true,
+      currentDaemonStatus: {
+        status: 0,
+        json: {
+          data: {
+            relay: {
+              extensionHandshakeComplete: false
+            }
+          }
+        }
+      }
+    });
+
+    expect(result).toEqual({
+      status: "fail",
+      detail: "extension_disconnected_after_start",
+      data: {
+        relay: {
+          extensionHandshakeComplete: false
+        }
+      }
+    });
+  });
+
+  it("parses trailing pretty-printed child JSON blocks", () => {
+    const parsed = parseJsonFromStdout([
+      "/tmp/example-artifact.json",
+      "{",
+      '  "ok": true,',
+      '  "summary": {',
+      '    "status": "pass"',
+      "  }",
+      "}"
+    ].join("\n"));
+
+    expect(parsed).toEqual({
+      ok: true,
+      summary: {
+        status: "pass"
+      }
+    });
+  });
+});
