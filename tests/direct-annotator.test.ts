@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { resolveDirectAnnotateAssets, runDirectAnnotate } from "../src/annotate/direct-annotator";
+import { ANNOTATION_MANUAL_COMPLETION_TIMEOUT_MESSAGE } from "../src/annotate/timeout-messages";
 import type { BrowserManagerLike } from "../src/browser/manager-types";
 
 type MockPage = {
@@ -72,12 +73,12 @@ const createMockPage = (options: {
       runtime?.onMessage?.addListener?.((message: { type?: string; requestId?: string; options?: { screenshotMode?: string } }, _sender, sendResponse) => {
         if (message.type === "annotation:ping") {
           if (!options.skipPingResponse) {
-            sendResponse?.({ ok: true });
+            sendResponse?.({ ok: true, active: false, bootId: "boot-test" });
           }
           return true;
         }
         if (message.type === "annotation:start") {
-          sendResponse?.({ ok: true });
+          sendResponse?.({ ok: true, active: true, bootId: "boot-test" });
           const completionType = options.completionType ?? "ok";
           if (completionType === "none") {
             return true;
@@ -213,6 +214,7 @@ describe("runDirectAnnotate", () => {
 
     expect(result.status).toBe("error");
     expect(result.error?.code).toBe("timeout");
+    expect(result.error?.message).toBe(ANNOTATION_MANUAL_COMPLETION_TIMEOUT_MESSAGE);
     expect(page.cancelled).toBe(true);
   });
 

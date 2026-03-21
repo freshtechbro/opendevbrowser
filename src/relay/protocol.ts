@@ -17,6 +17,11 @@ export type RelayEvent = {
   };
 };
 
+export type RelayCdpControl = {
+  type: "cdp_control";
+  action: "client_closed";
+};
+
 export type RelayResponse = {
   id: string | number;
   result?: unknown;
@@ -323,6 +328,7 @@ export type CanvasEventType =
   | "canvas_lease_changed"
   | "canvas_feedback_item"
   | "canvas_patch_requested"
+  | "canvas_history_requested"
   | "canvas_code_sync_started"
   | "canvas_code_sync_applied"
   | "canvas_code_sync_conflict"
@@ -419,12 +425,30 @@ export type AnnotationDispatchSource =
   | "canvas_item"
   | "canvas_all";
 
+export type AgentInboxDeliveryState = "queued" | "delivered" | "stored_only" | "consumed";
+
+export type AgentInboxReceipt = {
+  receiptId: string;
+  deliveryState: AgentInboxDeliveryState;
+  storedFallback: boolean;
+  reason?: string;
+  chatScopeKey?: string | null;
+  createdAt: string;
+  itemCount: number;
+  byteLength: number;
+  source: AnnotationDispatchSource;
+  label: string;
+};
+
 export type AnnotationCommand = {
   version: 1;
   requestId: string;
-  command: "start" | "cancel" | "fetch_stored";
+  command: "start" | "cancel" | "fetch_stored" | "store_agent_payload";
   url?: string;
   tabId?: number;
+  payload?: AnnotationPayload;
+  source?: AnnotationDispatchSource;
+  label?: string;
   options?: {
     screenshotMode?: AnnotationScreenshotMode;
     debug?: boolean;
@@ -525,6 +549,7 @@ export type AnnotationResponse = {
   status: "ok" | "cancelled" | "error";
   error?: { code: AnnotationErrorCode; message: string };
   payload?: AnnotationPayload;
+  receipt?: AgentInboxReceipt;
 };
 
 export type AnnotationEvent = {

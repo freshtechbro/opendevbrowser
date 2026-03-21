@@ -96,6 +96,7 @@ describe("ScriptRunner", () => {
     ]);
 
     expect(result.results[0].error?.message).toBe("Unknown error");
+    expect(manager.goto).toHaveBeenCalledTimes(1);
   });
 
   it("supports snapshot format alias", async () => {
@@ -164,6 +165,18 @@ describe("ScriptRunner", () => {
     ]);
 
     expect(manager.click).toHaveBeenCalledTimes(2);
+    expect(result.results[0].ok).toBe(true);
+  });
+
+  it("allows press actions without a ref target", async () => {
+    const manager = createManager();
+    const runner = new ScriptRunner(manager as never);
+
+    const result = await runner.run("s1", [
+      { action: "press", args: { key: "Escape" } }
+    ]);
+
+    expect(manager.press).toHaveBeenCalledWith("s1", "Escape", undefined);
     expect(result.results[0].ok).toBe(true);
   });
 

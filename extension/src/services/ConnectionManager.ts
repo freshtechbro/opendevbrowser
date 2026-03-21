@@ -1,8 +1,11 @@
 import type {
+  AnnotationCommand,
+  AnnotationResponse,
   ConnectionStatus,
   RelayAnnotationCommand,
   RelayAnnotationEvent,
   RelayAnnotationResponse,
+  RelayCdpControl,
   RelayHandshake,
   RelayHandshakeAck,
   RelayHealthStatus,
@@ -194,6 +197,77 @@ export class ConnectionManager {
     }
   }
 
+  async sendAnnotationCommand(
+    command: AnnotationCommand,
+    timeoutMs = 5000
+  ): Promise<AnnotationResponse> {
+    const socket = new WebSocket(this.buildAnnotationUrl());
+    let settled = false;
+
+    return await new Promise<AnnotationResponse>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        finish(() => reject(new Error("Annotation relay request timed out")));
+      }, timeoutMs);
+
+      const finish = (callback: () => void) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeoutId);
+        try {
+          if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+            socket.close(1000, "annotation-command-complete");
+          }
+        } catch {
+          // Ignore socket close failures during cleanup.
+        }
+        callback();
+      };
+
+      socket.addEventListener("open", () => {
+        try {
+          socket.send(JSON.stringify({
+            type: "annotationCommand",
+            payload: command
+          } satisfies RelayAnnotationCommand));
+        } catch (error) {
+          finish(() => reject(error instanceof Error ? error : new Error("Annotation relay send failed")));
+        }
+      }, { once: true });
+
+      socket.addEventListener("message", (event) => {
+        if (typeof event.data !== "string") {
+          return;
+        }
+        try {
+          const message = JSON.parse(event.data) as Record<string, unknown>;
+          if (message.type !== "annotationResponse") {
+            return;
+          }
+          const payload = message.payload;
+          if (!isAnnotationResponse(payload) || payload.requestId !== command.requestId) {
+            return;
+          }
+          finish(() => resolve(payload));
+        } catch {
+          // Ignore malformed one-off annotation responses.
+        }
+      });
+
+      socket.addEventListener("error", () => {
+        finish(() => reject(new Error("Annotation relay unavailable")));
+      }, { once: true });
+
+      socket.addEventListener("close", () => {
+        if (settled) {
+          return;
+        }
+        finish(() => reject(new Error("Annotation relay closed")));
+      }, { once: true });
+    });
+  }
+
   async connect(): Promise<void> {
     if (this.connectPromise) {
       return await this.connectPromise;
@@ -275,6 +349,42 @@ export class ConnectionManager {
     }
   }
 
+  private async getFirstHttpFallbackTab(currentTabId?: number): Promise<chrome.tabs.Tab | null> {
+    const fallbackTab = await this.tabs.getFirstAttachableTab(currentTabId);
+    if (!fallbackTab || typeof fallbackTab.id !== "number" || !fallbackTab.url) {
+      return null;
+    }
+    logInfo("Falling back to first http(s) tab.");
+    return fallbackTab;
+  }
+
+  private async bootstrapRelayAttachTab(): Promise<chrome.tabs.Tab | null> {
+    try {
+      const fallbackTab = await this.tabs.createTab("about:blank", true);
+      if (fallbackTab && typeof fallbackTab.id === "number") {
+        logInfo("Bootstrapping a fresh browser tab for relay attach.");
+        return fallbackTab;
+      }
+    } catch {
+      // Ignore tab creation failures and let the caller surface the original error.
+    }
+    return null;
+  }
+
+  private async resolveRelayAttachFallback(
+    currentTabId?: number
+  ): Promise<{ tab: chrome.tabs.Tab | null; allowBlankRelayFallback: boolean }> {
+    const httpTab = await this.getFirstHttpFallbackTab(currentTabId);
+    if (httpTab) {
+      return { tab: httpTab, allowBlankRelayFallback: false };
+    }
+    const blankTab = await this.bootstrapRelayAttachTab();
+    if (blankTab) {
+      return { tab: blankTab, allowBlankRelayFallback: true };
+    }
+    return { tab: null, allowBlankRelayFallback: false };
+  }
+
   private startHeartbeat(): void {
     if (this.heartbeatTimer !== null) {
       return;
@@ -316,25 +426,28 @@ export class ConnectionManager {
 
   private async attachToActiveTab(): Promise<void> {
     let tab = await this.tabs.getActiveTab();
+    let allowBlankRelayFallback = false;
     if (!tab || typeof tab.id !== "number") {
-      this.trackedTab = null;
-      this.setStatus("disconnected");
-      logWarn("Active tab not found.");
-      throw new ConnectionError(
-        "no_active_tab",
-        "No active browser tab found. Focus a normal tab (not the popup) and retry."
-      );
+      const fallback = await this.resolveRelayAttachFallback();
+      tab = fallback.tab;
+      allowBlankRelayFallback = fallback.allowBlankRelayFallback;
+      if (!tab || typeof tab.id !== "number") {
+        this.trackedTab = null;
+        this.setStatus("disconnected");
+        logWarn("Active tab not found.");
+        throw new ConnectionError(
+          "no_active_tab",
+          "No active browser tab found. Focus a normal tab (not the popup) and retry."
+        );
+      }
     }
 
     if (!tab.url) {
       logWarn("Active tab URL missing.");
-      const fallbackId = await this.tabs.getFirstHttpTabId();
-      if (fallbackId && fallbackId !== tab.id) {
-        const fallbackTab = await this.tabs.getTab(fallbackId);
-        if (fallbackTab && typeof fallbackTab.id === "number" && fallbackTab.url) {
-          logInfo("Falling back to first http(s) tab.");
-          tab = fallbackTab;
-        }
+      const fallback = await this.resolveRelayAttachFallback(tab.id);
+      if (fallback.tab) {
+        tab = fallback.tab;
+        allowBlankRelayFallback ||= fallback.allowBlankRelayFallback;
       }
       if (!tab.url) {
         throw new ConnectionError("tab_url_missing", "Active tab URL is unavailable. Reload the tab and retry.");
@@ -351,17 +464,14 @@ export class ConnectionManager {
 
     if (!parsedUrl) {
       logWarn("Active tab URL is invalid.");
-      const fallbackId = await this.tabs.getFirstHttpTabId();
-      if (fallbackId && fallbackId !== tab.id) {
-        const fallbackTab = await this.tabs.getTab(fallbackId);
-        if (fallbackTab && typeof fallbackTab.id === "number" && fallbackTab.url) {
-          logInfo("Falling back to first http(s) tab.");
-          try {
-            parsedUrl = new URL(fallbackTab.url);
-            tab = fallbackTab;
-          } catch {
-            parsedUrl = null;
-          }
+      const fallback = await this.resolveRelayAttachFallback(tab.id);
+      if (fallback.tab) {
+        tab = fallback.tab;
+        allowBlankRelayFallback ||= fallback.allowBlankRelayFallback;
+        try {
+          parsedUrl = tab.url ? new URL(tab.url) : null;
+        } catch {
+          parsedUrl = null;
         }
       }
       if (!parsedUrl) {
@@ -375,25 +485,20 @@ export class ConnectionManager {
     const restrictionMessage = getRestrictionMessage(parsedUrl);
     if (restrictionMessage) {
       logWarn(`Active tab blocked: ${summarizeProtocol(tab.url)} scheme.`);
-      const fallbackId = await this.tabs.getFirstHttpTabId();
-      if (fallbackId && fallbackId !== tab.id) {
-        const fallbackTab = await this.tabs.getTab(fallbackId);
-        if (fallbackTab && typeof fallbackTab.id === "number" && fallbackTab.url) {
-          try {
-            const fallbackUrl = new URL(fallbackTab.url);
-            const fallbackRestriction = getRestrictionMessage(fallbackUrl);
-            if (!fallbackRestriction) {
-              logInfo("Falling back to first http(s) tab.");
-              tab = fallbackTab;
-              parsedUrl = fallbackUrl;
-            }
-          } catch {
-            // Ignore invalid fallback URL.
-          }
+      const fallback = await this.resolveRelayAttachFallback(tab.id);
+      if (fallback.tab) {
+        tab = fallback.tab;
+        allowBlankRelayFallback ||= fallback.allowBlankRelayFallback;
+        try {
+          parsedUrl = tab.url ? new URL(tab.url) : null;
+        } catch {
+          parsedUrl = null;
         }
       }
-      if (restrictionMessage && getRestrictionMessage(parsedUrl)) {
-        throw new ConnectionError("tab_url_restricted", restrictionMessage);
+      if (restrictionMessage && (!parsedUrl || getRestrictionMessage(parsedUrl))) {
+        if (!allowBlankRelayFallback) {
+          throw new ConnectionError("tab_url_restricted", restrictionMessage);
+        }
       }
     }
 
@@ -441,6 +546,9 @@ export class ConnectionManager {
           logError("cdp.handle_command", error, { code: "cdp_command_failed" });
           this.handleCdpDetach({ reason: "cdp_command_failed" });
         });
+      },
+      onCdpControl: (message) => {
+        this.handleCdpControl(message);
       },
       onAnnotationCommand: (command) => {
         this.annotationHandler?.(command);
@@ -504,6 +612,7 @@ export class ConnectionManager {
   private handleRelayClose(detail?: { code?: number; reason?: string }): void {
     this.stopHeartbeat();
     this.relay = null;
+    this.cdp.markClientClosed();
     if (detail && (detail.code === 1008 || detail.reason?.includes("Invalid pairing token"))) {
       this.clearStoredPairingToken();
     }
@@ -532,12 +641,50 @@ export class ConnectionManager {
     if (this.cdp.getAttachedTabIds().length > 0) {
       return;
     }
+    if (detail?.reason === "manual_disconnect") {
+      void this.recoverFromManualDetach(detail);
+      return;
+    }
     this.setStatus("disconnected");
     if (this.relay?.isConnected()) {
       this.relay.disconnect();
       return;
     }
     this.scheduleReconnect();
+  }
+
+  private async recoverFromManualDetach(detail?: { tabId?: number; reason?: string }): Promise<void> {
+    try {
+      const preferredTabId = typeof detail?.tabId === "number" ? detail.tabId : this.trackedTab?.id ?? null;
+      if (typeof preferredTabId === "number") {
+        await this.cdp.attach(preferredTabId);
+        const recoveredTabId = this.cdp.getPrimaryTabId() ?? preferredTabId;
+        await this.refreshTrackedTab(recoveredTabId, { preserveCurrentOnRestricted: true });
+      } else {
+        await this.attachToActiveTab();
+      }
+      if (!this.relay?.isConnected()) {
+        this.scheduleReconnect();
+        return;
+      }
+      this.setStatus("connected");
+      this.refreshHandshake();
+    } catch (error) {
+      logError("connection.manual_detach_recover", error, { code: "tracked_tab_refresh_failed" });
+      this.setStatus("disconnected");
+      if (this.relay?.isConnected()) {
+        this.relay.disconnect();
+        return;
+      }
+      this.scheduleReconnect();
+    }
+  }
+
+  private handleCdpControl(message: RelayCdpControl): void {
+    if (message.action !== "client_closed") {
+      return;
+    }
+    this.cdp.markClientClosed();
   }
 
   private scheduleReconnect(): void {
@@ -618,11 +765,30 @@ export class ConnectionManager {
     if (!this.trackedTab || this.trackedTab.id !== tabId) {
       return;
     }
-    if (this.cdp.getAttachedTabIds().length <= 1) {
+    const attachedTabIds = this.cdp.getAttachedTabIds().filter((attachedId) => attachedId !== tabId);
+    if (attachedTabIds.length === 0) {
       this.disconnect().catch((error) => {
         logError("connection.tab_removed_disconnect", error, { code: "disconnect_failed" });
       });
+      return;
     }
+    const primaryTabId = this.cdp.getPrimaryTabId();
+    const nextTrackedTabId = primaryTabId && primaryTabId !== tabId
+      ? primaryTabId
+      : attachedTabIds[0] ?? null;
+    if (!nextTrackedTabId) {
+      this.disconnect().catch((error) => {
+        logError("connection.tab_removed_disconnect", error, { code: "disconnect_failed" });
+      });
+      return;
+    }
+    this.refreshTrackedTab(nextTrackedTabId, { preserveCurrentOnRestricted: true })
+      .then(() => {
+        this.refreshHandshake();
+      })
+      .catch((error) => {
+        logError("connection.tab_removed_refresh", error, { code: "tracked_tab_refresh_failed" });
+      });
   };
 
   private handleTabUpdated = (_tabId: number, _changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => {
@@ -774,6 +940,14 @@ export class ConnectionManager {
     return `ws://127.0.0.1:${this.relayPort}/extension`;
   }
 
+  private buildAnnotationUrl(): string {
+    const port = this.relayConfirmedPort ?? this.relayPort;
+    const query = this.pairingEnabled && this.pairingToken
+      ? `?token=${encodeURIComponent(this.pairingToken)}`
+      : "";
+    return `ws://127.0.0.1:${port}/annotation${query}`;
+  }
+
   private async refreshRelay(): Promise<void> {
     if (this.status !== "connected") return;
     await this.disconnect();
@@ -782,24 +956,75 @@ export class ConnectionManager {
 
   private async handlePrimaryTabChange(tabId: number | null): Promise<void> {
     if (!tabId) {
+      const trackedTabId = this.trackedTab?.id;
+      if (this.shouldReconnect && !this.disconnecting && typeof trackedTabId === "number") {
+        const trackedTab = await this.tabs.getTab(trackedTabId);
+        if (trackedTab && typeof trackedTab.id === "number") {
+          await this.refreshTrackedTab(trackedTab.id, { preserveCurrentOnRestricted: true });
+          this.refreshHandshake();
+          return;
+        }
+      }
       this.trackedTab = null;
       if (this.relay?.isConnected()) {
         this.relay.disconnect();
       }
       return;
     }
-    await this.refreshTrackedTab(tabId);
+    await this.refreshTrackedTab(tabId, { preserveCurrentOnRestricted: true });
     this.refreshHandshake();
   }
 
-  private async refreshTrackedTab(tabId: number): Promise<void> {
-    const tab = await this.tabs.getTab(tabId);
+  private isRestrictedTab(tab: chrome.tabs.Tab): boolean {
+    if (!tab.url) {
+      return true;
+    }
+    try {
+      return Boolean(getRestrictionMessage(new URL(tab.url)));
+    } catch {
+      return true;
+    }
+  }
+
+  private async refreshTrackedTab(tabId: number, options?: { preserveCurrentOnRestricted?: boolean }): Promise<void> {
+    const previous = this.trackedTab;
+    let tab = await this.tabs.getTab(tabId);
+    if ((!tab || typeof tab.id !== "number") && options?.preserveCurrentOnRestricted && previous) {
+      this.trackedTab = previous;
+      return;
+    }
     if (!tab || typeof tab.id !== "number") {
       this.trackedTab = null;
       return;
     }
+    if (this.isRestrictedTab(tab)) {
+      const httpFallback = await this.getFirstHttpFallbackTab(tab.id);
+      if (httpFallback) {
+        tab = httpFallback;
+      } else if (options?.preserveCurrentOnRestricted && previous) {
+        this.trackedTab = previous;
+        return;
+      } else {
+        const blankFallback = await this.bootstrapRelayAttachTab();
+        if (blankFallback) {
+          tab = blankFallback;
+        } else {
+          this.trackedTab = null;
+          return;
+        }
+      }
+    }
+    const nextTrackedTabId = tab.id;
+    if (typeof nextTrackedTabId !== "number") {
+      if (options?.preserveCurrentOnRestricted && previous) {
+        this.trackedTab = previous;
+        return;
+      }
+      this.trackedTab = null;
+      return;
+    }
     this.trackedTab = {
-      id: tab.id,
+      id: nextTrackedTabId,
       url: tab.url ?? this.trackedTab?.url,
       title: tab.title ?? this.trackedTab?.title,
       groupId: typeof tab.groupId === "number" ? tab.groupId : this.trackedTab?.groupId
@@ -820,3 +1045,13 @@ export class ConnectionManager {
     this.safeRelaySend(() => this.relay?.sendHandshake(this.buildHandshake()), "relay.send_handshake");
   }
 }
+
+const isAnnotationResponse = (value: unknown): value is AnnotationResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return record.version === 1
+    && typeof record.requestId === "string"
+    && (record.status === "ok" || record.status === "cancelled" || record.status === "error");
+};

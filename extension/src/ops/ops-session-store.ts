@@ -97,7 +97,8 @@ export class OpsSessionStore {
     info?: { url?: string; title?: string },
     options?: {
       parallelismPolicy?: OpsParallelismGovernorPolicy;
-    }
+    },
+    sessionId?: string
   ): OpsSession {
     const parallelismPolicy = options?.parallelismPolicy ?? DEFAULT_OPS_PARALLELISM_POLICY;
     return this.coordinator.createSession(ownerClientId, tabId, leaseId, info, {
@@ -118,7 +119,7 @@ export class OpsSessionStore {
       frozenSignals: 0,
       parallelismPolicy,
       parallelismState: createOpsGovernorState(parallelismPolicy, "extensionOpsHeaded")
-    });
+    }, sessionId);
   }
 
   get(sessionId: string): OpsSession | null {

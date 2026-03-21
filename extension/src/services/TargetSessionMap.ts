@@ -12,6 +12,9 @@ export type TargetRecord = {
   tabId: number;
   targetInfo: TargetInfo;
   rootSessionId: string;
+  attachTargetId?: string;
+  attachedRootSessionId?: string;
+  browserSessionId?: string;
 };
 
 export type SessionRecord = {
@@ -29,20 +32,105 @@ export class TargetSessionMap {
   private readonly sessionByTarget = new Map<string, string>();
   private readonly rootWaiters = new Map<number, Array<{ resolve: (session: SessionRecord) => void; reject: (error: Error) => void; timeoutId: number }>>();
 
-  registerRootTab(tabId: number, targetInfo: TargetInfo, sessionId: string): SessionRecord {
-    const record: TargetRecord = { tabId, targetInfo, rootSessionId: sessionId };
+  registerRootTab(
+    tabId: number,
+    targetInfo: TargetInfo,
+    sessionId: string,
+    attachTargetId?: string,
+    debuggerSession: DebuggerSession = { tabId }
+  ): SessionRecord {
+    const existing = this.tabTargets.get(tabId) ?? null;
+    if (existing) {
+      this.sessionByTarget.delete(existing.targetInfo.targetId);
+      if (existing.rootSessionId !== sessionId) {
+        this.sessionsById.delete(existing.rootSessionId);
+      }
+    }
+    const record: TargetRecord = {
+      tabId,
+      targetInfo,
+      rootSessionId: sessionId,
+      attachTargetId: attachTargetId ?? existing?.attachTargetId,
+      attachedRootSessionId: existing?.attachedRootSessionId,
+      browserSessionId: existing?.browserSessionId
+    };
     this.tabTargets.set(tabId, record);
     const session: SessionRecord = {
       kind: "root",
       sessionId,
       tabId,
       targetId: targetInfo.targetId,
-      debuggerSession: { tabId },
+      debuggerSession,
       targetInfo
     };
     this.sessionsById.set(sessionId, session);
     this.sessionByTarget.set(targetInfo.targetId, sessionId);
     this.resolveRootWaiters(tabId, session);
+    return session;
+  }
+
+  setRootAttachTargetId(tabId: number, attachTargetId: string): void {
+    const record = this.tabTargets.get(tabId);
+    if (!record) {
+      return;
+    }
+    record.attachTargetId = attachTargetId;
+  }
+
+  getAttachedRootSession(tabId: number): SessionRecord | null {
+    const record = this.tabTargets.get(tabId) ?? null;
+    if (!record?.attachedRootSessionId) {
+      return null;
+    }
+    return this.sessionsById.get(record.attachedRootSessionId) ?? null;
+  }
+
+  registerAttachedRootSession(tabId: number, sessionId: string): SessionRecord | null {
+    const record = this.tabTargets.get(tabId) ?? null;
+    if (!record) {
+      return null;
+    }
+    if (record.attachedRootSessionId && record.attachedRootSessionId !== sessionId) {
+      this.sessionsById.delete(record.attachedRootSessionId);
+    }
+    record.attachedRootSessionId = sessionId;
+    const session: SessionRecord = {
+      kind: "child",
+      sessionId,
+      tabId,
+      targetId: record.targetInfo.targetId,
+      debuggerSession: { tabId, sessionId },
+      targetInfo: record.targetInfo
+    };
+    this.sessionsById.set(sessionId, session);
+    return session;
+  }
+
+  getBrowserSession(tabId: number): SessionRecord | null {
+    const record = this.tabTargets.get(tabId) ?? null;
+    if (!record?.browserSessionId) {
+      return null;
+    }
+    return this.sessionsById.get(record.browserSessionId) ?? null;
+  }
+
+  registerBrowserSession(tabId: number, sessionId: string): SessionRecord | null {
+    const record = this.tabTargets.get(tabId) ?? null;
+    if (!record) {
+      return null;
+    }
+    if (record.browserSessionId && record.browserSessionId !== sessionId) {
+      this.sessionsById.delete(record.browserSessionId);
+    }
+    record.browserSessionId = sessionId;
+    const session: SessionRecord = {
+      kind: "child",
+      sessionId,
+      tabId,
+      targetId: record.targetInfo.targetId,
+      debuggerSession: { tabId }
+    };
+    this.sessionsById.set(sessionId, session);
     return session;
   }
 
@@ -116,6 +204,19 @@ export class TargetSessionMap {
     return Array.from(this.sessionsById.keys());
   }
 
+  reset(): void {
+    for (const waiters of this.rootWaiters.values()) {
+      for (const waiter of waiters) {
+        clearTimeout(waiter.timeoutId);
+        waiter.reject(new Error("Target attach reset"));
+      }
+    }
+    this.rootWaiters.clear();
+    this.tabTargets.clear();
+    this.sessionsById.clear();
+    this.sessionByTarget.clear();
+  }
+
   removeByTabId(tabId: number): TargetRecord | null {
     const record = this.tabTargets.get(tabId) ?? null;
     if (!record) {
@@ -143,6 +244,17 @@ export class TargetSessionMap {
     }
     if (session.kind === "root") {
       this.removeByTabId(session.tabId);
+      return session;
+    }
+    const record = this.tabTargets.get(session.tabId) ?? null;
+    if (record?.browserSessionId === sessionId) {
+      record.browserSessionId = undefined;
+      this.sessionsById.delete(sessionId);
+      return session;
+    }
+    if (record?.attachedRootSessionId === sessionId) {
+      record.attachedRootSessionId = undefined;
+      this.sessionsById.delete(sessionId);
       return session;
     }
     this.sessionsById.delete(sessionId);

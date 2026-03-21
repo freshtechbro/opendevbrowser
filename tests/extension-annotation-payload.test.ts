@@ -124,4 +124,55 @@ describe("extension annotation payload helpers", () => {
       })
     ]);
   });
+
+  it("builds canvas payloads for stage regions without requiring node selectors", () => {
+    const payload = buildCanvasAnnotationPayload({
+      document: {
+        documentId: "doc_regions",
+        title: "Region Canvas",
+        pages: [{
+          id: "page_home",
+          name: "Home",
+          path: "/home",
+          rootNodeId: null,
+          prototypeIds: [],
+          nodes: [],
+          metadata: {}
+        }],
+        bindings: [],
+        assets: [],
+        componentInventory: []
+      },
+      page: {
+        id: "page_home",
+        name: "Home",
+        path: "/home",
+        rootNodeId: null,
+        prototypeIds: [],
+        nodes: [],
+        metadata: {}
+      },
+      drafts: [{
+        kind: "region",
+        regionId: "region_hero",
+        rect: { x: 24, y: 48, width: 220, height: 140 },
+        label: "Hero group",
+        note: "Spacing review"
+      }]
+    });
+
+    expect(payload.annotations).toEqual([
+      expect.objectContaining({
+        id: "region_hero",
+        tag: "canvas-region",
+        selector: "[data-canvas-region=\"region_hero\"]",
+        text: "Hero group",
+        note: "Spacing review",
+        attributes: expect.objectContaining({
+          "data-canvas-region": "region_hero",
+          "data-canvas-kind": "region"
+        })
+      })
+    ]);
+  });
 });

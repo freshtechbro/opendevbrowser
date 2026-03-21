@@ -12,6 +12,8 @@ type ConnectArgs = {
   extensionLegacy?: boolean;
 };
 
+const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
+
 function parseConnectArgs(rawArgs: string[]): ConnectArgs {
   const parsed: ConnectArgs = {};
   for (let i = 0; i < rawArgs.length; i += 1) {
@@ -80,7 +82,9 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
 
 export async function runSessionConnect(args: ParsedArgs) {
   const connectArgs = parseConnectArgs(args.rawArgs);
-  const result = await callDaemon("session.connect", connectArgs) as { sessionId: string };
+  const result = await callDaemon("session.connect", connectArgs, {
+    timeoutMs: DEFAULT_CONNECT_TIMEOUT_MS
+  }) as { sessionId: string };
   return {
     success: true,
     message: `Session connected: ${result.sessionId}`,

@@ -21,6 +21,7 @@ type DaemonHandle = {
 
 let daemonHandle: DaemonHandle | null = null;
 const PS_MAX_BUFFER = 8 * 1024 * 1024;
+const SERVE_COMMAND_PATTERN = /\b(opendevbrowser|dist\/cli\/index\.js)\b.*\bserve\b/;
 
 function resolveTokenCandidates(
   requestedToken: string | undefined,
@@ -91,32 +92,19 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
   return parsed;
 }
 
-function listServeProcessPids(): number[] {
-  const result = spawnSync("ps", ["-ax", "-o", "pid=,command="], {
+function readProcessCommand(pid: number): string | null {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return null;
+  }
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
     encoding: "utf-8",
     maxBuffer: PS_MAX_BUFFER
   });
   if ((result.status ?? 1) !== 0) {
-    return [];
+    return null;
   }
-  const servePattern = /\b(opendevbrowser|dist\/cli\/index\.js)\b.*\bserve\b/;
-  const lines = String(result.stdout ?? "").split(/\r?\n/);
-  const pids = new Set<number>();
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const match = trimmed.match(/^(\d+)\s+(.+)$/);
-    if (!match) continue;
-    const pidText = match[1];
-    if (!pidText) continue;
-    const pid = Number.parseInt(pidText, 10);
-    const command = match[2] ?? "";
-    if (!Number.isInteger(pid) || pid <= 0) continue;
-    if (pid === process.pid || pid === process.ppid) continue;
-    if (!servePattern.test(command)) continue;
-    pids.add(pid);
-  }
-  return [...pids];
+  const command = String(result.stdout ?? "").trim();
+  return command.length > 0 ? command : null;
 }
 
 function terminateProcess(pid: number): boolean {
@@ -136,16 +124,19 @@ function terminateProcess(pid: number): boolean {
   return true;
 }
 
-function cleanupStaleServeProcesses(keepPid?: number): number {
-  const candidates = listServeProcessPids();
-  let cleaned = 0;
-  for (const pid of candidates) {
-    if (Number.isInteger(keepPid) && pid === keepPid) continue;
-    if (terminateProcess(pid)) {
-      cleaned += 1;
-    }
+function cleanupStaleServeProcess(pid: number | undefined, keepPid?: number): number {
+  const targetPid = typeof pid === "number" ? pid : null;
+  if (targetPid === null || !Number.isInteger(targetPid) || targetPid <= 0) {
+    return 0;
   }
-  return cleaned;
+  if (Number.isInteger(keepPid) && targetPid === keepPid) {
+    return 0;
+  }
+  const command = readProcessCommand(targetPid);
+  if (!command || !SERVE_COMMAND_PATTERN.test(command)) {
+    return 0;
+  }
+  return terminateProcess(targetPid) ? 1 : 0;
 }
 
 export async function runServe(args: ParsedArgs) {
@@ -184,19 +175,16 @@ export async function runServe(args: ParsedArgs) {
   const tokenCandidates = resolveTokenCandidates(serveArgs.token, metadataToken, config.daemonToken);
 
   const existingDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
-  const staleCleared = cleanupStaleServeProcesses(existingDaemon?.status.pid);
   if (existingDaemon) {
     const relayPort = existingDaemon.status.relay.port ?? config.relayPort;
-    const staleNote = staleCleared > 0 ? ` Cleared ${staleCleared} stale daemon process${staleCleared === 1 ? "" : "es"}.` : "";
     return {
       success: true,
-      message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${existingDaemon.status.pid}, relay ${relayPort}).${staleNote}`,
+      message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${existingDaemon.status.pid}, relay ${relayPort}).`,
       data: {
         port: requestedPort,
         pid: existingDaemon.status.pid,
         relayPort,
         alreadyRunning: true,
-        staleDaemonsCleared: staleCleared,
         relay: existingDaemon.status.relay
       },
       exitCode: null
@@ -230,16 +218,24 @@ export async function runServe(args: ParsedArgs) {
     }
   }
 
-  let handle: Awaited<ReturnType<typeof startDaemon>>;
-  try {
-    handle = await startDaemon({
-      port: serveArgs.port,
-      token: serveArgs.token,
-      config
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("EADDRINUSE") || message.includes("in use")) {
+  let handle: Awaited<ReturnType<typeof startDaemon>> | null = null;
+  let staleCleared = 0;
+  let startError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      handle = await startDaemon({
+        port: serveArgs.port,
+        token: serveArgs.token,
+        config
+      });
+      startError = null;
+      break;
+    } catch (error) {
+      startError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("EADDRINUSE") && !message.includes("in use")) {
+        break;
+      }
       const runningDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
       if (runningDaemon) {
         const relayPort = runningDaemon.status.relay.port ?? config.relayPort;
@@ -256,6 +252,23 @@ export async function runServe(args: ParsedArgs) {
           exitCode: null
         };
       }
+      if (
+        staleCleared === 0
+        && metadata?.port === requestedPort
+        && Number.isInteger(metadata.pid)
+      ) {
+        staleCleared = cleanupStaleServeProcess(metadata.pid);
+        if (staleCleared > 0) {
+          continue;
+        }
+      }
+      break;
+    }
+  }
+
+  if (!handle) {
+    const message = startError instanceof Error ? startError.message : String(startError);
+    if (message.includes("EADDRINUSE") || message.includes("in use")) {
       return {
         success: false,
         message: `Daemon port ${requestedPort} is already in use by another process. If this is an existing daemon, run \`opendevbrowser status --daemon\` or \`opendevbrowser serve --stop\`.`,

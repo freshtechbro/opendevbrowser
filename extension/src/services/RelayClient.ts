@@ -2,6 +2,7 @@ import type {
   RelayAnnotationCommand,
   RelayAnnotationEvent,
   RelayAnnotationResponse,
+  RelayCdpControl,
   RelayCommand,
   RelayEvent,
   RelayHandshake,
@@ -18,11 +19,14 @@ import { logError } from "../logging.js";
 
 type RelayHandlers = {
   onCommand: (command: RelayCommand) => void;
+  onCdpControl?: (message: RelayCdpControl) => void;
   onAnnotationCommand?: (command: RelayAnnotationCommand) => void;
   onOpsMessage?: (message: OpsEnvelope) => void;
   onCanvasMessage?: (message: CanvasEnvelope) => void;
   onClose: (detail?: { code?: number; reason?: string }) => void;
 };
+
+const RELAY_OPEN_TIMEOUT_MS = 3000;
 
 export class RelayClient {
   private url: string;
@@ -52,19 +56,52 @@ export class RelayClient {
         }
       } else {
         this.socket = new WebSocket(this.url);
+        const socket = this.socket;
 
         await new Promise<void>((resolve, reject) => {
-          if (!this.socket) {
+          if (!socket) {
             reject(new Error("Relay socket not created"));
             return;
           }
-          this.socket.addEventListener("open", () => resolve(), { once: true });
-          this.socket.addEventListener("error", () => reject(new Error("Relay socket error")), {
+
+          let settled = false;
+          const finish = (error?: Error) => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            clearTimeout(timeoutId);
+            if (error) {
+              if (this.socket === socket) {
+                this.socket = null;
+              }
+              try {
+                if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
+                  socket.close();
+                }
+              } catch {
+                // Ignore close failures on a half-open socket.
+              }
+              reject(error);
+              return;
+            }
+            resolve();
+          };
+
+          const timeoutId = setTimeout(() => {
+            finish(new Error("Relay socket open timed out"));
+          }, RELAY_OPEN_TIMEOUT_MS);
+
+          socket.addEventListener("open", () => finish(), { once: true });
+          socket.addEventListener("error", () => finish(new Error("Relay socket error")), {
+            once: true
+          });
+          socket.addEventListener("close", () => finish(new Error("Relay socket closed before open")), {
             once: true
           });
         });
 
-        this.socket.addEventListener("message", (event) => {
+        socket.addEventListener("message", (event) => {
           const message = parseJson(event.data);
           if (!message || typeof message !== "object") return;
           const record = message as Record<string, unknown>;
@@ -117,6 +154,10 @@ export class RelayClient {
             this.handlers.onCommand(record as RelayCommand);
             return;
           }
+          if (isCdpControl(record)) {
+            this.handlers.onCdpControl?.(record as RelayCdpControl);
+            return;
+          }
           if (record.type === "annotationCommand") {
             this.handlers.onAnnotationCommand?.(record as RelayAnnotationCommand);
             return;
@@ -130,7 +171,7 @@ export class RelayClient {
           }
         });
 
-        this.socket.addEventListener("close", (event) => {
+        socket.addEventListener("close", (event) => {
           if (this.pendingHandshakeAckReject) {
             const reject = this.pendingHandshakeAckReject;
             this.clearHandshakeAckWait();
@@ -317,4 +358,8 @@ const isOpsEnvelope = (value: Record<string, unknown>): value is OpsEnvelope => 
 
 const isCanvasEnvelope = (value: Record<string, unknown>): value is CanvasEnvelope => {
   return typeof value.type === "string" && value.type.startsWith("canvas_");
+};
+
+const isCdpControl = (value: Record<string, unknown>): value is RelayCdpControl => {
+  return value.type === "cdp_control" && value.action === "client_closed";
 };

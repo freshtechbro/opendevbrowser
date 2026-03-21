@@ -15,19 +15,19 @@ const USER_AGENT_BRANDS = [
   "Chrome/122.0.0.0",
   "Chrome/123.0.0.0",
   "Chrome/124.0.0.0"
-];
+] as const satisfies readonly [string, ...string[]];
 
 const WEBGL_VENDORS = [
   "Google Inc.",
   "Intel Inc.",
   "NVIDIA Corporation"
-];
+] as const satisfies readonly [string, ...string[]];
 
 const WEBGL_RENDERERS = [
   "ANGLE (Intel, Intel(R) Iris OpenGL Engine, OpenGL 4.1)",
   "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060, OpenGL 4.6)",
   "ANGLE (Apple, Apple M2, OpenGL 4.1)"
-];
+] as const satisfies readonly [string, ...string[]];
 
 function stableHash(input: string): number {
   let hash = 2166136261;
@@ -38,9 +38,9 @@ function stableHash(input: string): number {
   return hash >>> 0;
 }
 
-function pickBySeed(values: string[], seed: string): string {
+function pickBySeed(values: readonly [string, ...string[]], seed: string): string {
   const index = stableHash(seed) % values.length;
-  return values[index] ?? values[0]!;
+  return values[index]!;
 }
 
 export function profileSeedFrom(sessionId: string, profileName?: string): string {

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createChromeMock } from "./extension-chrome-mock";
 
@@ -16,6 +17,7 @@ let lastConnectionManager: {
   onCanvasMessage: (handler: (message: unknown) => void) => void;
   sendAnnotationResponse: ReturnType<typeof vi.fn>;
   sendAnnotationEvent: ReturnType<typeof vi.fn>;
+  sendAnnotationCommand: ReturnType<typeof vi.fn>;
   sendOpsMessage: ReturnType<typeof vi.fn>;
   sendCanvasMessage: ReturnType<typeof vi.fn>;
   getCdpRouter: ReturnType<typeof vi.fn>;
@@ -61,6 +63,9 @@ vi.mock("../extension/src/services/ConnectionManager", () => ({
     };
     sendAnnotationResponse = vi.fn();
     sendAnnotationEvent = vi.fn();
+    sendAnnotationCommand = vi.fn(async () => {
+      throw new Error("relay_unavailable");
+    });
     sendOpsMessage = vi.fn();
     sendCanvasMessage = vi.fn();
     getCdpRouter = vi.fn(() => ({
@@ -300,6 +305,14 @@ describe("extension background auto-connect", () => {
 describe("extension background annotation routing", () => {
   const originalChrome = globalThis.chrome;
   const originalFetch = globalThis.fetch;
+  const readyResponse = (message: unknown) => {
+    const type = (message as { type?: string } | null)?.type;
+    return {
+      ok: true,
+      bootId: "boot-test",
+      active: type === "annotation:start" || type === "annotation:toggle"
+    };
+  };
 
   beforeEach(() => {
     lastConnectionManager = null;
@@ -325,7 +338,7 @@ describe("extension background annotation routing", () => {
         mock.setRuntimeError(null);
         return;
       }
-      callback?.({ ok: true });
+      callback?.(readyResponse(message));
     });
 
     globalThis.chrome = mock.chrome;
@@ -348,6 +361,139 @@ describe("extension background annotation routing", () => {
     );
   });
 
+  it("reinstalls the annotation bridge when ping returns a stale acknowledgement", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    let pingAttempts = 0;
+    mock.chrome.tabs.sendMessage = vi.fn((_tabId, message, callback) => {
+      const type = (message as { type?: string } | null)?.type;
+      if (type === "annotation:ping") {
+        pingAttempts += 1;
+        if (pingAttempts === 1) {
+          callback?.({ ok: true });
+          return;
+        }
+      }
+      callback?.(readyResponse(message));
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: { version: 1, requestId: "req-stale-ping", command: "start" }
+    });
+    await flushMicrotasks();
+
+    expect(mock.chrome.scripting.insertCSS).toHaveBeenCalledTimes(1);
+    expect(mock.chrome.scripting.executeScript).toHaveBeenCalledTimes(1);
+    expect(lastConnectionManager?.sendAnnotationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "annotationEvent",
+        payload: expect.objectContaining({ requestId: "req-stale-ping", event: "ready" })
+      })
+    );
+  });
+
+  it("keeps the injected annotate content script module-free", () => {
+    const source = readFileSync("extension/src/annotate-content.ts", "utf8");
+    const moduleSyntax = source
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("import ") || line.startsWith("export "));
+
+    expect(moduleSyntax).toEqual([]);
+  });
+
+  it("recovers when the receiver disappears between ping and annotation start", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    let pingAttempts = 0;
+    let startAttempts = 0;
+    mock.chrome.tabs.sendMessage = vi.fn((_tabId, message, callback) => {
+      const type = (message as { type?: string } | null)?.type;
+      if (type === "annotation:ping") {
+        pingAttempts += 1;
+        if (pingAttempts === 2) {
+          mock.setRuntimeError("Could not establish connection. Receiving end does not exist.");
+          callback?.(undefined);
+          mock.setRuntimeError(null);
+          return;
+        }
+        callback?.(readyResponse(message));
+        return;
+      }
+      if (type === "annotation:start") {
+        startAttempts += 1;
+        if (startAttempts === 1) {
+          mock.setRuntimeError("Could not establish connection. Receiving end does not exist.");
+          callback?.(undefined);
+          mock.setRuntimeError(null);
+          return;
+        }
+        callback?.(readyResponse(message));
+        return;
+      }
+      callback?.(readyResponse(message));
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: { version: 1, requestId: "req-retry", command: "start" }
+    });
+    await flushMicrotasks();
+
+    expect(startAttempts).toBe(2);
+    expect(mock.chrome.scripting.insertCSS).toHaveBeenCalledTimes(1);
+    expect(mock.chrome.scripting.executeScript).toHaveBeenCalledTimes(1);
+    expect(lastConnectionManager?.sendAnnotationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "annotationEvent",
+        payload: expect.objectContaining({ requestId: "req-retry", event: "ready" })
+      })
+    );
+  });
+
+  it("reinstalls the annotation bridge when start acknowledgement is not active", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    let startAttempts = 0;
+    mock.chrome.tabs.sendMessage = vi.fn((_tabId, message, callback) => {
+      const type = (message as { type?: string } | null)?.type;
+      if (type === "annotation:start") {
+        startAttempts += 1;
+        if (startAttempts === 1) {
+          callback?.({ ok: true, bootId: "boot-test", active: false });
+          return;
+        }
+      }
+      callback?.(readyResponse(message));
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: { version: 1, requestId: "req-stale-start", command: "start" }
+    });
+    await flushMicrotasks();
+
+    expect(startAttempts).toBe(2);
+    expect(mock.chrome.scripting.insertCSS).toHaveBeenCalledTimes(1);
+    expect(mock.chrome.scripting.executeScript).toHaveBeenCalledTimes(1);
+    expect(lastConnectionManager?.sendAnnotationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "annotationEvent",
+        payload: expect.objectContaining({ requestId: "req-stale-start", event: "ready" })
+      })
+    );
+  });
+
   it("reports injection failure when content script cannot be reached", async () => {
     vi.useFakeTimers();
     const mock = createChromeMock({ autoConnect: false });
@@ -359,7 +505,7 @@ describe("extension background annotation routing", () => {
         mock.setRuntimeError(null);
         return;
       }
-      callback?.({ ok: true });
+      callback?.(readyResponse(message));
     });
 
     globalThis.chrome = mock.chrome;
@@ -379,9 +525,443 @@ describe("extension background annotation routing", () => {
         payload: expect.objectContaining({
           requestId: "req-fail",
           status: "error",
-          error: expect.objectContaining({ code: "injection_failed" })
+          error: expect.objectContaining({
+            code: "injection_failed",
+            message: "Annotation UI did not load in the page. Reload the tab and retry."
+          })
         })
       })
+    );
+  });
+
+  it("returns a friendly popup error when annotation injection never establishes a receiver", async () => {
+    vi.useFakeTimers();
+    const mock = createChromeMock({ autoConnect: false });
+    mock.chrome.tabs.sendMessage = vi.fn((_tabId, message, callback) => {
+      const type = (message as { type?: string } | null)?.type;
+      if (type === "annotation:ping" || type === "annotation:start") {
+        mock.setRuntimeError("Could not establish connection. Receiving end does not exist.");
+        callback?.(undefined);
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback?.(readyResponse(message));
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const startPromise = new Promise<{ ok?: boolean; error?: { code?: string; message?: string } }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:start" }, (payload) => {
+        resolve(payload as { ok?: boolean; error?: { code?: string; message?: string } });
+      });
+    });
+
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await expect(startPromise).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "injection_failed",
+        message: "Annotation UI did not load in the page. Reload the tab and retry."
+      }
+    });
+  });
+
+  it("falls back to the most recent annotatable tab when the extension canvas tab is active", async () => {
+    const restrictedTab = {
+      id: 9,
+      url: "chrome-extension://test/canvas.html",
+      title: "Canvas",
+      status: "complete",
+      active: true,
+      lastAccessed: 10
+    } satisfies chrome.tabs.Tab;
+    const webTab = {
+      id: 10,
+      url: "https://example.com/app",
+      title: "Example App",
+      status: "complete",
+      active: false,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({
+      autoConnect: false,
+      activeTab: restrictedTab,
+      tabs: [restrictedTab, webTab]
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const startPromise = new Promise<{ ok?: boolean; error?: { code?: string; message?: string } }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:start" }, (payload) => {
+        resolve(payload as { ok?: boolean; error?: { code?: string; message?: string } });
+      });
+    });
+
+    await expect(startPromise).resolves.toMatchObject({ ok: true });
+    expect(mock.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      webTab.id,
+      expect.objectContaining({ type: "annotation:ping" }),
+      expect.any(Function)
+    );
+    expect(mock.chrome.tabs.sendMessage).not.toHaveBeenCalledWith(
+      restrictedTab.id,
+      expect.anything(),
+      expect.any(Function)
+    );
+  });
+
+  it("prefers the remembered annotatable tab when popup focus leaves no active browser tab", async () => {
+    const rememberedTab = {
+      id: 11,
+      url: "https://ampcode.com/workspaces/bishop",
+      title: "bishop workspace - Amp",
+      status: "complete",
+      active: true,
+      lastAccessed: 10
+    } satisfies chrome.tabs.Tab;
+    const otherTab = {
+      id: 12,
+      url: "https://example.com/recent",
+      title: "Recent tab",
+      status: "complete",
+      active: false,
+      lastAccessed: 50
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({
+      autoConnect: false,
+      activeTab: rememberedTab,
+      tabs: [rememberedTab, otherTab]
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    mock.emitTabActivated(rememberedTab.id!);
+    mock.setActiveTab(null);
+
+    const startPromise = new Promise<{ ok?: boolean; error?: { code?: string; message?: string } }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:start" }, (payload) => {
+        resolve(payload as { ok?: boolean; error?: { code?: string; message?: string } });
+      });
+    });
+
+    await expect(startPromise).resolves.toMatchObject({ ok: true });
+    expect(mock.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      rememberedTab.id,
+      expect.objectContaining({ type: "annotation:ping" }),
+      expect.any(Function)
+    );
+    expect(mock.chrome.tabs.sendMessage).not.toHaveBeenCalledWith(
+      otherTab.id,
+      expect.anything(),
+      expect.any(Function)
+    );
+  });
+
+  it("honors the popup-provided tab id when the service worker has no active-tab memory", async () => {
+    const hintedTab = {
+      id: 21,
+      url: "https://example.com/from-popup",
+      title: "Popup target",
+      status: "complete",
+      active: false,
+      lastAccessed: 10
+    } satisfies chrome.tabs.Tab;
+    const otherTab = {
+      id: 22,
+      url: "https://example.com/more-recent",
+      title: "More recent",
+      status: "complete",
+      active: false,
+      lastAccessed: 50
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({
+      autoConnect: false,
+      activeTab: null,
+      tabs: [hintedTab, otherTab]
+    });
+    mock.setActiveTab(null);
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const startPromise = new Promise<{ ok?: boolean; error?: { code?: string; message?: string } }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:start", tabId: hintedTab.id }, (payload) => {
+        resolve(payload as { ok?: boolean; error?: { code?: string; message?: string } });
+      });
+    });
+
+    await expect(startPromise).resolves.toMatchObject({ ok: true });
+    expect(mock.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      hintedTab.id,
+      expect.objectContaining({ type: "annotation:ping" }),
+      expect.any(Function)
+    );
+    expect(mock.chrome.tabs.sendMessage).not.toHaveBeenCalledWith(
+      otherTab.id,
+      expect.anything(),
+      expect.any(Function)
+    );
+  });
+
+  it("reuses the probed popup tab when the active tab changes before start", async () => {
+    const initialTab = {
+      id: 23,
+      url: "https://example.com/probed",
+      title: "Probed tab",
+      status: "complete",
+      active: true,
+      lastAccessed: 10
+    } satisfies chrome.tabs.Tab;
+    const laterActiveTab = {
+      id: 24,
+      url: "https://example.com/later",
+      title: "Later active tab",
+      status: "complete",
+      active: false,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({
+      autoConnect: false,
+      activeTab: initialTab,
+      tabs: [initialTab, laterActiveTab]
+    });
+    mock.chrome.tabs.sendMessage = vi.fn((tabId, message, callback) => {
+      callback?.(readyResponse(message));
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const probeResponse = await new Promise<{ injected?: boolean }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:probe" }, (payload) => {
+        resolve(payload as { injected?: boolean });
+      });
+    });
+    expect(probeResponse).toMatchObject({ injected: true });
+
+    const callsAfterProbe = mock.chrome.tabs.sendMessage.mock.calls.length;
+    mock.setActiveTab(laterActiveTab);
+
+    const startResponse = await new Promise<{ ok?: boolean; error?: { message?: string } }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:start" }, (payload) => {
+        resolve(payload as { ok?: boolean; error?: { message?: string } });
+      });
+    });
+
+    expect(startResponse).toMatchObject({ ok: true });
+    const startCalls = mock.chrome.tabs.sendMessage.mock.calls.slice(callsAfterProbe);
+    expect(startCalls).toContainEqual([
+      initialTab.id,
+      expect.objectContaining({ type: "annotation:start" }),
+      expect.any(Function)
+    ]);
+    expect(startCalls.some((call) => call[0] === laterActiveTab.id)).toBe(false);
+  });
+
+  it("prefers the recent probed popup tab over a new popup hint for the immediate start", async () => {
+    const probedTab = {
+      id: 25,
+      url: "https://example.com/probed",
+      title: "Probed tab",
+      status: "complete",
+      active: true,
+      lastAccessed: 10
+    } satisfies chrome.tabs.Tab;
+    const hintedTab = {
+      id: 26,
+      url: "https://example.com/hinted",
+      title: "Hinted tab",
+      status: "complete",
+      active: false,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({
+      autoConnect: false,
+      activeTab: probedTab,
+      tabs: [probedTab, hintedTab]
+    });
+    mock.chrome.tabs.sendMessage = vi.fn((_tabId, message, callback) => {
+      callback?.(readyResponse(message));
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const probeResponse = await new Promise<{ injected?: boolean }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:probe" }, (payload) => {
+        resolve(payload as { injected?: boolean });
+      });
+    });
+    expect(probeResponse).toMatchObject({ injected: true });
+
+    const callsAfterProbe = mock.chrome.tabs.sendMessage.mock.calls.length;
+    const startResponse = await new Promise<{ ok?: boolean; error?: { message?: string } }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:start", tabId: hintedTab.id }, (payload) => {
+        resolve(payload as { ok?: boolean; error?: { message?: string } });
+      });
+    });
+
+    expect(startResponse).toMatchObject({ ok: true });
+    const startCalls = mock.chrome.tabs.sendMessage.mock.calls.slice(callsAfterProbe);
+    expect(startCalls).toContainEqual([
+      probedTab.id,
+      expect.objectContaining({ type: "annotation:start" }),
+      expect.any(Function)
+    ]);
+    expect(startCalls.some((call) => call[0] === hintedTab.id)).toBe(false);
+  });
+
+  it("expires the popup annotation target cache before later starts", async () => {
+    vi.useFakeTimers();
+    const initialTab = {
+      id: 27,
+      url: "https://example.com/initial",
+      title: "Initial tab",
+      status: "complete",
+      active: true,
+      lastAccessed: 10
+    } satisfies chrome.tabs.Tab;
+    const laterTab = {
+      id: 28,
+      url: "https://example.com/later",
+      title: "Later tab",
+      status: "complete",
+      active: false,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({
+      autoConnect: false,
+      activeTab: initialTab,
+      tabs: [initialTab, laterTab]
+    });
+    mock.chrome.tabs.sendMessage = vi.fn((_tabId, message, callback) => {
+      callback?.(readyResponse(message));
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const probePromise = new Promise<{ injected?: boolean }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:probe" }, (payload) => {
+        resolve(payload as { injected?: boolean });
+      });
+    });
+    await expect(probePromise).resolves.toMatchObject({ injected: true });
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    mock.setActiveTab(laterTab);
+    const callsAfterProbe = mock.chrome.tabs.sendMessage.mock.calls.length;
+
+    const startPromise = new Promise<{ ok?: boolean; error?: { message?: string } }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:start" }, (payload) => {
+        resolve(payload as { ok?: boolean; error?: { message?: string } });
+      });
+    });
+
+    await expect(startPromise).resolves.toMatchObject({ ok: true });
+    const startCalls = mock.chrome.tabs.sendMessage.mock.calls.slice(callsAfterProbe);
+    expect(startCalls).toContainEqual([
+      laterTab.id,
+      expect.objectContaining({ type: "annotation:start" }),
+      expect.any(Function)
+    ]);
+    expect(startCalls.some((call) => call[0] === initialTab.id)).toBe(false);
+  });
+
+  it("restores the remembered annotatable tab from storage after a cold start", async () => {
+    const rememberedTab = {
+      id: 31,
+      url: "https://ampcode.com/workspaces/bishop",
+      title: "bishop workspace - Amp",
+      status: "complete",
+      active: false,
+      lastAccessed: 10
+    } satisfies chrome.tabs.Tab;
+    const otherTab = {
+      id: 32,
+      url: "https://example.com/more-recent",
+      title: "More recent",
+      status: "complete",
+      active: false,
+      lastAccessed: 50
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({
+      autoConnect: false,
+      activeTab: null,
+      tabs: [rememberedTab, otherTab]
+    });
+    mock.setActiveTab(null);
+    mock.chrome.storage.local.set({ annotationLastTabId: rememberedTab.id }, () => {});
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const startPromise = new Promise<{ ok?: boolean; error?: { code?: string; message?: string } }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:start" }, (payload) => {
+        resolve(payload as { ok?: boolean; error?: { code?: string; message?: string } });
+      });
+    });
+
+    await expect(startPromise).resolves.toMatchObject({ ok: true });
+    expect(mock.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      rememberedTab.id,
+      expect.objectContaining({ type: "annotation:ping" }),
+      expect.any(Function)
+    );
+    expect(mock.chrome.tabs.sendMessage).not.toHaveBeenCalledWith(
+      otherTab.id,
+      expect.anything(),
+      expect.any(Function)
+    );
+  });
+
+  it("waits for a loading popup target before injecting annotation", async () => {
+    const loadingTab = {
+      id: 41,
+      url: "https://example.com/loading",
+      title: "Loading",
+      status: "loading",
+      active: true,
+      lastAccessed: 100
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({
+      autoConnect: false,
+      activeTab: loadingTab,
+      tabs: [loadingTab]
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const startPromise = new Promise<{ ok?: boolean; error?: { code?: string; message?: string } }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "annotation:start", tabId: loadingTab.id }, (payload) => {
+        resolve(payload as { ok?: boolean; error?: { code?: string; message?: string } });
+      });
+    });
+
+    await flushMicrotasks();
+    expect(mock.chrome.tabs.sendMessage).not.toHaveBeenCalled();
+
+    mock.emitTabUpdated(loadingTab.id, { ...loadingTab, status: "complete" });
+
+    await expect(startPromise).resolves.toMatchObject({ ok: true });
+    expect(mock.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      loadingTab.id,
+      expect.objectContaining({ type: "annotation:ping" }),
+      expect.any(Function)
     );
   });
 
@@ -403,6 +983,31 @@ describe("extension background annotation routing", () => {
         type: "annotationResponse",
         payload: expect.objectContaining({
           requestId: "req-2",
+          status: "error",
+          error: expect.objectContaining({ code: "restricted_url" })
+        })
+      })
+    );
+  });
+
+  it("rejects annotation requests on about:blank URLs", async () => {
+    const mock = createChromeMock({ autoConnect: false, activeTab: { id: 10, url: "about:blank", title: "about:blank" } });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: { version: 1, requestId: "req-2b", command: "start" }
+    });
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.sendAnnotationResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "annotationResponse",
+        payload: expect.objectContaining({
+          requestId: "req-2b",
           status: "error",
           error: expect.objectContaining({ code: "restricted_url" })
         })
@@ -554,7 +1159,7 @@ describe("extension background annotation routing", () => {
     expect(payloadResponse.payload?.screenshots?.[0]?.id).toBe("shot-2");
   });
 
-  it("stores agent-dispatched payloads and serves them via relay fetch_stored", async () => {
+  it("falls back to stored_only receipts when shared enqueue is unavailable", async () => {
     const mock = createChromeMock({ autoConnect: false });
     globalThis.chrome = mock.chrome;
 
@@ -582,14 +1187,19 @@ describe("extension background annotation routing", () => {
       ]
     };
 
-    const sendResponse = await new Promise<{ ok?: boolean }>((resolve) => {
+    const sendResponse = await new Promise<{ ok?: boolean; receipt?: { deliveryState?: string; storedFallback?: boolean } | null }>((resolve) => {
       globalThis.chrome.runtime.sendMessage(
         { type: "annotation:sendPayload", payload, source: "popup_all", label: "Popup annotation payload" },
-        (message) => resolve(message as { ok?: boolean })
+        (message) => resolve(message as { ok?: boolean; receipt?: { deliveryState?: string; storedFallback?: boolean } | null })
       );
     });
 
     expect(sendResponse.ok).toBe(true);
+    expect(sendResponse.receipt).toMatchObject({
+      deliveryState: "stored_only",
+      storedFallback: true
+    });
+    expect(lastConnectionManager?.sendAnnotationCommand).toHaveBeenCalledTimes(1);
 
     lastConnectionManager?.emitAnnotationCommand({
       type: "annotationCommand",
@@ -616,5 +1226,49 @@ describe("extension background annotation routing", () => {
         })
       })
     );
+  });
+
+  it("returns delivered receipts when shared enqueue succeeds", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.sendAnnotationCommand.mockResolvedValue({
+      version: 1,
+      requestId: "req-store",
+      status: "ok",
+      receipt: {
+        receiptId: "receipt-shared",
+        deliveryState: "delivered",
+        storedFallback: false,
+        createdAt: "2026-03-15T00:00:00.000Z",
+        itemCount: 1,
+        byteLength: 64,
+        source: "popup_all",
+        label: "Popup annotation payload"
+      }
+    });
+
+    const payload = {
+      url: "https://example.com",
+      timestamp: "2026-03-15T00:00:00.000Z",
+      screenshotMode: "none" as const,
+      annotations: []
+    };
+
+    const sendResponse = await new Promise<{ ok?: boolean; receipt?: { deliveryState?: string; storedFallback?: boolean } | null }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage(
+        { type: "annotation:sendPayload", payload, source: "popup_all", label: "Popup annotation payload" },
+        (message) => resolve(message as { ok?: boolean; receipt?: { deliveryState?: string; storedFallback?: boolean } | null })
+      );
+    });
+
+    expect(sendResponse.ok).toBe(true);
+    expect(sendResponse.receipt).toMatchObject({
+      deliveryState: "delivered",
+      storedFallback: false
+    });
   });
 });

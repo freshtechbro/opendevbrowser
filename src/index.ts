@@ -17,6 +17,7 @@ import {
   shouldTriggerSkillNudge,
   SKILL_NUDGE_MARKER
 } from "./skills/skill-nudge";
+import { AGENT_INBOX_SYSTEM_MARKER } from "./annotate/agent-inbox";
 import {
   buildContinuityNudgeMessage,
   clearContinuityNudge,
@@ -38,7 +39,7 @@ import {
 
 const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const core = createOpenDevBrowserCore({ directory, worktree });
-  const { config, configStore, skills, ensureRelay, cleanup, getExtensionPath } = core;
+  const { config, configStore, skills, ensureRelay, cleanup, getExtensionPath, agentInbox } = core;
   let relay: RelayLike = core.relay;
   let manager = core.manager;
   let canvasManager = core.canvasManager;
@@ -87,7 +88,13 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     annotationManager.setRelay(relay);
     annotationManager.setBrowserManager(manager);
     runner = new ScriptRunner(manager);
-    browserFallbackPort = createBrowserFallbackPort(manager);
+    browserFallbackPort = createBrowserFallbackPort(
+      manager,
+      {},
+      configStore.get().relayPort > 0 && configStore.get().relayToken !== false
+        ? { extensionWsEndpoint: `ws://127.0.0.1:${configStore.get().relayPort}` }
+        : {}
+    );
     providerRuntime = createConfiguredProviderRuntime({
       config: configStore.get(),
       manager,
@@ -166,11 +173,40 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   process.on("SIGTERM", cleanupAll);
   process.on("beforeExit", cleanupAll);
 
+  const registerAgentInboxScope = (sessionID?: string, registration?: {
+    messageId?: string | null;
+    agent?: string | null;
+    model?: {
+      providerID: string;
+      modelID: string;
+    } | null;
+    variant?: string | null;
+  }) => {
+    if (!sessionID) {
+      return;
+    }
+    try {
+      agentInbox.registerScope(sessionID, registration);
+    } catch (error) {
+      console.warn(
+        "[opendevbrowser] Failed to register agent inbox scope:",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  };
+
   return {
     tool: createTools(toolDeps),
-    "chat.message": async (_input, output) => {
+    "chat.message": async (input, output) => {
       const config = configStore.get();
       if (output.message.role !== "user") return;
+
+      registerAgentInboxScope(input.sessionID, {
+        messageId: input.messageID ?? null,
+        agent: input.agent ?? null,
+        model: input.model ?? null,
+        variant: input.variant ?? null
+      });
 
       const text = extractTextFromParts(output.parts);
       if (!text) return;
@@ -185,11 +221,26 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
         }
       }
     },
-    "experimental.chat.system.transform": async (_input, output) => {
+    "experimental.chat.system.transform": async (input, output) => {
       const config = configStore.get();
       const systemEntries = output.system ?? [];
       let nextEntries = systemEntries;
       let changed = false;
+
+      registerAgentInboxScope(input.sessionID, {
+        model: null
+      });
+      if (
+        input.sessionID
+        && !systemEntries.some((entry) => entry.includes(AGENT_INBOX_SYSTEM_MARKER))
+      ) {
+        const injection = agentInbox.buildSystemInjection(input.sessionID);
+        if (injection) {
+          nextEntries = [...nextEntries, injection.systemBlock];
+          agentInbox.acknowledge(injection.receiptIds);
+          changed = true;
+        }
+      }
 
       if (config.skills.nudge.enabled) {
         if (systemEntries.some((entry) => entry.includes(SKILL_NUDGE_MARKER))) {

@@ -47,6 +47,13 @@ type SelectorState = {
   visible: boolean;
 };
 
+type CanvasOverlaySelection = {
+  pageId: string | null;
+  nodeId: string | null;
+  targetId: string | null;
+  updatedAt?: string;
+};
+
 type ElementAction =
   | { type: "outerHTML" }
   | { type: "innerText" }
@@ -63,6 +70,36 @@ type ElementAction =
   | { type: "scrollIntoView" };
 
 const DEFAULT_MAX_NODES = 1000;
+const CANVAS_OVERLAY_STYLE = `
+.opendevbrowser-canvas-overlay {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2147483647;
+  max-width: 280px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.94);
+  color: #f8fafc;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+  font: 600 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.opendevbrowser-canvas-overlay strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+  text-transform: uppercase;
+}
+
+.opendevbrowser-canvas-highlight {
+  outline: 3px solid #0ea5e9 !important;
+  outline-offset: 2px !important;
+}
+`;
 
 export class DomBridge {
   async getOuterHtml(tabId: number, selector: string): Promise<string> {
@@ -160,6 +197,31 @@ export class DomBridge {
 
   async scrollIntoView(tabId: number, selector: string): Promise<void> {
     await runWithElement(tabId, selector, { type: "scrollIntoView" });
+  }
+
+  async mountCanvasOverlay(
+    tabId: number,
+    input: { mountId: string; title: string; prototypeId: string; selection: CanvasOverlaySelection }
+  ): Promise<{ overlayState: string }> {
+    return await runInTab(tabId, mountCanvasOverlayScript, [{ ...input, cssText: CANVAS_OVERLAY_STYLE }]);
+  }
+
+  async unmountCanvasOverlay(tabId: number, mountId: string): Promise<boolean> {
+    return await runInTab(tabId, unmountCanvasOverlayScript, [mountId]);
+  }
+
+  async selectCanvasOverlay(
+    tabId: number,
+    input: { nodeId: string | null; selectionHint: Record<string, unknown> }
+  ): Promise<Record<string, unknown>> {
+    return await runInTab(tabId, selectCanvasOverlayScript, [input]);
+  }
+
+  async syncCanvasOverlay(
+    tabId: number,
+    input: { mountId: string; title: string; selection: CanvasOverlaySelection }
+  ): Promise<{ overlayState: string }> {
+    return await runInTab(tabId, syncCanvasOverlayScript, [{ ...input, cssText: CANVAS_OVERLAY_STYLE }]);
   }
 
   async getSelectorState(tabId: number, selector: string): Promise<SelectorState> {
@@ -544,7 +606,11 @@ const runWithElement = async <T>(tabId: number, selector: string, action: Elemen
   return record.value as T;
 };
 
-const runInTab = async <T>(tabId: number, func: (...args: unknown[]) => T, args: unknown[] = []): Promise<T> => {
+const runInTab = async <T, TArgs extends unknown[] = unknown[]>(
+  tabId: number,
+  func: (...args: TArgs) => T,
+  args: TArgs = [] as unknown as TArgs
+): Promise<T> => {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
@@ -571,3 +637,118 @@ const assertRunResult = (value: unknown): void => {
     throw new Error(record.error || "Script execution failed");
   }
 };
+
+function mountCanvasOverlayScript(input: {
+  mountId: string;
+  cssText: string;
+  title: string;
+  prototypeId: string;
+  selection: CanvasOverlaySelection;
+}): { overlayState: string } {
+  const styleId = "opendevbrowser-canvas-style";
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = input.cssText;
+    document.head.append(style);
+  }
+  document.getElementById(input.mountId)?.remove();
+  const root = document.createElement("div");
+  root.id = input.mountId;
+  root.className = "opendevbrowser-canvas-overlay";
+  const heading = document.createElement("strong");
+  heading.textContent = "OpenDevBrowser Canvas";
+  const titleDetail = document.createElement("div");
+  titleDetail.textContent = input.title;
+  const selectionDetail = document.createElement("div");
+  selectionDetail.textContent = input.selection.nodeId ? `Selected ${input.selection.nodeId}` : input.prototypeId;
+  root.append(heading, titleDetail, selectionDetail);
+  document.body.append(root);
+  document.querySelectorAll(".opendevbrowser-canvas-highlight").forEach((element) => {
+    element.classList.remove("opendevbrowser-canvas-highlight");
+  });
+  if (input.selection.nodeId) {
+    const element = document.querySelector(`[data-node-id="${input.selection.nodeId}"]`);
+    if (element instanceof HTMLElement) {
+      element.classList.add("opendevbrowser-canvas-highlight");
+    }
+  }
+  return { overlayState: "mounted" };
+}
+
+function unmountCanvasOverlayScript(mountId: string): boolean {
+  document.getElementById(mountId)?.remove();
+  document.querySelectorAll(".opendevbrowser-canvas-highlight").forEach((element) => {
+    element.classList.remove("opendevbrowser-canvas-highlight");
+  });
+  return true;
+}
+
+function selectCanvasOverlayScript(input: {
+  nodeId: string | null;
+  selectionHint: Record<string, unknown>;
+}): Record<string, unknown> {
+  document.querySelectorAll(".opendevbrowser-canvas-highlight").forEach((element) => {
+    element.classList.remove("opendevbrowser-canvas-highlight");
+  });
+  const selector = typeof input.selectionHint.selector === "string"
+    ? input.selectionHint.selector
+    : (input.nodeId ? `[data-node-id="${input.nodeId}"]` : null);
+  const element = selector ? document.querySelector(selector) : null;
+  if (!(element instanceof HTMLElement)) {
+    return { matched: false };
+  }
+  element.classList.add("opendevbrowser-canvas-highlight");
+  return {
+    matched: true,
+    selector,
+    nodeId: input.nodeId,
+    tagName: element.tagName.toLowerCase(),
+    text: element.innerText.slice(0, 160),
+    id: element.id || null,
+    className: element.className || null
+  };
+}
+
+function syncCanvasOverlayScript(input: {
+  mountId: string;
+  cssText: string;
+  title: string;
+  selection: CanvasOverlaySelection;
+}): { overlayState: string } {
+  const styleId = "opendevbrowser-canvas-style";
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = input.cssText;
+    document.head.append(style);
+  }
+  let root = document.getElementById(input.mountId);
+  if (!(root instanceof HTMLElement)) {
+    root = document.createElement("div");
+    root.id = input.mountId;
+    root.className = "opendevbrowser-canvas-overlay";
+    root.innerHTML = "<strong>OpenDevBrowser Canvas</strong><div></div><div></div>";
+    document.body.append(root);
+  }
+  const [heading, titleDetail, selectionDetail] = Array.from(root.children);
+  if (heading instanceof HTMLElement) {
+    heading.textContent = "OpenDevBrowser Canvas";
+  }
+  if (titleDetail instanceof HTMLElement) {
+    titleDetail.textContent = input.title;
+  }
+  if (selectionDetail instanceof HTMLElement) {
+    selectionDetail.textContent = input.selection.nodeId ? `Selected ${input.selection.nodeId}` : "Canvas overlay synced";
+  }
+  document.querySelectorAll(".opendevbrowser-canvas-highlight").forEach((element) => {
+    element.classList.remove("opendevbrowser-canvas-highlight");
+  });
+  if (input.selection.nodeId) {
+    const element = document.querySelector(`[data-node-id="${input.selection.nodeId}"]`);
+    if (element instanceof HTMLElement) {
+      element.classList.add("opendevbrowser-canvas-highlight");
+    }
+  }
+  return { overlayState: "mounted" };
+}

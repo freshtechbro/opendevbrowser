@@ -11,6 +11,11 @@ import { clearBinding, getBindingDiagnostics, getHubInstanceId } from "./daemon-
 
 const DEFAULT_DAEMON_PORT = 8788;
 
+const RECOVERABLE_PLAYWRIGHT_TRANSPORT_ERRORS = [
+  "Cannot find context with specified id",
+  "Detached while handling command."
+] as const;
+
 export type DaemonState = {
   port: number;
   token: string;
@@ -67,6 +72,21 @@ export function clearDaemonMetadata(): void {
   } catch {
     void 0;
   }
+}
+
+export function isRecoverablePlaywrightTransportError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return RECOVERABLE_PLAYWRIGHT_TRANSPORT_ERRORS.some((pattern) => message.includes(pattern));
+}
+
+function isRecoverablePlaywrightTransportAssertion(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (!message.includes("Assertion error")) {
+    return false;
+  }
+  const stack = error instanceof Error && typeof error.stack === "string" ? error.stack : "";
+  return stack.includes("playwright-core/lib/server/chromium/crConnection.js")
+    || stack.includes("playwright-core/lib/server/transport.js");
 }
 
 function isAuthorized(request: IncomingMessage, token: string): boolean {
@@ -187,21 +207,69 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
   };
   writeDaemonMetadata(state);
 
+  let stopping = false;
+  const handleRecoverableDaemonError = (channel: "uncaughtException" | "unhandledRejection", error: unknown): boolean => {
+    if (!isRecoverablePlaywrightTransportError(error)) {
+      if (isRecoverablePlaywrightTransportAssertion(error)) {
+        const message = error instanceof Error ? error.message : String(error ?? "unknown");
+        console.warn(`[daemon] ignored recoverable Playwright transport follow-on (${channel}): ${message}`);
+        return true;
+      }
+      return false;
+    }
+    const message = error instanceof Error ? error.message : String(error ?? "unknown");
+    console.warn(`[daemon] ignored recoverable Playwright transport error (${channel}): ${message}`);
+    return true;
+  };
+
+  const uncaughtExceptionHandler = (error: Error) => {
+    if (handleRecoverableDaemonError("uncaughtException", error)) {
+      return;
+    }
+    console.error(error);
+    void stop().finally(() => {
+      process.exitCode = 1;
+    });
+  };
+
+  const unhandledRejectionHandler = (reason: unknown) => {
+    if (handleRecoverableDaemonError("unhandledRejection", reason)) {
+      return;
+    }
+    console.error(reason);
+    void stop().finally(() => {
+      process.exitCode = 1;
+    });
+  };
+
   const stop = async () => {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
     clearDaemonMetadata();
     clearBinding();
+    process.off("SIGINT", sigintHandler);
+    process.off("SIGTERM", sigtermHandler);
+    process.off("uncaughtException", uncaughtExceptionHandler);
+    process.off("unhandledRejection", unhandledRejectionHandler);
     core.cleanup();
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
   };
 
-  process.on("SIGINT", () => {
+  const sigintHandler = () => {
     stop().catch(() => {});
-  });
-  process.on("SIGTERM", () => {
+  };
+  const sigtermHandler = () => {
     stop().catch(() => {});
-  });
+  };
+
+  process.on("SIGINT", sigintHandler);
+  process.on("SIGTERM", sigtermHandler);
+  process.on("uncaughtException", uncaughtExceptionHandler);
+  process.on("unhandledRejection", unhandledRejectionHandler);
 
   return { state, stop };
 }

@@ -23,4 +23,10 @@ describe("daemon-client timeout derivation", () => {
     expect(__test__.deriveTransportTimeoutMs({ timeoutMs: "5000" }, undefined)).toBeUndefined();
     expect(__test__.deriveTransportTimeoutMs({ waitTimeoutMs: 0 }, undefined)).toBeUndefined();
   });
+
+  it("treats request timeout errors as non-retryable transport failures", () => {
+    expect(__test__.isTransportTimeoutError(new Error("Request timed out after 120000ms"))).toBe(true);
+    expect(__test__.isTransportTimeoutError(new Error("socket hang up"))).toBe(false);
+    expect(__test__.isTransportTimeoutError("Request timed out after 45000ms")).toBe(true);
+  });
 });

@@ -25,7 +25,8 @@ import {
 import { logError } from "./logging.js";
 import {
   describeAnnotationItem,
-  filterAnnotationPayload
+  filterAnnotationPayload,
+  formatAnnotationDispatchReceipt
 } from "./annotation-payload.js";
 
 const statusEl = document.getElementById("status");
@@ -87,9 +88,20 @@ if (
 }
 
 const defaultNote = "Local relay only. Page data and tokens stay on-device.";
+const defaultHealthNote = "Health check pending.";
 const defaultAnnotationNote = "No annotations captured yet.";
 const LAST_ANNOTATION_META_KEY = "annotationLastMeta";
+const MISSING_EXTENSION_RECEIVER_MESSAGE = "Could not establish connection. Receiving end does not exist.";
 let lastAnnotationPayload: AnnotationPayload | null = null;
+let currentHealthNote = defaultHealthNote;
+
+const normalizePopupErrorMessage = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
+  if (message.includes(MISSING_EXTENSION_RECEIVER_MESSAGE)) {
+    return "Extension background is unavailable. Reload the extension and retry.";
+  }
+  return message;
+};
 
 const setNote = (message?: string) => {
   const next = message && message.trim() ? message : defaultNote;
@@ -99,6 +111,12 @@ const setNote = (message?: string) => {
 const setAnnotationNote = (message?: string) => {
   const next = message && message.trim() ? message : defaultAnnotationNote;
   annotationNote.textContent = next;
+};
+
+const setHealthNote = (message?: string) => {
+  const next = message && message.trim() ? message : defaultHealthNote;
+  currentHealthNote = next;
+  healthNote.textContent = next;
 };
 
 const setStatus = (status: BackgroundMessage["status"]) => {
@@ -132,7 +150,7 @@ const setHealth = (health?: RelayHealthStatus | null) => {
     setHealthValue(healthInjected, "Unknown", "off");
     setHealthValue(healthCdp, "Unknown", "off");
     setHealthValue(healthPairing, "Unknown", "off");
-    healthNote.textContent = "Health check pending.";
+    setHealthNote();
     return;
   }
 
@@ -149,25 +167,27 @@ const setHealth = (health?: RelayHealthStatus | null) => {
 
   if (health.lastHandshakeError) {
     const detail = health.lastHandshakeError.message ? ` ${health.lastHandshakeError.message}` : "";
-    healthNote.textContent = `Last handshake error: ${health.lastHandshakeError.code}.${detail}`;
+    setHealthNote(`Last handshake error: ${health.lastHandshakeError.code}.${detail}`);
   } else if (!health.ok) {
-    healthNote.textContent = `Relay health: ${formatReason(health.reason)}.`;
+    setHealthNote(`Relay health: ${formatReason(health.reason)}.`);
   } else {
-    healthNote.textContent = "Relay health OK.";
+    setHealthNote("Relay health OK.");
   }
 };
 
 const setInjectionStatus = (injected: boolean | null, detail?: string) => {
   if (injected === null) {
     setHealthValue(healthInjected, "Unknown", "off");
+    healthNote.textContent = currentHealthNote;
     return;
   }
   if (injected) {
     setHealthValue(healthInjected, "Injected", "ok");
+    healthNote.textContent = currentHealthNote;
     return;
   }
   setHealthValue(healthInjected, "Not injected", "warn");
-  if (detail && healthNote.textContent === "Relay health OK.") {
+  if (detail && healthNote.textContent === currentHealthNote) {
     healthNote.textContent = `Annotation UI: ${detail}`;
   }
 };
@@ -202,8 +222,8 @@ const setNativeHealth = (health: NativeTransportHealth | null, enabled: boolean)
   }
   const formatted = formatNativeHealth(health);
   setHealthValue(healthNative, formatted.label, formatted.tone);
-  if (formatted.note && healthNote.textContent === "Relay health OK.") {
-    healthNote.textContent = `${healthNote.textContent} ${formatted.note}`;
+  if (formatted.note && currentHealthNote === "Relay health OK.") {
+    setHealthNote(`${currentHealthNote} ${formatted.note}`);
   }
 };
 
@@ -219,7 +239,7 @@ const sendMessage = <TResponse,>(message: PopupMessage): Promise<TResponse> => {
     chrome.runtime.sendMessage(message, (response: TResponse) => {
       const lastError = chrome.runtime.lastError;
       if (lastError) {
-        reject(new Error(lastError.message));
+        reject(new Error(normalizePopupErrorMessage(lastError.message)));
         return;
       }
       if (!response) {
@@ -231,6 +251,17 @@ const sendMessage = <TResponse,>(message: PopupMessage): Promise<TResponse> => {
   });
 };
 
+const getPopupTabId = async (): Promise<number | undefined> => {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabId = tabs[0]?.id;
+    return typeof tabId === "number" ? tabId : undefined;
+  } catch (error) {
+    logError("popup.tab_query", error, { code: "tab_query_failed" });
+    return undefined;
+  }
+};
+
 const setStorage = (items: Record<string, unknown>): Promise<void> => {
   return new Promise((resolve) => {
     chrome.storage.local.set(items, () => resolve());
@@ -239,7 +270,11 @@ const setStorage = (items: Record<string, unknown>): Promise<void> => {
 
 const refreshInjectionStatus = async () => {
   try {
-    const response = await sendMessage<PopupAnnotationProbeResponse>({ type: "annotation:probe" });
+    const tabId = await getPopupTabId();
+    const response = await sendMessage<PopupAnnotationProbeResponse>({
+      type: "annotation:probe",
+      ...(typeof tabId === "number" ? { tabId } : {})
+    });
     setInjectionStatus(response.injected, response.detail);
   } catch (error) {
     logError("popup.annotation_probe", error, { code: "annotation_probe_failed" });
@@ -541,8 +576,7 @@ const copyPayloadToClipboard = async (payload: AnnotationPayload, message: strin
 const sendPayloadToAgent = async (
   payload: AnnotationPayload,
   source: AnnotationDispatchSource,
-  label: string,
-  successMessage: string
+  label: string
 ) => {
   const response = await sendMessage<PopupAnnotationSendPayloadResponse>({
     type: "annotation:sendPayload",
@@ -553,7 +587,7 @@ const sendPayloadToAgent = async (
   if (!response.ok) {
     throw new Error(response.error?.message ?? "Agent dispatch failed.");
   }
-  setAnnotationNote(successMessage);
+  setAnnotationNote(formatAnnotationDispatchReceipt(response.receipt));
 };
 
 const copySelectedAnnotation = async (annotationIds?: string[], successMessage = "Copied annotation payload to clipboard.") => {
@@ -587,7 +621,8 @@ const sendSelectedAnnotation = async (
   const payload = withPopupContext(annotationIds && annotationIds.length > 0
     ? filterAnnotationPayload(response.payload, annotationIds, { includeScreenshots: Boolean(response.payload.screenshots?.length) })
     : response.payload);
-  await sendPayloadToAgent(payload, source, label, successMessage);
+  void successMessage;
+  await sendPayloadToAgent(payload, source, label);
 };
 
 const toggle = async () => {
@@ -653,9 +688,11 @@ annotationStartButton.addEventListener("click", () => {
   (async () => {
     setAnnotationNote("Starting annotation...");
     const options = buildPopupAnnotationOptions();
+    const tabId = await getPopupTabId();
     const response = await sendMessage<PopupAnnotationStartResponse>({
       type: "annotation:start",
-      options
+      options,
+      ...(typeof tabId === "number" ? { tabId } : {})
     });
     if (!response.ok) {
       const message = response.error?.message ?? "Annotation start failed.";

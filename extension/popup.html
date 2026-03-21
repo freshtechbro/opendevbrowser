@@ -85,11 +85,12 @@
       }
 
       .brand-mark {
-        width: 12px;
-        height: 12px;
-        border-radius: 4px;
-        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-        box-shadow: 0 0 14px rgba(32, 213, 198, 0.55);
+        width: 22px;
+        height: 22px;
+        display: block;
+        object-fit: contain;
+        flex-shrink: 0;
+        filter: drop-shadow(0 0 10px rgba(32, 213, 198, 0.35));
       }
 
       .brand-title {
@@ -433,7 +434,7 @@
     <div class="app">
       <header class="app-header">
         <div class="brand">
-          <div class="brand-mark"></div>
+          <img class="brand-mark" src="icons/icon32.png" alt="OpenDevBrowser logo" />
           <div>
             <div class="brand-title">OpenDevBrowser</div>
             <div class="brand-subtitle">Relay Extension</div>

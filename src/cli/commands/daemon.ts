@@ -3,7 +3,13 @@ import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
 import { fetchDaemonStatusFromMetadata } from "../daemon-status";
 import { readDaemonMetadata } from "../daemon";
 import { fetchWithTimeout } from "../utils/http";
-import { getAutostartStatus, installAutostart, uninstallAutostart } from "../daemon-autostart";
+import {
+  getAutostartStatus,
+  installAutostart,
+  isTransientAutostartInstallError,
+  STABLE_DAEMON_INSTALL_GUIDANCE,
+  uninstallAutostart
+} from "../daemon-autostart";
 
 type DaemonSubcommand = "install" | "uninstall" | "status";
 
@@ -11,6 +17,7 @@ type DaemonResult = {
   installed: boolean;
   running: boolean;
   autostart?: ReturnType<typeof getAutostartStatus>;
+  status?: Awaited<ReturnType<typeof fetchDaemonStatusFromMetadata>>;
 };
 
 const parseDaemonArgs = (rawArgs: string[]): { subcommand: DaemonSubcommand } => {
@@ -37,23 +44,69 @@ const stopDaemonIfRunning = async (): Promise<boolean> => {
   }
 };
 
+const formatReason = (reason?: ReturnType<typeof getAutostartStatus>["reason"]): string => {
+  return reason ? reason.replace(/_/g, " ") : "unknown reason";
+};
+
+const buildStableAutostartGuidance = (action: "install" | "repair"): string => {
+  return `${STABLE_DAEMON_INSTALL_GUIDANCE.replace(/\.$/, "")} to ${action} it.`;
+};
+
+const describeAutostartLocation = (autostart: ReturnType<typeof getAutostartStatus>): string => {
+  if (autostart.location) {
+    return ` at ${autostart.location}`;
+  }
+  if (autostart.taskName) {
+    return ` (${autostart.taskName})`;
+  }
+  return "";
+};
+
 const buildStatusMessage = (autostart: ReturnType<typeof getAutostartStatus>, running: boolean): string => {
+  const runningText = running ? "running" : "not running";
+
   if (!autostart.supported) {
-    return `Daemon autostart is not supported on ${autostart.platform}.`;
+    return `Daemon autostart is not supported on ${autostart.platform}. Daemon is ${runningText}.`;
   }
 
-  const installed = autostart.installed ? "installed" : "not installed";
-  const runningText = running ? "running" : "not running";
-  const location = autostart.location ? ` at ${autostart.location}` : "";
-  const task = autostart.taskName ? ` (${autostart.taskName})` : "";
-  return `Autostart ${installed}${location}${task}. Daemon is ${runningText}.`;
+  const location = describeAutostartLocation(autostart);
+
+  if (autostart.health === "healthy") {
+    return `Autostart is installed and healthy${location}. Daemon is ${runningText}.`;
+  }
+
+  if (autostart.health === "missing") {
+    return `Autostart is not installed${location}. ${buildStableAutostartGuidance("install")} Daemon is ${runningText}.`;
+  }
+
+  if (autostart.health === "needs_repair") {
+    return `Autostart is installed${location} but needs repair (${formatReason(autostart.reason)}). ${buildStableAutostartGuidance("repair")} Daemon is ${runningText}.`;
+  }
+
+  if (autostart.health === "malformed") {
+    return `Autostart exists${location} but is malformed (${formatReason(autostart.reason)}). ${buildStableAutostartGuidance("repair")} Daemon is ${runningText}.`;
+  }
+
+  return `Daemon autostart is not supported on ${autostart.platform}. Daemon is ${runningText}.`;
 };
 
 export async function runDaemonCommand(args: ParsedArgs) {
   const { subcommand } = parseDaemonArgs(args.rawArgs);
 
   if (subcommand === "install") {
-    const result = installAutostart();
+    let result;
+    try {
+      result = installAutostart();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: isTransientAutostartInstallError(error)
+          ? message
+          : `Daemon autostart install failed: ${message}`,
+        exitCode: EXIT_EXECUTION
+      };
+    }
     if (!result.supported) {
       return {
         success: false,

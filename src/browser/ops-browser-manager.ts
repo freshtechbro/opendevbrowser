@@ -4,7 +4,13 @@ import type { OpenDevBrowserConfig } from "../config";
 import { createRequestId } from "../core/logging";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
 import type { ParallelismGovernorPolicyPayload } from "../relay/protocol";
-import type { BrowserManagerLike } from "./manager-types";
+import type {
+  BrowserCanvasOverlayMountInput,
+  BrowserCanvasOverlayResult,
+  BrowserCanvasOverlaySelectInput,
+  BrowserCanvasOverlaySyncInput,
+  BrowserManagerLike
+} from "./manager-types";
 import type { ConnectOptions, LaunchOptions } from "./browser-manager";
 import type { BrowserMode } from "./session-store";
 import type { TargetInfo } from "./target-manager";
@@ -20,7 +26,6 @@ import type {
   RuntimePreviewBridgeInput,
   RuntimePreviewBridgeResult
 } from "./canvas-runtime-preview-bridge";
-
 type CookieImportRecord = {
   name: string;
   value: string;
@@ -51,7 +56,12 @@ export class OpsBrowserManager implements BrowserManagerLike {
   private opsEndpoint: string | null = null;
   private opsSessions = new Set<string>();
   private opsLeases = new Map<string, string>();
+  private opsProtocolSessions = new Map<string, string>();
+  private publicSessionIdsByProtocolId = new Map<string, string>();
+  private opsSessionTabs = new Map<string, number>();
+  private opsSessionUrls = new Map<string, string>();
   private closedOpsSessions = new Map<string, number>();
+  private idleDisconnectPromise: Promise<void> | null = null;
 
   constructor(base: BrowserManager, config: OpenDevBrowserConfig) {
     this.base = base;
@@ -96,6 +106,9 @@ export class OpsBrowserManager implements BrowserManagerLike {
     const sessionId = result.opsSessionId;
     this.opsSessions.add(sessionId);
     this.opsLeases.set(sessionId, result.leaseId ?? leaseId);
+    this.trackProtocolSession(sessionId, result.opsSessionId);
+    this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    this.rememberSessionUrl(sessionId, result.url);
     this.trackClosedSessionCleanup();
     return {
       sessionId,
@@ -150,7 +163,11 @@ export class OpsBrowserManager implements BrowserManagerLike {
     }
     this.opsSessions.delete(sessionId);
     this.opsLeases.delete(sessionId);
+    this.releaseProtocolSession(sessionId);
+    this.opsSessionTabs.delete(sessionId);
+    this.opsSessionUrls.delete(sessionId);
     this.closedOpsSessions.delete(sessionId);
+    await this.disconnectOpsClientIfIdle();
   }
 
   async status(sessionId: string): ReturnType<BrowserManagerLike["status"]> {
@@ -165,6 +182,8 @@ export class OpsBrowserManager implements BrowserManagerLike {
       "session.status",
       {}
     );
+    this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    this.rememberSessionUrl(sessionId, result.url);
     return result;
   }
 
@@ -201,6 +220,71 @@ export class OpsBrowserManager implements BrowserManagerLike {
         bindingId: input.bindingId,
         rootSelector: input.rootSelector,
         html: input.html
+      }, targetId)
+    );
+  }
+
+  async mountCanvasOverlay(
+    sessionId: string,
+    targetId: string,
+    input: BrowserCanvasOverlayMountInput
+  ): Promise<BrowserCanvasOverlayResult> {
+    return await this.requestOps(
+      sessionId,
+      "canvas.overlay.mount",
+      this.withTarget({
+        mountId: input.mountId,
+        title: input.title,
+        prototypeId: input.prototypeId,
+        selection: input.selection
+      }, targetId)
+    );
+  }
+
+  supportsOpsOverlayTransport(sessionId: string): boolean {
+    return this.opsSessions.has(sessionId);
+  }
+
+  async unmountCanvasOverlay(
+    sessionId: string,
+    targetId: string,
+    mountId: string
+  ): Promise<BrowserCanvasOverlayResult> {
+    return await this.requestOps(
+      sessionId,
+      "canvas.overlay.unmount",
+      this.withTarget({ mountId }, targetId)
+    );
+  }
+
+  async selectCanvasOverlay(
+    sessionId: string,
+    targetId: string,
+    input: BrowserCanvasOverlaySelectInput
+  ): Promise<BrowserCanvasOverlayResult> {
+    return await this.requestOps(
+      sessionId,
+      "canvas.overlay.select",
+      this.withTarget({
+        mountId: input.mountId,
+        nodeId: input.nodeId,
+        selectionHint: input.selectionHint
+      }, targetId)
+    );
+  }
+
+  async syncCanvasOverlay(
+    sessionId: string,
+    targetId: string,
+    input: BrowserCanvasOverlaySyncInput
+  ): Promise<BrowserCanvasOverlayResult> {
+    return await this.requestOps(
+      sessionId,
+      "canvas.overlay.sync",
+      this.withTarget({
+        mountId: input.mountId,
+        title: input.title,
+        selection: input.selection
       }, targetId)
     );
   }
@@ -247,7 +331,13 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.goto(sessionId, url, waitUntil, timeoutMs, undefined, targetId);
     }
-    return await this.requestOps(sessionId, "nav.goto", this.withTarget({ url, waitUntil, timeoutMs }, targetId));
+    const result = await this.requestOps<Awaited<ReturnType<BrowserManagerLike["goto"]>>>(
+      sessionId,
+      "nav.goto",
+      this.withTarget({ url, waitUntil, timeoutMs }, targetId)
+    );
+    this.rememberSessionUrl(sessionId, result.finalUrl ?? url);
+    return result;
   }
 
   async waitForLoad(
@@ -503,7 +593,9 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.listTargets(sessionId, includeUrls);
     }
-    return await this.requestOps(sessionId, "targets.list", { includeUrls });
+    const result = await this.requestOps<{ activeTargetId: string | null; targets: TargetInfo[] }>(sessionId, "targets.list", { includeUrls });
+    this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    return result;
   }
 
   async registerCanvasTarget(
@@ -513,21 +605,35 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (!this.opsSessions.has(sessionId)) {
       return { targetId, adopted: false };
     }
-    return await this.requestOps(sessionId, "targets.registerCanvas", { targetId });
+    const result = await this.requestOps<{ targetId: string; url?: string; title?: string; adopted?: boolean }>(
+      sessionId,
+      "targets.registerCanvas",
+      { targetId }
+    );
+    this.rememberSessionTarget(sessionId, result.targetId);
+    return result;
   }
 
   async useTarget(sessionId: string, targetId: string): Promise<{ activeTargetId: string; url?: string; title?: string }> {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.useTarget(sessionId, targetId);
     }
-    return await this.requestOps(sessionId, "targets.use", { targetId });
+    const result = await this.requestOps<{ activeTargetId: string; url?: string; title?: string }>(
+      sessionId,
+      "targets.use",
+      { targetId }
+    );
+    this.rememberSessionTarget(sessionId, result.activeTargetId);
+    return result;
   }
 
   async newTarget(sessionId: string, url?: string): Promise<{ targetId: string }> {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.newTarget(sessionId, url);
     }
-    return await this.requestOps(sessionId, "targets.new", { url });
+    const result = await this.requestOps<{ targetId: string }>(sessionId, "targets.new", { url });
+    this.rememberSessionTarget(sessionId, result.targetId);
+    return result;
   }
 
   async closeTarget(sessionId: string, targetId: string): Promise<void> {
@@ -535,13 +641,22 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.base.closeTarget(sessionId, targetId);
     }
     await this.requestOps(sessionId, "targets.close", { targetId });
+    if (this.opsSessionTabs.get(sessionId) === parseTabTargetId(targetId)) {
+      this.opsSessionTabs.delete(sessionId);
+    }
   }
 
   async page(sessionId: string, name: string, url?: string): Promise<{ targetId: string; created: boolean; url?: string; title?: string }> {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.page(sessionId, name, url);
     }
-    return await this.requestOps(sessionId, "page.open", { name, url });
+    const result = await this.requestOps<{ targetId: string; created: boolean; url?: string; title?: string }>(
+      sessionId,
+      "page.open",
+      { name, url }
+    );
+    this.rememberSessionTarget(sessionId, result.targetId);
+    return result;
   }
 
   async listPages(sessionId: string): Promise<{ pages: Array<{ name: string; targetId: string; url?: string; title?: string }> }> {
@@ -563,13 +678,14 @@ export class OpsBrowserManager implements BrowserManagerLike {
       await this.opsClient.connect();
       return this.opsClient;
     }
-    this.opsClient?.disconnect();
-    const client = new OpsClient(wsEndpoint, {
+    void this.opsClient?.disconnect();
+    let client: OpsClient;
+    client = new OpsClient(wsEndpoint, {
       onEvent: (event) => {
         this.handleOpsEvent(event);
       },
       onClose: () => {
-        this.handleOpsClientClosed();
+        this.handleOpsClientClosed(client);
       }
     });
     await client.connect();
@@ -592,36 +708,138 @@ export class OpsBrowserManager implements BrowserManagerLike {
   }
 
   private async requestOps<T>(sessionId: string, command: string, payload: Record<string, unknown>): Promise<T> {
-    const client = this.opsClient;
-    if (!client) {
-      throw new Error("Ops client not connected");
-    }
     const leaseId = this.opsLeases.get(sessionId);
     if (!leaseId) {
       throw new Error("Ops lease not found for session");
     }
-    return await client.request<T>(command, payload, sessionId, 30000, leaseId);
+    let client = this.opsClient;
+    if (!client) {
+      client = await this.reconnectOpsClient(sessionId, payload);
+    }
+    let protocolSessionId = this.getProtocolSessionId(sessionId);
+    try {
+      return await client.request<T>(command, payload, protocolSessionId, 30000, leaseId);
+    } catch (error) {
+      if (command === "session.connect") {
+        throw error;
+      }
+      if (isOpsRelayUnavailableError(error)) {
+        const relayReady = await this.waitForRelayExtensionReady();
+        if (!relayReady) {
+          throw error;
+        }
+        if (!this.opsClient && this.opsEndpoint) {
+          client = await this.ensureOpsClient(this.opsEndpoint);
+        }
+      } else if (!isUnknownOpsSessionError(error)) {
+        throw error;
+      }
+      const recovered = await this.recoverOpsSession(sessionId, payload);
+      if (!recovered) {
+        throw error;
+      }
+      const recoveredClient = this.opsClient ?? client;
+      const recoveredLeaseId = this.opsLeases.get(sessionId) ?? leaseId;
+      if (!recoveredClient) {
+        throw error;
+      }
+      protocolSessionId = this.getProtocolSessionId(sessionId);
+      return await recoveredClient.request<T>(command, payload, protocolSessionId, 30000, recoveredLeaseId);
+    }
+  }
+
+  private async reconnectOpsClient(sessionId: string, payload: Record<string, unknown>): Promise<OpsClient> {
+    const endpoint = this.opsEndpoint;
+    if (!endpoint) {
+      throw new Error("Ops client not connected");
+    }
+    const relayReady = await this.waitForRelayExtensionReady();
+    if (!relayReady) {
+      throw new Error("Ops client not connected");
+    }
+    const client = await this.ensureOpsClient(endpoint);
+    const recovered = await this.recoverOpsSession(sessionId, payload);
+    if (!recovered) {
+      throw new Error("Ops client not connected");
+    }
+    return client;
+  }
+
+  private async waitForRelayExtensionReady(timeoutMs = 15000): Promise<boolean> {
+    const endpoint = this.opsEndpoint;
+    if (!endpoint) {
+      return false;
+    }
+    const statusUrl = this.buildRelayStatusUrl(endpoint);
+    if (!statusUrl) {
+      return false;
+    }
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const relayToken = typeof this.config.relayToken === "string" ? this.config.relayToken.trim() : "";
+    if (relayToken) {
+      headers.Authorization = `Bearer ${relayToken}`;
+    }
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(statusUrl.toString(), { headers });
+        if (response.ok) {
+          const payload = await response.json() as {
+            extensionConnected?: boolean;
+            extensionHandshakeComplete?: boolean;
+          };
+          if (payload.extensionConnected === true && payload.extensionHandshakeComplete === true) {
+            return true;
+          }
+        }
+      } catch {
+        // retry until timeout
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return false;
+  }
+
+  private buildRelayStatusUrl(wsEndpoint: string): URL | null {
+    try {
+      const socketUrl = new URL(wsEndpoint);
+      const protocol = socketUrl.protocol === "wss:" ? "https:" : "http:";
+      return new URL("/status", `${protocol}//${socketUrl.hostname}:${socketUrl.port}`);
+    } catch {
+      return null;
+    }
   }
 
   private handleOpsEvent(event: { event?: string; opsSessionId?: string }): void {
     if (!event.opsSessionId) return;
+    const sessionId = this.publicSessionIdsByProtocolId.get(event.opsSessionId) ?? event.opsSessionId;
     if (event.event === "ops_session_closed" || event.event === "ops_session_expired" || event.event === "ops_tab_closed") {
-      this.opsSessions.delete(event.opsSessionId);
-      this.opsLeases.delete(event.opsSessionId);
-      this.closedOpsSessions.set(event.opsSessionId, Date.now());
+      this.opsSessions.delete(sessionId);
+      this.opsLeases.delete(sessionId);
+      this.releaseProtocolSession(sessionId);
+      this.opsSessionTabs.delete(sessionId);
+      this.opsSessionUrls.delete(sessionId);
+      this.closedOpsSessions.set(sessionId, Date.now());
       this.trackClosedSessionCleanup();
+      void this.disconnectOpsClientIfIdle();
     }
   }
 
-  private handleOpsClientClosed(): void {
-    if (this.opsSessions.size === 0) return;
-    const now = Date.now();
-    for (const sessionId of this.opsSessions) {
-      this.closedOpsSessions.set(sessionId, now);
+  private handleOpsClientClosed(client: OpsClient): void {
+    if (this.opsClient && this.opsClient !== client) {
+      return;
     }
-    this.opsSessions.clear();
-    this.opsLeases.clear();
-    this.trackClosedSessionCleanup();
+    if (this.opsClient === client) {
+      this.opsClient = null;
+    }
+    if (this.opsSessions.size === 0) {
+      this.opsEndpoint = null;
+      return;
+    }
+    // Preserve live-session metadata so the next command can reconnect to the relay and recover
+    // the same public session onto the last known target instead of silently degrading to a fresh tab.
+    this.opsProtocolSessions.clear();
+    this.publicSessionIdsByProtocolId.clear();
   }
 
   private trackClosedSessionCleanup(): void {
@@ -635,6 +853,119 @@ export class OpsBrowserManager implements BrowserManagerLike {
       }
     }
   }
+
+  private async disconnectOpsClientIfIdle(): Promise<void> {
+    if (this.opsSessions.size > 0) {
+      return;
+    }
+    if (this.idleDisconnectPromise) {
+      await this.idleDisconnectPromise;
+      return;
+    }
+    const client = this.opsClient;
+    this.opsClient = null;
+    this.opsEndpoint = null;
+    if (client && typeof client.disconnect === "function") {
+      const pending = Promise.resolve(client.disconnect()).finally(() => {
+        if (this.idleDisconnectPromise === pending) {
+          this.idleDisconnectPromise = null;
+        }
+      });
+      this.idleDisconnectPromise = pending;
+      await pending;
+    }
+  }
+
+  private rememberSessionTarget(sessionId: string, targetId: string | null | undefined): void {
+    const tabId = parseTabTargetId(targetId);
+    if (tabId === null) {
+      return;
+    }
+    this.opsSessionTabs.set(sessionId, tabId);
+  }
+
+  private rememberSessionUrl(sessionId: string, url: string | null | undefined): void {
+    const normalized = normalizeRecoverableOpsUrl(url);
+    if (!normalized) {
+      return;
+    }
+    this.opsSessionUrls.set(sessionId, normalized);
+  }
+
+  private async recoverOpsSession(sessionId: string, payload: Record<string, unknown>): Promise<boolean> {
+    const client = this.opsClient;
+    const leaseId = this.opsLeases.get(sessionId);
+    if (!client || !leaseId) {
+      return false;
+    }
+
+    const reconnectPayload: Record<string, unknown> = {
+      sessionId,
+      parallelismPolicy: this.buildParallelismPolicyPayload()
+    };
+    const rememberedTabId = this.opsSessionTabs.get(sessionId);
+    const fallbackUrl = normalizeRecoverableOpsUrl(payload.url) ?? this.opsSessionUrls.get(sessionId) ?? null;
+    if (typeof rememberedTabId === "number") {
+      reconnectPayload.tabId = rememberedTabId;
+    } else if (fallbackUrl) {
+      reconnectPayload.startUrl = fallbackUrl;
+    }
+
+    let result: { opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string };
+    try {
+      result = await client.request<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }>(
+        "session.connect",
+        reconnectPayload,
+        undefined,
+        30000,
+        leaseId
+      );
+    } catch (error) {
+      if (!isUnknownOpsTabError(error) || !fallbackUrl || !("tabId" in reconnectPayload)) {
+        throw error;
+      }
+      result = await client.request<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }>(
+        "session.connect",
+        {
+          sessionId,
+          parallelismPolicy: this.buildParallelismPolicyPayload(),
+          startUrl: fallbackUrl
+        },
+        undefined,
+        30000,
+        leaseId
+      );
+    }
+
+    this.opsSessions.add(sessionId);
+    this.opsLeases.set(sessionId, result.leaseId ?? leaseId);
+    this.trackProtocolSession(sessionId, result.opsSessionId);
+    this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    this.rememberSessionUrl(sessionId, result.url ?? fallbackUrl);
+    this.closedOpsSessions.delete(sessionId);
+    return true;
+  }
+
+  private getProtocolSessionId(sessionId: string): string {
+    return this.opsProtocolSessions.get(sessionId) ?? sessionId;
+  }
+
+  private trackProtocolSession(sessionId: string, protocolSessionId: string): void {
+    const previousProtocolSessionId = this.opsProtocolSessions.get(sessionId);
+    if (previousProtocolSessionId && previousProtocolSessionId !== protocolSessionId) {
+      this.publicSessionIdsByProtocolId.delete(previousProtocolSessionId);
+    }
+    this.opsProtocolSessions.set(sessionId, protocolSessionId);
+    this.publicSessionIdsByProtocolId.set(protocolSessionId, sessionId);
+  }
+
+  private releaseProtocolSession(sessionId: string): void {
+    const protocolSessionId = this.opsProtocolSessions.get(sessionId);
+    if (protocolSessionId) {
+      this.publicSessionIdsByProtocolId.delete(protocolSessionId);
+    }
+    this.opsProtocolSessions.delete(sessionId);
+  }
 }
 
 const isIgnorableOpsDisconnectError = (error: unknown): boolean => {
@@ -642,4 +973,48 @@ const isIgnorableOpsDisconnectError = (error: unknown): boolean => {
   return message.includes("Ops request timed out")
     || message.includes("[invalid_session] Unknown ops session")
     || message.includes("Ops socket closed");
+};
+
+const isUnknownOpsSessionError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("[invalid_session] Unknown ops session");
+};
+
+const isOpsRelayUnavailableError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("[ops_unavailable]")
+    || message.includes("[relay_unavailable]")
+    || message.includes("Extension not connected to relay");
+};
+
+const isUnknownOpsTabError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("[invalid_request] Unknown tabId:");
+};
+
+const parseTabTargetId = (targetId: string | null | undefined): number | null => {
+  if (typeof targetId !== "string") {
+    return null;
+  }
+  const match = /^tab-(\d+)$/.exec(targetId.trim());
+  if (!match) {
+    return null;
+  }
+  return Number.parseInt(match[1]!, 10);
+};
+
+const normalizeRecoverableOpsUrl = (url: unknown): string | null => {
+  if (typeof url !== "string") {
+    return null;
+  }
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? trimmed : null;
+  } catch {
+    return null;
+  }
 };

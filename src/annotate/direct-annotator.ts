@@ -3,7 +3,8 @@ import { existsSync } from "fs";
 import { join } from "path";
 import type { Page } from "playwright-core";
 import type { BrowserManagerLike } from "../browser/manager-types";
-import { getExtensionPath } from "../extension-extractor";
+import { getExtensionRuntimePath } from "../extension-extractor";
+import { getAnnotationTimeoutMessage } from "./timeout-messages";
 import type {
   AnnotationErrorCode,
   AnnotationPayload,
@@ -36,12 +37,23 @@ type DirectDispatchRuntime = {
   dispatch: (message: Record<string, unknown>) => unknown;
 };
 
+type DirectBridgeStatus = {
+  ok: true;
+  active: boolean;
+};
+
 const DEFAULT_TIMEOUT_MS = 120_000;
+const DIRECT_ANNOTATE_REQUIRED_FILES = [
+  "dist/annotate-content.js",
+  "dist/annotate-content.css"
+];
 const bindingState = new WeakSet<Page>();
 const completionMap = new WeakMap<Page, Map<string, (message: DirectCompletionMessage) => void>>();
 
 export function resolveDirectAnnotateAssets(
-  resolvePath: () => string | null = getExtensionPath
+  resolvePath: () => string | null = () => getExtensionRuntimePath({
+    requiredFiles: DIRECT_ANNOTATE_REQUIRED_FILES
+  })
 ): { assets?: DirectAnnotateAssets; error?: string } {
   const extensionPath = resolvePath();
   if (!extensionPath) {
@@ -73,6 +85,7 @@ export async function runDirectAnnotate(
 
     await injectAssets(page, assets);
     await ensureAnnotationReady(page);
+    let readySeen = false;
 
     const completionHandlers = getCompletionMap(page);
     const responsePromise = new Promise<AnnotationResponse>((resolve) => {
@@ -81,6 +94,22 @@ export async function runDirectAnnotate(
       });
     });
 
+    const startResponse = await dispatchMessage(page, {
+      type: "annotation:start",
+      requestId,
+      options: {
+        screenshotMode: request.screenshotMode ?? "visible",
+        debug: request.debug,
+        context: request.context
+      },
+      url: request.url
+    });
+    readySeen = readBridgeStatus(startResponse)?.active === true;
+    if (!readySeen) {
+      completionHandlers.delete(requestId);
+      throw new Error("Annotation start acknowledgement missing active bridge.");
+    }
+
     const timeoutPromise = new Promise<AnnotationResponse>((resolve) => {
       const timeoutId = setTimeout(() => {
         clearTimeout(timeoutId);
@@ -88,7 +117,7 @@ export async function runDirectAnnotate(
           version: 1,
           requestId,
           status: "error",
-          error: { code: "timeout", message: "Annotation request timed out." }
+          error: { code: "timeout", message: getAnnotationTimeoutMessage(readySeen) }
         });
       }, timeoutMs);
     });
@@ -113,17 +142,6 @@ export async function runDirectAnnotate(
         });
       };
       request.signal.addEventListener("abort", onAbort, { once: true });
-    });
-
-    await dispatchMessage(page, {
-      type: "annotation:start",
-      requestId,
-      options: {
-        screenshotMode: request.screenshotMode ?? "visible",
-        debug: request.debug,
-        context: request.context
-      },
-      url: request.url
     });
 
     const result = await Promise.race([responsePromise, timeoutPromise, abortPromise]);
@@ -284,9 +302,23 @@ async function injectAssets(page: Page, assets: DirectAnnotateAssets): Promise<v
 
 async function ensureAnnotationReady(page: Page): Promise<void> {
   const response = await dispatchMessage(page, { type: "annotation:ping" });
-  if (!response || typeof response !== "object" || (response as { ok?: boolean }).ok !== true) {
+  if (!readBridgeStatus(response)) {
     throw new Error("Annotation content script unavailable");
   }
+}
+
+function readBridgeStatus(value: unknown): DirectBridgeStatus | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const candidate = value as { ok?: unknown; active?: unknown };
+  if (candidate.ok !== true || typeof candidate.active !== "boolean") {
+    return null;
+  }
+  return {
+    ok: true,
+    active: candidate.active
+  };
 }
 
 async function dispatchMessage(page: Page, message: Record<string, unknown>): Promise<unknown> {

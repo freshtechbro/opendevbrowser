@@ -143,6 +143,7 @@ describe("SessionStore blocker FSM", () => {
     });
 
     expect(store.has("s1")).toBe(true);
+    expect(store.get("s1").id).toBe("s1");
     expect(store.list()).toHaveLength(1);
 
     const noopResolving = store.startResolving("s1", 11);
@@ -165,6 +166,37 @@ describe("SessionStore blocker FSM", () => {
     expect(store.list()).toHaveLength(0);
     expect(() => store.get("s1")).toThrow("Unknown sessionId: s1");
     expect(() => store.clearBlocker("s1")).toThrow("Unknown sessionId: s1");
+  });
+
+  it("returns clear state when no blocker is present and covers timed-out verifier failure defaults", () => {
+    const store = new SessionStore();
+    store.add({
+      id: "s1",
+      mode: "managed",
+      browser: {} as never,
+      context: {} as never
+    });
+
+    const stillClear = store.reconcileBlocker("s1", null, {
+      timeoutMs: 60_000,
+      nowMs: 10
+    });
+    expect(stillClear.state).toBe("clear");
+
+    store.reconcileBlocker("s1", makeBlocker("auth_required"), {
+      timeoutMs: 60_000,
+      nowMs: 20
+    });
+
+    const next = store.markVerificationFailure("s1", { timedOut: true });
+    expect(next).toMatchObject({
+      state: "active",
+      resolution: {
+        status: "unresolved",
+        reason: "verification_timeout"
+      }
+    });
+    expect(typeof next.updatedAtMs).toBe("number");
   });
 
   it("covers internal fallback branches for missing blocker state and implicit timing", () => {

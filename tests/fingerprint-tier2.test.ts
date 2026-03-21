@@ -113,4 +113,24 @@ describe("fingerprint tier2 runtime", () => {
     expect(offResult.challenge).toBeNull();
     expect(offResult.state.profile.challengeCount).toBe(recovered.state.profile.challengeCount);
   });
+
+  it("rotates on interval expiry without score recovery when recovery is disabled", () => {
+    const baseState = createTier2RuntimeState(config, "session-5", "default", 1700000000000);
+    const startRotationCount = baseState.profile.rotationCount;
+    const startHealthScore = baseState.profile.healthScore;
+
+    const result = applyTier2NetworkEvent(
+      baseState,
+      { ...config, scoreRecovery: 0 },
+      { url: "https://example.com/home", status: 200, ts: 1700000065000 },
+      1700000065000
+    );
+
+    expect(result.challenge).toBeNull();
+    expect(result.rotated).toBe(true);
+    expect(result.reason).toBe("interval");
+    expect(result.state.profile.rotationCount).toBe(startRotationCount + 1);
+    expect(result.state.profile.healthScore).toBe(startHealthScore);
+    expect(result.state.lastRotationTs).toBe(1700000065000);
+  });
 });

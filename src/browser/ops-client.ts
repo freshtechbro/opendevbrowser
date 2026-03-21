@@ -47,6 +47,7 @@ type PendingPing = {
 };
 
 export class OpsClient {
+  private static readonly DISCONNECT_GRACE_MS = 1000;
   private url: string;
   private socket: WebSocket | null = null;
   private lastHelloAck: OpsHelloAck | null = null;
@@ -69,6 +70,7 @@ export class OpsClient {
   private shouldReconnectOnClose = true;
   private missedPongs = 0;
   private maxMissedPongs: number;
+  private disconnectPromise: Promise<void> | null = null;
 
   constructor(url: string, options: OpsClientOptions = {}) {
     this.url = url;
@@ -166,20 +168,17 @@ export class OpsClient {
     }
   }
 
-  disconnect(): void {
+  async disconnect(): Promise<void> {
+    if (this.disconnectPromise) {
+      await this.disconnectPromise;
+      return;
+    }
+
     this.autoReconnect = false;
     this.shouldReconnectOnClose = false;
     this.clearReconnectTimer();
     this.stopHeartbeat();
-    if (this.socket) {
-      try {
-        if (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING) {
-          this.socket.close(1000, "Ops disconnect");
-        }
-      } catch {
-        // ignore
-      }
-    }
+    const socket = this.socket;
     this.socket = null;
     this.lastHelloAck = null;
     for (const pending of this.pendingRequests.values()) {
@@ -193,6 +192,49 @@ export class OpsClient {
       ping.reject(new Error("Ops socket closed"));
     }
     this.pendingPings.clear();
+    if (!socket || socket.readyState === WebSocket.CLOSED) {
+      return;
+    }
+
+    this.disconnectPromise = new Promise((resolve) => {
+      let settled = false;
+      const finalize = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        socket.removeListener("close", onClose);
+        socket.removeListener("error", onError);
+        this.disconnectPromise = null;
+        resolve();
+      };
+      const onClose = () => {
+        finalize();
+      };
+      const onError = () => {
+        finalize();
+      };
+      const timeoutId = setTimeout(() => {
+        try {
+          socket.terminate();
+        } catch {
+          // ignore
+        }
+        finalize();
+      }, OpsClient.DISCONNECT_GRACE_MS);
+
+      socket.once("close", onClose);
+      socket.once("error", onError);
+      try {
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close(1000, "Ops disconnect");
+        } else {
+          finalize();
+        }
+      } catch {
+        finalize();
+      }
+    });
+    await this.disconnectPromise;
   }
 
   async request<T>(command: string, payload?: unknown, opsSessionId?: string, timeoutMs = 30000, leaseId?: string): Promise<T> {

@@ -9,6 +9,7 @@ import {
   type MacroExecutionPayload,
   type MacroResolution
 } from "../macros/execute";
+import type { AnnotationDispatchSource, AnnotationPayload } from "../relay/protocol";
 import {
   bindRelay,
   waitForBinding,
@@ -102,11 +103,13 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     case "annotate": {
       await authorizeSessionCommand(core, params, request.name, bindingId);
       const sessionId = requireString(params.sessionId, "sessionId");
-      const status = await core.manager.status(sessionId);
       const stored = optionalBoolean(params.stored) ?? false;
       const transport = stored ? "relay" : requireAnnotationTransport(params.transport);
-      if (transport === "relay" && status.mode !== "extension") {
-        throw new Error("Relay annotations require extension mode.");
+      if (transport === "relay" && !stored) {
+        const status = await core.manager.status(sessionId);
+        if (status.mode !== "extension") {
+          throw new Error("Relay annotations require extension mode.");
+        }
       }
       const url = optionalString(params.url);
       const targetId = optionalString(params.targetId);
@@ -129,6 +132,38 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         context,
         timeoutMs
       });
+    }
+    case "agent.inbox.enqueue":
+      return core.agentInbox.enqueue({
+        payload: requireAnnotationPayload(params.payload),
+        source: requireAnnotationDispatchSource(params.source),
+        label: optionalString(params.label) ?? "",
+        explicitChatScopeKey: optionalString(params.chatScopeKey) ?? null
+      });
+    case "agent.inbox.peek": {
+      const chatScopeKey = requireString(params.chatScopeKey, "chatScopeKey");
+      return {
+        chatScopeKey,
+        activeScopes: core.agentInbox.listActiveScopes(),
+        entries: core.agentInbox.peekScope(chatScopeKey)
+      };
+    }
+    case "agent.inbox.consume": {
+      const chatScopeKey = requireString(params.chatScopeKey, "chatScopeKey");
+      const entries = core.agentInbox.consumeScope(chatScopeKey);
+      return {
+        chatScopeKey,
+        receiptIds: entries.map((entry) => entry.id),
+        entries
+      };
+    }
+    case "agent.inbox.ack": {
+      const receiptIds = requireStringArray(params.receiptIds, "receiptIds");
+      core.agentInbox.acknowledge(receiptIds);
+      return {
+        ok: true,
+        receiptIds
+      };
     }
     case "targets.list":
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -596,7 +631,8 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         }
       );
-    case "product.video.run":
+    case "product.video.run": {
+      const productVideoTimeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
       return runProductVideoWorkflow(
         createConfiguredProviderRuntime({
           config: core.config,
@@ -611,21 +647,31 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           include_copy: optionalBoolean(params.include_copy),
           output_dir: optionalString(params.output_dir),
           ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours"),
+          timeoutMs: productVideoTimeoutMs,
           useCookies: optionalBoolean(params.useCookies),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         },
         {
-          captureScreenshot: async (url: string) => {
+          captureScreenshot: async (url: string, timeoutMs?: number) => {
+            const captureTimeoutMs = Math.max(1, Math.min(timeoutMs ?? 30000, 30000));
             const session = await core.manager.launch({
               headless: true,
-              startUrl: url,
+              startUrl: "about:blank",
               // Capture sessions are ephemeral; avoid persisted profile lock contention.
               persistProfile: false
             });
             try {
-              const screenshot = await core.manager.screenshot(session.sessionId);
-              if (typeof screenshot.base64 !== "string" || screenshot.base64.length === 0) return null;
+              await core.manager.goto(session.sessionId, url, "load", captureTimeoutMs);
+              const screenshot = await Promise.race([
+                core.manager.screenshot(session.sessionId),
+                new Promise<null>((resolve) => {
+                  setTimeout(() => resolve(null), captureTimeoutMs);
+                })
+              ]);
+              if (!screenshot || typeof screenshot.base64 !== "string" || screenshot.base64.length === 0) return null;
               return Buffer.from(screenshot.base64, "base64");
+            } catch {
+              return null;
             } finally {
               await core.manager.disconnect(session.sessionId, true).catch(() => {
                 // Best effort cleanup.
@@ -634,6 +680,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           }
         }
       );
+    }
     default:
       throw new Error(`Unknown daemon command: ${request.name}`);
   }
@@ -832,8 +879,18 @@ async function disconnectSession(
     status = await core.manager.status(sessionId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? "");
-    if (message.includes("[invalid_session]") || message.includes("Unknown ops session")) {
+    if (isIgnorableDisconnectStatusError(message)) {
+      const lease = getSessionLease(sessionId);
+      if (lease) {
+        requireSessionLease(sessionId, clientId, optionalString(params.leaseId));
+      } else if (bindingId) {
+        requireBinding(clientId, bindingId);
+      }
       releaseSessionLease(sessionId);
+      if (bindingId) {
+        releaseRelay(clientId, bindingId);
+        return { ok: true, bindingReleased: true };
+      }
       return { ok: true };
     }
     throw error;
@@ -933,6 +990,12 @@ function buildManagedFailureMessage(error: unknown): string {
 
 function unsupportedModeError(message: string): Error {
   return new Error(`[unsupported_mode] ${message}`);
+}
+
+function isIgnorableDisconnectStatusError(message: string): boolean {
+  return message.includes("[invalid_session]")
+    || message.includes("Unknown ops session")
+    || message.includes("Ops client not connected");
 }
 
 async function attachBlockerMetaForNavigation(
@@ -1345,6 +1408,46 @@ function requireAnnotationTransport(value: unknown): "auto" | "direct" | "relay"
     return "auto";
   }
   throw new Error("Invalid transport");
+}
+
+function requireAnnotationDispatchSource(value: unknown): AnnotationDispatchSource {
+  if (
+    value === "annotate_item"
+    || value === "annotate_all"
+    || value === "popup_item"
+    || value === "popup_all"
+    || value === "canvas_item"
+    || value === "canvas_all"
+  ) {
+    return value;
+  }
+  throw new Error("Invalid source");
+}
+
+function requireAnnotationPayload(value: unknown): AnnotationPayload {
+  const payload = requireRecord(value, "payload");
+  if (
+    typeof payload.url !== "string"
+    || typeof payload.timestamp !== "string"
+    || !Array.isArray(payload.annotations)
+  ) {
+    throw new Error("Invalid payload");
+  }
+  if (
+    (typeof payload.title !== "undefined" && typeof payload.title !== "string")
+    || (typeof payload.context !== "undefined" && typeof payload.context !== "string")
+  ) {
+    throw new Error("Invalid payload");
+  }
+  if (
+    typeof payload.screenshotMode !== "undefined"
+    && payload.screenshotMode !== "visible"
+    && payload.screenshotMode !== "full"
+    && payload.screenshotMode !== "none"
+  ) {
+    throw new Error("Invalid payload");
+  }
+  return payload as AnnotationPayload;
 }
 
 function requireState(value: unknown): "attached" | "visible" | "hidden" {

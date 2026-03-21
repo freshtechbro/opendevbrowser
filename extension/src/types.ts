@@ -1,6 +1,10 @@
 export type ConnectionStatus = "connected" | "disconnected";
 
-export type PopupAnnotationStartMessage = { type: "annotation:start"; options?: AnnotationCommand["options"] };
+export type PopupAnnotationStartMessage = {
+  type: "annotation:start";
+  options?: AnnotationCommand["options"];
+  tabId?: number;
+};
 export type PopupAnnotationLastMetaMessage = { type: "annotation:lastMeta" };
 export type PopupAnnotationGetPayloadMessage = { type: "annotation:getPayload"; includeScreenshots?: boolean };
 export type PopupAnnotationSendPayloadMessage = {
@@ -9,7 +13,7 @@ export type PopupAnnotationSendPayloadMessage = {
   source?: AnnotationDispatchSource;
   label?: string;
 };
-export type PopupAnnotationProbeMessage = { type: "annotation:probe" };
+export type PopupAnnotationProbeMessage = { type: "annotation:probe"; tabId?: number };
 
 export type PopupMessage =
   | { type: "connect" }
@@ -47,6 +51,11 @@ export type RelayEvent = {
     params?: unknown;
     sessionId?: string;
   };
+};
+
+export type RelayCdpControl = {
+  type: "cdp_control";
+  action: "client_closed";
 };
 
 export type RelayResponse = {
@@ -326,6 +335,7 @@ export type CanvasEventType =
   | "canvas_lease_changed"
   | "canvas_feedback_item"
   | "canvas_patch_requested"
+  | "canvas_history_requested"
   | "canvas_code_sync_started"
   | "canvas_code_sync_applied"
   | "canvas_code_sync_conflict"
@@ -420,12 +430,30 @@ export type AnnotationDispatchSource =
   | "canvas_item"
   | "canvas_all";
 
+export type AgentInboxDeliveryState = "queued" | "delivered" | "stored_only" | "consumed";
+
+export type AgentInboxReceipt = {
+  receiptId: string;
+  deliveryState: AgentInboxDeliveryState;
+  storedFallback: boolean;
+  reason?: string;
+  chatScopeKey?: string | null;
+  createdAt: string;
+  itemCount: number;
+  byteLength: number;
+  source: AnnotationDispatchSource;
+  label: string;
+};
+
 export type AnnotationCommand = {
   version: 1;
   requestId: string;
-  command: "start" | "cancel" | "fetch_stored";
+  command: "start" | "cancel" | "fetch_stored" | "store_agent_payload";
   url?: string;
   tabId?: number;
+  payload?: AnnotationPayload;
+  source?: AnnotationDispatchSource;
+  label?: string;
   options?: {
     screenshotMode?: AnnotationScreenshotMode;
     debug?: boolean;
@@ -526,6 +554,7 @@ export type AnnotationResponse = {
   status: "ok" | "cancelled" | "error";
   error?: { code: AnnotationErrorCode; message: string };
   payload?: AnnotationPayload;
+  receipt?: AgentInboxReceipt;
 };
 
 export type PopupAnnotationPayloadSource = "memory" | "storage" | "none";
@@ -534,6 +563,7 @@ export type PopupAnnotationMeta = {
   requestId: string;
   status: AnnotationResponse["status"];
   error?: AnnotationResponse["error"];
+  receipt?: AgentInboxReceipt;
   source?: AnnotationDispatchSource;
   label?: string;
   url?: string;
@@ -571,6 +601,7 @@ export type PopupAnnotationSendPayloadResponse = {
   type: "annotation:sendPayloadResult";
   ok: boolean;
   meta: PopupAnnotationMeta | null;
+  receipt: AgentInboxReceipt | null;
   error?: { code: AnnotationErrorCode; message: string };
 };
 

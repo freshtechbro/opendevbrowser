@@ -3,6 +3,7 @@ import { OpsBrowserManager } from "../browser/ops-browser-manager";
 import { AnnotationManager } from "../browser/annotation-manager";
 import { CanvasManager } from "../browser/canvas-manager";
 import { ScriptRunner } from "../browser/script-runner";
+import { AgentInbox } from "../annotate/agent-inbox";
 import { ConfigStore, loadGlobalConfig } from "../config";
 import { getExtensionPath } from "../extension-extractor";
 import { RelayServer } from "../relay/relay-server";
@@ -21,7 +22,14 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   const manager = new OpsBrowserManager(baseManager, config);
   const runner = new ScriptRunner(manager);
   const skills = new SkillLoader(cacheRoot, config.skillPaths);
-  const browserFallbackPort = createBrowserFallbackPort(manager);
+  const agentInbox = new AgentInbox(cacheRoot);
+  const browserFallbackPort = createBrowserFallbackPort(
+    manager,
+    {},
+    config.relayPort > 0 && config.relayToken !== false
+      ? { extensionWsEndpoint: `ws://127.0.0.1:${config.relayPort}` }
+      : {}
+  );
   const providerRuntime = createConfiguredProviderRuntime({
     config,
     manager,
@@ -29,7 +37,29 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   });
   const relay = new RelayServer();
   relay.setToken(config.relayToken);
-  const annotationManager = new AnnotationManager(relay, config, manager);
+  relay.setStoreAgentPayloadHandler(async (command) => {
+    if (!command.payload) {
+      return {
+        version: 1,
+        requestId: command.requestId,
+        status: "error",
+        error: { code: "invalid_request", message: "Annotation payload required for store_agent_payload." }
+      };
+    }
+    const receipt = agentInbox.enqueue({
+      payload: command.payload,
+      source: command.source ?? "popup_all",
+      label: command.label ?? "",
+      explicitChatScopeKey: null
+    });
+    return {
+      version: 1,
+      requestId: command.requestId,
+      status: "ok",
+      receipt
+    };
+  });
+  const annotationManager = new AnnotationManager(relay, config, manager, agentInbox);
   const canvasManager = new CanvasManager({
     worktree: cacheRoot,
     browserManager: manager,
@@ -71,6 +101,7 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     parallelismPolicy: config.parallelism,
     configStore,
     manager,
+    agentInbox,
     canvasManager,
     annotationManager,
     runner,

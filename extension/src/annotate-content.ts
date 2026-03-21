@@ -1,3 +1,5 @@
+// This file is injected with chrome.scripting.executeScript, so keep runtime helpers local.
+
 const logError = (context: string, error: unknown, options?: { code?: string; extra?: Record<string, unknown> }) => {
   const detail =
     error instanceof Error
@@ -29,7 +31,19 @@ type AnnotationOptions = {
   context?: string;
 };
 
-type AnnotationErrorCode = "capture_failed" | "unknown";
+type AnnotationErrorCode =
+  | "invalid_request"
+  | "payload_too_large"
+  | "timeout"
+  | "direct_unavailable"
+  | "direct_failed"
+  | "relay_unavailable"
+  | "restricted_url"
+  | "injection_failed"
+  | "capture_failed"
+  | "payload_unavailable"
+  | "cancelled"
+  | "unknown";
 type AnnotationDispatchSource = "annotate_item" | "annotate_all" | "popup_item" | "popup_all" | "canvas_item" | "canvas_all";
 type AnnotationRect = { x: number; y: number; width: number; height: number };
 type AnnotationStyle = {
@@ -66,6 +80,27 @@ type AnnotationPayload = {
   }>;
 };
 
+type AnnotationSendReceipt = {
+  receiptId: string;
+  deliveryState: "queued" | "delivered" | "stored_only" | "consumed";
+  storedFallback: boolean;
+  reason?: string;
+  chatScopeKey?: string | null;
+  createdAt: string;
+  itemCount: number;
+  byteLength: number;
+  source: AnnotationDispatchSource;
+  label: string;
+};
+
+type PopupAnnotationSendPayloadResponse = {
+  type: "annotation:sendPayloadResult";
+  ok: boolean;
+  meta: unknown | null;
+  receipt: AnnotationSendReceipt | null;
+  error?: { code: AnnotationErrorCode; message: string };
+};
+
 type AnnotationSession = {
   requestId: string | null;
   options: AnnotationOptions;
@@ -89,14 +124,23 @@ type ContentMessage =
   | { type: "annotation:toggle" }
   | { type: "annotation:ping" };
 
-interface Window {
-  __odbAnnotate?: {
-    active: boolean;
-    toggle: () => void;
-    start: (requestId: string | null, options?: Partial<AnnotationOptions>) => void;
-    cancel: (requestId?: string) => void;
-  };
-}
+type AnnotationBridge = {
+  active: boolean;
+  toggle: () => void;
+  start: (requestId: string | null, options?: Partial<AnnotationOptions>) => void;
+  cancel: (requestId?: string) => void;
+};
+
+type AnnotationMessageListener = (
+  message: ContentMessage,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response: unknown) => void
+) => boolean;
+
+type AnnotationWindow = Window & {
+  __odbAnnotate?: AnnotationBridge;
+  __odbAnnotateMessageListener?: AnnotationMessageListener;
+};
 
 const ROOT_ID = "odb-annotate-root";
 const ATTR_UI = "data-odb-annotate";
@@ -105,6 +149,9 @@ const DEFAULT_OPTIONS: AnnotationOptions = {
   includeScreenshots: false,
   debug: true
 };
+const BOOT_ID = crypto.randomUUID();
+
+const annotationWindow = window as AnnotationWindow;
 
 const state: {
   session: AnnotationSession;
@@ -275,6 +322,7 @@ const teardown = () => {
   state.hoverIndex = 0;
   state.session.active = false;
   state.session.completed = false;
+  syncBridgeActive();
   if (state.root) {
     state.root.remove();
   }
@@ -313,6 +361,18 @@ const removeListeners = () => {
   window.removeEventListener("resize", scheduleConnectorUpdate, true);
 };
 
+const syncBridgeActive = () => {
+  if (annotationWindow.__odbAnnotate) {
+    annotationWindow.__odbAnnotate.active = state.session.active;
+  }
+};
+
+const buildBridgeStatus = () => ({
+  ok: true,
+  bootId: BOOT_ID,
+  active: state.session.active
+});
+
 const isUiElement = (element: Element | null): boolean => {
   if (!element) return false;
   return Boolean(element.closest(`[${ATTR_UI}]`));
@@ -333,6 +393,7 @@ const startSession = (requestId: string | null, options?: Partial<AnnotationOpti
     state.globalNote.value = state.session.options.context;
   }
   state.session.active = true;
+  syncBridgeActive();
   addListeners();
   scheduleConnectorUpdate();
 };
@@ -366,6 +427,7 @@ const submitSession = async () => {
 const finalizeSubmission = () => {
   state.session.completed = true;
   state.session.active = false;
+  syncBridgeActive();
   removeListeners();
   if (state.highlight) {
     state.highlight.style.opacity = "0";
@@ -1095,6 +1157,16 @@ const describeAnnotationItem = (item: AnnotationPayload["annotations"][number]):
   return label ? `${selector} — ${label}` : selector;
 };
 
+const formatAnnotationDispatchReceipt = (receipt: PopupAnnotationSendPayloadResponse["receipt"]): string => {
+  if (!receipt) {
+    return "Stored only; fetch with annotate --stored";
+  }
+  if (receipt.deliveryState === "delivered" || receipt.deliveryState === "consumed") {
+    return "Delivered to agent";
+  }
+  return "Stored only; fetch with annotate --stored";
+};
+
 const copyPayload = async (annotationIds?: string[], button?: HTMLButtonElement) => {
   const payload = await buildPayload(annotationIds);
   const text = JSON.stringify(payload);
@@ -1113,7 +1185,7 @@ const sendPayload = async (
   button?: HTMLButtonElement
 ) => {
   const payload = await buildPayload(annotationIds);
-  await new Promise<void>((resolve, reject) => {
+  const response = await new Promise<PopupAnnotationSendPayloadResponse>((resolve, reject) => {
     chrome.runtime.sendMessage(
       {
         type: "annotation:sendPayload",
@@ -1127,19 +1199,20 @@ const sendPayload = async (
           reject(new Error(lastError.message));
           return;
         }
-        if (!response || response.ok !== true) {
-          reject(new Error(response?.error?.message ?? "Send failed"));
+        const typed = response as PopupAnnotationSendPayloadResponse | undefined;
+        if (!typed || typed.ok !== true) {
+          reject(new Error(typed?.error?.message ?? "Send failed"));
           return;
         }
-        resolve();
+        resolve(typed);
       }
     );
   });
   if (button) {
-    setButtonFeedback(button, "Sent");
+    setButtonFeedback(button, formatAnnotationDispatchReceipt(response.receipt));
     return;
   }
-  setCopyFeedback("Sent");
+  setCopyFeedback(formatAnnotationDispatchReceipt(response.receipt));
 };
 
 const writeClipboard = async (value: string): Promise<void> => {
@@ -1188,11 +1261,31 @@ const setButtonFeedback = (button: HTMLButtonElement, label: string, useSharedTi
   }
 };
 
-const bootstrap = () => {
-  if (window.__odbAnnotate) {
-    return;
+const handleRuntimeMessage: AnnotationMessageListener = (message, _sender, sendResponse) => {
+  if (message.type === "annotation:ping") {
+    sendResponse(buildBridgeStatus());
+    return true;
   }
-  window.__odbAnnotate = {
+  if (message.type === "annotation:toggle") {
+    annotationWindow.__odbAnnotate?.toggle();
+    sendResponse(buildBridgeStatus());
+    return true;
+  }
+  if (message.type === "annotation:start") {
+    annotationWindow.__odbAnnotate?.start(message.requestId, message.options);
+    sendResponse(buildBridgeStatus());
+    return true;
+  }
+  if (message.type === "annotation:cancel") {
+    annotationWindow.__odbAnnotate?.cancel(message.requestId);
+    sendResponse(buildBridgeStatus());
+    return true;
+  }
+  return false;
+};
+
+const bootstrap = () => {
+  annotationWindow.__odbAnnotate = {
     active: false,
     toggle: () => {
       if (state.session.active) {
@@ -1209,29 +1302,14 @@ const bootstrap = () => {
     },
     cancel: () => cancelSession()
   };
+  syncBridgeActive();
 
-  chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
-    if (message.type === "annotation:ping") {
-      sendResponse({ ok: true });
-      return true;
-    }
-    if (message.type === "annotation:toggle") {
-      window.__odbAnnotate?.toggle();
-      sendResponse({ ok: true });
-      return true;
-    }
-    if (message.type === "annotation:start") {
-      window.__odbAnnotate?.start(message.requestId, message.options);
-      sendResponse({ ok: true });
-      return true;
-    }
-    if (message.type === "annotation:cancel") {
-      window.__odbAnnotate?.cancel(message.requestId);
-      sendResponse({ ok: true });
-      return true;
-    }
-    return false;
-  });
+  const previousListener = annotationWindow.__odbAnnotateMessageListener;
+  if (previousListener) {
+    chrome.runtime.onMessage.removeListener?.(previousListener);
+  }
+  annotationWindow.__odbAnnotateMessageListener = handleRuntimeMessage;
+  chrome.runtime.onMessage.addListener(handleRuntimeMessage);
 };
 
 bootstrap();

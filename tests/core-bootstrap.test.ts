@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenDevBrowserConfig } from "../src/config";
+import type { AnnotationCommand, AnnotationResponse } from "../src/relay/protocol";
 
 type RelayStatus = { running: boolean; port: number | null };
 
@@ -12,7 +13,9 @@ let lastRelay: {
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
   setToken: ReturnType<typeof vi.fn>;
+  setStoreAgentPayloadHandler: ReturnType<typeof vi.fn>;
 } | null = null;
+let lastStoreAgentPayloadHandler: ((command: AnnotationCommand) => Promise<AnnotationResponse>) | null = null;
 
 const registerLastRelay = (relay: NonNullable<typeof lastRelay>): void => {
   lastRelay = relay;
@@ -59,6 +62,9 @@ vi.mock("../src/relay/relay-server", () => ({
     start = vi.fn(async () => undefined);
     stop = vi.fn();
     setToken = vi.fn();
+    setStoreAgentPayloadHandler = vi.fn((handler: (command: AnnotationCommand) => Promise<AnnotationResponse>) => {
+      lastStoreAgentPayloadHandler = handler;
+    });
     constructor() {
       registerLastRelay(this);
     }
@@ -93,6 +99,7 @@ describe("createOpenDevBrowserCore", () => {
     runnerInstances.length = 0;
     skillsInstances.length = 0;
     lastRelay = null;
+    lastStoreAgentPayloadHandler = null;
     console.warn = vi.fn();
   });
 
@@ -113,7 +120,60 @@ describe("createOpenDevBrowserCore", () => {
     expect(runnerInstances.length).toBe(1);
     expect(skillsInstances[0]?.paths).toEqual([]);
     expect(lastRelay?.setToken).toHaveBeenCalledWith("token");
+    expect(lastRelay?.setStoreAgentPayloadHandler).toHaveBeenCalledTimes(1);
+    expect(core.agentInbox).toBeTruthy();
     expect(typeof core.getExtensionPath).toBe("function");
+  });
+
+  it("rejects store_agent_payload requests without a payload", async () => {
+    const { createOpenDevBrowserCore } = await import("../src/core");
+    createOpenDevBrowserCore({ directory: "/tmp/root", config: makeConfig() });
+
+    const response = await lastStoreAgentPayloadHandler?.({
+      version: 1,
+      requestId: "req-missing",
+      command: "store_agent_payload"
+    } as AnnotationCommand);
+
+    expect(response).toEqual({
+      version: 1,
+      requestId: "req-missing",
+      status: "error",
+      error: {
+        code: "invalid_request",
+        message: "Annotation payload required for store_agent_payload."
+      }
+    });
+  });
+
+  it("applies default source and label when storing agent payloads", async () => {
+    const { createOpenDevBrowserCore } = await import("../src/core");
+    const core = createOpenDevBrowserCore({ directory: "/tmp/root", config: makeConfig() });
+    core.agentInbox.registerScope("session-1");
+
+    const response = await lastStoreAgentPayloadHandler?.({
+      version: 1,
+      requestId: "req-store",
+      command: "store_agent_payload",
+      payload: {
+        url: "https://example.com",
+        timestamp: "2026-03-15T00:00:00.000Z",
+        screenshotMode: "visible",
+        annotations: []
+      }
+    } as AnnotationCommand);
+
+    expect(response).toMatchObject({
+      version: 1,
+      requestId: "req-store",
+      status: "ok",
+      receipt: {
+        source: "popup_all",
+        label: "Popup annotation payload",
+        deliveryState: "delivered",
+        storedFallback: false
+      }
+    });
   });
 
   it("loads config defaults when not provided", async () => {

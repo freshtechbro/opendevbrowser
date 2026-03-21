@@ -11,6 +11,7 @@ const relayInstances: Array<{
   sendResponse: ReturnType<typeof vi.fn>;
   sendPing: ReturnType<typeof vi.fn>;
   isConnected: ReturnType<typeof vi.fn>;
+  triggerCdpControl: (message: { type: "cdp_control"; action: "client_closed" }) => void;
   triggerClose: (detail?: { code?: number; reason?: string }) => void;
 }> = [];
 
@@ -40,16 +41,27 @@ vi.mock("../extension/src/services/RelayClient", () => ({
       pairingRequired: true
     });
     isConnected = vi.fn(() => true);
-    private handlers: { onClose: (detail?: { code?: number; reason?: string }) => void };
+    private handlers: {
+      onClose: (detail?: { code?: number; reason?: string }) => void;
+      onCdpControl?: (message: { type: "cdp_control"; action: "client_closed" }) => void;
+    };
 
-    constructor(url: string, handlers: { onCommand: (command: unknown) => void; onClose: (detail?: { code?: number; reason?: string }) => void }) {
+    constructor(url: string, handlers: {
+      onCommand: (command: unknown) => void;
+      onClose: (detail?: { code?: number; reason?: string }) => void;
+      onCdpControl?: (message: { type: "cdp_control"; action: "client_closed" }) => void;
+    }) {
       this.url = url;
-      this.handlers = { onClose: handlers.onClose };
+      this.handlers = { onClose: handlers.onClose, onCdpControl: handlers.onCdpControl };
       relayInstances.push(this);
     }
 
     triggerClose(detail?: { code?: number; reason?: string }): void {
       this.handlers.onClose(detail);
+    }
+
+    triggerCdpControl(message: { type: "cdp_control"; action: "client_closed" }): void {
+      this.handlers.onCdpControl?.(message);
     }
   }
 }));
@@ -74,11 +86,13 @@ vi.mock("../extension/src/services/CDPRouter", () => ({
       this.callbacks = callbacks;
     });
     handleCommand = vi.fn(async () => undefined);
+    markClientClosed = vi.fn(() => undefined);
     getPrimaryTabId = vi.fn(() => this.primaryTabId);
     getAttachedTabIds = vi.fn(() => Array.from(this.attachedTabs));
     triggerDetach = (detail?: { tabId?: number; reason?: string }) => {
       this.attachedTabs.clear();
       this.primaryTabId = null;
+      this.callbacks?.onPrimaryTabChange?.(null);
       this.callbacks?.onDetach?.(detail);
     };
   }
@@ -128,6 +142,322 @@ describe("ConnectionManager", () => {
     const relay = relayInstances[0];
     mock.emitTabUpdated(1, { id: 1, url: "https://updated", title: "Updated", groupId: 2 } as chrome.tabs.Tab);
     expect(relay.sendHandshake).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks legacy cdp state stale when the relay reports the client closed", async () => {
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const relay = relayInstances[0];
+    const cdp = (manager as { cdp?: { markClientClosed?: ReturnType<typeof vi.fn> } }).cdp;
+
+    relay.triggerCdpControl({ type: "cdp_control", action: "client_closed" });
+
+    expect(cdp?.markClientClosed).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the tracked web tab when the primary tab changes to the extension canvas", async () => {
+    const webTab = {
+      id: 1,
+      url: "https://example.com",
+      title: "Example",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const canvasTab = {
+      id: 2,
+      url: "chrome-extension://test/canvas.html",
+      title: "OpenDevBrowser Canvas",
+      status: "complete",
+      active: false,
+      lastAccessed: 30
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: webTab, tabs: [webTab, canvasTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const cdp = (manager as { cdp?: { callbacks?: { onPrimaryTabChange?: (tabId: number | null) => void } } }).cdp;
+    const onPrimaryTabChange = cdp?.callbacks?.onPrimaryTabChange;
+    expect(onPrimaryTabChange).toBeTypeOf("function");
+    await onPrimaryTabChange?.(canvasTab.id);
+
+    const trackedTab = (manager as { trackedTab?: { id?: number } | null }).trackedTab;
+    expect(trackedTab?.id).toBe(webTab.id);
+    expect(relay.isConnected()).toBe(true);
+  });
+
+  it("falls back to the first http tab when connect starts from about:blank", async () => {
+    const webTab = {
+      id: 1,
+      url: "https://example.com/workspace",
+      title: "Workspace",
+      status: "complete",
+      active: false,
+      lastAccessed: 10
+    } satisfies chrome.tabs.Tab;
+    const blankTab = {
+      id: 2,
+      url: "about:blank",
+      title: "about:blank",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: blankTab, tabs: [webTab, blankTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const handshake = relay.connect.mock.calls[0]?.[0] as {
+      payload?: { tabId?: number; url?: string };
+    } | undefined;
+    const trackedTab = (manager as { trackedTab?: { id?: number } | null }).trackedTab;
+    const cdp = (manager as { cdp?: { attach?: ReturnType<typeof vi.fn> } }).cdp;
+
+    expect(cdp?.attach).toHaveBeenCalledWith(webTab.id);
+    expect(handshake?.payload?.tabId).toBe(webTab.id);
+    expect(handshake?.payload?.url).toBe(webTab.url);
+    expect(trackedTab?.id).toBe(webTab.id);
+  });
+
+  it("falls back to the first http tab when no active tab is available on startup", async () => {
+    const webTab = {
+      id: 2,
+      url: "https://example.com/workspace",
+      title: "Workspace",
+      status: "complete",
+      active: false,
+      lastAccessed: 10
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ tabs: [webTab] });
+    mock.setActiveTab(null);
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const handshake = relay.connect.mock.calls[0]?.[0] as {
+      payload?: { tabId?: number; url?: string };
+    } | undefined;
+    const trackedTab = (manager as { trackedTab?: { id?: number } | null }).trackedTab;
+    const cdp = (manager as { cdp?: { attach?: ReturnType<typeof vi.fn> } }).cdp;
+
+    expect(cdp?.attach).toHaveBeenCalledWith(webTab.id);
+    expect(handshake?.payload?.tabId).toBe(webTab.id);
+    expect(handshake?.payload?.url).toBe(webTab.url);
+    expect(trackedTab?.id).toBe(webTab.id);
+  });
+
+  it("bootstraps a fresh browser tab when connect starts from the internal design canvas blank tab", async () => {
+    const canvasBlankTab = {
+      id: 2,
+      url: "about:blank",
+      title: "Untitled Design Canvas",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: canvasBlankTab, tabs: [canvasBlankTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const handshake = relay.connect.mock.calls[0]?.[0] as {
+      payload?: { tabId?: number; url?: string };
+    } | undefined;
+    const trackedTab = (manager as { trackedTab?: { id?: number } | null }).trackedTab;
+    const cdp = (manager as { cdp?: { attach?: ReturnType<typeof vi.fn> } }).cdp;
+
+    expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({ url: "about:blank", active: true }, expect.any(Function));
+    expect(cdp?.attach).toHaveBeenCalledWith(3);
+    expect(handshake?.payload?.tabId).toBe(3);
+    expect(handshake?.payload?.url).toBe("about:blank");
+    expect(trackedTab?.id).toBe(3);
+  });
+
+  it("bootstraps a fresh browser tab when startup only has a restricted tab", async () => {
+    const restrictedTab = {
+      id: 2,
+      url: "chrome://extensions",
+      title: "Extensions",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: restrictedTab, tabs: [restrictedTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const handshake = relay.connect.mock.calls[0]?.[0] as {
+      payload?: { tabId?: number; url?: string };
+    } | undefined;
+    const trackedTab = (manager as { trackedTab?: { id?: number } | null }).trackedTab;
+    const cdp = (manager as { cdp?: { attach?: ReturnType<typeof vi.fn> } }).cdp;
+
+    expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({ url: "about:blank", active: true }, expect.any(Function));
+    expect(cdp?.attach).toHaveBeenCalledWith(3);
+    expect(handshake?.payload?.tabId).toBe(3);
+    expect(handshake?.payload?.url).toBe("about:blank");
+    expect(trackedTab?.id).toBe(3);
+  });
+
+  it("bootstraps a fresh browser tab when refreshTrackedTab sees a restricted-only reconnect target", async () => {
+    const restrictedTab = {
+      id: 2,
+      url: "about:blank",
+      title: "Untitled Design Canvas",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: restrictedTab, tabs: [restrictedTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await (manager as unknown as { refreshTrackedTab: (tabId: number) => Promise<void> }).refreshTrackedTab(restrictedTab.id);
+
+    const trackedTab = (manager as { trackedTab?: { id?: number; url?: string } | null }).trackedTab;
+
+    expect(globalThis.chrome.tabs.create).toHaveBeenCalledWith({ url: "about:blank", active: true }, expect.any(Function));
+    expect(trackedTab?.id).toBe(3);
+    expect(trackedTab?.url).toBe("about:blank");
+  });
+
+  it("keeps the tracked web tab when the primary tab changes to about:blank", async () => {
+    const webTab = {
+      id: 1,
+      url: "https://example.com",
+      title: "Example",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const blankTab = {
+      id: 2,
+      url: "about:blank",
+      title: "about:blank",
+      status: "complete",
+      active: false,
+      lastAccessed: 30
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: webTab, tabs: [webTab, blankTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const cdp = (manager as { cdp?: { callbacks?: { onPrimaryTabChange?: (tabId: number | null) => void } } }).cdp;
+    const onPrimaryTabChange = cdp?.callbacks?.onPrimaryTabChange;
+    expect(onPrimaryTabChange).toBeTypeOf("function");
+    await onPrimaryTabChange?.(blankTab.id);
+
+    const trackedTab = (manager as { trackedTab?: { id?: number } | null }).trackedTab;
+    expect(trackedTab?.id).toBe(webTab.id);
+    expect(relay.isConnected()).toBe(true);
+  });
+
+  it("keeps the tracked web tab when the primary tab changes to popup with no remaining http fallback", async () => {
+    const webTab = {
+      id: 1,
+      url: "https://example.com",
+      title: "Example",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const popupTab = {
+      id: 2,
+      url: "chrome-extension://test/popup.html",
+      title: "OpenDevBrowser",
+      status: "complete",
+      active: true,
+      lastAccessed: 30
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: webTab });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    mock.setActiveTab(popupTab);
+
+    const relay = relayInstances[0];
+    const cdp = (manager as { cdp?: { callbacks?: { onPrimaryTabChange?: (tabId: number | null) => void } } }).cdp;
+    const onPrimaryTabChange = cdp?.callbacks?.onPrimaryTabChange;
+    expect(onPrimaryTabChange).toBeTypeOf("function");
+    await onPrimaryTabChange?.(popupTab.id);
+
+    const trackedTab = (manager as { trackedTab?: { id?: number; url?: string } | null }).trackedTab;
+    expect(trackedTab?.id).toBe(webTab.id);
+    expect(trackedTab?.url).toBe(webTab.url);
+    expect(relay.isConnected()).toBe(true);
+  });
+
+  it("refreshes the tracked tab when a stale restricted tracked tab is removed but another attached web tab remains", async () => {
+    const webTab = {
+      id: 1,
+      url: "https://example.com",
+      title: "Example",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const canvasTab = {
+      id: 2,
+      url: "about:blank",
+      title: "Untitled Design Canvas",
+      status: "complete",
+      active: false,
+      lastAccessed: 30
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: webTab, tabs: [webTab, canvasTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const managerAny = manager as {
+      trackedTab?: { id?: number; url?: string } | null;
+      cdp?: { attachedTabs: Set<number>; primaryTabId: number | null };
+    };
+    managerAny.trackedTab = { id: canvasTab.id, url: canvasTab.url, title: canvasTab.title };
+    managerAny.cdp?.attachedTabs.add(canvasTab.id);
+    if (managerAny.cdp) {
+      managerAny.cdp.primaryTabId = canvasTab.id;
+    }
+
+    globalThis.chrome.tabs.remove(canvasTab.id);
+    await vi.waitFor(() => {
+      expect(managerAny.trackedTab?.id).toBe(webTab.id);
+    });
+
+    expect(managerAny.trackedTab?.url).toBe(webTab.url);
+    expect(relay.sendHandshake).toHaveBeenCalled();
+    expect(relay.isConnected()).toBe(true);
   });
 
   it("uses default pairing token when pairing is enabled", async () => {
@@ -199,6 +529,72 @@ describe("ConnectionManager", () => {
     expect(relayInstances.length).toBeGreaterThan(1);
   });
 
+  it("preserves the relay connection across manual session cleanup detaches", async () => {
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const relay = relayInstances[0];
+    const cdp = (manager as {
+      cdp?: {
+        attach?: ReturnType<typeof vi.fn>;
+        triggerDetach?: (detail?: { tabId?: number; reason?: string }) => void;
+      };
+    }).cdp;
+
+    cdp?.triggerDetach?.({ tabId: 1, reason: "manual_disconnect" });
+
+    await vi.waitFor(() => {
+      expect(cdp?.attach).toHaveBeenCalledTimes(2);
+    });
+    expect(relay.disconnect).not.toHaveBeenCalled();
+    expect(manager.getStatus()).toBe("connected");
+  });
+
+  it("preserves the relay connection when manual cleanup detaches a stale design tab", async () => {
+    const webTab = {
+      id: 1,
+      url: "https://example.com",
+      title: "Example",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: webTab, tabs: [webTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const cdp = (manager as {
+      cdp?: {
+        attach?: ReturnType<typeof vi.fn>;
+        attachedTabs: Set<number>;
+        primaryTabId: number | null;
+        triggerDetach?: (detail?: { tabId?: number; reason?: string }) => void;
+      };
+    }).cdp;
+
+    cdp?.attach?.mockImplementation(async (tabId: number) => {
+      cdp.attachedTabs.clear();
+      cdp.attachedTabs.add(tabId === 99 ? webTab.id : tabId);
+      cdp.primaryTabId = tabId === 99 ? webTab.id : tabId;
+    });
+
+    cdp?.triggerDetach?.({ tabId: 99, reason: "manual_disconnect" });
+
+    await vi.waitFor(() => {
+      expect(cdp?.attach).toHaveBeenCalledWith(99);
+    });
+    expect(relay.disconnect).not.toHaveBeenCalled();
+    expect(manager.getStatus()).toBe("connected");
+    const trackedTab = (manager as { trackedTab?: { id?: number; url?: string } | null }).trackedTab;
+    expect(trackedTab?.id).toBe(webTab.id);
+    expect(trackedTab?.url).toBe(webTab.url);
+  });
+
   it("clears pairing token on invalid pairing close", async () => {
     const mock = createChromeMock({ pairingToken: "stale-token" });
     globalThis.chrome = mock.chrome;
@@ -228,6 +624,13 @@ describe("ConnectionManager", () => {
     const mock = createChromeMock();
     mock.setActiveTab(null);
     globalThis.chrome = mock.chrome;
+    const createTab = globalThis.chrome.tabs.create as unknown as ReturnType<typeof vi.fn>;
+    createTab.mockImplementation((_properties: chrome.tabs.CreateProperties, callback?: (tab: chrome.tabs.Tab) => void) => {
+      globalThis.chrome.runtime.lastError = { message: "Tab creation blocked" };
+      callback?.(undefined as unknown as chrome.tabs.Tab);
+      globalThis.chrome.runtime.lastError = null;
+      return undefined as unknown as chrome.tabs.Tab;
+    });
 
     const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
     const manager = new ConnectionManager();
@@ -243,9 +646,23 @@ describe("ConnectionManager", () => {
         id: 2,
         url: "chrome://extensions",
         title: "Extensions"
-      } as chrome.tabs.Tab
+      } as chrome.tabs.Tab,
+      tabs: [{
+        id: 2,
+        url: "chrome://extensions",
+        title: "Extensions",
+        status: "complete",
+        active: true
+      } as chrome.tabs.Tab]
     });
     globalThis.chrome = mock.chrome;
+    const createTab = globalThis.chrome.tabs.create as unknown as ReturnType<typeof vi.fn>;
+    createTab.mockImplementation((_properties: chrome.tabs.CreateProperties, callback?: (tab: chrome.tabs.Tab) => void) => {
+      globalThis.chrome.runtime.lastError = { message: "Tab creation blocked" };
+      callback?.(undefined as unknown as chrome.tabs.Tab);
+      globalThis.chrome.runtime.lastError = null;
+      return undefined as unknown as chrome.tabs.Tab;
+    });
 
     const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
     const manager = new ConnectionManager();
