@@ -37,9 +37,15 @@ import {
   normalizeCanvasSessionSummary,
   normalizeCanvasTargetStateSummaries
 } from "./model.js";
+import { DEFAULT_EDITOR_VIEWPORT } from "./viewport-fit.js";
 
 type CanvasRuntimeOptions = {
   send: (message: CanvasEnvelope) => void;
+  registerOpsCanvasTarget?: (
+    browserSessionId: string,
+    targetId: string
+  ) => Promise<{ targetId: string; url?: string; title?: string; adopted?: boolean } | null>;
+  unregisterOpsCanvasTarget?: (browserSessionId: string, targetId: string) => Promise<boolean> | boolean;
 };
 
 type CanvasSessionExtra = {
@@ -60,6 +66,17 @@ type CanvasSessionExtra = {
 };
 
 type CanvasSessionRecord = TargetSessionRecord<CanvasSessionExtra>;
+type OverlaySessionRecord = {
+  id: string;
+  ownerClientId: string;
+  leaseId: string;
+  designTabTargetId: string | null;
+  document: CanvasDocument;
+  previewState: CanvasPreviewState;
+  overlayMounts: CanvasOverlayMountSummary[];
+  selection: CanvasEditorSelection;
+};
+type OverlayCapableSession = CanvasSessionRecord | OverlaySessionRecord;
 
 const OVERLAY_STYLE = `
 #opendevbrowser-canvas-style,
@@ -92,8 +109,11 @@ const OVERLAY_STYLE = `
 
 export class CanvasRuntime {
   private readonly sendEnvelope: (message: CanvasEnvelope) => void;
+  private readonly registerOpsCanvasTarget?: CanvasRuntimeOptions["registerOpsCanvasTarget"];
+  private readonly unregisterOpsCanvasTarget?: CanvasRuntimeOptions["unregisterOpsCanvasTarget"];
   private readonly tabs = new TabManager();
   private readonly sessions = new TargetSessionCoordinator<CanvasSessionExtra>();
+  private readonly overlaySessions = new Map<string, OverlaySessionRecord>();
   private readonly pagePorts = new Map<number, Set<chrome.runtime.Port>>();
   private readonly pendingPageActions = new Map<string, {
     tabId: number;
@@ -104,6 +124,8 @@ export class CanvasRuntime {
 
   constructor(options: CanvasRuntimeOptions) {
     this.sendEnvelope = options.send;
+    this.registerOpsCanvasTarget = options.registerOpsCanvasTarget;
+    this.unregisterOpsCanvasTarget = options.unregisterOpsCanvasTarget;
   }
 
   attachPort(port: chrome.runtime.Port): void {
@@ -253,6 +275,11 @@ export class CanvasRuntime {
     for (const session of this.sessions.listOwnedBy(clientId)) {
       void this.closeRuntimeSession(session, "client_disconnected");
     }
+    for (const [sessionId, session] of this.overlaySessions.entries()) {
+      if (session.ownerClientId === clientId) {
+        this.overlaySessions.delete(sessionId);
+      }
+    }
   }
 
   private handlePagePortMessage(tabId: number, message: CanvasPagePortMessage): void {
@@ -287,7 +314,7 @@ export class CanvasRuntime {
       if (!Array.isArray(message.patches) || message.patches.length === 0 || typeof message.baseRevision !== "number") {
         return;
       }
-      this.mergeEditorState(session, undefined, message.selection);
+      this.mergeEditorState(session, message.viewport, message.selection);
       session.pendingMutation = true;
       this.broadcastCanvasState(tabId, "canvas-page:update");
       this.sendEvent({
@@ -300,7 +327,20 @@ export class CanvasRuntime {
           documentId: session.document.documentId,
           baseRevision: message.baseRevision,
           patches: message.patches,
-          selection: session.selection
+          selection: session.selection,
+          viewport: session.viewport
+        }
+      });
+      return;
+    }
+    if (message.type === "canvas-page-history-request") {
+      this.sendEvent({
+        type: "canvas_event",
+        clientId: session.ownerClientId,
+        canvasSessionId: session.id,
+        event: "canvas_history_requested",
+        payload: {
+          direction: message.direction
         }
       });
     }
@@ -345,6 +385,12 @@ export class CanvasRuntime {
     const tab = await this.createTab(chrome.runtime.getURL("canvas.html"), previewMode);
     const tabId = requireTabId(tab);
     const session = this.createOrReplaceSession(message, tabId, document, previewMode, record);
+    await this.syncOpsTargetRegistration(session).catch((error) => {
+      logError("canvas.sync_ops_target_registration", error, {
+        code: "canvas_ops_target_registration_failed",
+        extra: { canvasSessionId: session.id, targetId: session.designTabTargetId }
+      });
+    });
     this.broadcastCanvasState(tabId, "canvas-page:init");
     this.sendEvent({
       type: "canvas_event",
@@ -360,15 +406,53 @@ export class CanvasRuntime {
   }
 
   private async closeTab(message: CanvasRequest): Promise<Record<string, unknown>> {
-    const session = this.requireSessionForMessage(message);
     const record = requireRecord(message.payload, "payload");
     const tabId = parseTargetId(requireString(record.targetId, "targetId"));
     const targetId = formatTargetId(tabId);
+    let session: CanvasSessionRecord | null = null;
+    try {
+      session = this.requireSessionForMessage(message, record);
+    } catch (error) {
+      if (!isIgnorableCanvasCloseLookupError(error)) {
+        throw error;
+      }
+    }
+    if (!session) {
+      const browserSessionId = optionalString(record.browserSessionId)
+        ?? optionalString(isRecord(record.summary) ? record.summary.browserSessionId : undefined);
+      if (browserSessionId && this.unregisterOpsCanvasTarget) {
+        await Promise.resolve(this.unregisterOpsCanvasTarget(browserSessionId, targetId)).catch((error) => {
+          logError("canvas.unregister_ops_target", error, {
+            code: "canvas_ops_target_unregister_failed",
+            extra: { browserSessionId, targetId }
+          });
+        });
+      }
+      this.broadcastCanvasState(tabId, "canvas-page:closed", { reason: "target_closed" });
+      this.pagePorts.delete(tabId);
+      await this.tabs.closeTab(tabId).catch(() => undefined);
+      return {
+        ok: true,
+        targetId,
+        targetIds: [],
+        releasedTargetIds: [targetId],
+        previewState: "background"
+      };
+    }
     this.broadcastCanvasState(tabId, "canvas-page:closed", { reason: "target_closed" });
     session.designTabTargetId = null;
     session.pendingMutation = false;
     this.pagePorts.delete(tabId);
     this.sessions.removeTarget(session.id, targetId);
+    const browserSessionId = readBrowserSessionId(session.summary);
+    if (browserSessionId && this.unregisterOpsCanvasTarget) {
+      await Promise.resolve(this.unregisterOpsCanvasTarget(browserSessionId, targetId)).catch((error) => {
+        logError("canvas.unregister_ops_target", error, {
+          code: "canvas_ops_target_unregister_failed",
+          extra: { browserSessionId, targetId }
+        });
+      });
+    }
     await this.tabs.closeTab(tabId);
     this.sendEvent({
       type: "canvas_event",
@@ -377,16 +461,6 @@ export class CanvasRuntime {
       event: "canvas_target_closed",
       payload: { targetId, tabId }
     });
-    if (session.targets.size === 0) {
-      this.sessions.delete(session.id);
-      this.sendEvent({
-        type: "canvas_event",
-        clientId: session.ownerClientId,
-        canvasSessionId: session.id,
-        event: "canvas_session_closed",
-        payload: { reason: "target_closed" }
-      });
-    }
     return {
       ok: true,
       targetId,
@@ -426,10 +500,27 @@ export class CanvasRuntime {
   }
 
   private async mountOverlay(message: CanvasRequest): Promise<Record<string, unknown>> {
-    const session = this.requireSessionForMessage(message);
     const record = requireRecord(message.payload, "payload");
+    const session = this.requireOverlaySession(message, record, true);
     const tabId = parseTargetId(requireString(record.targetId, "targetId"));
     const prototypeId = optionalString(record.prototypeId) ?? "default";
+    if (this.isDesignTabTarget(session, tabId)) {
+      const mountId = `mount_${crypto.randomUUID()}`;
+      const mount = {
+        mountId,
+        targetId: formatTargetId(tabId),
+        mountedAt: new Date().toISOString()
+      } satisfies CanvasOverlayMountSummary;
+      session.overlayMounts = dedupeOverlayMounts([...session.overlayMounts, mount]);
+      this.broadcastIfDesignTab(session);
+      return {
+        mountId,
+        targetId: formatTargetId(tabId),
+        previewState: session.previewState,
+        overlayState: "mounted",
+        capabilities: { selection: true, guides: true }
+      };
+    }
     await insertCss(tabId, OVERLAY_STYLE);
     const mountId = `mount_${crypto.randomUUID()}`;
     const result = await executeInTab(tabId, mountOverlayScript, [{
@@ -456,10 +547,20 @@ export class CanvasRuntime {
   }
 
   private async unmountOverlay(message: CanvasRequest): Promise<Record<string, unknown>> {
-    const session = this.requireSessionForMessage(message);
     const record = requireRecord(message.payload, "payload");
+    const session = this.requireOverlaySession(message, record);
     const mountId = requireString(record.mountId, "mountId");
     const tabId = parseTargetId(requireString(record.targetId, "targetId"));
+    if (this.isDesignTabTarget(session, tabId)) {
+      session.overlayMounts = session.overlayMounts.filter((mount) => mount.mountId !== mountId);
+      this.broadcastIfDesignTab(session);
+      return {
+        ok: true,
+        mountId,
+        previewState: session.previewState,
+        overlayState: "idle"
+      };
+    }
     await executeInTab(tabId, unmountOverlayScript, [mountId]);
     session.overlayMounts = session.overlayMounts.filter((mount) => mount.mountId !== mountId);
     this.broadcastIfDesignTab(session);
@@ -472,16 +573,19 @@ export class CanvasRuntime {
   }
 
   private async selectOverlay(message: CanvasRequest): Promise<Record<string, unknown>> {
-    const session = this.requireSessionForMessage(message);
     const record = requireRecord(message.payload, "payload");
+    const session = this.requireOverlaySession(message, record);
     const tabId = parseTargetId(requireString(record.targetId, "targetId"));
     const selectionHint = isRecord(record.selectionHint) ? record.selectionHint : {};
     const nodeId = optionalString(record.nodeId);
-    const selection = await executeInTab(tabId, selectOverlayScript, [{ selectionHint, nodeId }]);
-    if (typeof nodeId === "string") {
+    const selection = this.isDesignTabTarget(session, tabId)
+      ? resolveDesignTabOverlaySelection(session.document, nodeId, selectionHint)
+      : await executeInTab(tabId, selectOverlayScript, [{ selectionHint, nodeId }]);
+    const resolvedNodeId = typeof selection.nodeId === "string" ? selection.nodeId : nodeId;
+    if (typeof resolvedNodeId === "string") {
       session.selection = {
         pageId: session.document.pages[0]?.id ?? null,
-        nodeId,
+        nodeId: resolvedNodeId,
         targetId: formatTargetId(tabId),
         updatedAt: new Date().toISOString()
       };
@@ -494,10 +598,19 @@ export class CanvasRuntime {
   }
 
   private async syncOverlay(message: CanvasRequest): Promise<Record<string, unknown>> {
-    const session = this.requireSessionForMessage(message);
     const record = requireRecord(message.payload, "payload");
+    const session = this.requireOverlaySession(message, record);
     const tabId = parseTargetId(requireString(record.targetId, "targetId"));
     const mountId = requireString(record.mountId, "mountId");
+    if (this.isDesignTabTarget(session, tabId)) {
+      this.broadcastIfDesignTab(session);
+      return {
+        ok: true,
+        mountId,
+        targetId: formatTargetId(tabId),
+        overlayState: "mounted"
+      };
+    }
     await insertCss(tabId, OVERLAY_STYLE);
     const result = await executeInTab(tabId, syncOverlayScript, [{
       mountId,
@@ -525,6 +638,7 @@ export class CanvasRuntime {
     const summary = normalizeCanvasSessionSummary(record.summary);
     const existing = this.sessions.get(canvasSessionId);
     if (existing) {
+      this.overlaySessions.delete(existing.id);
       if (existing.ownerClientId !== clientId || (requestedLeaseId && existing.leaseId !== requestedLeaseId)) {
         throw new Error("Canvas session ownership mismatch.");
       }
@@ -543,11 +657,13 @@ export class CanvasRuntime {
       existing.previewMode = previewMode;
       existing.previewState = previewMode;
       existing.pendingMutation = false;
+      this.mergeEditorState(existing, normalizeViewport(record.viewport), normalizeSelection(record.selection));
       this.sessions.addTarget(existing.id, tabId, { title: document.title, url: chrome.runtime.getURL("canvas.html") });
       this.sessions.setActiveTarget(existing.id, formatTargetId(tabId));
       return existing;
     }
     const leaseId = requestedLeaseId ?? createCoordinatorId();
+    const viewport = normalizeViewportState(record.viewport);
     const session = this.sessions.createSession(clientId, tabId, leaseId, {
       title: document.title,
       url: chrome.runtime.getURL("canvas.html")
@@ -563,10 +679,63 @@ export class CanvasRuntime {
       overlayMounts: parseOverlayMounts(record.overlayMounts ?? summary.overlayMounts),
       feedback: parseFeedbackEvents(record.feedback),
       feedbackCursor: optionalString(record.feedbackCursor) ?? lastFeedbackCursor(parseFeedbackEvents(record.feedback)),
-      selection: defaultSelection(document.pages[0]?.id ?? null),
-      viewport: { x: 120, y: 96, zoom: 1 },
+      selection: normalizeSelectionState(record.selection, document.pages[0]?.id ?? null),
+      viewport,
       pendingMutation: false
     }, canvasSessionId);
+    this.overlaySessions.delete(session.id);
+    return session;
+  }
+
+  private requireOverlaySession(
+    message: CanvasRequest,
+    record: Record<string, unknown>,
+    createIfMissing = false
+  ): OverlayCapableSession {
+    try {
+      return this.requireSessionForMessage(message, record);
+    } catch (error) {
+      if (!isIgnorableCanvasCloseLookupError(error)) {
+        throw error;
+      }
+    }
+    const sessionId = optionalString(message.canvasSessionId)
+      ?? optionalString(record.canvasSessionId)
+      ?? optionalString(isRecord(record.summary) ? record.summary.canvasSessionId : undefined);
+    if (!sessionId) {
+      throw missingCanvasSession();
+    }
+    const clientId = requireString(message.clientId, "clientId");
+    const requestedLeaseId = optionalString(message.leaseId);
+    const existing = this.overlaySessions.get(sessionId);
+    if (existing) {
+      if (existing.ownerClientId !== clientId || (requestedLeaseId && existing.leaseId !== requestedLeaseId)) {
+        throw new Error("Canvas session ownership mismatch.");
+      }
+      if (record.document !== undefined) {
+        existing.document = requireCanvasDocument(record.document);
+      }
+      if (record.selection !== undefined) {
+        existing.selection = normalizeSelectionState(record.selection, existing.document.pages[0]?.id ?? null);
+      }
+      existing.previewState = normalizePreviewState(record.previewState) ?? existing.previewState;
+      return existing;
+    }
+    if (!createIfMissing) {
+      throw new Error(`Unknown sessionId: ${sessionId}`);
+    }
+    const document = requireCanvasDocument(record.document);
+    const session: OverlaySessionRecord = {
+      id: sessionId,
+      ownerClientId: clientId,
+      leaseId: requestedLeaseId ?? createCoordinatorId(),
+      designTabTargetId: null,
+      document,
+      previewState: normalizePreviewState(record.previewState) ?? "background",
+      overlayMounts: parseOverlayMounts(record.overlayMounts),
+      selection: normalizeSelectionState(record.selection, document.pages[0]?.id ?? null)
+    };
+    this.overlaySessions.set(sessionId, session);
     return session;
   }
 
@@ -635,6 +804,10 @@ export class CanvasRuntime {
     return ports.values().next().value ?? null;
   }
 
+  private isDesignTabTarget(session: OverlayCapableSession, tabId: number): boolean {
+    return session.designTabTargetId === formatTargetId(tabId);
+  }
+
   private sendResponse(message: CanvasRequest, payload: unknown): void {
     const response: CanvasResponse = {
       type: "canvas_response",
@@ -692,7 +865,7 @@ export class CanvasRuntime {
     }
   }
 
-  private broadcastIfDesignTab(session: CanvasSessionRecord): void {
+  private broadcastIfDesignTab(session: OverlayCapableSession): void {
     if (!session.designTabTargetId) {
       return;
     }
@@ -700,6 +873,7 @@ export class CanvasRuntime {
   }
 
   private async closeRuntimeSession(session: CanvasSessionRecord, reason: string): Promise<void> {
+    this.overlaySessions.delete(session.id);
     const released = [...session.targets.values()];
     for (const target of released) {
       this.broadcastCanvasState(target.tabId, "canvas-page:closed", { reason });
@@ -734,6 +908,17 @@ export class CanvasRuntime {
         }
       );
     });
+  }
+
+  private async syncOpsTargetRegistration(session: CanvasSessionRecord): Promise<void> {
+    const browserSessionId = readBrowserSessionId(session.summary);
+    if (!browserSessionId || !session.designTabTargetId || !this.registerOpsCanvasTarget) {
+      return;
+    }
+    const registered = await this.registerOpsCanvasTarget(browserSessionId, session.designTabTargetId);
+    if (registered?.targetId) {
+      session.designTabTargetId = registered.targetId;
+    }
   }
 }
 
@@ -792,6 +977,29 @@ function normalizeSelection(value: unknown): Partial<CanvasEditorSelection> | nu
   };
 }
 
+function normalizeViewportState(value: unknown): CanvasEditorViewport {
+  if (!isRecord(value)) {
+    return { ...DEFAULT_EDITOR_VIEWPORT };
+  }
+  return {
+    x: typeof value.x === "number" ? value.x : DEFAULT_EDITOR_VIEWPORT.x,
+    y: typeof value.y === "number" ? value.y : DEFAULT_EDITOR_VIEWPORT.y,
+    zoom: typeof value.zoom === "number" ? value.zoom : DEFAULT_EDITOR_VIEWPORT.zoom
+  };
+}
+
+function normalizeSelectionState(value: unknown, defaultPageId: string | null): CanvasEditorSelection {
+  if (!isRecord(value)) {
+    return defaultSelection(defaultPageId);
+  }
+  return {
+    pageId: typeof value.pageId === "string" || value.pageId === null ? value.pageId : defaultPageId,
+    nodeId: typeof value.nodeId === "string" || value.nodeId === null ? value.nodeId : null,
+    targetId: typeof value.targetId === "string" || value.targetId === null ? value.targetId : null,
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString()
+  };
+}
+
 function requireCanvasDocument(value: unknown): CanvasDocument {
   const document = requireRecord(value, "document");
   const pagesValue = Array.isArray(document.pages) ? document.pages : [];
@@ -832,37 +1040,210 @@ function requireCanvasDocument(value: unknown): CanvasDocument {
       })
       : [],
     componentInventory: Array.isArray(document.componentInventory)
-      ? document.componentInventory.filter(isRecord)
+      ? document.componentInventory.flatMap((entry, index) => normalizeComponentInventoryItem(entry, index))
       : [],
-    pages: pagesValue.map((pageValue) => {
-      const page = requireRecord(pageValue, "page");
-      const nodesValue = Array.isArray(page.nodes) ? page.nodes : [];
-      return {
-        id: requireString(page.id, "page.id"),
-        name: optionalString(page.name) ?? requireString(page.id, "page.id"),
-        path: optionalString(page.path) ?? "/",
-        rootNodeId: optionalString(page.rootNodeId) ?? null,
-        prototypeIds: Array.isArray(page.prototypeIds) ? page.prototypeIds.filter((entry): entry is string => typeof entry === "string") : [],
-        nodes: nodesValue.map((nodeValue) => {
-          const node = requireRecord(nodeValue, "node");
-          return {
-            id: requireString(node.id, "node.id"),
-            kind: optionalString(node.kind) ?? "frame",
-            name: optionalString(node.name) ?? "node",
-            pageId: optionalString(node.pageId) ?? undefined,
-            parentId: optionalString(node.parentId),
-            childIds: Array.isArray(node.childIds) ? node.childIds.filter((entry): entry is string => typeof entry === "string") : [],
-            rect: normalizeRect(node.rect),
-            props: isRecord(node.props) ? node.props : {},
-            style: isRecord(node.style) ? node.style : {},
-            bindingRefs: isRecord(node.bindingRefs) ? node.bindingRefs : {},
-            metadata: isRecord(node.metadata) ? node.metadata : {}
-          } satisfies CanvasNode;
-        }),
-        metadata: isRecord(page.metadata) ? page.metadata : {}
-      } satisfies CanvasPage;
-    })
+    tokens: normalizeTokenStore(document.tokens),
+    meta: normalizeDocumentMeta(document.meta),
+    pages: pagesValue.flatMap((pageValue) => normalizePage(pageValue))
   };
+}
+
+function normalizePage(value: unknown): CanvasPage[] {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return [];
+  }
+  const pageId = value.id;
+  return [{
+    id: pageId,
+    name: typeof value.name === "string" ? value.name : pageId,
+    path: typeof value.path === "string" ? value.path : "/",
+    rootNodeId: typeof value.rootNodeId === "string" ? value.rootNodeId : null,
+    prototypeIds: Array.isArray(value.prototypeIds) ? value.prototypeIds.filter((entry): entry is string => typeof entry === "string") : [],
+    nodes: Array.isArray(value.nodes) ? value.nodes.flatMap((entry) => normalizeNode(entry, pageId)) : [],
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeNode(value: unknown, pageId: string): CanvasNode[] {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return [];
+  }
+  return [{
+    id: value.id,
+    kind: typeof value.kind === "string" ? value.kind : "frame",
+    name: typeof value.name === "string" ? value.name : value.id,
+    pageId,
+    parentId: typeof value.parentId === "string" ? value.parentId : null,
+    childIds: Array.isArray(value.childIds) ? value.childIds.filter((entry): entry is string => typeof entry === "string") : [],
+    rect: isRecord(value.rect) ? {
+      x: typeof value.rect.x === "number" ? value.rect.x : 0,
+      y: typeof value.rect.y === "number" ? value.rect.y : 0,
+      width: typeof value.rect.width === "number" ? value.rect.width : 240,
+      height: typeof value.rect.height === "number" ? value.rect.height : 120
+    } : { x: 0, y: 0, width: 240, height: 120 },
+    props: isRecord(value.props) ? value.props : {},
+    style: isRecord(value.style) ? value.style : {},
+    tokenRefs: isRecord(value.tokenRefs) ? value.tokenRefs : {},
+    bindingRefs: isRecord(value.bindingRefs) ? value.bindingRefs : {},
+    variantPatches: Array.isArray(value.variantPatches) ? value.variantPatches.filter(isRecord) : [],
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeComponentInventoryItem(value: unknown, index: number): CanvasDocument["componentInventory"] {
+  if (!isRecord(value)) {
+    return [];
+  }
+  const id = optionalString(value.id) ?? `inventory_${index + 1}`;
+  const name = optionalString(value.name) ?? optionalString(value.componentName) ?? id;
+  return [{
+    id,
+    name,
+    componentName: optionalString(value.componentName),
+    sourceKind: optionalString(value.sourceKind),
+    sourceFamily: optionalString(value.sourceFamily) ?? undefined,
+    origin: optionalString(value.origin) ?? undefined,
+    framework: normalizeComponentRef(value.framework),
+    adapter: normalizeComponentRef(value.adapter),
+    plugin: normalizeComponentRef(value.plugin),
+    variants: Array.isArray(value.variants) ? value.variants.filter(isRecord) : [],
+    props: Array.isArray(value.props) ? value.props.filter(isRecord) : [],
+    slots: Array.isArray(value.slots) ? value.slots.filter(isRecord) : [],
+    events: Array.isArray(value.events) ? value.events.filter(isRecord) : [],
+    content: isRecord(value.content) ? value.content : {},
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeComponentRef(value: unknown): CanvasDocument["componentInventory"][number]["framework"] {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = optionalString(value.id);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    label: optionalString(value.label) ?? optionalString(value.name),
+    packageName: optionalString(value.packageName) ?? undefined,
+    version: optionalString(value.version) ?? undefined,
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  };
+}
+
+function normalizeTokenStore(value: unknown): CanvasDocument["tokens"] {
+  if (!isRecord(value)) {
+    return { values: {}, collections: [], aliases: [], bindings: [], metadata: {} };
+  }
+  const structured = "values" in value || "collections" in value || "aliases" in value || "bindings" in value || "metadata" in value;
+  return {
+    values: structured && isRecord(value.values) ? value.values : structured ? {} : value,
+    collections: Array.isArray(value.collections) ? value.collections.flatMap((entry) => normalizeTokenCollection(entry)) : [],
+    aliases: Array.isArray(value.aliases) ? value.aliases.flatMap((entry) => normalizeTokenAlias(entry)) : [],
+    bindings: Array.isArray(value.bindings) ? value.bindings.flatMap((entry) => normalizeTokenBinding(entry)) : [],
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  };
+}
+
+function normalizeTokenCollection(value: unknown): CanvasDocument["tokens"]["collections"] {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    return [];
+  }
+  return [{
+    id: value.id,
+    name: typeof value.name === "string" ? value.name : value.id,
+    items: Array.isArray(value.items) ? value.items.flatMap((entry) => normalizeTokenItem(entry)) : [],
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeTokenItem(value: unknown): CanvasDocument["tokens"]["collections"][number]["items"] {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.path !== "string") {
+    return [];
+  }
+  return [{
+    id: value.id,
+    path: normalizeTokenPath(value.path),
+    value: value.value,
+    type: typeof value.type === "string" ? value.type : undefined,
+    description: typeof value.description === "string" ? value.description : undefined,
+    modes: Array.isArray(value.modes) ? value.modes.flatMap((entry) => normalizeTokenMode(entry)) : [],
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeTokenMode(value: unknown): CanvasDocument["tokens"]["collections"][number]["items"][number]["modes"] {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") {
+    return [];
+  }
+  return [{
+    id: value.id,
+    name: value.name,
+    value: value.value,
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeTokenAlias(value: unknown): CanvasDocument["tokens"]["aliases"] {
+  if (!isRecord(value) || typeof value.path !== "string" || typeof value.targetPath !== "string") {
+    return [];
+  }
+  return [{
+    path: normalizeTokenPath(value.path),
+    targetPath: normalizeTokenPath(value.targetPath),
+    modeId: typeof value.modeId === "string" ? value.modeId : null,
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeTokenBinding(value: unknown): CanvasDocument["tokens"]["bindings"] {
+  if (!isRecord(value) || typeof value.path !== "string") {
+    return [];
+  }
+  return [{
+    path: normalizeTokenPath(value.path),
+    nodeId: typeof value.nodeId === "string" ? value.nodeId : null,
+    bindingId: typeof value.bindingId === "string" ? value.bindingId : null,
+    property: typeof value.property === "string" ? value.property : null,
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizeTokenPath(path: string): string {
+  return path.trim().replace(/^tokens\./, "");
+}
+
+function normalizeDocumentMeta(value: unknown): CanvasDocument["meta"] {
+  if (!isRecord(value)) {
+    return { imports: [], starter: null, adapterPlugins: [], pluginErrors: [], metadata: {} };
+  }
+  return {
+    imports: Array.isArray(value.imports) ? value.imports.filter(isRecord) : [],
+    starter: isRecord(value.starter) ? value.starter : null,
+    adapterPlugins: Array.isArray(value.adapterPlugins) ? value.adapterPlugins.filter(isRecord) : [],
+    pluginErrors: Array.isArray(value.pluginErrors)
+      ? value.pluginErrors.flatMap((entry) => normalizePluginError(entry))
+      : [],
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  };
+}
+
+function normalizePluginError(value: unknown): CanvasDocument["meta"]["pluginErrors"] {
+  if (!isRecord(value)) {
+    return [];
+  }
+  const code = optionalString(value.code);
+  const message = optionalString(value.message);
+  if (!code || !message) {
+    return [];
+  }
+  return [{
+    pluginId: optionalString(value.pluginId),
+    code,
+    message,
+    details: isRecord(value.details) ? value.details : {}
+  }];
 }
 
 function requireRenderedHtml(record: Record<string, unknown>): string {
@@ -982,6 +1363,54 @@ function dedupeOverlayMounts(mounts: CanvasOverlayMountSummary[]): CanvasOverlay
   return [...byId.values()];
 }
 
+function resolveDesignTabOverlaySelection(
+  document: CanvasDocument,
+  nodeId: string | null,
+  selectionHint: Record<string, unknown>
+): Record<string, unknown> {
+  const selector = typeof selectionHint.selector === "string" && selectionHint.selector.trim().length > 0
+    ? selectionHint.selector.trim()
+    : null;
+  const resolvedNodeId = nodeId
+    ?? readNodeIdFromSelector(selector)
+    ?? null;
+  if (!resolvedNodeId) {
+    return { matched: false, selector };
+  }
+  const node = findDocumentNode(document, resolvedNodeId);
+  if (!node) {
+    return { matched: false, selector: selector ?? `[data-node-id="${resolvedNodeId}"]` };
+  }
+  const text = typeof node.props.text === "string" ? node.props.text : null;
+  return {
+    matched: true,
+    selector: selector ?? `[data-node-id="${resolvedNodeId}"]`,
+    nodeId: resolvedNodeId,
+    tagName: "div",
+    text: text ? text.slice(0, 160) : "",
+    id: null,
+    className: "canvas-stage-node"
+  };
+}
+
+function readNodeIdFromSelector(selector: string | null): string | null {
+  if (!selector) {
+    return null;
+  }
+  const match = selector.match(/^\[data-node-id=["']([^"'\\]]+)["']\]$/);
+  return match?.[1] ?? null;
+}
+
+function findDocumentNode(document: CanvasDocument, nodeId: string): CanvasNode | null {
+  for (const page of document.pages) {
+    const node = page.nodes.find((entry) => entry.id === nodeId);
+    if (node) {
+      return node;
+    }
+  }
+  return null;
+}
+
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`Invalid ${label}`);
@@ -994,6 +1423,13 @@ function resolveCanvasSessionId(message: CanvasRequest, payload: Record<string, 
     ?? optionalString(payload.canvasSessionId)
     ?? optionalString(isRecord(payload.summary) ? payload.summary.canvasSessionId : undefined)
     ?? createCoordinatorId();
+}
+
+function readBrowserSessionId(summary: CanvasSessionSummary | undefined): string | null {
+  if (!summary) {
+    return null;
+  }
+  return optionalString(summary.browserSessionId);
 }
 
 function resolveSessionForMessage(
@@ -1019,6 +1455,11 @@ function resolveSessionForMessage(
 
 function missingCanvasSession(): Error {
   return new Error("Missing canvasSessionId");
+}
+
+function isIgnorableCanvasCloseLookupError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("Unknown sessionId:") || message === "Missing canvasSessionId";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

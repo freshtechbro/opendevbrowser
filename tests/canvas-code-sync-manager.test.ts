@@ -14,9 +14,10 @@ import {
   type CanvasPatch
 } from "../src/canvas/types";
 import { hashCodeSyncValue } from "../src/canvas/code-sync/hash";
-import type {
-  CodeSyncBindingStatus,
-  CodeSyncManifest
+import {
+  normalizeCodeSyncBindingMetadata,
+  type CodeSyncBindingStatus,
+  type CodeSyncManifest
 } from "../src/canvas/code-sync/types";
 
 vi.mock("fs", async () => {
@@ -70,14 +71,14 @@ const validPlan = {
 };
 
 function createCodeSyncMetadata(repoPath: string, overrides: Partial<CanvasCodeSyncBindingMetadata> = {}): CanvasCodeSyncBindingMetadata {
-  return {
+  return normalizeCodeSyncBindingMetadata({
     adapter: "tsx-react-v1",
     repoPath,
     exportName: "Hero",
     syncMode: "manual",
     ownership: { ...DEFAULT_CODE_SYNC_OWNERSHIP },
     ...overrides
-  };
+  });
 }
 
 function createBinding(document: CanvasDocument, repoPath: string, overrides: Partial<CanvasDocument["bindings"][number]> = {}): CanvasDocument["bindings"][number] {
@@ -103,15 +104,21 @@ function getRuntime(manager: CanvasCodeSyncManager, canvasSessionId: string, bin
 }
 
 function buildManifest(document: CanvasDocument, binding: CanvasDocument["bindings"][number], repoPath: string, sourceText: string, documentRevision = 1): CodeSyncManifest {
+  const metadata = binding.codeSync ?? createCodeSyncMetadata(repoPath);
   return {
+    manifestVersion: metadata.manifestVersion,
     bindingId: binding.id,
     documentId: document.documentId,
-    repoPath,
-    adapter: binding.codeSync?.adapter ?? "tsx-react-v1",
-    rootLocator: {
-      exportName: binding.codeSync?.exportName,
-      selector: binding.codeSync?.selector
-    },
+    repoPath: metadata.repoPath,
+    adapter: metadata.adapter,
+    frameworkAdapterId: metadata.frameworkAdapterId,
+    frameworkId: metadata.frameworkId,
+    sourceFamily: metadata.sourceFamily,
+    adapterKind: metadata.adapterKind,
+    adapterVersion: metadata.adapterVersion,
+    pluginId: metadata.pluginId,
+    libraryAdapterIds: [...metadata.libraryAdapterIds],
+    rootLocator: metadata.rootLocator,
     sourceHash: hashCodeSyncValue(sourceText),
     documentRevision,
     nodeMappings: [{
@@ -125,7 +132,8 @@ function buildManifest(document: CanvasDocument, binding: CanvasDocument["bindin
         }
       }
     }],
-    lastImportedAt: "2026-03-12T00:00:00.000Z"
+    lastImportedAt: "2026-03-12T00:00:00.000Z",
+    reasonCode: metadata.reasonCode
   };
 }
 
@@ -137,7 +145,7 @@ function createApplyPatches(store: CanvasDocumentStore): (patches: CanvasPatch[]
 }
 
 async function flushWatchCallbacks(expectedCalls: number, callback: ReturnType<typeof vi.fn>): Promise<void> {
-  for (let attempt = 0; attempt < 5 && callback.mock.calls.length < expectedCalls; attempt += 1) {
+  for (let attempt = 0; attempt < 25 && callback.mock.calls.length < expectedCalls; attempt += 1) {
     await waitForIo();
     await Promise.resolve();
   }
@@ -222,7 +230,7 @@ describe("canvas code sync manager", () => {
     runtime.watch.lastSourceHash = "stale-hash";
     runtime.watch.debounceTimer = setTimeout(() => undefined, 1_000);
 
-    const status = await manager.getBindingStatus("session-watch-status", document.documentId, binding, 1);
+    const status = await manager.getBindingStatus("session-watch-status", worktree, document.documentId, binding, 1);
     expect(status.state).toBe("in_sync");
     expect(runtime.watch.lastSourceHash).toBe("stale-hash");
     expect(manager.getSessionStatus("session-watch-status", 3, "client-owner")).toMatchObject({
@@ -232,7 +240,7 @@ describe("canvas code sync manager", () => {
     });
 
     await unlink(sourcePath);
-    const drifted = await manager.getBindingStatus("session-watch-status", document.documentId, binding, 1);
+    const drifted = await manager.getBindingStatus("session-watch-status", worktree, document.documentId, binding, 1);
     expect(drifted).toMatchObject({
       state: "drift_detected",
       driftState: "source_changed"
@@ -276,7 +284,7 @@ describe("canvas code sync manager", () => {
     });
 
     await writeFile(sourcePath, sourceText.replace("Hello conflict", "Hello source drift"));
-    const drifted = await manager.getBindingStatus("session-conflict-status", document.documentId, binding, 2);
+    const drifted = await manager.getBindingStatus("session-conflict-status", worktree, document.documentId, binding, 2);
 
     expect(drifted).toMatchObject({
       state: "conflict",
@@ -357,7 +365,7 @@ describe("canvas code sync manager", () => {
 
     await writeFile(sourcePath, initialSource.replace("Hello watch", "Hello changed"));
     onChange();
-    const drifted = await manager.getBindingStatus("session-watch-callbacks", document.documentId, binding, 1);
+    const drifted = await manager.getBindingStatus("session-watch-callbacks", worktree, document.documentId, binding, 1);
     expect(drifted).toMatchObject({
       state: "drift_detected",
       driftState: "source_changed"
@@ -424,6 +432,731 @@ describe("canvas code sync manager", () => {
       ok: false,
       conflicts: [expect.objectContaining({ kind: "ownership_violation" })]
     });
+  });
+
+  it("reports unsupported pulls for missing adapters and denied code_pull capability", async () => {
+    const missingAdapterPath = join(worktree, "MissingAdapter.canvas");
+    await writeFile(missingAdapterPath, "<section>Missing adapter</section>\n");
+
+    const missingAdapterDocument = createDefaultCanvasDocument("dc_missing_adapter_pull");
+    const missingAdapterBinding = createBinding(missingAdapterDocument, missingAdapterPath, {
+      id: "binding_missing_adapter",
+      codeSync: createCodeSyncMetadata(missingAdapterPath, {
+        adapter: "plugin/missing-adapter",
+        frameworkAdapterId: "plugin/missing-adapter"
+      })
+    });
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-missing-adapter",
+      document: missingAdapterDocument,
+      documentRevision: 1,
+      binding: missingAdapterBinding
+    });
+
+    await expect(manager.pull({
+      canvasSessionId: "session-missing-adapter",
+      document: missingAdapterDocument,
+      documentRevision: 1,
+      binding: missingAdapterBinding,
+      applyPatches: async () => {
+        throw new Error("pull should not apply patches when no adapter is available");
+      }
+    })).resolves.toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "unsupported",
+        reasonCode: "plugin_not_found"
+      },
+      conflicts: [expect.objectContaining({
+        kind: "unsupported_change",
+        message: "No framework adapter is available for plugin/missing-adapter."
+      })]
+    });
+
+    const deniedPullPath = join(worktree, "DeniedPull.tsx");
+    await writeFile(deniedPullPath, [
+      "export function Hero() {",
+      "  return <section><span>Denied pull</span></section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const deniedPullDocument = createDefaultCanvasDocument("dc_denied_pull");
+    const deniedPullBinding = createBinding(deniedPullDocument, deniedPullPath, {
+      id: "binding_pull_denied",
+      codeSync: createCodeSyncMetadata(deniedPullPath, {
+        grantedCapabilities: [{
+          capability: "code_pull",
+          granted: false,
+          reasonCode: "capability_denied"
+        }]
+      })
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-pull-denied",
+      document: deniedPullDocument,
+      documentRevision: 1,
+      binding: deniedPullBinding
+    });
+
+    await expect(manager.pull({
+      canvasSessionId: "session-pull-denied",
+      document: deniedPullDocument,
+      documentRevision: 1,
+      binding: deniedPullBinding,
+      applyPatches: async () => {
+        throw new Error("pull should not apply patches when code_pull is denied");
+      }
+    })).resolves.toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "unsupported",
+        reasonCode: "capability_denied"
+      },
+      conflicts: [expect.objectContaining({
+        kind: "unsupported_change",
+        message: "Framework adapter builtin:react-tsx-v2 does not grant code_pull."
+      })]
+    });
+  });
+
+  it("reports pull conflicts when source and document drift under manual resolution", async () => {
+    const sourcePath = join(worktree, "ManualConflictHero.tsx");
+    const sourceText = [
+      "export function Hero() {",
+      "  return <section><span>Hello manual conflict</span></section>;",
+      "}",
+      ""
+    ].join("\n");
+    await writeFile(sourcePath, sourceText);
+
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_manual_pull_conflict"));
+    const document = store.getDocument();
+    const binding = createBinding(document, sourcePath, {
+      id: "binding_manual_pull_conflict"
+    });
+    await saveCanvasCodeSyncManifest(worktree, buildManifest(document, binding, sourcePath, sourceText, store.getRevision()));
+
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-manual-pull-conflict",
+      document,
+      documentRevision: store.getRevision(),
+      binding
+    });
+
+    await writeFile(sourcePath, sourceText.replace("manual conflict", "source conflict"));
+
+    await expect(manager.pull({
+      canvasSessionId: "session-manual-pull-conflict",
+      document,
+      documentRevision: store.getRevision() + 1,
+      binding,
+      applyPatches: async () => {
+        throw new Error("manual conflicts should return before patches apply");
+      }
+    })).resolves.toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "conflict",
+        driftState: "conflict"
+      },
+      conflicts: [
+        expect.objectContaining({ kind: "source_hash_changed" }),
+        expect.objectContaining({ kind: "document_revision_changed" })
+      ]
+    });
+  });
+
+  it("requires a detectable entrypoint and degrades status when the bound source disappears", async () => {
+    const sourcePath = join(worktree, "NoEntrypoint.tsx");
+    await writeFile(sourcePath, [
+      "const hero = <section><span>No export</span></section>;",
+      "export default hero;",
+      ""
+    ].join("\n"));
+
+    const document = createDefaultCanvasDocument("dc_no_entrypoint");
+    const binding = createBinding(document, sourcePath, {
+      id: "binding_no_entrypoint"
+    });
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+
+    vi.spyOn(manager as unknown as {
+      loadAdapterRuntime: () => Promise<{
+        frameworkRegistry: {
+          resolveForBinding: () => {
+            detectEntrypoint: () => null;
+            detectForPath: () => null;
+          };
+          detectForPath: () => null;
+        };
+        libraryRegistry: {
+          resolveForSource: () => [];
+        };
+        plugins: [];
+        errors: [];
+      }>;
+    }, "loadAdapterRuntime").mockResolvedValue({
+      frameworkRegistry: {
+        resolveForBinding: () => ({
+          detectEntrypoint: () => null,
+          detectForPath: () => null
+        }),
+        detectForPath: () => null
+      },
+      libraryRegistry: {
+        resolveForSource: () => []
+      },
+      plugins: [],
+      errors: []
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-no-entrypoint",
+      document,
+      documentRevision: 1,
+      binding
+    });
+
+    await expect(manager.pull({
+      canvasSessionId: "session-no-entrypoint",
+      document,
+      documentRevision: 1,
+      binding,
+      applyPatches: async () => {
+        throw new Error("pull should not apply patches when entrypoint detection fails");
+      }
+    })).resolves.toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "unsupported",
+        reasonCode: "requires_rebind"
+      },
+      conflicts: [expect.objectContaining({
+        kind: "unsupported_change",
+        message: `Unable to detect an entrypoint for ${sourcePath}.`
+      })]
+    });
+
+    await unlink(sourcePath);
+    await expect(manager.getBindingStatus(
+      "session-no-entrypoint",
+      worktree,
+      document.documentId,
+      binding,
+      1
+    )).resolves.toMatchObject({
+      state: "drift_detected",
+      driftState: "source_changed"
+    });
+  });
+
+  it("rejects token round-trip pushes when framework or library lanes lack support", async () => {
+    const frameworkDeniedPath = join(worktree, "TokenDenied.html");
+    const frameworkDeniedSource = "<section><span>Hello framework denial</span></section>\n";
+    await writeFile(frameworkDeniedPath, frameworkDeniedSource);
+
+    const frameworkDeniedStore = new CanvasDocumentStore(createDefaultCanvasDocument("dc_framework_token_denial"));
+    const frameworkDeniedDocument = frameworkDeniedStore.getDocument();
+    const frameworkDeniedRootId = frameworkDeniedDocument.pages[0]?.rootNodeId;
+    if (!frameworkDeniedRootId) {
+      throw new Error("Missing root node for framework token denial");
+    }
+    const frameworkDeniedRoot = frameworkDeniedDocument.pages[0]?.nodes.find((node) => node.id === frameworkDeniedRootId);
+    if (!frameworkDeniedRoot) {
+      throw new Error("Missing root node payload for framework token denial");
+    }
+    frameworkDeniedRoot.tokenRefs = { backgroundColor: "semantic/bg" };
+
+    const frameworkDeniedBinding = createBinding(frameworkDeniedDocument, frameworkDeniedPath, {
+      id: "binding_framework_token_denial",
+      codeSync: createCodeSyncMetadata(frameworkDeniedPath, {
+        adapter: "builtin:html-static-v1",
+        frameworkAdapterId: "builtin:html-static-v1",
+        selector: "#app"
+      })
+    });
+    await saveCanvasCodeSyncManifest(
+      worktree,
+      buildManifest(frameworkDeniedDocument, frameworkDeniedBinding, frameworkDeniedPath, frameworkDeniedSource, 1)
+    );
+
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-framework-token-denial",
+      document: frameworkDeniedDocument,
+      documentRevision: frameworkDeniedStore.getRevision(),
+      binding: frameworkDeniedBinding
+    });
+
+    await expect(manager.push({
+      canvasSessionId: "session-framework-token-denial",
+      document: frameworkDeniedDocument,
+      documentRevision: frameworkDeniedStore.getRevision(),
+      binding: frameworkDeniedBinding
+    })).resolves.toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "unsupported",
+        reasonCode: "capability_denied"
+      },
+      conflicts: [expect.objectContaining({
+        kind: "unsupported_change",
+        message: "Framework adapter builtin:html-static-v1 does not support token_roundtrip."
+      })]
+    });
+
+    const libraryDeniedPath = join(worktree, "TokenLibraryDenied.tsx");
+    const libraryDeniedSource = [
+      "export function Hero() {",
+      "  return <section><span>Hello library denial</span></section>;",
+      "}",
+      ""
+    ].join("\n");
+    await writeFile(libraryDeniedPath, libraryDeniedSource);
+
+    const libraryDeniedStore = new CanvasDocumentStore(createDefaultCanvasDocument("dc_library_token_denial"));
+    const libraryDeniedDocument = libraryDeniedStore.getDocument();
+    const libraryDeniedRootId = libraryDeniedDocument.pages[0]?.rootNodeId;
+    if (!libraryDeniedRootId) {
+      throw new Error("Missing root node for library token denial");
+    }
+    const libraryDeniedRoot = libraryDeniedDocument.pages[0]?.nodes.find((node) => node.id === libraryDeniedRootId);
+    if (!libraryDeniedRoot) {
+      throw new Error("Missing root node payload for library token denial");
+    }
+    libraryDeniedRoot.tokenRefs = { backgroundColor: "semantic/bg" };
+
+    const libraryDeniedBinding = createBinding(libraryDeniedDocument, libraryDeniedPath, {
+      id: "binding_library_token_denial",
+      codeSync: createCodeSyncMetadata(libraryDeniedPath, {
+        libraryAdapterIds: ["missing/library-adapter"]
+      })
+    });
+    await saveCanvasCodeSyncManifest(
+      worktree,
+      buildManifest(libraryDeniedDocument, libraryDeniedBinding, libraryDeniedPath, libraryDeniedSource, 1)
+    );
+
+    await manager.bind({
+      canvasSessionId: "session-library-token-denial",
+      document: libraryDeniedDocument,
+      documentRevision: libraryDeniedStore.getRevision(),
+      binding: libraryDeniedBinding
+    });
+    const libraryDeniedPush = await manager.push({
+      canvasSessionId: "session-library-token-denial",
+      document: libraryDeniedDocument,
+      documentRevision: libraryDeniedStore.getRevision(),
+      binding: libraryDeniedBinding
+    });
+    expect(libraryDeniedPush).toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "unsupported",
+        reasonCode: "capability_denied"
+      },
+      conflicts: [expect.objectContaining({
+        kind: "unsupported_change",
+        message: "Library adapter missing/library-adapter does not declare token_roundtrip."
+      })]
+    });
+    if (libraryDeniedPush.ok) {
+      throw new Error("Expected library token denial push to fail");
+    }
+    expect(libraryDeniedPush.bindingStatus.capabilityDenials).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        capability: "token_roundtrip",
+        details: expect.objectContaining({ libraryAdapterId: "missing/library-adapter" })
+      })
+    ]));
+  });
+
+  it("rejects pushes when code_push is explicitly denied", async () => {
+    const sourcePath = join(worktree, "DeniedPush.tsx");
+    const sourceText = [
+      "export function Hero() {",
+      "  return <section><span>Hello denied push</span></section>;",
+      "}",
+      ""
+    ].join("\n");
+    await writeFile(sourcePath, sourceText);
+
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_denied_push"));
+    const document = store.getDocument();
+    document.designGovernance.generationPlan = structuredClone(validPlan);
+    const binding = createBinding(document, sourcePath, {
+      id: "binding_denied_push",
+      codeSync: createCodeSyncMetadata(sourcePath, {
+        grantedCapabilities: [{
+          capability: "code_push",
+          granted: false,
+          reasonCode: "capability_denied"
+        }]
+      })
+    });
+    await saveCanvasCodeSyncManifest(worktree, buildManifest(document, binding, sourcePath, sourceText, store.getRevision()));
+
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-denied-push",
+      document,
+      documentRevision: store.getRevision(),
+      binding
+    });
+
+    await expect(manager.push({
+      canvasSessionId: "session-denied-push",
+      document,
+      documentRevision: store.getRevision(),
+      binding
+    })).resolves.toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "unsupported",
+        reasonCode: "capability_denied"
+      },
+      conflicts: [expect.objectContaining({
+        kind: "unsupported_change",
+        message: "Framework adapter builtin:react-tsx-v2 does not support code_push."
+      })]
+    });
+  });
+
+  it("reports unsupported pushes when no framework adapter can be resolved", async () => {
+    const sourcePath = join(worktree, "UnknownFrameworkPush.tsx");
+    const sourceText = [
+      "export function Hero() {",
+      "  return <section><span>Hello missing push adapter</span></section>;",
+      "}",
+      ""
+    ].join("\n");
+    await writeFile(sourcePath, sourceText);
+
+    const document = createDefaultCanvasDocument("dc_missing_push_adapter");
+    const binding = createBinding(document, sourcePath, {
+      id: "binding_missing_push_adapter",
+      codeSync: createCodeSyncMetadata(sourcePath, {
+        adapter: "mystery-adapter",
+        frameworkAdapterId: "mystery-adapter"
+      })
+    });
+    await saveCanvasCodeSyncManifest(worktree, buildManifest(document, binding, sourcePath, sourceText, 1));
+
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+    vi.spyOn(manager as unknown as {
+      loadAdapterRuntime: () => Promise<{
+        frameworkRegistry: {
+          resolveForBinding: () => null;
+          detectForPath: () => null;
+        };
+        libraryRegistry: {
+          resolveForSource: () => [];
+          get: () => null;
+        };
+        plugins: [];
+        errors: [];
+      }>;
+    }, "loadAdapterRuntime").mockResolvedValue({
+      frameworkRegistry: {
+        resolveForBinding: () => null,
+        detectForPath: () => null
+      },
+      libraryRegistry: {
+        resolveForSource: () => [],
+        get: () => null
+      },
+      plugins: [],
+      errors: []
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-missing-push-adapter",
+      document,
+      documentRevision: 1,
+      binding
+    });
+
+    await expect(manager.push({
+      canvasSessionId: "session-missing-push-adapter",
+      document,
+      documentRevision: 1,
+      binding
+    })).resolves.toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "unsupported",
+        reasonCode: "none"
+      },
+      conflicts: [expect.objectContaining({
+        kind: "unsupported_change",
+        message: "No framework adapter is available for mystery-adapter."
+      })]
+    });
+  });
+
+  it("keeps unsupported status when plugin adapters fail to load during status refresh", async () => {
+    const sourcePath = join(worktree, "BrokenPlugin.canvas");
+    const sourceText = "<section>Broken plugin</section>\n";
+    await writeFile(sourcePath, sourceText);
+
+    const document = createDefaultCanvasDocument("dc_plugin_load_failed_status");
+    const binding = createBinding(document, sourcePath, {
+      id: "binding_plugin_load_failed",
+      codeSync: createCodeSyncMetadata(sourcePath, {
+        adapter: "plugin/broken-adapter",
+        frameworkAdapterId: "plugin/broken-adapter",
+        pluginId: "plugin/broken-adapter"
+      })
+    });
+    await saveCanvasCodeSyncManifest(worktree, {
+      ...buildManifest(document, binding, sourcePath, sourceText, 1),
+      adapter: "plugin/broken-adapter",
+      frameworkAdapterId: "plugin/broken-adapter",
+      pluginId: "plugin/broken-adapter"
+    } as CodeSyncManifest);
+
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+    vi.spyOn(manager as unknown as {
+      loadAdapterRuntime: () => Promise<{
+        frameworkRegistry: {
+          resolveForBinding: () => null;
+          detectForPath: () => null;
+        };
+        libraryRegistry: {
+          resolveForSource: () => [];
+          get: () => null;
+        };
+        plugins: [];
+        errors: Array<{ pluginId: string; code: string }>;
+      }>;
+    }, "loadAdapterRuntime").mockResolvedValue({
+      frameworkRegistry: {
+        resolveForBinding: () => null,
+        detectForPath: () => null
+      },
+      libraryRegistry: {
+        resolveForSource: () => [],
+        get: () => null
+      },
+      plugins: [],
+      errors: [{
+        pluginId: "plugin/broken-adapter",
+        code: "plugin_load_failed"
+      }]
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-plugin-load-failed",
+      document,
+      documentRevision: 1,
+      binding
+    });
+
+    await expect(manager.getBindingStatus(
+      "session-plugin-load-failed",
+      worktree,
+      document.documentId,
+      binding,
+      1
+    )).resolves.toMatchObject({
+      state: "unsupported"
+    });
+  });
+
+  it("throws when pushes reference a canvas node that no longer exists", async () => {
+    const sourcePath = join(worktree, "MissingCanvasNode.tsx");
+    const sourceText = [
+      "export function Hero() {",
+      "  return <section><span>Hello missing node</span></section>;",
+      "}",
+      ""
+    ].join("\n");
+    await writeFile(sourcePath, sourceText);
+
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_missing_canvas_node"));
+    const document = store.getDocument();
+    document.designGovernance.generationPlan = structuredClone(validPlan);
+    const binding = createBinding(document, sourcePath, {
+      id: "binding_missing_canvas_node",
+      nodeId: "node_missing_from_document"
+    });
+    await saveCanvasCodeSyncManifest(worktree, buildManifest(document, binding, sourcePath, sourceText, store.getRevision()));
+
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-missing-canvas-node",
+      document,
+      documentRevision: store.getRevision(),
+      binding
+    });
+
+    await expect(manager.push({
+      canvasSessionId: "session-missing-canvas-node",
+      document,
+      documentRevision: store.getRevision(),
+      binding
+    })).rejects.toThrow("Unknown canvas node: node_missing_from_document");
+  });
+
+  it("falls back to path-based adapter detection during status refresh", async () => {
+    const sourcePath = join(worktree, "PathDetectedHero.tsx");
+    const sourceText = [
+      "export function Hero() {",
+      "  return <section><span>Hello path detection</span></section>;",
+      "}",
+      ""
+    ].join("\n");
+    await writeFile(sourcePath, sourceText);
+
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_path_detected_status"));
+    const document = store.getDocument();
+    document.designGovernance.generationPlan = structuredClone(validPlan);
+    const binding = createBinding(document, sourcePath, {
+      id: "binding_path_detected_status"
+    });
+    await saveCanvasCodeSyncManifest(worktree, buildManifest(document, binding, sourcePath, sourceText, store.getRevision()));
+
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+    vi.spyOn(manager as unknown as {
+      loadAdapterRuntime: () => Promise<{
+        frameworkRegistry: {
+          resolveForBinding: () => null;
+          detectForPath: () => { capabilities: string[] };
+        };
+        libraryRegistry: {
+          resolveForSource: () => [];
+          get: () => null;
+        };
+        plugins: [];
+        errors: [];
+      }>;
+    }, "loadAdapterRuntime").mockResolvedValue({
+      frameworkRegistry: {
+        resolveForBinding: () => null,
+        detectForPath: () => ({ capabilities: ["preview", "code_pull"] })
+      },
+      libraryRegistry: {
+        resolveForSource: () => [],
+        get: () => null
+      },
+      plugins: [],
+      errors: []
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-path-detected-status",
+      document,
+      documentRevision: store.getRevision(),
+      binding
+    });
+
+    await expect(manager.getBindingStatus(
+      "session-path-detected-status",
+      worktree,
+      document.documentId,
+      binding,
+      store.getRevision()
+    )).resolves.toMatchObject({
+      state: "in_sync",
+      driftState: "clean"
+    });
+  });
+
+  it("rejects pushes for non-react source families with a synthesized code_push denial", async () => {
+    const sourcePath = join(worktree, "NonReactPush.tsx");
+    const sourceText = [
+      "export function Hero() {",
+      "  return <section><span>Hello non-react push</span></section>;",
+      "}",
+      ""
+    ].join("\n");
+    await writeFile(sourcePath, sourceText);
+
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_non_react_push"));
+    const document = store.getDocument();
+    document.designGovernance.generationPlan = structuredClone(validPlan);
+    const binding = createBinding(document, sourcePath, {
+      id: "binding_non_react_push",
+      codeSync: createCodeSyncMetadata(sourcePath, {
+        sourceFamily: "html-static"
+      })
+    });
+    await saveCanvasCodeSyncManifest(worktree, buildManifest(document, binding, sourcePath, sourceText, store.getRevision()));
+
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-non-react-push",
+      document,
+      documentRevision: store.getRevision(),
+      binding
+    });
+
+    const result = await manager.push({
+      canvasSessionId: "session-non-react-push",
+      document,
+      documentRevision: store.getRevision(),
+      binding
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "unsupported",
+        reasonCode: "capability_denied"
+      },
+      conflicts: [expect.objectContaining({
+        kind: "unsupported_change",
+        message: "Framework adapter builtin:react-tsx-v2 does not support code_push."
+      })]
+    });
+    if (result.ok) {
+      throw new Error("Expected non-react push to fail");
+    }
+    expect(result.bindingStatus.capabilityDenials).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        capability: "code_push",
+        details: expect.objectContaining({ frameworkAdapterId: "builtin:react-tsx-v2" })
+      })
+    ]));
   });
 
   it("keeps imported node identities stable across source offset changes and updates text on prefer_code pulls", async () => {
@@ -578,6 +1311,7 @@ describe("canvas code sync manager", () => {
 
     const drifted = await manager.getBindingStatus(
       "session-document-drift",
+      worktree,
       document.documentId,
       binding,
       2
@@ -706,6 +1440,7 @@ describe("canvas code sync manager", () => {
 
     const refreshed = await manager.getBindingStatus(
       "session-unsupported-watch-refresh",
+      worktree,
       document.documentId,
       binding,
       store.getRevision()
@@ -803,5 +1538,139 @@ describe("canvas code sync manager", () => {
     }
     manager.disposeSession("session-round-trip-push");
     expect((watcher.close as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it("dedupes repeated library token denials and accepts supported watch-mode token pushes", async () => {
+    const sourcePath = join(worktree, "TokenLibraryCoverage.tsx");
+    const sourceText = [
+      "export function Hero() {",
+      "  return <section><span>Hello token library coverage</span></section>;",
+      "}",
+      ""
+    ].join("\n");
+    await writeFile(sourcePath, sourceText);
+
+    const watcher = { close: vi.fn() } as unknown as FSWatcher;
+    mockedWatch.mockReturnValue(watcher);
+
+    const deniedStore = new CanvasDocumentStore(createDefaultCanvasDocument("dc_duplicate_library_denials"));
+    const deniedDocument = deniedStore.getDocument();
+    deniedDocument.designGovernance.generationPlan = structuredClone(validPlan);
+    const deniedRootId = deniedDocument.pages[0]?.rootNodeId;
+    const deniedRoot = deniedDocument.pages[0]?.nodes.find((node) => node.id === deniedRootId);
+    if (!deniedRoot) {
+      throw new Error("Missing root node for duplicate library denial");
+    }
+    deniedRoot.tokenRefs = { backgroundColor: "semantic/bg" };
+    const deniedBinding = createBinding(deniedDocument, sourcePath, {
+      id: "binding_duplicate_library_denials",
+      codeSync: createCodeSyncMetadata(sourcePath, {
+        libraryAdapterIds: ["missing/library-adapter", "missing/library-adapter"]
+      })
+    });
+    await saveCanvasCodeSyncManifest(worktree, buildManifest(deniedDocument, deniedBinding, sourcePath, sourceText, deniedStore.getRevision()));
+
+    const manager = new CanvasCodeSyncManager({
+      worktree,
+      onWatchedSourceChanged: vi.fn()
+    });
+
+    await manager.bind({
+      canvasSessionId: "session-duplicate-library-denials",
+      document: deniedDocument,
+      documentRevision: deniedStore.getRevision(),
+      binding: deniedBinding
+    });
+
+    const denied = await manager.push({
+      canvasSessionId: "session-duplicate-library-denials",
+      document: deniedDocument,
+      documentRevision: deniedStore.getRevision(),
+      binding: deniedBinding
+    });
+    expect(denied).toMatchObject({
+      ok: false,
+      bindingStatus: {
+        state: "unsupported",
+        reasonCode: "capability_denied"
+      }
+    });
+    if (denied.ok) {
+      throw new Error("Expected duplicate library denial push to fail");
+    }
+    const duplicateDenials = denied.bindingStatus.capabilityDenials.filter((entry) => entry.details?.libraryAdapterId === "missing/library-adapter");
+    expect(duplicateDenials).toHaveLength(1);
+
+    const supportedStore = new CanvasDocumentStore(createDefaultCanvasDocument("dc_supported_library_push"));
+    const supportedDocument = supportedStore.getDocument();
+    supportedDocument.designGovernance.generationPlan = structuredClone(validPlan);
+    supportedDocument.tokens.metadata = { activeModeId: "   " };
+    supportedDocument.tokens.values = {
+      semantic: {
+        bg: "#0f172a"
+      }
+    };
+    const supportedRootId = supportedDocument.pages[0]?.rootNodeId;
+    const supportedRoot = supportedDocument.pages[0]?.nodes.find((node) => node.id === supportedRootId);
+    if (!supportedRoot) {
+      throw new Error("Missing root node for supported library push");
+    }
+    supportedRoot.tokenRefs = { backgroundColor: "semantic/bg" };
+    const supportedBinding = createBinding(supportedDocument, sourcePath, {
+      id: "binding_supported_library_push",
+      codeSync: createCodeSyncMetadata(sourcePath, {
+        syncMode: "watch",
+        libraryAdapterIds: ["builtin:react/shadcn-ui"]
+      })
+    });
+    await saveCanvasCodeSyncManifest(worktree, buildManifest(supportedDocument, supportedBinding, sourcePath, sourceText, supportedStore.getRevision()));
+
+    await manager.bind({
+      canvasSessionId: "session-supported-library-push",
+      document: supportedDocument,
+      documentRevision: supportedStore.getRevision(),
+      binding: supportedBinding
+    });
+
+    const supportedPull = await manager.pull({
+      canvasSessionId: "session-supported-library-push",
+      document: supportedDocument,
+      documentRevision: supportedStore.getRevision(),
+      binding: supportedBinding,
+      applyPatches: createApplyPatches(supportedStore)
+    });
+    expect(supportedPull).toMatchObject({ ok: true });
+
+    const supportedTextNode = supportedStore.getDocument().pages[0]?.nodes.find((node) => node.props.text === "Hello token library coverage");
+    if (!supportedTextNode) {
+      throw new Error("Expected imported text node for supported library push");
+    }
+    supportedStore.applyPatches(supportedStore.getRevision(), [{
+      op: "node.update",
+      nodeId: supportedTextNode.id,
+      changes: {
+        "props.text": "Hello supported library push"
+      }
+    }]);
+
+    await writeFile(sourcePath, sourceText);
+    const supported = await manager.push({
+      canvasSessionId: "session-supported-library-push",
+      document: supportedStore.getDocument(),
+      documentRevision: supportedStore.getRevision(),
+      binding: supportedBinding
+    });
+    expect(supported).toMatchObject({
+      ok: true,
+      bindingStatus: {
+        state: "in_sync",
+        driftState: "clean"
+      }
+    });
+    if (!supported.ok) {
+      throw new Error("Expected supported library push to succeed");
+    }
+    const supportedRuntime = getRuntime(manager, "session-supported-library-push", supportedBinding.id);
+    expect(supportedRuntime.watch?.lastSourceHash).toBe(supportedRuntime.manifest?.sourceHash ?? null);
   });
 });

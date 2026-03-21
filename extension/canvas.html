@@ -384,14 +384,39 @@
       color: var(--muted);
     }
 
+    .canvas-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .canvas-panel-subtitle,
+    .canvas-history-status {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .canvas-page-select {
+      width: 100%;
+      border: 1px solid rgba(143, 164, 187, 0.18);
+      background: rgba(4, 11, 18, 0.64);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+    }
+
     .canvas-summary-list,
-    .canvas-feedback-list {
+    .canvas-feedback-list,
+    .canvas-token-list {
       display: grid;
       gap: 10px;
     }
 
     .canvas-summary-item,
-    .canvas-feedback-item {
+    .canvas-feedback-item,
+    .canvas-token-item {
       display: grid;
       gap: 4px;
       padding-bottom: 10px;
@@ -460,6 +485,128 @@
     .canvas-textarea {
       min-height: 92px;
       resize: vertical;
+    }
+
+    .canvas-field-grid,
+    .canvas-property-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .canvas-properties-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .canvas-property-section {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: rgba(4, 11, 18, 0.42);
+    }
+
+    .canvas-property-section h3 {
+      margin: 0;
+      font-size: 0.76rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .canvas-layer-list,
+    .canvas-layer-children {
+      display: grid;
+      gap: 8px;
+    }
+
+    .canvas-layer-row {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: rgba(4, 11, 18, 0.44);
+    }
+
+    .canvas-layer-row[data-selected="true"] {
+      border-color: rgba(32, 213, 198, 0.3);
+      background: rgba(32, 213, 198, 0.08);
+    }
+
+    .canvas-layer-row[data-hidden="true"] {
+      opacity: 0.7;
+    }
+
+    .canvas-layer-head,
+    .canvas-layer-main,
+    .canvas-history-row,
+    .canvas-annotation-mode {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .canvas-layer-main {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .canvas-layer-toggle,
+    .canvas-layer-visibility {
+      width: 32px;
+      min-width: 32px;
+      padding: 6px 0;
+      text-align: center;
+    }
+
+    .canvas-layer-name-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      border: 1px solid rgba(143, 164, 187, 0.18);
+      background: rgba(4, 11, 18, 0.5);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 10px;
+    }
+
+    .canvas-layer-meta,
+    .canvas-empty-inline {
+      font-size: 0.76rem;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .canvas-pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .canvas-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(143, 164, 187, 0.12);
+      color: var(--text);
+      font-size: 0.76rem;
+    }
+
+    .canvas-stage-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .canvas-stage-marquee {
+      position: absolute;
+      border: 1px solid rgba(32, 213, 198, 0.85);
+      background: rgba(32, 213, 198, 0.14);
+      border-radius: 12px;
+      box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.28);
     }
 
     .canvas-annotation-list {
@@ -558,6 +705,9 @@
 
     <section class="canvas-toolbar">
       <div class="canvas-actions">
+        <button class="canvas-button" id="canvas-history-undo" type="button">Undo</button>
+        <button class="canvas-button" id="canvas-history-redo" type="button">Redo</button>
+        <button class="canvas-button" id="canvas-duplicate-node" type="button">Duplicate</button>
         <button class="canvas-button canvas-button-primary" id="canvas-add-note" type="button">Add Note</button>
         <button class="canvas-button" id="canvas-reset-view" type="button">Reset View</button>
         <button class="canvas-button canvas-button-danger" id="canvas-delete-node" type="button">Delete Selected</button>
@@ -572,16 +722,15 @@
           <div class="canvas-summary-list" id="canvas-summary"></div>
         </section>
         <section class="canvas-panel">
-          <h2>Inspector</h2>
-          <div class="canvas-field">
-            <label for="canvas-node-name">Node Name</label>
-            <input class="canvas-input" id="canvas-node-name" type="text" />
+          <div class="canvas-panel-header">
+            <h2>Pages & Layers</h2>
+            <span class="canvas-panel-subtitle" id="canvas-page-details">No page selected.</span>
           </div>
           <div class="canvas-field">
-            <label for="canvas-node-text">Node Text</label>
-            <textarea class="canvas-textarea" id="canvas-node-text"></textarea>
+            <label for="canvas-page-select">Active Page</label>
+            <select class="canvas-page-select" id="canvas-page-select"></select>
           </div>
-          <div class="canvas-summary-list" id="canvas-selection-meta"></div>
+          <div class="canvas-layer-list" id="canvas-layers-tree"></div>
         </section>
         <section class="canvas-panel">
           <h2>Feedback</h2>
@@ -589,6 +738,13 @@
         </section>
         <section class="canvas-panel">
           <h2>Annotations</h2>
+          <div class="canvas-annotation-mode">
+            <label for="canvas-annotation-mode">Capture Mode</label>
+            <select class="canvas-page-select" id="canvas-annotation-mode">
+              <option value="selected">Selected node</option>
+              <option value="region">Stage region</option>
+            </select>
+          </div>
           <div class="canvas-actions-grid">
             <button class="canvas-button canvas-button-primary" id="canvas-annotation-add" type="button">Add Selected</button>
             <button class="canvas-button" id="canvas-annotation-copy" type="button">Copy All</button>
@@ -614,10 +770,224 @@
         </div>
         <div class="canvas-stage" id="canvas-stage">
           <div class="canvas-stage-inner" id="canvas-stage-inner"></div>
+          <div class="canvas-stage-overlay" id="canvas-stage-overlay"></div>
         </div>
       </section>
 
       <section class="canvas-preview-card">
+        <section class="canvas-panel">
+          <div class="canvas-panel-header">
+            <h2>History</h2>
+            <span class="canvas-history-status" id="canvas-history-status">No history yet.</span>
+          </div>
+          <div class="canvas-history-row">
+            <button class="canvas-button" id="canvas-history-panel-undo" type="button">Undo</button>
+            <button class="canvas-button" id="canvas-history-panel-redo" type="button">Redo</button>
+          </div>
+        </section>
+        <section class="canvas-panel">
+          <div class="canvas-panel-header">
+            <h2>Properties</h2>
+            <span class="canvas-panel-subtitle" id="canvas-properties-status">No node selected.</span>
+          </div>
+          <div class="canvas-properties-grid">
+            <div class="canvas-property-section">
+              <h3>Identity</h3>
+              <div class="canvas-field">
+                <label for="canvas-node-name">Node Name</label>
+                <input class="canvas-input" id="canvas-node-name" type="text" />
+              </div>
+              <div class="canvas-field">
+                <label for="canvas-node-text">Node Text</label>
+                <textarea class="canvas-textarea" id="canvas-node-text"></textarea>
+              </div>
+            </div>
+            <div class="canvas-property-section">
+              <h3>Layout</h3>
+              <div class="canvas-property-grid">
+                <div class="canvas-field">
+                  <label for="canvas-node-x">X</label>
+                  <input class="canvas-input" id="canvas-node-x" type="number" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-node-y">Y</label>
+                  <input class="canvas-input" id="canvas-node-y" type="number" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-node-width">Width</label>
+                  <input class="canvas-input" id="canvas-node-width" type="number" min="1" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-node-height">Height</label>
+                  <input class="canvas-input" id="canvas-node-height" type="number" min="1" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-style-padding">Padding</label>
+                  <input class="canvas-input" id="canvas-style-padding" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-style-gap">Gap</label>
+                  <input class="canvas-input" id="canvas-style-gap" type="text" />
+                </div>
+              </div>
+            </div>
+            <div class="canvas-property-section">
+              <h3>Typography</h3>
+              <div class="canvas-property-grid">
+                <div class="canvas-field">
+                  <label for="canvas-style-font-size">Font Size</label>
+                  <input class="canvas-input" id="canvas-style-font-size" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-style-font-weight">Weight</label>
+                  <input class="canvas-input" id="canvas-style-font-weight" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-style-line-height">Line Height</label>
+                  <input class="canvas-input" id="canvas-style-line-height" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-style-color">Text Color</label>
+                  <input class="canvas-input" id="canvas-style-color" type="text" />
+                </div>
+              </div>
+            </div>
+            <div class="canvas-property-section">
+              <h3>Surface</h3>
+              <div class="canvas-property-grid">
+                <div class="canvas-field">
+                  <label for="canvas-style-background">Background</label>
+                  <input class="canvas-input" id="canvas-style-background" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-style-border-color">Border Color</label>
+                  <input class="canvas-input" id="canvas-style-border-color" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-style-border-width">Border Width</label>
+                  <input class="canvas-input" id="canvas-style-border-width" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-style-border-radius">Border Radius</label>
+                  <input class="canvas-input" id="canvas-style-border-radius" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-style-shadow">Shadow</label>
+                  <input class="canvas-input" id="canvas-style-shadow" type="text" />
+                </div>
+              </div>
+            </div>
+            <div class="canvas-property-section">
+              <h3>Binding & Accessibility</h3>
+              <div class="canvas-property-grid">
+                <div class="canvas-field">
+                  <label for="canvas-binding-kind">Binding Kind</label>
+                  <input class="canvas-input" id="canvas-binding-kind" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-binding-component">Component Name</label>
+                  <input class="canvas-input" id="canvas-binding-component" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-binding-selector">Selector</label>
+                  <input class="canvas-input" id="canvas-binding-selector" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-a11y-role">A11y Role</label>
+                  <input class="canvas-input" id="canvas-a11y-role" type="text" />
+                </div>
+                <div class="canvas-field">
+                  <label for="canvas-a11y-label">A11y Label</label>
+                  <input class="canvas-input" id="canvas-a11y-label" type="text" />
+                </div>
+              </div>
+            </div>
+            <div class="canvas-property-section">
+              <h3>Selection Metadata</h3>
+              <div class="canvas-summary-list" id="canvas-selection-meta"></div>
+            </div>
+          </div>
+        </section>
+        <section class="canvas-panel">
+          <div class="canvas-panel-header">
+            <h2>Tokens</h2>
+            <span class="canvas-panel-subtitle" id="canvas-token-status">Edit collections, modes, aliases, and bindings.</span>
+          </div>
+          <div class="canvas-property-section">
+            <h3>Collections & Modes</h3>
+            <div class="canvas-property-grid">
+              <div class="canvas-field">
+                <label for="canvas-token-collection-select">Collection</label>
+                <select class="canvas-page-select" id="canvas-token-collection-select"></select>
+              </div>
+              <div class="canvas-field">
+                <label for="canvas-token-collection-name">New Collection</label>
+                <input class="canvas-input" id="canvas-token-collection-name" type="text" placeholder="brand" />
+              </div>
+              <div class="canvas-field">
+                <label>&nbsp;</label>
+                <button class="canvas-button" id="canvas-token-collection-create" type="button">Create Collection</button>
+              </div>
+              <div class="canvas-field">
+                <label for="canvas-token-mode-select">Mode</label>
+                <select class="canvas-page-select" id="canvas-token-mode-select"></select>
+              </div>
+              <div class="canvas-field">
+                <label for="canvas-token-mode-name">New Mode</label>
+                <input class="canvas-input" id="canvas-token-mode-name" type="text" placeholder="night" />
+              </div>
+              <div class="canvas-field">
+                <label>&nbsp;</label>
+                <button class="canvas-button" id="canvas-token-mode-create" type="button">Create Mode</button>
+              </div>
+            </div>
+          </div>
+          <div class="canvas-property-section">
+            <h3>Token Editor</h3>
+            <div class="canvas-property-grid">
+              <div class="canvas-field">
+                <label for="canvas-token-path">Token Path</label>
+                <input class="canvas-input" id="canvas-token-path" type="text" placeholder="theme.primary" />
+              </div>
+              <div class="canvas-field">
+                <label for="canvas-token-value">Value</label>
+                <input class="canvas-input" id="canvas-token-value" type="text" placeholder="#111827" />
+              </div>
+              <div class="canvas-field">
+                <label for="canvas-token-alias">Alias Target</label>
+                <input class="canvas-input" id="canvas-token-alias" type="text" placeholder="theme.primary" />
+              </div>
+              <div class="canvas-field">
+                <label for="canvas-token-binding-property">Bind Property</label>
+                <select class="canvas-page-select" id="canvas-token-binding-property">
+                  <option value="backgroundColor">backgroundColor</option>
+                  <option value="color">color</option>
+                  <option value="borderColor">borderColor</option>
+                  <option value="borderRadius">borderRadius</option>
+                  <option value="boxShadow">boxShadow</option>
+                  <option value="fontSize">fontSize</option>
+                </select>
+              </div>
+              <div class="canvas-field">
+                <label>&nbsp;</label>
+                <button class="canvas-button canvas-button-primary" id="canvas-token-save" type="button">Save Token</button>
+              </div>
+              <div class="canvas-field">
+                <label>&nbsp;</label>
+                <button class="canvas-button" id="canvas-token-bind" type="button">Bind Selected Node</button>
+              </div>
+              <div class="canvas-field">
+                <label>&nbsp;</label>
+                <button class="canvas-button" id="canvas-token-binding-clear" type="button">Clear Binding</button>
+              </div>
+            </div>
+          </div>
+          <div class="canvas-property-section">
+            <h3>Usage</h3>
+            <div class="canvas-token-list" id="canvas-token-summary"></div>
+            <div class="canvas-summary-list" id="canvas-token-usage"></div>
+          </div>
+        </section>
         <section class="canvas-panel">
           <h2>Live Preview</h2>
           <iframe

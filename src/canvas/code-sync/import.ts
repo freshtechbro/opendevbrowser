@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import type { CanvasBinding, CanvasDocument, CanvasNode, CanvasPatch } from "../types";
+import { resolveCanvasTokenValue } from "../token-references";
 import { buildGraphMappings, buildManifestLookup, locatorKey } from "./graph";
 import type {
   CodeSyncGraph,
@@ -14,6 +15,7 @@ type ImportCodeSyncGraphOptions = {
   documentRevision: number;
   graph: CodeSyncGraph;
   manifest?: CodeSyncManifest | null;
+  tokenRefsByNodeKey?: Record<string, Record<string, string>>;
 };
 
 type ImportCodeSyncGraphResult = {
@@ -95,6 +97,39 @@ function buildCanvasNodeProps(graphNode: CodeSyncGraph["nodes"][string]): Record
   return props;
 }
 
+function readActiveTokenModeId(document: CanvasDocument): string | null {
+  const metadata = document.tokens.metadata;
+  return typeof metadata.activeModeId === "string" && metadata.activeModeId.trim().length > 0
+    ? metadata.activeModeId
+    : null;
+}
+
+function buildCanvasNodeTokenRefs(
+  graphNode: CodeSyncGraph["nodes"][string],
+  tokenRefsByNodeKey: Record<string, Record<string, string>>
+): Record<string, unknown> {
+  return { ...(tokenRefsByNodeKey[graphNode.key] ?? {}) };
+}
+
+function buildCanvasNodeStyle(
+  document: CanvasDocument,
+  graphNode: CodeSyncGraph["nodes"][string],
+  tokenRefs: Record<string, unknown>
+): Record<string, string | number> {
+  const style = { ...graphNode.style };
+  const activeModeId = readActiveTokenModeId(document);
+  for (const [property, tokenRef] of Object.entries(tokenRefs)) {
+    if (typeof tokenRef !== "string" || tokenRef.trim().length === 0) {
+      continue;
+    }
+    const resolved = resolveCanvasTokenValue(document.tokens, tokenRef, activeModeId);
+    if (typeof resolved === "string" || typeof resolved === "number") {
+      style[property] = resolved;
+    }
+  }
+  return style;
+}
+
 function buildNodeName(graphNode: CodeSyncGraph["nodes"][string]): string {
   if (graphNode.kind === "text") {
     return (graphNode.text ?? "Text").slice(0, 48);
@@ -132,8 +167,10 @@ export function importCodeSyncGraph(options: ImportCodeSyncGraphOptions): Import
   const patches: CanvasPatch[] = [];
   const changedNodeIds = new Set<string>([rootNode.id, ...descendantIds]);
   const nodeIdByLocator = new Map<string, string>();
+  const tokenRefsByNodeKey = options.tokenRefsByNodeKey ?? {};
   nodeIdByLocator.set(locatorKey(options.graph.nodes[options.graph.rootKey]!.locator), options.binding.nodeId);
 
+  const rootTokenRefs = buildCanvasNodeTokenRefs(options.graph.nodes[options.graph.rootKey]!, tokenRefsByNodeKey);
   const rootMetadata = buildCanvasNodeMetadata(options.graph.nodes[options.graph.rootKey]!);
   const rootProps = buildCanvasNodeProps(options.graph.nodes[options.graph.rootKey]!);
   patches.push({
@@ -142,7 +179,8 @@ export function importCodeSyncGraph(options: ImportCodeSyncGraphOptions): Import
     changes: {
       name: buildNodeName(options.graph.nodes[options.graph.rootKey]!),
       props: rootProps,
-      style: options.graph.nodes[options.graph.rootKey]!.style,
+      style: buildCanvasNodeStyle(options.document, options.graph.nodes[options.graph.rootKey]!, rootTokenRefs),
+      tokenRefs: rootTokenRefs,
       bindingRefs: { ...rootNode.bindingRefs, primary: options.binding.id },
       metadata: { ...rootNode.metadata, ...rootMetadata }
     }
@@ -156,6 +194,7 @@ export function importCodeSyncGraph(options: ImportCodeSyncGraphOptions): Import
   const canvasChildren = new Map<string, string[]>();
   for (const graphNode of orderedNodes) {
     const nodeId = buildNodeId(graphNode, manifestLookup);
+    const tokenRefs = buildCanvasNodeTokenRefs(graphNode, tokenRefsByNodeKey);
     nodeIdByLocator.set(locatorKey(graphNode.locator), nodeId);
     const parentKey = orderedNodes.find((candidate) => candidate.childKeys.includes(graphNode.key))?.key ?? options.graph.rootKey;
     const parentId = parentKey === options.graph.rootKey
@@ -176,7 +215,8 @@ export function importCodeSyncGraph(options: ImportCodeSyncGraphOptions): Import
           ? { x: 0, y: 0, width: 240, height: 28 }
           : { x: 0, y: 0, width: 320, height: 120 },
         props: buildCanvasNodeProps(graphNode),
-        style: graphNode.style,
+        style: buildCanvasNodeStyle(options.document, graphNode, tokenRefs),
+        tokenRefs,
         bindingRefs: { primary: options.binding.id },
         metadata: buildCanvasNodeMetadata(graphNode)
       }
@@ -186,19 +226,27 @@ export function importCodeSyncGraph(options: ImportCodeSyncGraphOptions): Import
 
   const nodeMappings: CodeSyncManifestNodeMapping[] = buildGraphMappings(options.graph, nodeIdByLocator);
   const manifest: CodeSyncManifest = {
+    manifestVersion: options.binding.codeSync?.manifestVersion ?? 2,
     bindingId: options.binding.id,
     documentId: options.document.documentId,
     repoPath: options.binding.codeSync?.repoPath ?? options.binding.selector ?? "",
     adapter: options.binding.codeSync?.adapter ?? options.graph.adapter,
-    rootLocator: {
-      exportName: options.binding.codeSync?.exportName,
-      selector: options.binding.codeSync?.selector
+    frameworkAdapterId: options.binding.codeSync?.frameworkAdapterId ?? options.graph.frameworkAdapterId,
+    frameworkId: options.binding.codeSync?.frameworkId ?? options.graph.frameworkId,
+    sourceFamily: options.binding.codeSync?.sourceFamily ?? options.graph.sourceFamily,
+    adapterKind: options.binding.codeSync?.adapterKind ?? "unknown",
+    adapterVersion: options.binding.codeSync?.adapterVersion ?? 1,
+    pluginId: options.binding.codeSync?.pluginId,
+    libraryAdapterIds: options.binding.codeSync?.libraryAdapterIds ?? options.graph.libraryAdapterIds,
+    rootLocator: options.binding.codeSync?.rootLocator ?? {
+      kind: "document-root"
     },
     sourceHash: options.graph.sourceHash,
     documentRevision: options.documentRevision,
     nodeMappings,
     lastImportedAt: new Date().toISOString(),
-    lastPushedAt: options.manifest?.lastPushedAt
+    lastPushedAt: options.manifest?.lastPushedAt,
+    reasonCode: options.binding.codeSync?.reasonCode ?? "none"
   };
 
   return {

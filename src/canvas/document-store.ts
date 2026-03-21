@@ -1,25 +1,58 @@
 import { randomUUID } from "crypto";
 import * as Y from "yjs";
 import type {
+  CanvasAsset,
   CanvasBinding,
   CanvasBlockState,
+  CanvasCapabilityGrant,
+  CanvasComponentContentContract,
+  CanvasComponentEventDescriptor,
+  CanvasComponentInventoryItem,
+  CanvasComponentPropDescriptor,
+  CanvasComponentSlotDescriptor,
+  CanvasComponentVariant,
   CanvasDocument,
+  CanvasDocumentImportMode,
+  CanvasDocumentMeta,
+  CanvasFeedbackCategory,
   CanvasFeedbackItem,
   CanvasGenerationPlan,
   CanvasGovernanceBlockKey,
   CanvasGovernanceBlockState,
   CanvasIconRoles,
+  CanvasImportAssetReceipt,
+  CanvasImportProvenance,
+  CanvasImportSource,
+  CanvasInventoryOrigin,
   CanvasLibraryPolicy,
+  CanvasAdapterCapability,
+  CanvasAdapterErrorEnvelope,
+  CanvasAdapterPluginDeclaration,
+  CanvasAdapterPluginRef,
+  CanvasAdapterRef,
+  CanvasFrameworkCompatibility,
+  CanvasFrameworkRef,
+  CanvasLibraryCompatibility,
   CanvasNode,
   CanvasPage,
   CanvasPatch,
   CanvasPrototype,
+  CanvasStarterApplication,
+  CanvasStarterTemplate,
+  CanvasTokenAlias,
+  CanvasTokenBinding,
+  CanvasTokenCollection,
+  CanvasTokenItem,
+  CanvasTokenMode,
+  CanvasTokenStore,
   CanvasValidationWarning,
   CanvasVariantPatch,
-  CanvasVariantSelector
+  CanvasVariantSelector,
+  CanvasSourceFamily
 } from "./types";
 import { CANVAS_SCHEMA_VERSION } from "./types";
 import { normalizeCodeSyncBindingMetadata } from "./code-sync/types";
+import { resolveCanvasTokenValue } from "./token-references";
 
 const GOVERNANCE_KEYS: CanvasGovernanceBlockKey[] = [
   "intent",
@@ -99,6 +132,34 @@ const PROJECT_DEFAULT_RUNTIME_BUDGETS = {
   backgroundTelemetryMode: "sampled"
 };
 
+const CANVAS_SOURCE_FAMILIES = new Set<CanvasSourceFamily>([
+  "canvas_document",
+  "framework_component",
+  "design_import",
+  "starter_template",
+  "adapter_plugin",
+  "unknown"
+]);
+
+const CANVAS_INVENTORY_ORIGINS = new Set<CanvasInventoryOrigin>([
+  "document",
+  "code_sync",
+  "import",
+  "starter",
+  "plugin",
+  "unknown"
+]);
+
+const CANVAS_ADAPTER_CAPABILITIES = new Set<CanvasAdapterCapability>([
+  "import",
+  "export",
+  "preview",
+  "code_sync",
+  "inventory",
+  "tokens",
+  "starter_templates"
+]);
+
 function inheritedDefaultForGovernanceKey(key: CanvasGovernanceBlockKey): Record<string, unknown> | null {
   switch (key) {
     case "libraryPolicy":
@@ -110,7 +171,12 @@ function inheritedDefaultForGovernanceKey(key: CanvasGovernanceBlockKey): Record
   }
 }
 
-const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const clone = <T>(value: T): T => {
+  if (value === undefined) {
+    return value;
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+};
 
 const stableStringify = (value: unknown): string => {
   if (value === null) return "null";
@@ -129,6 +195,556 @@ const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(v
 const isNonEmptyRecord = (value: unknown): value is Record<string, unknown> => isRecord(value) && Object.keys(value).length > 0;
 
 const uniqueStrings = (values: string[]): string[] => [...new Set(values)];
+
+const optionalString = (value: unknown): string | null => typeof value === "string" && value.trim().length > 0 ? value : null;
+
+const normalizeRecord = (value: unknown): Record<string, unknown> => isRecord(value) ? clone(value) : {};
+
+function normalizeStringArrayValue(value: unknown): string[] {
+  return Array.isArray(value)
+    ? uniqueStrings(value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0))
+    : [];
+}
+
+function normalizeEnumValue<T extends string>(value: unknown, allowed: ReadonlySet<T>, fallback: T): T {
+  return typeof value === "string" && allowed.has(value as T) ? value as T : fallback;
+}
+
+function normalizeArray<T>(value: unknown, normalizer: (entry: unknown, index: number) => T | null): T[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const items: T[] = [];
+  for (const [index, entry] of value.entries()) {
+    const normalized = normalizer(entry, index);
+    if (normalized) {
+      items.push(normalized);
+    }
+  }
+  return items;
+}
+
+function collectExtraMetadata(record: Record<string, unknown>, knownKeys: readonly string[]): Record<string, unknown> {
+  const metadata = isRecord(record.metadata) ? clone(record.metadata) : {};
+  const known = new Set([...knownKeys, "metadata"]);
+  for (const [key, value] of Object.entries(record)) {
+    if (known.has(key)) {
+      continue;
+    }
+    metadata[key] = clone(value);
+  }
+  return metadata;
+}
+
+function createEmptyCanvasContentContract(): CanvasComponentContentContract {
+  return {
+    acceptsText: false,
+    acceptsRichText: false,
+    slotNames: [],
+    metadata: {}
+  };
+}
+
+function createEmptyCanvasTokenStore(): CanvasTokenStore {
+  return {
+    values: {},
+    collections: [],
+    aliases: [],
+    bindings: [],
+    metadata: {}
+  };
+}
+
+function createEmptyCanvasDocumentMeta(): CanvasDocumentMeta {
+  return {
+    imports: [],
+    starter: null,
+    adapterPlugins: [],
+    pluginErrors: [],
+    metadata: {}
+  };
+}
+
+function normalizeCanvasAdapterRef(value: unknown): CanvasAdapterRef | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = optionalString(value.id) ?? optionalString(value.adapterId);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    label: optionalString(value.label) ?? optionalString(value.name),
+    version: optionalString(value.version),
+    packageName: optionalString(value.packageName),
+    metadata: collectExtraMetadata(value, ["id", "adapterId", "label", "name", "version", "packageName"])
+  };
+}
+
+function normalizeCanvasFrameworkRef(value: unknown): CanvasFrameworkRef | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = optionalString(value.id) ?? optionalString(value.frameworkId);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    label: optionalString(value.label) ?? optionalString(value.name),
+    packageName: optionalString(value.packageName),
+    adapter: normalizeCanvasAdapterRef(value.adapter),
+    metadata: collectExtraMetadata(value, ["id", "frameworkId", "label", "name", "packageName", "adapter"])
+  };
+}
+
+function normalizeCanvasAdapterPluginRef(value: unknown): CanvasAdapterPluginRef | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = optionalString(value.id) ?? optionalString(value.pluginId);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    label: optionalString(value.label) ?? optionalString(value.name),
+    version: optionalString(value.version),
+    packageName: optionalString(value.packageName),
+    metadata: collectExtraMetadata(value, ["id", "pluginId", "label", "name", "version", "packageName"])
+  };
+}
+
+function normalizeCanvasComponentVariant(value: unknown, index: number): CanvasComponentVariant | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const name = optionalString(value.name) ?? optionalString(value.label) ?? `Variant ${index + 1}`;
+  return {
+    id: optionalString(value.id) ?? `variant_${index + 1}`,
+    name,
+    selector: isRecord(value.selector) ? clone(value.selector as CanvasVariantSelector) : {},
+    description: optionalString(value.description),
+    metadata: collectExtraMetadata(value, ["id", "name", "label", "selector", "description"])
+  };
+}
+
+function normalizeCanvasComponentPropDescriptor(value: unknown, index: number): CanvasComponentPropDescriptor | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const name = optionalString(value.name);
+  if (!name) {
+    return null;
+  }
+  return {
+    name,
+    type: optionalString(value.type),
+    required: typeof value.required === "boolean" ? value.required : undefined,
+    defaultValue: "defaultValue" in value ? clone(value.defaultValue) : undefined,
+    description: optionalString(value.description),
+    metadata: collectExtraMetadata(value, ["name", "type", "required", "defaultValue", "description"])
+  };
+}
+
+function normalizeCanvasComponentSlotDescriptor(value: unknown, index: number): CanvasComponentSlotDescriptor | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const name = optionalString(value.name) ?? `slot_${index + 1}`;
+  return {
+    name,
+    description: optionalString(value.description),
+    allowedKinds: normalizeStringArrayValue(value.allowedKinds),
+    metadata: collectExtraMetadata(value, ["name", "description", "allowedKinds"])
+  };
+}
+
+function normalizeCanvasComponentEventDescriptor(value: unknown, index: number): CanvasComponentEventDescriptor | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const name = optionalString(value.name) ?? `event_${index + 1}`;
+  return {
+    name,
+    description: optionalString(value.description),
+    payloadShape: isRecord(value.payloadShape) ? clone(value.payloadShape) : undefined,
+    metadata: collectExtraMetadata(value, ["name", "description", "payloadShape"])
+  };
+}
+
+function normalizeCanvasComponentContentContract(value: unknown): CanvasComponentContentContract {
+  if (!isRecord(value)) {
+    return createEmptyCanvasContentContract();
+  }
+  return {
+    acceptsText: value.acceptsText === true,
+    acceptsRichText: value.acceptsRichText === true,
+    slotNames: normalizeStringArrayValue(value.slotNames),
+    metadata: collectExtraMetadata(value, ["acceptsText", "acceptsRichText", "slotNames"])
+  };
+}
+
+function normalizeCanvasComponentInventoryItem(value: unknown, index: number): CanvasComponentInventoryItem | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const name = optionalString(value.name) ?? optionalString(value.componentName) ?? optionalString(value.id) ?? `Component ${index + 1}`;
+  return {
+    id: optionalString(value.id) ?? `inventory_${index + 1}`,
+    name,
+    componentName: optionalString(value.componentName) ?? name,
+    description: optionalString(value.description),
+    sourceKind: optionalString(value.sourceKind) ?? optionalString(value.source),
+    sourceFamily: normalizeEnumValue(value.sourceFamily, CANVAS_SOURCE_FAMILIES, "unknown"),
+    origin: normalizeEnumValue(value.origin, CANVAS_INVENTORY_ORIGINS, "document"),
+    framework: normalizeCanvasFrameworkRef(value.framework),
+    adapter: normalizeCanvasAdapterRef(value.adapter),
+    plugin: normalizeCanvasAdapterPluginRef(value.plugin ?? value.adapterPlugin),
+    variants: normalizeArray(value.variants, normalizeCanvasComponentVariant),
+    props: normalizeArray(value.props, normalizeCanvasComponentPropDescriptor),
+    slots: normalizeArray(value.slots, normalizeCanvasComponentSlotDescriptor),
+    events: normalizeArray(value.events, normalizeCanvasComponentEventDescriptor),
+    content: normalizeCanvasComponentContentContract(value.content ?? value.contentContract),
+    metadata: collectExtraMetadata(value, [
+      "id",
+      "name",
+      "componentName",
+      "description",
+      "sourceKind",
+      "source",
+      "sourceFamily",
+      "origin",
+      "framework",
+      "adapter",
+      "plugin",
+      "adapterPlugin",
+      "variants",
+      "props",
+      "slots",
+      "events",
+      "content",
+      "contentContract"
+    ])
+  };
+}
+
+function normalizeCanvasTokenMode(value: unknown, index: number): CanvasTokenMode | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = optionalString(value.id) ?? `mode_${index + 1}`;
+  const name = optionalString(value.name) ?? id;
+  return {
+    id,
+    name,
+    value: clone(value.value),
+    metadata: collectExtraMetadata(value, ["id", "name", "value"])
+  };
+}
+
+function normalizeCanvasTokenItem(value: unknown, index: number): CanvasTokenItem | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const path = optionalString(value.path);
+  if (!path) {
+    return null;
+  }
+  return {
+    id: optionalString(value.id) ?? `token_${index + 1}`,
+    path,
+    value: clone(value.value),
+    type: optionalString(value.type),
+    description: optionalString(value.description),
+    modes: normalizeArray(value.modes, normalizeCanvasTokenMode),
+    metadata: collectExtraMetadata(value, ["id", "path", "value", "type", "description", "modes"])
+  };
+}
+
+function normalizeCanvasTokenCollection(value: unknown, index: number): CanvasTokenCollection | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const name = optionalString(value.name) ?? `Collection ${index + 1}`;
+  return {
+    id: optionalString(value.id) ?? `collection_${index + 1}`,
+    name,
+    items: normalizeArray(value.items, normalizeCanvasTokenItem),
+    metadata: collectExtraMetadata(value, ["id", "name", "items"])
+  };
+}
+
+function normalizeCanvasTokenAlias(value: unknown, index: number): CanvasTokenAlias | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const path = optionalString(value.path);
+  const targetPath = optionalString(value.targetPath);
+  if (!path || !targetPath) {
+    return null;
+  }
+  return {
+    path,
+    targetPath,
+    modeId: optionalString(value.modeId),
+    metadata: collectExtraMetadata(value, ["path", "targetPath", "modeId"])
+  };
+}
+
+function normalizeCanvasTokenBinding(value: unknown, index: number): CanvasTokenBinding | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const path = optionalString(value.path);
+  if (!path) {
+    return null;
+  }
+  return {
+    path,
+    nodeId: optionalString(value.nodeId),
+    bindingId: optionalString(value.bindingId),
+    property: optionalString(value.property),
+    metadata: collectExtraMetadata(value, ["path", "nodeId", "bindingId", "property"])
+  };
+}
+
+function normalizeCanvasTokenStore(value: unknown): CanvasTokenStore {
+  if (!isRecord(value)) {
+    return createEmptyCanvasTokenStore();
+  }
+  const structured = "values" in value || "collections" in value || "aliases" in value || "bindings" in value || "metadata" in value;
+  return {
+    values: structured ? normalizeRecord(value.values) : clone(value),
+    collections: normalizeArray(value.collections, normalizeCanvasTokenCollection),
+    aliases: normalizeArray(value.aliases, normalizeCanvasTokenAlias),
+    bindings: normalizeArray(value.bindings, normalizeCanvasTokenBinding),
+    metadata: structured
+      ? collectExtraMetadata(value, ["values", "collections", "aliases", "bindings"])
+      : {}
+  };
+}
+
+function normalizeCanvasImportAssetReceipt(value: unknown, index: number): CanvasImportAssetReceipt | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const assetId = optionalString(value.assetId) ?? optionalString(value.id);
+  if (!assetId) {
+    return null;
+  }
+  return {
+    assetId,
+    sourceType: optionalString(value.sourceType),
+    repoPath: optionalString(value.repoPath),
+    url: optionalString(value.url),
+    status: optionalString(value.status),
+    metadata: collectExtraMetadata(value, ["assetId", "id", "sourceType", "repoPath", "url", "status"])
+  };
+}
+
+function normalizeCanvasImportSource(value: unknown, index: number): CanvasImportSource | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const kind = optionalString(value.kind);
+  if (!kind) {
+    return null;
+  }
+  return {
+    id: optionalString(value.id) ?? `import_source_${index + 1}`,
+    kind,
+    label: optionalString(value.label) ?? optionalString(value.name),
+    uri: optionalString(value.uri),
+    sourceDialect: optionalString(value.sourceDialect),
+    frameworkId: optionalString(value.frameworkId),
+    pluginId: optionalString(value.pluginId),
+    adapterIds: normalizeStringArrayValue(value.adapterIds),
+    metadata: collectExtraMetadata(value, ["id", "kind", "label", "name", "uri", "sourceDialect", "frameworkId", "pluginId", "adapterIds"])
+  };
+}
+
+function normalizeCanvasImportProvenance(value: unknown, index: number): CanvasImportProvenance | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const source = normalizeCanvasImportSource(value.source, index);
+  if (!source) {
+    return null;
+  }
+  return {
+    id: optionalString(value.id) ?? `import_${index + 1}`,
+    source,
+    importedAt: optionalString(value.importedAt),
+    assetReceipts: normalizeArray(value.assetReceipts, normalizeCanvasImportAssetReceipt),
+    metadata: collectExtraMetadata(value, ["id", "source", "importedAt", "assetReceipts"])
+  };
+}
+
+function normalizeCanvasStarterTemplate(value: unknown): CanvasStarterTemplate | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = optionalString(value.id);
+  const name = optionalString(value.name);
+  if (!id || !name) {
+    return null;
+  }
+  const defaultFrameworkId = optionalString(value.defaultFrameworkId)
+    ?? optionalString(value.frameworkId)
+    ?? "react";
+  const compatibleFrameworkIds = normalizeStringArrayValue(value.compatibleFrameworkIds);
+  return {
+    id,
+    name,
+    description: optionalString(value.description),
+    tags: normalizeStringArrayValue(value.tags),
+    defaultFrameworkId,
+    compatibleFrameworkIds: compatibleFrameworkIds.length > 0
+      ? compatibleFrameworkIds
+      : [defaultFrameworkId],
+    kitIds: normalizeStringArrayValue(value.kitIds),
+    metadata: collectExtraMetadata(value, [
+      "id",
+      "name",
+      "description",
+      "tags",
+      "defaultFrameworkId",
+      "frameworkId",
+      "compatibleFrameworkIds",
+      "kitIds"
+    ])
+  };
+}
+
+function normalizeCanvasStarterApplication(value: unknown): CanvasStarterApplication | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    template: normalizeCanvasStarterTemplate(value.template),
+    frameworkId: optionalString(value.frameworkId),
+    appliedAt: optionalString(value.appliedAt),
+    metadata: collectExtraMetadata(value, ["template", "frameworkId", "appliedAt"])
+  };
+}
+
+function normalizeCanvasFrameworkCompatibility(value: unknown, index: number): CanvasFrameworkCompatibility | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const frameworkId = optionalString(value.frameworkId);
+  if (!frameworkId) {
+    return null;
+  }
+  return {
+    frameworkId,
+    versions: normalizeStringArrayValue(value.versions),
+    metadata: collectExtraMetadata(value, ["frameworkId", "versions"])
+  };
+}
+
+function normalizeCanvasLibraryCompatibility(value: unknown, index: number): CanvasLibraryCompatibility | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const libraryId = optionalString(value.libraryId);
+  if (!libraryId) {
+    return null;
+  }
+  return {
+    libraryId,
+    categories: normalizeStringArrayValue(value.categories),
+    metadata: collectExtraMetadata(value, ["libraryId", "categories"])
+  };
+}
+
+function normalizeCanvasCapabilityGrant(value: unknown, index: number): CanvasCapabilityGrant | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const capability = normalizeEnumValue(value.capability, CANVAS_ADAPTER_CAPABILITIES, "preview");
+  return {
+    capability,
+    granted: value.granted === true,
+    reason: optionalString(value.reason),
+    metadata: collectExtraMetadata(value, ["capability", "granted", "reason"])
+  };
+}
+
+function normalizeCanvasAdapterPluginDeclaration(value: unknown, index: number): CanvasAdapterPluginDeclaration | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = optionalString(value.id) ?? optionalString(value.pluginId);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    label: optionalString(value.label) ?? optionalString(value.name),
+    frameworks: normalizeArray(value.frameworks, normalizeCanvasFrameworkCompatibility),
+    libraries: normalizeArray(value.libraries, normalizeCanvasLibraryCompatibility),
+    declaredCapabilities: normalizeStringArrayValue(value.declaredCapabilities)
+      .filter((entry): entry is CanvasAdapterCapability => CANVAS_ADAPTER_CAPABILITIES.has(entry as CanvasAdapterCapability)),
+    grantedCapabilities: normalizeArray(value.grantedCapabilities, normalizeCanvasCapabilityGrant),
+    metadata: collectExtraMetadata(value, [
+      "id",
+      "pluginId",
+      "label",
+      "name",
+      "frameworks",
+      "libraries",
+      "declaredCapabilities",
+      "grantedCapabilities"
+    ])
+  };
+}
+
+function normalizeCanvasAdapterErrorEnvelope(value: unknown, index: number): CanvasAdapterErrorEnvelope | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const code = optionalString(value.code);
+  const message = optionalString(value.message);
+  if (!code || !message) {
+    return null;
+  }
+  return {
+    pluginId: optionalString(value.pluginId),
+    code,
+    message,
+    details: isRecord(value.details) ? clone(value.details) : collectExtraMetadata(value, ["pluginId", "code", "message", "details"])
+  };
+}
+
+function normalizeCanvasDocumentMeta(value: unknown): CanvasDocumentMeta {
+  if (!isRecord(value)) {
+    return createEmptyCanvasDocumentMeta();
+  }
+  const metadata = isRecord(value.metadata) ? clone(value.metadata) : {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (["imports", "starter", "adapterPlugins", "pluginErrors", "metadata"].includes(key)) {
+      continue;
+    }
+    metadata[key] = clone(entry);
+  }
+  return {
+    imports: normalizeArray(value.imports, normalizeCanvasImportProvenance),
+    starter: normalizeCanvasStarterApplication(value.starter),
+    adapterPlugins: normalizeArray(value.adapterPlugins, normalizeCanvasAdapterPluginDeclaration),
+    pluginErrors: normalizeArray(value.pluginErrors, normalizeCanvasAdapterErrorEnvelope),
+    metadata
+  };
+}
+
+function hasTokenStoreContent(tokens: CanvasTokenStore): boolean {
+  return Object.keys(tokens.values).length > 0
+    || tokens.collections.length > 0
+    || tokens.aliases.length > 0
+    || tokens.bindings.length > 0;
+}
 
 const normalizeLibraryPolicyField = (value: unknown, fallback: readonly string[]): string[] => {
   if (!Array.isArray(value)) {
@@ -194,7 +810,7 @@ export function createDefaultCanvasDocument(documentId = `dc_${randomUUID()}`): 
     }],
     components: [],
     componentInventory: [],
-    tokens: {},
+    tokens: createEmptyCanvasTokenStore(),
     assets: [],
     viewports: [
       { id: "desktop", width: 1440 },
@@ -211,7 +827,7 @@ export function createDefaultCanvasDocument(documentId = `dc_${randomUUID()}`): 
       defaultVariants: { viewport: "desktop", theme: "light" },
       metadata: {}
     }],
-    meta: {}
+    meta: createEmptyCanvasDocumentMeta()
   };
 }
 
@@ -251,8 +867,8 @@ export function normalizeCanvasDocument(input: CanvasDocument): CanvasDocument {
       metadata: isRecord(page.metadata) ? clone(page.metadata) : {}
     })) : [],
     components: Array.isArray(base.components) ? clone(base.components) : [],
-    componentInventory: Array.isArray(base.componentInventory) ? clone(base.componentInventory) : [],
-    tokens: isRecord(base.tokens) ? clone(base.tokens) : {},
+    componentInventory: normalizeArray(base.componentInventory, normalizeCanvasComponentInventoryItem),
+    tokens: normalizeCanvasTokenStore(base.tokens),
     assets: Array.isArray(base.assets) ? base.assets.map((asset) => ({
       id: typeof asset.id === "string" ? asset.id : `asset_${randomUUID()}`,
       sourceType: typeof asset.sourceType === "string" ? asset.sourceType : undefined,
@@ -271,7 +887,7 @@ export function normalizeCanvasDocument(input: CanvasDocument): CanvasDocument {
     themes: Array.isArray(base.themes) ? clone(base.themes) : [],
     bindings: Array.isArray(base.bindings) ? base.bindings.map((binding) => normalizeBinding(binding)) : [],
     prototypes: Array.isArray(base.prototypes) ? clone(base.prototypes) : [],
-    meta: isRecord(base.meta) ? clone(base.meta) : {}
+    meta: normalizeCanvasDocumentMeta(base.meta)
   };
 }
 
@@ -288,6 +904,403 @@ function normalizeBinding(binding: CanvasBinding): CanvasBinding {
     normalized.codeSync = normalizeCodeSyncBindingMetadata(binding.codeSync ?? binding.metadata?.codeSync);
   }
   return normalized;
+}
+
+function sanitizeInventoryNodeMetadata(value: Record<string, unknown>): Record<string, unknown> {
+  const metadata = clone(value);
+  const inventory = isRecord(metadata.inventory) ? { ...metadata.inventory } : null;
+  if (inventory) {
+    delete inventory.template;
+    if (Object.keys(inventory).length > 0) {
+      metadata.inventory = inventory;
+    } else {
+      delete metadata.inventory;
+    }
+  }
+  return metadata;
+}
+
+function describeInventoryValueType(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  if (value === null) {
+    return "null";
+  }
+  switch (typeof value) {
+    case "boolean":
+    case "number":
+    case "string":
+      return typeof value;
+    case "object":
+      return "object";
+    default:
+      return null;
+  }
+}
+
+function buildInventoryProps(node: CanvasNode): CanvasComponentPropDescriptor[] {
+  return Object.entries(node.props)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, defaultValue]) => ({
+      name,
+      type: describeInventoryValueType(defaultValue),
+      required: false,
+      defaultValue: clone(defaultValue),
+      description: null,
+      metadata: {}
+    }));
+}
+
+function buildInventorySlots(document: CanvasDocument, node: CanvasNode): CanvasComponentSlotDescriptor[] {
+  if (node.childIds.length === 0) {
+    return [];
+  }
+  const childKinds: string[] = [];
+  for (const childId of node.childIds) {
+    try {
+      childKinds.push(findNode(document, childId).kind);
+    } catch {
+      continue;
+    }
+  }
+  return [{
+    name: "default",
+    description: null,
+    allowedKinds: [...new Set(childKinds)],
+    metadata: {
+      childCount: node.childIds.length
+    }
+  }];
+}
+
+function buildInventoryEvents(node: CanvasNode, binding: CanvasBinding | null): CanvasComponentEventDescriptor[] {
+  const rawEvents = Array.isArray(node.metadata.events)
+    ? node.metadata.events
+    : Array.isArray(binding?.metadata?.events)
+      ? binding.metadata.events
+      : [];
+  const events: CanvasComponentEventDescriptor[] = [];
+  for (const [index, entry] of rawEvents.entries()) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const name = optionalString(entry.name) ?? optionalString(entry.event) ?? `event_${index + 1}`;
+    events.push({
+      name,
+      description: optionalString(entry.description),
+      payloadShape: isRecord(entry.payloadShape) ? clone(entry.payloadShape) : undefined,
+      metadata: collectExtraMetadata(entry, ["name", "event", "description", "payloadShape"])
+    });
+  }
+  return events;
+}
+
+function buildInventoryContent(node: CanvasNode, slots: CanvasComponentSlotDescriptor[]): CanvasComponentContentContract {
+  return {
+    acceptsText: node.kind === "text" || node.kind === "note" || "text" in node.props,
+    acceptsRichText: isRecord(node.props.richText) || node.metadata.richText === true,
+    slotNames: slots.map((entry) => entry.name),
+    metadata: {}
+  };
+}
+
+function inferInventoryFramework(binding: CanvasBinding | null): CanvasFrameworkRef | null {
+  const explicit = normalizeCanvasFrameworkRef(isRecord(binding?.metadata?.framework) ? binding?.metadata?.framework : null);
+  if (explicit) {
+    return explicit;
+  }
+  if (!binding?.codeSync) {
+    return null;
+  }
+  return {
+    id: "react-tsx",
+    label: "React TSX",
+    packageName: "react",
+    adapter: null,
+    metadata: {}
+  };
+}
+
+function inferInventoryAdapter(binding: CanvasBinding | null): CanvasAdapterRef | null {
+  const explicit = normalizeCanvasAdapterRef(isRecord(binding?.metadata?.adapter) ? binding?.metadata?.adapter : null);
+  if (explicit) {
+    return explicit;
+  }
+  if (!binding?.codeSync) {
+    return null;
+  }
+  return {
+    id: binding.codeSync.adapter,
+    label: binding.codeSync.adapter,
+    packageName: null,
+    version: null,
+    metadata: {
+      repoPath: binding.codeSync.repoPath,
+      syncMode: binding.codeSync.syncMode,
+      projection: binding.codeSync.projection
+    }
+  };
+}
+
+function inferInventoryPlugin(document: CanvasDocument, binding: CanvasBinding | null, node: CanvasNode): CanvasAdapterPluginRef | null {
+  const explicit = normalizeCanvasAdapterPluginRef(
+    isRecord(binding?.metadata?.plugin)
+      ? binding?.metadata?.plugin
+      : isRecord(node.metadata.plugin)
+        ? node.metadata.plugin
+        : null
+  );
+  if (explicit) {
+    return explicit;
+  }
+  const pluginId = optionalString(binding?.metadata?.pluginId) ?? optionalString(node.metadata.pluginId);
+  if (!pluginId) {
+    return null;
+  }
+  const declaration = document.meta.adapterPlugins.find((entry) => entry.id === pluginId);
+  return {
+    id: pluginId,
+    label: declaration?.label ?? pluginId,
+    version: optionalString(declaration?.metadata.version),
+    packageName: optionalString(declaration?.metadata.packageName),
+    metadata: declaration ? clone(declaration.metadata) : {}
+  };
+}
+
+function inferInventorySourceFamily(node: CanvasNode, binding: CanvasBinding | null): CanvasSourceFamily {
+  if (binding?.codeSync) {
+    return "framework_component";
+  }
+  if (typeof node.metadata.importSourceId === "string" || typeof node.metadata.figmaNodeId === "string") {
+    return "design_import";
+  }
+  return "canvas_document";
+}
+
+function inferInventoryOrigin(node: CanvasNode, binding: CanvasBinding | null): CanvasInventoryOrigin {
+  if (binding?.codeSync) {
+    return "code_sync";
+  }
+  if (typeof node.metadata.importSourceId === "string" || typeof node.metadata.figmaNodeId === "string") {
+    return "import";
+  }
+  return "document";
+}
+
+function buildInventoryTemplate(document: CanvasDocument, nodeId: string): Record<string, unknown> {
+  const rootNode = findNode(document, nodeId);
+  const pending = [rootNode];
+  const nodes: Array<Record<string, unknown>> = [];
+  while (pending.length > 0) {
+    const current = pending.shift() as CanvasNode;
+    nodes.push({
+      id: current.id,
+      kind: current.kind,
+      name: current.name,
+      parentId: current.parentId,
+      childIds: [...current.childIds],
+      rect: clone(current.rect),
+      props: clone(current.props),
+      style: clone(current.style),
+      tokenRefs: clone(current.tokenRefs),
+      variantPatches: clone(current.variantPatches),
+      metadata: sanitizeInventoryNodeMetadata(current.metadata)
+    });
+    for (const childId of current.childIds) {
+      pending.push(findNode(document, childId));
+    }
+  }
+  return {
+    rootNodeId: rootNode.id,
+    nodes
+  };
+}
+
+function buildInventoryItemFromNode(
+  document: CanvasDocument,
+  nodeId: string,
+  options: {
+    itemId?: string;
+    name?: string;
+    description?: string | null;
+    origin?: CanvasInventoryOrigin;
+    metadata?: Record<string, unknown>;
+  } = {}
+): CanvasComponentInventoryItem {
+  const node = findNode(document, nodeId);
+  const bindingId = typeof node.bindingRefs.primary === "string" ? node.bindingRefs.primary : null;
+  const binding = bindingId
+    ? document.bindings.find((entry) => entry.id === bindingId) ?? null
+    : document.bindings.find((entry) => entry.nodeId === node.id) ?? null;
+  const slots = buildInventorySlots(document, node);
+  const baseOrigin = inferInventoryOrigin(node, binding);
+  const origin = options.origin && CANVAS_INVENTORY_ORIGINS.has(options.origin)
+    ? options.origin
+    : baseOrigin;
+  const template = buildInventoryTemplate(document, nodeId);
+  return normalizeCanvasComponentInventoryItem({
+    id: options.itemId ?? `inventory_${randomUUID().slice(0, 8)}`,
+    name: options.name ?? node.name,
+    componentName: binding?.componentName ?? node.name,
+    description: options.description ?? null,
+    sourceKind: optionalString(node.metadata.sourceKind) ?? binding?.kind ?? node.kind,
+    sourceFamily: inferInventorySourceFamily(node, binding),
+    origin,
+    framework: inferInventoryFramework(binding),
+    adapter: inferInventoryAdapter(binding),
+    plugin: inferInventoryPlugin(document, binding, node),
+    variants: node.variantPatches.map((entry, index) => ({
+      id: `variant_${index + 1}`,
+      name: Object.entries(entry.selector)
+        .map(([key, value]) => `${key}:${String(value)}`)
+        .join(" / ") || `Variant ${index + 1}`,
+      selector: clone(entry.selector),
+      description: null,
+      metadata: {
+        changes: clone(entry.changes)
+      }
+    })),
+    props: buildInventoryProps(node),
+    slots,
+    events: buildInventoryEvents(node, binding),
+    content: buildInventoryContent(node, slots),
+    metadata: {
+      promotedFromNodeId: node.id,
+      promotedAt: new Date().toISOString(),
+      template,
+      ...(isRecord(options.metadata) ? clone(options.metadata) : {})
+    }
+  }, document.componentInventory.length + 1) as CanvasComponentInventoryItem;
+}
+
+function mergeCanvasTokenStore(
+  current: CanvasTokenStore,
+  patch: Partial<CanvasTokenStore>
+): CanvasTokenStore {
+  const next = normalizeCanvasTokenStore(current);
+  const incoming = normalizeCanvasTokenStore(patch);
+  next.values = mergeUnknownRecord(next.values, incoming.values);
+  next.collections = upsertTokenCollections(next.collections, incoming.collections);
+  next.aliases = upsertTokenAliases(next.aliases, incoming.aliases);
+  next.bindings = upsertTokenBindings(next.bindings, incoming.bindings);
+  next.metadata = mergeUnknownRecord(next.metadata, incoming.metadata);
+  return next;
+}
+
+function mergeUnknownRecord(
+  current: Record<string, unknown>,
+  patch: Record<string, unknown>
+): Record<string, unknown> {
+  const next = clone(current);
+  for (const [key, value] of Object.entries(patch)) {
+    if (isRecord(value) && isRecord(next[key])) {
+      next[key] = mergeUnknownRecord(next[key] as Record<string, unknown>, value);
+      continue;
+    }
+    next[key] = clone(value);
+  }
+  return next;
+}
+
+function upsertTokenCollections(
+  current: CanvasTokenCollection[],
+  incoming: CanvasTokenCollection[]
+): CanvasTokenCollection[] {
+  const byId = new Map(current.map((collection) => [collection.id, normalizeCanvasTokenCollection(collection, 0)!]));
+  for (const collection of incoming) {
+    byId.set(collection.id, normalizeCanvasTokenCollection(collection, 0)!);
+  }
+  return [...byId.values()];
+}
+
+function upsertTokenAliases(
+  current: CanvasTokenAlias[],
+  incoming: CanvasTokenAlias[]
+): CanvasTokenAlias[] {
+  const byKey = new Map(current.map((alias) => [`${alias.path}:${alias.modeId ?? ""}`, clone(alias)]));
+  for (const alias of incoming) {
+    byKey.set(`${alias.path}:${alias.modeId ?? ""}`, clone(alias));
+  }
+  return [...byKey.values()];
+}
+
+function upsertTokenBindings(
+  current: CanvasTokenBinding[],
+  incoming: CanvasTokenBinding[]
+): CanvasTokenBinding[] {
+  const keyOf = (binding: CanvasTokenBinding) => `${binding.path}:${binding.nodeId ?? ""}:${binding.property ?? ""}:${binding.bindingId ?? ""}`;
+  const byKey = new Map(current.map((binding) => [keyOf(binding), clone(binding)]));
+  for (const binding of incoming) {
+    byKey.set(keyOf(binding), clone(binding));
+  }
+  return [...byKey.values()];
+}
+
+function upsertCanvasAssets(current: CanvasAsset[], incoming: CanvasAsset[]): CanvasAsset[] {
+  const byId = new Map(current.map((asset) => [asset.id, clone(asset)]));
+  for (const asset of incoming) {
+    byId.set(asset.id, clone(asset));
+  }
+  return [...byId.values()];
+}
+
+function upsertCanvasImports(
+  current: CanvasImportProvenance[],
+  incoming: CanvasImportProvenance[]
+): CanvasImportProvenance[] {
+  const byId = new Map(current.map((entry) => [entry.id, clone(entry)]));
+  for (const entry of incoming) {
+    byId.set(entry.id, clone(entry));
+  }
+  return [...byId.values()];
+}
+
+function upsertCanvasInventoryItems(
+  current: CanvasComponentInventoryItem[],
+  incoming: CanvasComponentInventoryItem[]
+): CanvasComponentInventoryItem[] {
+  const byId = new Map(current.map((entry, index) => [entry.id, normalizeCanvasComponentInventoryItem(entry, index + 1)!]));
+  for (const [index, entry] of incoming.entries()) {
+    const normalized = normalizeCanvasComponentInventoryItem(entry, current.length + index + 1);
+    if (normalized) {
+      byId.set(normalized.id, normalized);
+    }
+  }
+  return [...byId.values()];
+}
+
+export function mergeImportedCanvasState(
+  current: CanvasDocument,
+  input: {
+    mode: CanvasDocumentImportMode;
+    targetPageId?: string | null;
+    pages: CanvasPage[];
+    componentInventory: CanvasComponentInventoryItem[];
+    tokens?: Partial<CanvasTokenStore>;
+    assets?: CanvasAsset[];
+    provenance: CanvasImportProvenance;
+  }
+): CanvasDocument {
+  const next = normalizeCanvasDocument(current);
+  const importedPages = input.pages.map((page) => clone(page));
+  if (input.mode === "append_pages") {
+    next.pages.push(...importedPages);
+  } else if (input.mode === "replace_current_page" && importedPages.length > 0) {
+    const replaceIndex = input.targetPageId
+      ? next.pages.findIndex((page) => page.id === input.targetPageId)
+      : 0;
+    if (replaceIndex >= 0 && replaceIndex < next.pages.length) {
+      next.pages.splice(replaceIndex, 1, importedPages[0] as CanvasPage, ...importedPages.slice(1));
+    } else {
+      next.pages.push(...importedPages);
+    }
+  }
+  next.componentInventory = upsertCanvasInventoryItems(next.componentInventory, input.componentInventory);
+  next.tokens = mergeCanvasTokenStore(next.tokens, input.tokens ?? {});
+  next.assets = upsertCanvasAssets(next.assets, input.assets ?? []);
+  next.meta.imports = upsertCanvasImports(next.meta.imports, [input.provenance]);
+  return next;
 }
 
 export function validateGenerationPlan(plan: unknown): { ok: true } | { ok: false; missing: string[] } {
@@ -358,7 +1371,7 @@ export function buildDocumentContext(document: CanvasDocument): {
     status: "existing",
     existingGovernanceBlocks,
     missingGovernanceBlocks,
-    tokensPresent: Object.keys(document.tokens).length > 0,
+    tokensPresent: hasTokenStoreContent(document.tokens),
     themesPresent: document.themes.length > 0,
     viewportsPresent: document.viewports.length > 0,
     componentInventoryPresent: document.componentInventory.length > 0
@@ -449,13 +1462,13 @@ export function evaluateCanvasWarnings(
       warnings.push(buildWarning("broken-asset-reference", `Asset ${asset.id} is missing the required repoPath or URL reference.`, {
         auditId: "CANVAS-02",
         severity: "error",
-        details: { assetId: asset.id, sourceType: asset.sourceType ?? null }
+        details: { assetId: asset.id, sourceType: asset.sourceType }
       }));
     }
     if (assetRequiresProvenance(asset) && !isNonEmptyRecord(asset.metadata?.provenance)) {
       warnings.push(buildWarning("asset-provenance-missing", `Asset ${asset.id} is missing provenance metadata.`, {
         auditId: "CANVAS-02",
-        details: { assetId: asset.id, sourceType: asset.sourceType ?? null }
+        details: { assetId: asset.id, sourceType: asset.sourceType }
       }));
     }
   }
@@ -630,16 +1643,8 @@ function hasMissingTokenRefs(document: CanvasDocument): boolean {
   return false;
 }
 
-function getTokenValue(tokens: Record<string, unknown>, path: string): unknown {
-  const segments = path.split(".");
-  let current: unknown = tokens;
-  for (const segment of segments) {
-    if (!isRecord(current) || !(segment in current)) {
-      return undefined;
-    }
-    current = current[segment];
-  }
-  return current;
+function getTokenValue(tokens: CanvasTokenStore, path: string): unknown {
+  return resolveCanvasTokenValue(tokens, path, optionalString(tokens.metadata.activeModeId));
 }
 
 function hasBrokenAssetReference(asset: CanvasDocument["assets"][number]): boolean {
@@ -757,15 +1762,6 @@ function clearYMap(map: Y.Map<unknown>): void {
   }
 }
 
-function clearYArray(array: Y.Array<unknown>): void {
-  if (!array.doc) {
-    return;
-  }
-  if (array.length > 0) {
-    array.delete(0, array.length);
-  }
-}
-
 function toYValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     const array = new Y.Array<unknown>();
@@ -804,7 +1800,6 @@ function setYMapContents(target: Y.Map<unknown>, value: Record<string, unknown>)
 }
 
 function setYArrayContents(target: Y.Array<unknown>, value: unknown[]): void {
-  clearYArray(target);
   if (value.length > 0) {
     target.insert(0, value.map((entry) => toYValue(entry)));
   }
@@ -915,6 +1910,19 @@ export class CanvasDocumentStore {
 
   loadDocument(document: CanvasDocument): void {
     this.replaceDocument(normalizeCanvasDocument(document), 1, "canvas.store.load-document");
+  }
+
+  replaceDocumentState(baseRevision: number, document: CanvasDocument): PatchResult {
+    if (baseRevision !== this.revision) {
+      throw new Error(`Revision conflict: expected ${this.revision}, got ${baseRevision}`);
+    }
+    this.replaceDocument(normalizeCanvasDocument(document), this.revision + 1, "canvas.store.replace-document");
+    return {
+      transactionId: `txn_${randomUUID()}`,
+      appliedRevision: this.revision,
+      warnings: evaluateCanvasWarnings(this.document),
+      evidenceRefs: []
+    };
   }
 
   private readonly handleYUpdate = (_update: Uint8Array, origin: unknown): void => {
@@ -1076,6 +2084,25 @@ export class CanvasDocumentStore {
         document.bindings = document.bindings.filter((binding) => !removedSet.has(binding.nodeId));
         return;
       }
+      case "node.reparent": {
+        reparentNode(document, patch.nodeId, patch.parentId, patch.index);
+        return;
+      }
+      case "node.reorder": {
+        reorderNode(document, patch.nodeId, patch.index);
+        return;
+      }
+      case "node.duplicate": {
+        duplicateNodeSubtree(document, patch.nodeId, patch.parentId, patch.index, patch.idMap);
+        return;
+      }
+      case "node.visibility.set": {
+        const node = findNode(document, patch.nodeId);
+        const visibility = isRecord(node.metadata.visibility) ? clone(node.metadata.visibility) : {};
+        visibility.hidden = patch.hidden;
+        node.metadata.visibility = visibility;
+        return;
+      }
       case "variant.patch": {
         const node = findNode(document, patch.nodeId);
         assertNoOverlappingPaths(patch.changes);
@@ -1089,6 +2116,14 @@ export class CanvasDocumentStore {
           throw new Error(`Policy violation for token path: ${patch.path}`);
         }
         setNestedValue(document.designGovernance as unknown as Record<string, unknown>, patch.path, patch.value);
+        return;
+      }
+      case "tokens.merge": {
+        document.tokens = mergeCanvasTokenStore(document.tokens, patch.tokens);
+        return;
+      }
+      case "tokens.replace": {
+        document.tokens = normalizeCanvasTokenStore(patch.tokens);
         return;
       }
       case "governance.update": {
@@ -1158,6 +2193,74 @@ export class CanvasDocumentStore {
         } else {
           document.prototypes.push(prototype);
         }
+        return;
+      }
+      case "inventory.promote": {
+        const item = buildInventoryItemFromNode(document, patch.nodeId, {
+          itemId: patch.itemId,
+          name: patch.name,
+          description: patch.description,
+          origin: patch.origin,
+          metadata: patch.metadata
+        });
+        const existing = document.componentInventory.findIndex((entry) => entry.id === item.id);
+        if (existing >= 0) {
+          document.componentInventory[existing] = item;
+        } else {
+          document.componentInventory.push(item);
+        }
+        return;
+      }
+      case "inventory.update": {
+        const index = document.componentInventory.findIndex((entry) => entry.id === patch.itemId);
+        if (index < 0) {
+          throw new Error(`Unknown inventory item: ${patch.itemId}`);
+        }
+        assertNoOverlappingPaths(patch.changes);
+        ensureAllowedRoots(patch.changes, [
+          "name",
+          "componentName",
+          "description",
+          "sourceKind",
+          "sourceFamily",
+          "origin",
+          "framework",
+          "adapter",
+          "plugin",
+          "variants",
+          "props",
+          "slots",
+          "events",
+          "content",
+          "metadata"
+        ]);
+        const nextValue = clone(document.componentInventory[index]) as Record<string, unknown>;
+        for (const [path, value] of Object.entries(patch.changes)) {
+          setNestedValue(nextValue, path, value);
+        }
+        document.componentInventory[index] = normalizeCanvasComponentInventoryItem(nextValue, index + 1)!;
+        return;
+      }
+      case "inventory.upsert": {
+        const item = normalizeCanvasComponentInventoryItem(patch.item, document.componentInventory.length + 1);
+        if (!item) {
+          throw new Error("Invalid inventory item for inventory.upsert");
+        }
+        const existing = document.componentInventory.findIndex((entry) => entry.id === item.id);
+        if (existing >= 0) {
+          document.componentInventory[existing] = item;
+        } else {
+          document.componentInventory.push(item);
+        }
+        return;
+      }
+      case "inventory.remove": {
+        document.componentInventory = document.componentInventory.filter((entry) => entry.id !== patch.itemId);
+        return;
+      }
+      case "starter.apply": {
+        document.meta.starter = normalizeCanvasStarterApplication(patch.starter);
+        return;
       }
     }
   }
@@ -1191,6 +2294,193 @@ function removeNode(document: CanvasDocument, nodeId: string): string[] {
     return removedNodeIds;
   }
   throw new Error(`Unknown node: ${nodeId}`);
+}
+
+function findNodeLocation(
+  document: CanvasDocument,
+  nodeId: string
+): {
+  page: CanvasPage;
+  node: CanvasNode;
+  parent: CanvasNode | null;
+  index: number;
+} {
+  for (const page of document.pages) {
+    const node = page.nodes.find((entry) => entry.id === nodeId);
+    if (!node) {
+      continue;
+    }
+    const parent = node.parentId
+      ? page.nodes.find((entry) => entry.id === node.parentId) ?? null
+      : null;
+    const siblings = parent ? parent.childIds : page.rootNodeId ? [page.rootNodeId] : [];
+    return {
+      page,
+      node,
+      parent,
+      index: siblings.indexOf(node.id)
+    };
+  }
+  throw new Error(`Unknown node: ${nodeId}`);
+}
+
+function clampSiblingIndex(index: number | undefined, length: number): number {
+  if (typeof index !== "number" || !Number.isInteger(index)) {
+    return length;
+  }
+  return Math.max(0, Math.min(index, length));
+}
+
+function insertNodeReference(
+  page: CanvasPage,
+  nodeId: string,
+  parentId: string | null,
+  index?: number
+): void {
+  if (parentId) {
+    const parent = page.nodes.find((entry) => entry.id === parentId);
+    if (!parent) {
+      throw new Error(`Unknown parent node: ${parentId}`);
+    }
+    const nextIndex = clampSiblingIndex(index, parent.childIds.length);
+    parent.childIds.splice(nextIndex, 0, nodeId);
+    return;
+  }
+  if (page.rootNodeId && page.rootNodeId !== nodeId) {
+    throw new Error(`Page already has a root node: ${page.id}`);
+  }
+  page.rootNodeId = nodeId;
+}
+
+function detachNodeReference(page: CanvasPage, node: CanvasNode): void {
+  if (node.parentId) {
+    const parent = page.nodes.find((entry) => entry.id === node.parentId);
+    if (parent) {
+      parent.childIds = parent.childIds.filter((childId) => childId !== node.id);
+    }
+    return;
+  }
+  if (page.rootNodeId === node.id) {
+    page.rootNodeId = null;
+  }
+}
+
+function isDescendantNode(page: CanvasPage, nodeId: string, potentialAncestorId: string): boolean {
+  const node = page.nodes.find((entry) => entry.id === nodeId);
+  if (!node) {
+    return false;
+  }
+  let currentParentId = node.parentId;
+  while (currentParentId) {
+    if (currentParentId === potentialAncestorId) {
+      return true;
+    }
+    const parent = page.nodes.find((entry) => entry.id === currentParentId);
+    currentParentId = parent?.parentId ?? null;
+  }
+  return false;
+}
+
+function reparentNode(document: CanvasDocument, nodeId: string, parentId: string | null, index?: number): void {
+  const { page, node } = findNodeLocation(document, nodeId);
+  if (parentId === node.id) {
+    throw new Error(`Cannot reparent node into itself: ${node.id}`);
+  }
+  if (parentId && isDescendantNode(page, parentId, node.id)) {
+    throw new Error(`Cannot reparent node into its own descendant: ${node.id}`);
+  }
+  if (parentId) {
+    const nextParent = page.nodes.find((entry) => entry.id === parentId);
+    if (!nextParent) {
+      throw new Error(`Unknown parent node: ${parentId}`);
+    }
+  }
+  detachNodeReference(page, node);
+  node.parentId = parentId;
+  node.pageId = page.id;
+  insertNodeReference(page, node.id, parentId, index);
+}
+
+function reorderNode(document: CanvasDocument, nodeId: string, index: number): void {
+  const { page, node, parent } = findNodeLocation(document, nodeId);
+  if (!Number.isInteger(index) || index < 0) {
+    throw new Error(`Invalid sibling index: ${index}`);
+  }
+  if (!parent) {
+    if (index !== 0) {
+      throw new Error("Root node can only exist at index 0.");
+    }
+    return;
+  }
+  const siblings = [...parent.childIds];
+  const currentIndex = siblings.indexOf(node.id);
+  if (currentIndex < 0) {
+    throw new Error(`Node is not attached to its parent: ${node.id}`);
+  }
+  siblings.splice(currentIndex, 1);
+  const nextIndex = clampSiblingIndex(index, siblings.length);
+  siblings.splice(nextIndex, 0, node.id);
+  parent.childIds = siblings;
+  node.pageId = page.id;
+}
+
+function duplicateNodeSubtree(
+  document: CanvasDocument,
+  nodeId: string,
+  parentId?: string | null,
+  index?: number,
+  idMapInput?: Record<string, string>
+): { duplicatedNodeId: string; duplicatedNodeIds: string[] } {
+  const { page, node } = findNodeLocation(document, nodeId);
+  const targetParentId = parentId === undefined ? node.parentId : parentId;
+  if (targetParentId === node.id) {
+    throw new Error(`Cannot duplicate node into itself: ${node.id}`);
+  }
+  if (targetParentId && isDescendantNode(page, targetParentId, node.id)) {
+    throw new Error(`Cannot duplicate node into its own descendant: ${node.id}`);
+  }
+  const idMap = new Map<string, string>();
+  const duplicates: CanvasNode[] = [];
+  const walk = (sourceNodeId: string, nextParentId: string | null): string => {
+    const sourceNode = page.nodes.find((entry) => entry.id === sourceNodeId);
+    if (!sourceNode) {
+      throw new Error(`Unknown node: ${sourceNodeId}`);
+    }
+    const mappedId = isRecord(idMapInput) ? idMapInput[sourceNode.id] : null;
+    const duplicateId = typeof mappedId === "string" && mappedId.trim().length > 0
+      ? mappedId
+      : `${sourceNode.id}_copy_${randomUUID().slice(0, 8)}`;
+    idMap.set(sourceNode.id, duplicateId);
+    const nextMetadata = clone(sourceNode.metadata);
+    if (isRecord(nextMetadata.codeSync)) {
+      delete nextMetadata.codeSync;
+    }
+    const duplicateNode: CanvasNode = {
+      id: duplicateId,
+      kind: sourceNode.kind,
+      name: `${sourceNode.name} Copy`,
+      pageId: page.id,
+      parentId: nextParentId,
+      childIds: [],
+      rect: clone(sourceNode.rect),
+      props: clone(sourceNode.props),
+      style: clone(sourceNode.style),
+      tokenRefs: clone(sourceNode.tokenRefs),
+      bindingRefs: {},
+      variantPatches: clone(sourceNode.variantPatches),
+      metadata: nextMetadata
+    };
+    duplicates.push(duplicateNode);
+    duplicateNode.childIds = sourceNode.childIds.map((childId) => walk(childId, duplicateId));
+    return duplicateId;
+  };
+  const duplicateRootId = walk(node.id, targetParentId ?? null);
+  page.nodes.push(...duplicates);
+  insertNodeReference(page, duplicateRootId, targetParentId ?? null, index);
+  return {
+    duplicatedNodeId: duplicateRootId,
+    duplicatedNodeIds: duplicates.map((entry) => entry.id)
+  };
 }
 
 export const CANVAS_PROJECT_DEFAULTS = {

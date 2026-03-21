@@ -1,0 +1,31 @@
+{
+  "briefId": "design-brief-001",
+  "targetSurface": "canvas-marketing-landing",
+  "references": [
+    {
+      "id": "ref-001",
+      "name": "Example product page",
+      "url": "https://example.com",
+      "surfaceType": "marketing",
+      "capturedVia": [
+        "snapshot",
+        "screenshot"
+      ],
+      "layoutRecipe": "",
+      "contentHierarchy": [],
+      "componentFamilies": [],
+      "motionPosture": "",
+      "loadingStrategy": "",
+      "tokenNotes": [],
+      "patternsToBorrow": [],
+      "patternsToReject": [],
+      "whyItWorks": ""
+    }
+  ],
+  "synthesis": {
+    "dominantDirection": "",
+    "sharedStrengths": [],
+    "sharedFailuresToAvoid": [],
+    "contractDeltas": []
+  }
+}

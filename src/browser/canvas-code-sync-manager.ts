@@ -1,7 +1,11 @@
 import { readFile } from "fs/promises";
 import { watch, type FSWatcher } from "fs";
 import { resolve, isAbsolute } from "path";
-import type { CanvasBinding, CanvasDocument, CanvasPatch } from "../canvas/types";
+import type { CanvasBinding, CanvasDocument, CanvasNode, CanvasPatch } from "../canvas/types";
+import { loadCanvasAdapterPlugins } from "../canvas/adapter-plugins/loader";
+import type { CanvasAdapterPluginDeclaration, CanvasAdapterPluginLoadError } from "../canvas/adapter-plugins/types";
+import { createFrameworkAdapterRegistry } from "../canvas/framework-adapters/registry";
+import { createLibraryAdapterRegistry } from "../canvas/library-adapters/registry";
 import {
   loadCanvasCodeSyncManifest,
   saveCanvasCodeSyncManifest
@@ -10,19 +14,24 @@ import { applyCanvasToTsx } from "../canvas/code-sync/apply-tsx";
 import { hashCodeSyncValue } from "../canvas/code-sync/hash";
 import { importCodeSyncGraph } from "../canvas/code-sync/import";
 import { finalizeCodeSyncManifest, writeCodeSyncSource } from "../canvas/code-sync/write";
-import { parseTsxCodeSyncBinding } from "../canvas/code-sync/tsx-adapter";
+import { hasCanvasTokenReferences } from "../canvas/token-references";
 import type {
   CanvasCodeSyncBindingMetadata,
+  CodeSyncBuiltInFrameworkAdapterId,
   CodeSyncBindingStatus,
+  CodeSyncCapability,
+  CodeSyncCapabilityGrant,
   CodeSyncConflict,
   CodeSyncDriftState,
   CodeSyncManifest,
   CodeSyncResolutionPolicy,
   CodeSyncSessionStatus,
   CodeSyncState,
+  CodeSyncStatusReason,
   CodeSyncUnsupportedFragment,
   CodeSyncWatchState
 } from "../canvas/code-sync/types";
+import { normalizeCodeSyncBindingMetadata } from "../canvas/code-sync/types";
 
 type WatchContext = {
   watcher: FSWatcher;
@@ -39,6 +48,7 @@ type BindingRuntimeState = {
 };
 
 type SessionRuntimeState = {
+  worktree: string;
   state: CodeSyncState;
   driftState: CodeSyncDriftState;
   bindings: Map<string, BindingRuntimeState>;
@@ -82,26 +92,42 @@ export type CanvasCodeSyncPushResult =
 export class CanvasCodeSyncManager {
   private readonly worktree: string;
   private readonly onWatchedSourceChanged: (canvasSessionId: string, bindingId: string) => Promise<void>;
+  private readonly configAdapterPluginDeclarations: CanvasAdapterPluginDeclaration[];
   private readonly sessions = new Map<string, SessionRuntimeState>();
 
   constructor(options: {
     worktree: string;
     onWatchedSourceChanged: (canvasSessionId: string, bindingId: string) => Promise<void>;
+    configAdapterPluginDeclarations?: CanvasAdapterPluginDeclaration[];
   }) {
     this.worktree = options.worktree;
     this.onWatchedSourceChanged = options.onWatchedSourceChanged;
+    this.configAdapterPluginDeclarations = options.configAdapterPluginDeclarations ?? [];
+  }
+
+  private async loadAdapterRuntime(worktree: string) {
+    const frameworkRegistry = createFrameworkAdapterRegistry();
+    const libraryRegistry = createLibraryAdapterRegistry();
+    const { plugins, errors } = await loadCanvasAdapterPlugins({
+      worktree,
+      configDeclarations: this.configAdapterPluginDeclarations,
+      frameworkRegistry,
+      libraryRegistry
+    });
+    return { frameworkRegistry, libraryRegistry, plugins, errors };
   }
 
   async bind(options: {
     canvasSessionId: string;
+    worktree?: string;
     document: CanvasDocument;
     documentRevision: number;
     binding: CanvasBinding;
   }): Promise<CodeSyncBindingStatus> {
-    const metadata = requireCodeSyncMetadata(options.binding);
+    const worktree = this.ensureSession(options.canvasSessionId, options.worktree).worktree;
     const runtime = this.ensureBindingState(options.canvasSessionId, options.binding);
     runtime.manifest = await loadCanvasCodeSyncManifest(
-      this.worktree,
+      worktree,
       options.document.documentId,
       options.binding.id
     );
@@ -129,10 +155,12 @@ export class CanvasCodeSyncManager {
 
   async getBindingStatus(
     canvasSessionId: string,
+    worktree: string | undefined,
     documentId: string,
     binding: CanvasBinding,
     documentRevision: number
   ): Promise<CodeSyncBindingStatus> {
+    this.ensureSession(canvasSessionId, worktree);
     const runtime = this.ensureBindingState(canvasSessionId, binding);
     runtime.status = await this.refreshBindingStatus(canvasSessionId, documentId, binding, runtime, documentRevision);
     return runtime.status;
@@ -161,22 +189,25 @@ export class CanvasCodeSyncManager {
 
   async pull(options: {
     canvasSessionId: string;
+    worktree?: string;
     document: CanvasDocument;
     documentRevision: number;
     binding: CanvasBinding;
     resolutionPolicy?: CodeSyncResolutionPolicy;
     applyPatches: ApplyPatches;
   }): Promise<CanvasCodeSyncPullResult> {
+    const worktree = this.ensureSession(options.canvasSessionId, options.worktree).worktree;
     const runtime = this.ensureBindingState(options.canvasSessionId, options.binding);
     runtime.status = { ...runtime.status, state: "pull_pending" };
     this.recomputeSession(options.canvasSessionId);
 
     const metadata = requireCodeSyncMetadata(options.binding);
-    const repoPath = resolveRepoPath(this.worktree, metadata.repoPath);
+    const adapterRuntime = await this.loadAdapterRuntime(worktree);
+    const repoPath = resolveRepoPath(worktree, metadata.repoPath);
     const sourceText = await readFile(repoPath, "utf-8");
     const sourceHash = hashCodeSyncValue(sourceText);
     runtime.manifest = await loadCanvasCodeSyncManifest(
-      this.worktree,
+      worktree,
       options.document.documentId,
       options.binding.id
     );
@@ -195,13 +226,111 @@ export class CanvasCodeSyncManager {
       return { ok: false, bindingStatus: runtime.status, conflicts };
     }
 
-    const parsed = parseTsxCodeSyncBinding(sourceText, repoPath, options.binding.id, metadata);
+    const frameworkAdapter = adapterRuntime.frameworkRegistry.resolveForBinding(metadata)
+      ?? adapterRuntime.frameworkRegistry.detectForPath(repoPath);
+    if (!frameworkAdapter) {
+      const reasonCode = resolvePluginReasonCode(metadata, adapterRuntime.errors);
+      runtime.status = buildBindingStatus(options.binding, {
+        state: "unsupported",
+        driftState: "clean",
+        watchEnabled: metadata.syncMode === "watch",
+        lastImportedAt: runtime.manifest?.lastImportedAt,
+        lastPushedAt: runtime.manifest?.lastPushedAt,
+        conflictCount: 0,
+        unsupportedCount: 1,
+        manifest: runtime.manifest,
+        reasonCode,
+        capabilityDenials: metadata.grantedCapabilities.filter((entry) => !entry.granted)
+      });
+      this.recomputeSession(options.canvasSessionId);
+      return {
+        ok: false,
+        bindingStatus: runtime.status,
+        conflicts: [{
+          kind: "unsupported_change",
+          bindingId: options.binding.id,
+          message: `No framework adapter is available for ${metadata.frameworkAdapterId}.`
+        }]
+      };
+    }
+    const pullCapabilityDenials = capabilityDenialsFor(metadata, "code_pull");
+    if (pullCapabilityDenials.length > 0) {
+      runtime.status = buildBindingStatus(options.binding, {
+        state: "unsupported",
+        driftState: "clean",
+        watchEnabled: metadata.syncMode === "watch",
+        lastImportedAt: runtime.manifest?.lastImportedAt,
+        lastPushedAt: runtime.manifest?.lastPushedAt,
+        conflictCount: 0,
+        unsupportedCount: 1,
+        manifest: runtime.manifest,
+        reasonCode: "capability_denied",
+        capabilityDenials: pullCapabilityDenials
+      });
+      this.recomputeSession(options.canvasSessionId);
+      return {
+        ok: false,
+        bindingStatus: runtime.status,
+        conflicts: [{
+          kind: "unsupported_change",
+          bindingId: options.binding.id,
+          message: `Framework adapter ${metadata.frameworkAdapterId} does not grant code_pull.`
+        }]
+      };
+    }
+    const entrypoint = frameworkAdapter.detectEntrypoint(repoPath, sourceText, { metadata });
+    if (!entrypoint) {
+      runtime.status = buildBindingStatus(options.binding, {
+        state: "unsupported",
+        driftState: "clean",
+        watchEnabled: metadata.syncMode === "watch",
+        lastImportedAt: runtime.manifest?.lastImportedAt,
+        lastPushedAt: runtime.manifest?.lastPushedAt,
+        conflictCount: 0,
+        unsupportedCount: 1,
+        manifest: runtime.manifest,
+        reasonCode: "requires_rebind",
+        capabilityDenials: []
+      });
+      this.recomputeSession(options.canvasSessionId);
+      return {
+        ok: false,
+        bindingStatus: runtime.status,
+        conflicts: [{
+          kind: "unsupported_change",
+          bindingId: options.binding.id,
+          message: `Unable to detect an entrypoint for ${metadata.repoPath}.`
+        }]
+      };
+    }
+    const parsed = frameworkAdapter.parseSource(
+      entrypoint,
+      sourceText,
+      {
+        bindingId: options.binding.id,
+        metadata
+      },
+      adapterRuntime.libraryRegistry
+    );
+    const resolvedBinding = {
+      ...options.binding,
+      codeSync: {
+        ...metadata,
+        libraryAdapterIds: parsed.libraryAdapterIds
+      }
+    };
+    const tokenContext = {
+      bindingId: options.binding.id,
+      metadata,
+      activeModeId: readActiveTokenModeId(options.document)
+    };
     const imported = importCodeSyncGraph({
       document: options.document,
-      binding: options.binding,
+      binding: resolvedBinding,
       documentRevision: options.documentRevision,
       graph: parsed.graph,
-      manifest: runtime.manifest
+      manifest: runtime.manifest,
+      tokenRefsByNodeKey: frameworkAdapter.readTokenRefs(parsed.graph, tokenContext)
     });
     const applied = await options.applyPatches(imported.patches);
     const manifest = finalizeCodeSyncManifest(imported.manifest, {
@@ -210,19 +339,22 @@ export class CanvasCodeSyncManager {
       lastImportedAt: imported.manifest.lastImportedAt,
       lastPushedAt: imported.manifest.lastPushedAt
     });
-    await saveCanvasCodeSyncManifest(this.worktree, manifest);
+    await saveCanvasCodeSyncManifest(worktree, manifest);
     runtime.manifest = manifest;
     runtime.conflicts = [];
     runtime.unsupportedRegions = imported.unsupportedRegions;
     runtime.status = {
-      ...buildBindingStatus(options.binding, {
+      ...buildBindingStatus(resolvedBinding, {
         state: imported.unsupportedRegions.length > 0 ? "unsupported" : "in_sync",
         driftState: "clean",
         watchEnabled: metadata.syncMode === "watch",
         lastImportedAt: manifest.lastImportedAt,
         lastPushedAt: manifest.lastPushedAt,
         conflictCount: 0,
-        unsupportedCount: imported.unsupportedRegions.length
+        unsupportedCount: imported.unsupportedRegions.length,
+        manifest,
+        reasonCode: manifest.reasonCode,
+        capabilityDenials: capabilityDenialsFor(resolvedBinding.codeSync ?? metadata)
       })
     };
     if (runtime.watch) {
@@ -248,20 +380,23 @@ export class CanvasCodeSyncManager {
 
   async push(options: {
     canvasSessionId: string;
+    worktree?: string;
     document: CanvasDocument;
     documentRevision: number;
     binding: CanvasBinding;
     resolutionPolicy?: CodeSyncResolutionPolicy;
   }): Promise<CanvasCodeSyncPushResult> {
+    const worktree = this.ensureSession(options.canvasSessionId, options.worktree).worktree;
     const runtime = this.ensureBindingState(options.canvasSessionId, options.binding);
     runtime.status = { ...runtime.status, state: "push_pending" };
     this.recomputeSession(options.canvasSessionId);
 
     const metadata = requireCodeSyncMetadata(options.binding);
-    const repoPath = resolveRepoPath(this.worktree, metadata.repoPath);
+    const adapterRuntime = await this.loadAdapterRuntime(worktree);
+    const repoPath = resolveRepoPath(worktree, metadata.repoPath);
     const sourceText = await readFile(repoPath, "utf-8");
     runtime.manifest = await loadCanvasCodeSyncManifest(
-      this.worktree,
+      worktree,
       options.document.documentId,
       options.binding.id
     );
@@ -281,13 +416,119 @@ export class CanvasCodeSyncManager {
       this.recomputeSession(options.canvasSessionId);
       return { ok: false, bindingStatus: runtime.status, conflicts };
     }
+    const frameworkAdapter = adapterRuntime.frameworkRegistry.resolveForBinding(metadata)
+      ?? adapterRuntime.frameworkRegistry.detectForPath(repoPath);
+    if (!frameworkAdapter) {
+      const reasonCode = resolvePluginReasonCode(metadata, adapterRuntime.errors);
+      runtime.status = buildBindingStatus(options.binding, {
+        state: "unsupported",
+        driftState: "clean",
+        watchEnabled: metadata.syncMode === "watch",
+        lastImportedAt: runtime.manifest?.lastImportedAt,
+        lastPushedAt: runtime.manifest?.lastPushedAt,
+        conflictCount: 0,
+        unsupportedCount: 1,
+        manifest: runtime.manifest,
+        reasonCode,
+        capabilityDenials: metadata.grantedCapabilities.filter((entry) => !entry.granted)
+      });
+      this.recomputeSession(options.canvasSessionId);
+      return {
+        ok: false,
+        bindingStatus: runtime.status,
+        conflicts: [{
+          kind: "unsupported_change",
+          bindingId: options.binding.id,
+          message: `No framework adapter is available for ${metadata.frameworkAdapterId}.`
+        }]
+      };
+    }
+    const pushCapabilityDenials = capabilityDenialsFor(metadata, "code_push");
+    const subtreeContainsTokenRefs = documentSubtreeHasTokenRefs(options.document, options.binding.nodeId);
+    if (subtreeContainsTokenRefs) {
+      const tokenRoundTripCapabilityDenials = tokenRoundTripDenials(
+        metadata,
+        runtime.manifest?.libraryAdapterIds ?? metadata.libraryAdapterIds,
+        adapterRuntime.libraryRegistry
+      );
+      if (!frameworkAdapter.capabilities.includes("token_roundtrip") || tokenRoundTripCapabilityDenials.length > 0) {
+        runtime.status = buildBindingStatus(options.binding, {
+          state: "unsupported",
+          driftState: "clean",
+          watchEnabled: metadata.syncMode === "watch",
+          lastImportedAt: runtime.manifest?.lastImportedAt,
+          lastPushedAt: runtime.manifest?.lastPushedAt,
+          conflictCount: 0,
+          unsupportedCount: 1,
+          manifest: runtime.manifest,
+          reasonCode: "capability_denied",
+          capabilityDenials: tokenRoundTripCapabilityDenials
+        });
+        this.recomputeSession(options.canvasSessionId);
+        return {
+          ok: false,
+          bindingStatus: runtime.status,
+          conflicts: [{
+            kind: "unsupported_change",
+            bindingId: options.binding.id,
+            message: describeTokenRoundTripDenial(
+              metadata.frameworkAdapterId,
+              tokenRoundTripCapabilityDenials
+            )
+          }]
+        };
+      }
+    }
+    if (pushCapabilityDenials.length > 0 || metadata.sourceFamily !== "react-tsx") {
+      runtime.status = buildBindingStatus(options.binding, {
+        state: "unsupported",
+        driftState: "clean",
+        watchEnabled: metadata.syncMode === "watch",
+        lastImportedAt: runtime.manifest?.lastImportedAt,
+        lastPushedAt: runtime.manifest?.lastPushedAt,
+        conflictCount: 0,
+        unsupportedCount: 1,
+        manifest: runtime.manifest,
+        reasonCode: "capability_denied",
+        capabilityDenials: pushCapabilityDenials.length > 0
+          ? pushCapabilityDenials
+          : [{
+            capability: "code_push",
+            granted: false,
+            reasonCode: "capability_denied",
+            details: {
+              frameworkAdapterId: metadata.frameworkAdapterId
+            }
+          }]
+      });
+      this.recomputeSession(options.canvasSessionId);
+      return {
+        ok: false,
+        bindingStatus: runtime.status,
+        conflicts: [{
+          kind: "unsupported_change",
+          bindingId: options.binding.id,
+          message: `Framework adapter ${metadata.frameworkAdapterId} does not support code_push.`
+        }]
+      };
+    }
 
     const applied = applyCanvasToTsx({
       document: options.document,
       binding: options.binding,
       manifest: runtime.manifest,
       sourceText,
-      resolutionPolicy: options.resolutionPolicy
+      resolutionPolicy: options.resolutionPolicy,
+      emitTokenRefs: (node) => frameworkAdapter.emitTokenRefs(node, {
+        bindingId: options.binding.id,
+        metadata,
+        activeModeId: readActiveTokenModeId(options.document)
+      }),
+      themeAttributes: frameworkAdapter.emitThemeBindings({
+        bindingId: options.binding.id,
+        metadata,
+        activeModeId: readActiveTokenModeId(options.document)
+      })
     });
     if (!applied.ok) {
       runtime.conflicts = applied.conflicts;
@@ -311,7 +552,7 @@ export class CanvasCodeSyncManager {
       lastImportedAt: runtime.manifest.lastImportedAt,
       lastPushedAt: new Date().toISOString()
     });
-    await saveCanvasCodeSyncManifest(this.worktree, manifest);
+    await saveCanvasCodeSyncManifest(worktree, manifest);
     runtime.manifest = manifest;
     runtime.conflicts = [];
     runtime.unsupportedRegions = [];
@@ -322,7 +563,10 @@ export class CanvasCodeSyncManager {
       lastImportedAt: manifest.lastImportedAt,
       lastPushedAt: manifest.lastPushedAt,
       conflictCount: 0,
-      unsupportedCount: 0
+      unsupportedCount: 0,
+      manifest,
+      reasonCode: manifest.reasonCode,
+      capabilityDenials: capabilityDenialsFor(metadata)
     });
     if (runtime.watch) {
       runtime.watch.lastSourceHash = manifest.sourceHash;
@@ -344,15 +588,18 @@ export class CanvasCodeSyncManager {
 
   async resolve(options: {
     canvasSessionId: string;
+    worktree?: string;
     document: CanvasDocument;
     documentRevision: number;
     binding: CanvasBinding;
     resolutionPolicy: CodeSyncResolutionPolicy;
     applyPatches: ApplyPatches;
   }): Promise<CanvasCodeSyncPullResult | CanvasCodeSyncPushResult> {
+    const worktree = this.ensureSession(options.canvasSessionId, options.worktree).worktree;
     if (options.resolutionPolicy === "manual") {
       const status = await this.getBindingStatus(
         options.canvasSessionId,
+        worktree,
         options.document.documentId,
         options.binding,
         options.documentRevision
@@ -372,8 +619,8 @@ export class CanvasCodeSyncManager {
       };
     }
     return options.resolutionPolicy === "prefer_code"
-      ? await this.pull(options)
-      : await this.push(options);
+      ? await this.pull({ ...options, worktree })
+      : await this.push({ ...options, worktree });
   }
 
   disposeSession(canvasSessionId: string): void {
@@ -390,15 +637,18 @@ export class CanvasCodeSyncManager {
     this.sessions.delete(canvasSessionId);
   }
 
-  private ensureSession(canvasSessionId: string): SessionRuntimeState {
+  private ensureSession(canvasSessionId: string, worktree?: string): SessionRuntimeState {
     let session = this.sessions.get(canvasSessionId);
     if (!session) {
       session = {
+        worktree: worktree ?? this.worktree,
         state: "idle",
         driftState: "clean",
         bindings: new Map()
       };
       this.sessions.set(canvasSessionId, session);
+    } else if (worktree && session.worktree !== worktree) {
+      session.worktree = worktree;
     }
     return session;
   }
@@ -413,7 +663,10 @@ export class CanvasCodeSyncManager {
           driftState: "clean",
           watchEnabled: binding.codeSync?.syncMode === "watch",
           conflictCount: 0,
-          unsupportedCount: 0
+          unsupportedCount: 0,
+          manifest: null,
+          reasonCode: binding.codeSync?.reasonCode ?? "none",
+          capabilityDenials: capabilityDenialsFor(binding.codeSync)
         }),
         manifest: null,
         conflicts: [],
@@ -432,26 +685,41 @@ export class CanvasCodeSyncManager {
     runtime: BindingRuntimeState,
     documentRevision: number
   ): Promise<CodeSyncBindingStatus> {
+    const worktree = this.ensureSession(canvasSessionId).worktree;
     const metadata = requireCodeSyncMetadata(binding);
-    const repoPath = resolveRepoPath(this.worktree, metadata.repoPath);
+    const adapterRuntime = await this.loadAdapterRuntime(worktree);
+    const repoPath = resolveRepoPath(worktree, metadata.repoPath);
     let driftState: CodeSyncDriftState = runtime.status.driftState;
     let state: CodeSyncState = runtime.status.state;
+    let reasonCode: CodeSyncStatusReason = runtime.manifest?.reasonCode ?? metadata.reasonCode;
+    let missingAdapter = false;
     try {
       const sourceHash = hashCodeSyncValue(await readFile(repoPath, "utf-8"));
       if (!runtime.manifest) {
-        runtime.manifest = await loadCanvasCodeSyncManifest(this.worktree, documentId, binding.id);
+        runtime.manifest = await loadCanvasCodeSyncManifest(worktree, documentId, binding.id);
+      }
+      const frameworkAdapter = adapterRuntime.frameworkRegistry.resolveForBinding(metadata)
+        ?? adapterRuntime.frameworkRegistry.detectForPath(repoPath);
+      if (!frameworkAdapter) {
+        reasonCode = resolvePluginReasonCode(metadata, adapterRuntime.errors);
+        state = "unsupported";
+        driftState = "clean";
+        missingAdapter = true;
       }
       if (runtime.manifest) {
         const sourceChanged = runtime.manifest.sourceHash !== sourceHash;
         const documentChanged = runtime.manifest.documentRevision !== documentRevision;
         driftState = sourceChanged && documentChanged ? "conflict" : sourceChanged ? "source_changed" : documentChanged ? "document_changed" : "clean";
-        if (driftState === "clean") {
+        if (driftState === "clean" && missingAdapter) {
+          state = "unsupported";
+        } else if (driftState === "clean") {
           state = runtime.unsupportedRegions.length > 0 ? "unsupported" : "in_sync";
         } else if (driftState === "conflict") {
           state = "conflict";
         } else {
           state = "drift_detected";
         }
+        reasonCode = runtime.manifest.reasonCode;
       }
     } catch {
       driftState = "source_changed";
@@ -464,7 +732,10 @@ export class CanvasCodeSyncManager {
       lastImportedAt: runtime.manifest?.lastImportedAt,
       lastPushedAt: runtime.manifest?.lastPushedAt,
       conflictCount: runtime.conflicts.length,
-      unsupportedCount: runtime.unsupportedRegions.length
+      unsupportedCount: runtime.unsupportedRegions.length,
+      manifest: runtime.manifest,
+      reasonCode,
+      capabilityDenials: capabilityDenialsFor(metadata)
     });
     this.recomputeSession(canvasSessionId);
     return runtime.status;
@@ -475,7 +746,7 @@ export class CanvasCodeSyncManager {
     if (!metadata || metadata.syncMode !== "watch" || runtime.watch) {
       return;
     }
-    const repoPath = resolveRepoPath(this.worktree, metadata.repoPath);
+    const repoPath = resolveRepoPath(this.ensureSession(canvasSessionId).worktree, metadata.repoPath);
     const watcher = watch(repoPath, () => {
       const watchState = runtime.watch;
       if (!watchState) {
@@ -554,7 +825,56 @@ function requireCodeSyncMetadata(binding: CanvasBinding): CanvasCodeSyncBindingM
   if (!binding.codeSync) {
     throw new Error(`Binding ${binding.id} is missing code-sync metadata.`);
   }
-  return binding.codeSync;
+  return normalizeCodeSyncBindingMetadata(binding.codeSync);
+}
+
+function capabilityDenialsFor(
+  metadata: CanvasCodeSyncBindingMetadata | undefined,
+  requiredCapability?: CodeSyncCapability
+): CodeSyncCapabilityGrant[] {
+  if (!metadata) {
+    return requiredCapability
+      ? [{
+        capability: requiredCapability,
+        granted: false,
+        reasonCode: "capability_denied"
+      }]
+      : [];
+  }
+  const normalizedMetadata = normalizeCodeSyncBindingMetadata(metadata);
+  const denials = normalizedMetadata.grantedCapabilities.filter((entry) => !entry.granted);
+  if (!requiredCapability) {
+    return denials;
+  }
+  const requiredGrant = normalizedMetadata.grantedCapabilities.find((entry) => entry.capability === requiredCapability);
+  if (requiredGrant?.granted) {
+    return denials;
+  }
+  if (requiredGrant) {
+    return [...denials, requiredGrant];
+  }
+  return [
+    ...denials,
+    {
+      capability: requiredCapability,
+      granted: false,
+      reasonCode: "capability_denied"
+    }
+  ];
+}
+
+function resolvePluginReasonCode(
+  metadata: CanvasCodeSyncBindingMetadata,
+  errors: CanvasAdapterPluginLoadError[]
+): CodeSyncStatusReason {
+  if (!metadata.pluginId) {
+    return metadata.reasonCode;
+  }
+  const error = errors.find((entry) => entry.pluginId === metadata.pluginId);
+  if (!error) {
+    return "plugin_not_found";
+  }
+  return error.code === "plugin_not_found" ? "plugin_not_found" : "plugin_load_failed";
 }
 
 function buildBindingStatus(
@@ -567,14 +887,27 @@ function buildBindingStatus(
     lastPushedAt?: string;
     conflictCount: number;
     unsupportedCount: number;
+    manifest?: CodeSyncManifest | null;
+    reasonCode: CodeSyncStatusReason;
+    capabilityDenials: CodeSyncCapabilityGrant[];
   }
 ): CodeSyncBindingStatus {
   const metadata = requireCodeSyncMetadata(binding);
+  const manifest = input.manifest ?? null;
+  const declaredCapabilities = metadata.declaredCapabilities;
+  const grantedCapabilities = metadata.grantedCapabilities
+    .filter((entry) => entry.granted)
+    .map((entry) => entry.capability);
   return {
     bindingId: binding.id,
     nodeId: binding.nodeId,
     repoPath: metadata.repoPath,
     adapter: metadata.adapter,
+    frameworkAdapterId: metadata.frameworkAdapterId,
+    frameworkId: metadata.frameworkId,
+    sourceFamily: metadata.sourceFamily,
+    adapterKind: metadata.adapterKind,
+    adapterVersion: metadata.adapterVersion,
     syncMode: metadata.syncMode,
     projection: metadata.projection ?? "canvas_html",
     state: input.state,
@@ -583,8 +916,122 @@ function buildBindingStatus(
     lastImportedAt: input.lastImportedAt,
     lastPushedAt: input.lastPushedAt,
     conflictCount: input.conflictCount,
-    unsupportedCount: input.unsupportedCount
+    unsupportedCount: input.unsupportedCount,
+    pluginId: metadata.pluginId,
+    libraryAdapterIds: manifest?.libraryAdapterIds ?? metadata.libraryAdapterIds,
+    manifestVersion: manifest?.manifestVersion ?? metadata.manifestVersion,
+    declaredCapabilities,
+    grantedCapabilities,
+    capabilityDenials: input.capabilityDenials,
+    reasonCode: input.reasonCode
   };
+}
+
+function readActiveTokenModeId(document: CanvasDocument): string | null {
+  const metadata = document.tokens.metadata;
+  return typeof metadata.activeModeId === "string" && metadata.activeModeId.trim().length > 0
+    ? metadata.activeModeId
+    : null;
+}
+
+function findCanvasNode(document: CanvasDocument, nodeId: string): CanvasNode {
+  for (const page of document.pages) {
+    const node = page.nodes.find((entry) => entry.id === nodeId);
+    if (node) {
+      return node;
+    }
+  }
+  throw new Error(`Unknown canvas node: ${nodeId}`);
+}
+
+function documentSubtreeHasTokenRefs(document: CanvasDocument, nodeId: string): boolean {
+  const pending = [findCanvasNode(document, nodeId)];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (!node) {
+      continue;
+    }
+    if (hasCanvasTokenReferences(node.tokenRefs)) {
+      return true;
+    }
+    for (const childId of node.childIds) {
+      pending.push(findCanvasNode(document, childId));
+    }
+  }
+  return false;
+}
+
+function defaultFrameworkCapabilities(frameworkAdapterId: string): CodeSyncCapability[] {
+  const capabilityMap: Record<CodeSyncBuiltInFrameworkAdapterId, CodeSyncCapability[]> = {
+    "builtin:react-tsx-v2": ["preview", "inventory_extract", "code_pull", "code_push", "token_roundtrip"],
+    "builtin:html-static-v1": ["preview", "inventory_extract", "code_pull"],
+    "builtin:custom-elements-v1": ["preview", "inventory_extract", "code_pull"],
+    "builtin:vue-sfc-v1": ["preview", "inventory_extract", "code_pull"],
+    "builtin:svelte-sfc-v1": ["preview", "inventory_extract", "code_pull"]
+  };
+  return capabilityMap[frameworkAdapterId as CodeSyncBuiltInFrameworkAdapterId] ?? ["preview"];
+}
+
+function tokenRoundTripDenials(
+  metadata: CanvasCodeSyncBindingMetadata,
+  libraryAdapterIds: string[],
+  libraryRegistry: ReturnType<typeof createLibraryAdapterRegistry>
+): CodeSyncCapabilityGrant[] {
+  const frameworkCapabilities = new Set(defaultFrameworkCapabilities(metadata.frameworkAdapterId));
+  const denials = capabilityDenialsFor(metadata, "token_roundtrip");
+  if (!frameworkCapabilities.has("token_roundtrip")) {
+    denials.push({
+      capability: "token_roundtrip",
+      granted: false,
+      reasonCode: "capability_denied",
+      details: {
+        frameworkAdapterId: metadata.frameworkAdapterId
+      }
+    });
+  }
+  for (const libraryAdapterId of libraryAdapterIds) {
+    const adapter = libraryRegistry.get(libraryAdapterId);
+    if (adapter && adapter.capabilities.includes("token_roundtrip")) {
+      continue;
+    }
+    denials.push({
+      capability: "token_roundtrip",
+      granted: false,
+      reasonCode: "capability_denied",
+      details: {
+        libraryAdapterId
+      }
+    });
+  }
+  return uniqueCapabilityDenials(denials);
+}
+
+function uniqueCapabilityDenials(denials: CodeSyncCapabilityGrant[]): CodeSyncCapabilityGrant[] {
+  const seen = new Set<string>();
+  return denials.filter((entry) => {
+    const scope = typeof entry.details?.libraryAdapterId === "string"
+      ? `library:${entry.details.libraryAdapterId}`
+      : typeof entry.details?.frameworkAdapterId === "string"
+        ? `framework:${entry.details.frameworkAdapterId}`
+        : "binding";
+    const key = `${entry.capability}:${scope}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function describeTokenRoundTripDenial(
+  frameworkAdapterId: string,
+  denials: CodeSyncCapabilityGrant[]
+): string {
+  const libraryDenial = denials.find((entry) => typeof entry.details?.libraryAdapterId === "string");
+  if (libraryDenial && typeof libraryDenial.details?.libraryAdapterId === "string") {
+    return `Library adapter ${libraryDenial.details.libraryAdapterId} does not declare token_roundtrip.`;
+  }
+  return `Framework adapter ${frameworkAdapterId} does not support token_roundtrip.`;
 }
 
 function detectBidirectionalConflicts(

@@ -1,10 +1,10 @@
 # src/canvas/ — Agent Guidelines
 
-Design-canvas document store, repo persistence, export, and TSX-first code-sync helpers. Extends `src/AGENTS.md`.
+Design-canvas document store, repo persistence, export, and framework-adapter-backed code-sync helpers. Extends `src/AGENTS.md`.
 
 ## Overview
 
-Owns the canonical design-canvas document model, governance validation, repo-native persistence, and reusable code-sync primitives. Internal document revisions are Yjs-backed, while persisted artifacts stay JSON/manifest files under `.opendevbrowser/canvas/`.
+Owns the canonical design-canvas document model, governance validation, repo-native persistence, and reusable framework-adapter-backed code-sync primitives. Internal document revisions are Yjs-backed, while persisted artifacts stay JSON/manifest files under `.opendevbrowser/canvas/`.
 
 ## Structure
 
@@ -12,6 +12,13 @@ Owns the canonical design-canvas document model, governance validation, repo-nat
 src/canvas/
 ├── types.ts                 # Canvas types, schemas, constants
 ├── document-store.ts        # CanvasDocumentStore, validation, revisioned patch application
+├── framework-adapters/      # Built-in framework lanes and adapter registry
+├── library-adapters/        # Package-level library adapter registry and built-ins
+├── adapter-plugins/         # Repo-local BYO plugin manifest, loader, and trust checks
+├── kits/
+│   └── catalog.ts           # Built-in design kit catalog exposed through inventory commands
+├── starters/
+│   └── catalog.ts           # Built-in starter catalog resolved through starter commands
 ├── repo-store.ts            # Repo-native JSON + manifest persistence helpers
 ├── export.ts                # HTML/component export + parity artifacts
 └── code-sync/
@@ -20,7 +27,7 @@ src/canvas/
     ├── hash.ts              # Stable hashing for drift detection
     ├── import.ts            # TSX graph -> canvas patch import
     ├── manifest.ts          # Manifest parsing/normalization
-    ├── tsx-adapter.ts       # `tsx-react-v1` import/export adapter
+    ├── tsx-adapter.ts       # React TSX transform helpers used by `builtin:react-tsx-v2` and legacy migration
     ├── types.ts             # Binding metadata, status, manifests, parity projections
     └── write.ts             # Atomic source write + manifest finalization
 ```
@@ -39,14 +46,14 @@ type CanvasDocument = {
   designGovernance: Record<GovernanceBlockKey, object>;
   pages: CanvasPage[];
   components: object[];
-  componentInventory: object[];
-  tokens: Record<string, unknown>;
+  componentInventory: CanvasComponentInventoryItem[];
+  tokens: CanvasTokenStore;
   assets: CanvasAsset[];
   viewports: object[];
   themes: object[];
   bindings: CanvasBinding[];
   prototypes: CanvasPrototype[];
-  meta: Record<string, unknown>;
+  meta: CanvasDocumentMeta;
 };
 ```
 
@@ -84,7 +91,7 @@ const doc = store.getDocument();           // Get current projection
 const revision = store.getRevision();      // Get Yjs-backed revision counter
 ```
 
-Patch operations include `page.create`, `page.update`, `node.insert`, `node.update`, `node.remove`, `variant.patch`, `token.set`, `asset.attach`, `binding.set`, and `prototype.upsert`.
+Patch operations include `page.create`, `page.update`, `node.insert`, `node.update`, `node.remove`, `variant.patch`, `token.set`, `tokens.merge`, `asset.attach`, `binding.set`, `prototype.upsert`, reusable inventory mutations (`inventory.promote`, `inventory.update`, `inventory.upsert`, `inventory.remove`), and `starter.apply`.
 
 ## Validation
 
@@ -97,12 +104,15 @@ Patch operations include `page.create`, `page.update`, `node.insert`, `node.upda
 - Library/icon policy violations
 - Unresolved component bindings
 - Runtime budget, responsive, and export warnings
+- Legacy raw inventory/token/meta payloads must normalize into the typed document shape on load; do not introduce new raw-bag write paths.
 
 ## Code Sync
 
 - Binding metadata is normalized through `normalizeCodeSyncBindingMetadata()` in `code-sync/types.ts`.
-- TSX-first bind/import/export uses the `tsx-react-v1` adapter plus graph/hash/manifest helpers in `code-sync/`.
-- `src/browser/canvas-manager.ts` owns the public `canvas.session.attach` and `canvas.code.*` command surface; `src/canvas/` remains the reusable storage/transform layer.
+- Framework dispatch is registry-backed: built-in lanes ship for `builtin:react-tsx-v2`, `builtin:html-static-v1`, `builtin:custom-elements-v1`, `builtin:vue-sfc-v1`, and `builtin:svelte-sfc-v1`, while legacy `tsx-react-v1` metadata migrates on load.
+- Repo-local BYO adapter plugins load through `adapter-plugins/` from workspace metadata, repo manifests, or explicit local config declarations only; declaration-level `capabilityOverrides` narrow plugin capabilities rather than widening them.
+- `src/browser/canvas-manager.ts` owns the public `canvas.session.attach`, `canvas.inventory.*`, `canvas.starter.*`, `canvas.code.*`, and `canvas.feedback.*` command surface; shared public feedback event/result contracts live in `types.ts`, while `src/canvas/` remains the reusable storage/transform layer.
+- Built-in kit catalog data lives in `kits/catalog.ts`, starter definitions live in `starters/catalog.ts`, and starter application should compose the existing inventory/token document paths instead of creating a second starter store or renderer.
 - `canvas_html` is the default preview/export contract. `bound_app_runtime` is an opt-in reconciliation path that still requires app-side instrumentation and runtime-bridge preflight.
 
 ## Persistence

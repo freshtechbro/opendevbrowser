@@ -3,8 +3,10 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { parse as parseJsonc, modify, applyEdits } from "jsonc-parser";
+import { CODE_SYNC_CAPABILITIES } from "./canvas/code-sync/types";
 import { generateSecureToken } from "./utils/crypto";
 import { writeFileAtomic } from "./utils/fs";
+import type { CanvasAdapterPluginDeclaration } from "./canvas/adapter-plugins/types";
 import type {
   ProviderCookieImportRecord,
   ProviderCookiePolicy,
@@ -178,6 +180,18 @@ export type ProvidersConfig = {
   cookieSource?: ProviderCookieSourceConfig;
 };
 
+export type FigmaIntegrationConfig = {
+  accessToken?: string;
+};
+
+export type IntegrationsConfig = {
+  figma?: FigmaIntegrationConfig;
+};
+
+export type CanvasConfig = {
+  adapterPlugins: CanvasAdapterPluginDeclaration[];
+};
+
 export type CanaryConfig = {
   targets: {
     enabled: boolean;
@@ -219,6 +233,8 @@ export type OpenDevBrowserConfig = {
   blockerResolutionTimeoutMs: number;
   blockerArtifactCaps: BlockerArtifactCapsConfig;
   providers?: ProvidersConfig;
+  integrations?: IntegrationsConfig;
+  canvas: CanvasConfig;
   devtools: DevtoolsConfig;
   fingerprint: FingerprintConfig;
   canary?: CanaryConfig;
@@ -516,6 +532,28 @@ const fingerprintSchema = z.object({
   tier3: fingerprintTier3Schema.default({})
 }).default({});
 
+const figmaIntegrationSchema = z.object({
+  accessToken: z.string().min(1).optional()
+}).default({});
+
+const integrationsSchema = z.object({
+  figma: figmaIntegrationSchema.default({})
+}).default({});
+
+const canvasAdapterPluginDeclarationSchema = z.union([
+  z.string().min(1),
+  z.object({
+    ref: z.string().min(1),
+    enabled: z.boolean().optional(),
+    trustedWorkspaceRoots: z.array(z.string().min(1)).optional(),
+    capabilityOverrides: z.array(z.enum(CODE_SYNC_CAPABILITIES)).optional()
+  })
+]);
+
+const canvasSchema = z.object({
+  adapterPlugins: z.array(canvasAdapterPluginDeclarationSchema).default([])
+}).default({});
+
 const configSchema = z.object({
   headless: z.boolean().default(false),
   profile: z.string().min(1).default("default"),
@@ -525,6 +563,8 @@ const configSchema = z.object({
   blockerResolutionTimeoutMs: z.number().int().min(1000).max(86_400_000).default(600_000),
   blockerArtifactCaps: blockerArtifactCapsSchema,
   providers: providersSchema.default({}),
+  integrations: integrationsSchema.default({}),
+  canvas: canvasSchema.default({}),
   devtools: devtoolsSchema.default({}),
   fingerprint: fingerprintSchema.default({}),
   canary: canarySchema.default({}),

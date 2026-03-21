@@ -7,6 +7,7 @@ import type { CodeSyncManifest } from "../src/canvas/code-sync/types";
 import {
   loadCanvasCodeSyncManifest,
   loadCanvasDocument,
+  resolveCanvasFigmaAssetPath,
   resolveCanvasCodeSyncManifestPath,
   resolveCanvasRepoPath,
   saveCanvasCodeSyncManifest,
@@ -29,10 +30,14 @@ describe("canvas repo store", () => {
     const defaultPath = resolveCanvasRepoPath(worktree, document.documentId);
     const relativePath = resolveCanvasRepoPath(worktree, document.documentId, "custom/document.canvas.json");
     const absolutePath = resolveCanvasRepoPath(worktree, document.documentId, join(worktree, "absolute.canvas.json"));
+    const figmaSvgPath = resolveCanvasFigmaAssetPath(worktree, "figma-file", "asset-one", "svg");
+    const figmaPngPath = resolveCanvasFigmaAssetPath(worktree, "figma-file", "asset-two", ".png");
 
     expect(defaultPath).toBe(resolve(worktree, ".opendevbrowser", "canvas", "dc_repo_store.canvas.json"));
     expect(relativePath).toBe(resolve(worktree, "custom/document.canvas.json"));
     expect(absolutePath).toBe(join(worktree, "absolute.canvas.json"));
+    expect(figmaSvgPath).toBe(resolve(worktree, ".opendevbrowser", "canvas", "assets", "figma", "figma-file", "asset-one.svg"));
+    expect(figmaPngPath).toBe(resolve(worktree, ".opendevbrowser", "canvas", "assets", "figma", "figma-file", "asset-two.png"));
 
     const savedRelative = await saveCanvasDocument(worktree, document, "custom/document.canvas.json");
     const relativeRaw = await readFile(savedRelative, "utf-8");

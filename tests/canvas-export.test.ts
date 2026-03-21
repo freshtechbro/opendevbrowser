@@ -7,6 +7,7 @@ import {
   renderCanvasDocumentHtml
 } from "../src/canvas/export";
 import { CANVAS_SURFACE_TOKENS, CANVAS_SURFACE_TOKEN_VARIABLES } from "../src/canvas/surface-palette";
+import { tokenPathToCssCustomProperty } from "../src/canvas/token-references";
 import type { CanvasBinding, CanvasNode } from "../src/canvas/types";
 
 function createNode(
@@ -573,6 +574,32 @@ function createMultimediaDocument() {
   return document;
 }
 
+function createTokenModeDocument() {
+  const document = createDefaultCanvasDocument("dc_export_token_mode");
+  const [page] = document.pages;
+  if (!page) {
+    throw new Error("Missing default page");
+  }
+  const rootNode = page.nodes.find((node) => node.id === page.rootNodeId);
+  if (!rootNode) {
+    throw new Error("Missing default root node");
+  }
+  rootNode.kind = "frame";
+  rootNode.name = "Token Root";
+  rootNode.tokenRefs = {
+    backgroundColor: "theme.primary"
+  };
+  document.tokens.values = {
+    theme: {
+      primary: "#111827"
+    }
+  };
+  document.tokens.metadata = {
+    activeModeId: "night"
+  };
+  return document;
+}
+
 describe("canvas export", () => {
   it("renders positioned library-backed html with semantic primitives and icons", () => {
     const document = createLibraryDocument();
@@ -823,6 +850,192 @@ describe("canvas export", () => {
     expect(component).toContain("<audio");
     expect(component).toContain("odb-canvas-media-surface");
     expect(component).toContain("odb-canvas-media-image");
+  });
+
+  it("renders token-mode attrs in component exports and filters blank root attributes", () => {
+    const document = createTokenModeDocument();
+
+    const html = renderCanvasDocumentHtml(document, {
+      rootAttributes: {
+        "": "ignored",
+        "data-e2e": "canvas-root"
+      }
+    });
+    const component = renderCanvasDocumentComponent(document);
+
+    expect(html).toContain('data-e2e="canvas-root"');
+    expect(html).toContain('data-token-mode="night"');
+    expect(html).toContain('data-theme="night"');
+    expect(html).not.toContain('=""');
+    expect(component).toContain('data-token-mode="night" data-theme="night"');
+  });
+
+  it("omits invalid token css declarations and falls back to metadata tag names for media nodes", () => {
+    const document = createTokenModeDocument();
+    const [page] = document.pages;
+    if (!page) {
+      throw new Error("Missing default page");
+    }
+
+    document.tokens.values = {
+      theme: {
+        primary: null
+      }
+    };
+    document.tokens.collections = [{
+      id: "collection_theme",
+      name: "Theme",
+      items: [{
+        id: "token_secondary",
+        path: "theme.secondary",
+        value: "#22c3ee",
+        modes: [{
+          id: "broken",
+          name: "Broken",
+          value: { nested: true },
+          metadata: {}
+        }],
+        metadata: {}
+      }],
+      metadata: {}
+    }];
+
+    page.rootNodeId = "node_media_root";
+    page.nodes = [
+      createNode(page.id, {
+        id: "node_media_root",
+        kind: "frame",
+        name: "Media Root",
+        childIds: ["node_audio_meta", "node_image_meta"],
+        rect: { x: 0, y: 0, width: 720, height: 320 },
+        style: { background: "#081220" }
+      }),
+      createNode(page.id, {
+        id: "node_audio_meta",
+        kind: "frame",
+        name: "Audio Meta",
+        parentId: "node_media_root",
+        rect: { x: 24, y: 24, width: 320, height: 72 },
+        props: {
+          tagName: "   ",
+          attributes: {
+            src: "https://example.com/audio.mp3",
+            controls: "false",
+            muted: "false",
+            playsInline: "false"
+          }
+        },
+        metadata: {
+          codeSync: {
+            tagName: "audio"
+          }
+        }
+      }),
+      createNode(page.id, {
+        id: "node_image_meta",
+        kind: "frame",
+        name: "Image Meta",
+        parentId: "node_media_root",
+        rect: { x: 376, y: 24, width: 240, height: 180 },
+        style: {
+          objectFit: "contain"
+        },
+        metadata: {
+          assetIds: ["asset_meta_image"],
+          codeSync: {
+            tagName: "img"
+          }
+        }
+      })
+    ];
+    document.assets = [{
+      id: "asset_meta_image",
+      sourceType: "remote",
+      kind: "image",
+      url: "https://example.com/meta.png",
+      mime: "image/png",
+      metadata: {}
+    }];
+
+    const html = renderCanvasDocumentHtml(document);
+    const component = renderCanvasDocumentComponent(document);
+
+    expect(html).not.toContain(tokenPathToCssCustomProperty("theme.primary"));
+    expect(html).not.toContain('[data-token-mode~="broken"]');
+    expect(html).toContain("<audio");
+    expect(html).toContain("https://example.com/audio.mp3");
+    expect(html).not.toContain('controls="true"');
+    expect(html).not.toContain('muted="true"');
+    expect(html).not.toContain('playsinline="true"');
+    expect(html).toContain("object-fit:contain");
+    expect(component).toContain("<audio");
+    expect(component).toContain("<img");
+    expect(component).toContain('"objectFit": "contain"');
+  });
+
+  it("renders missing-media placeholders and default media attributes", () => {
+    const document = createMultimediaDocument();
+    const [page] = document.pages;
+    if (!page) {
+      throw new Error("Missing default page");
+    }
+
+    const imageAsset = document.assets[0];
+    if (!imageAsset) {
+      throw new Error("Missing default image asset");
+    }
+    imageAsset.metadata = {};
+    const imageNode = page.nodes.find((node) => node.id === "node_hero_image");
+    if (!imageNode) {
+      throw new Error("Missing hero image node");
+    }
+    imageNode.name = "   ";
+
+    const videoNode = page.nodes.find((node) => node.id === "node_demo_video");
+    if (!videoNode || typeof videoNode.props.attributes !== "object" || videoNode.props.attributes === null) {
+      throw new Error("Missing demo video node");
+    }
+    videoNode.props.attributes = {
+      ...videoNode.props.attributes,
+      autoPlay: "true",
+      loop: "true",
+      preload: "metadata"
+    };
+
+    page.nodes.push(createNode(page.id, {
+      id: "node_missing_video",
+      kind: "frame",
+      name: "Missing Video",
+      parentId: "node_media_root",
+      rect: { x: 432, y: 304, width: 320, height: 180 },
+      props: { tagName: "video" },
+      metadata: {
+        codeSync: {
+          tagName: "video"
+        }
+      }
+    }));
+    const mediaRoot = page.nodes.find((node) => node.id === "node_media_root");
+    if (!mediaRoot) {
+      throw new Error("Missing media root");
+    }
+    mediaRoot.childIds.push("node_missing_video");
+
+    const html = renderCanvasDocumentHtml(document);
+    const component = renderCanvasDocumentComponent(document);
+
+    expect(html).toContain('alt="Canvas media"');
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain("object-fit:cover");
+    expect(html).toContain('autoplay="true"');
+    expect(html).toContain('loop="true"');
+    expect(html).toContain('muted="true"');
+    expect(html).toContain('playsinline="true"');
+    expect(html).toContain('preload="metadata"');
+    expect(html).toContain('data-media-missing="true"');
+    expect(html).toContain("video source missing");
+    expect(component).toContain('autoPlay="true"');
+    expect(component).toContain('playsInline="true"');
   });
 
   it("builds parity artifacts when descendants have no primary binding and some child ids are missing", () => {

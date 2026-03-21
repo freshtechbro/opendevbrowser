@@ -13,17 +13,14 @@ type CanvasArgs = {
 };
 
 const DEFAULT_FEEDBACK_STREAM_TIMEOUT_MS = 30000;
-const MIN_FEEDBACK_STREAM_POLL_MS = 250;
-const MAX_FEEDBACK_STREAM_POLL_MS = 1000;
 
 type FeedbackItem = Record<string, unknown>;
 
-type FeedbackPollResult = {
-  items: FeedbackItem[];
-  nextCursor: string | null;
-  retention?: {
-    activeTargetIds?: string[];
-  };
+type FeedbackSubscribeResult = {
+  subscriptionId: string | null;
+  initialItems: FeedbackItem[];
+  cursor: string | null;
+  heartbeatMs: number;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -42,29 +39,24 @@ const asRecordArray = (value: unknown): FeedbackItem[] => {
   return Array.isArray(value) ? value.filter(isRecord) : [];
 };
 
-const sleep = async (ms: number): Promise<void> => {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-};
-
-const toFeedbackPollResult = (value: unknown): FeedbackPollResult => {
+const toFeedbackSubscribeResult = (value: unknown): FeedbackSubscribeResult => {
   if (!isRecord(value)) {
-    return { items: [], nextCursor: null };
+    return {
+      subscriptionId: null,
+      initialItems: [],
+      cursor: null,
+      heartbeatMs: 15000
+    };
   }
-  const retention = isRecord(value.retention)
-    ? {
-      activeTargetIds: Array.isArray(value.retention.activeTargetIds)
-        ? value.retention.activeTargetIds.filter((entry): entry is string => typeof entry === "string")
-        : undefined
-    }
-    : undefined;
   return {
-    items: asRecordArray(value.items),
-    nextCursor: asString(value.nextCursor),
-    retention
+    subscriptionId: asString(value.subscriptionId),
+    initialItems: asRecordArray(value.initialItems),
+    cursor: asString(value.cursor),
+    heartbeatMs: Math.max(asNumber(value.heartbeatMs) ?? 15000, 1000)
   };
 };
 
-async function streamFeedbackViaPolling(
+async function streamFeedbackViaSubscription(
   client: DaemonClient,
   args: ParsedArgs,
   canvasArgs: CanvasArgs,
@@ -81,88 +73,98 @@ async function streamFeedbackViaPolling(
     }
   }, outputOptions);
 
-  const heartbeatMs = Math.max(asNumber(initial.heartbeatMs) ?? 15000, 1000);
-  const pollIntervalMs = Math.min(
-    MAX_FEEDBACK_STREAM_POLL_MS,
-    Math.max(MIN_FEEDBACK_STREAM_POLL_MS, Math.floor(heartbeatMs / 3))
-  );
+  const initialResult = toFeedbackSubscribeResult(initial);
+  const subscriptionId = initialResult.subscriptionId;
+  const heartbeatMs = initialResult.heartbeatMs;
   const streamTimeoutMs = canvasArgs.timeoutMs ?? DEFAULT_FEEDBACK_STREAM_TIMEOUT_MS;
   const deadline = Date.now() + streamTimeoutMs;
-  let cursor = asString(initial.cursor);
-  let lastHeartbeatAt = Date.now();
+  let cursor = initialResult.cursor;
 
-  while (Date.now() < deadline) {
-    await sleep(pollIntervalMs);
+  for (const item of initialResult.initialItems) {
+    const itemCursor = asString(item.cursor);
+    if (itemCursor) {
+      cursor = itemCursor;
+    }
+    writeOutput({
+      success: true,
+      message: `Canvas feedback: ${canvasArgs.command}`,
+      data: {
+        command: canvasArgs.command,
+        streamEvent: {
+          eventType: "feedback.item",
+          item
+        }
+      }
+    }, outputOptions);
+  }
+
+  while (subscriptionId && Date.now() < deadline) {
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
       break;
     }
-    const polled = toFeedbackPollResult(await client.call(
+    const nextEvent = await client.call(
       "canvas.execute",
       {
-        command: "canvas.feedback.poll",
+        command: "canvas.feedback.next",
         params: {
           ...params,
-          afterCursor: cursor
+          subscriptionId,
+          timeoutMs: Math.min(heartbeatMs, remainingMs)
         }
       },
       { timeoutMs: remainingMs }
-    ));
-    if (polled.items.length > 0) {
-      for (const item of polled.items) {
-        const itemCursor = asString(item.cursor);
+    );
+    if (isRecord(nextEvent)) {
+      if (nextEvent.eventType === "feedback.item" && isRecord(nextEvent.item)) {
+        const itemCursor = asString(nextEvent.item.cursor);
         if (itemCursor) {
           cursor = itemCursor;
         }
-        writeOutput({
-          success: true,
-          message: `Canvas feedback: ${canvasArgs.command}`,
-          data: {
-            command: canvasArgs.command,
-            streamEvent: {
-              eventType: "feedback.item",
-              item,
-              cursor: cursor ?? null
-            }
-          }
-        }, outputOptions);
+      } else if (typeof nextEvent.cursor === "string") {
+        cursor = nextEvent.cursor;
       }
-      lastHeartbeatAt = Date.now();
-      continue;
     }
-    if (polled.nextCursor) {
-      cursor = polled.nextCursor;
-    }
-    if (Date.now() - lastHeartbeatAt >= heartbeatMs) {
-      writeOutput({
-        success: true,
-        message: `Canvas feedback: ${canvasArgs.command}`,
-        data: {
-          command: canvasArgs.command,
-          streamEvent: {
-            eventType: "feedback.heartbeat",
-            cursor: cursor ?? null,
-            ts: new Date().toISOString(),
-            activeTargetIds: polled.retention?.activeTargetIds ?? []
-          }
-        }
-      }, outputOptions);
-      lastHeartbeatAt = Date.now();
+    writeOutput({
+      success: true,
+      message: `Canvas feedback: ${canvasArgs.command}`,
+      data: {
+        command: canvasArgs.command,
+        streamEvent: nextEvent
+      }
+    }, outputOptions);
+    if (isRecord(nextEvent) && nextEvent.eventType === "feedback.complete") {
+      break;
     }
   }
 
-  writeOutput({
-    success: true,
-    message: `Canvas feedback: ${canvasArgs.command}`,
-    data: {
-      command: canvasArgs.command,
-      streamEvent: {
-        eventType: "feedback.complete",
-        cursor: cursor ?? null,
-        completeReason: "timeout"
+  if (Date.now() >= deadline) {
+    writeOutput({
+      success: true,
+      message: `Canvas feedback: ${canvasArgs.command}`,
+      data: {
+        command: canvasArgs.command,
+        streamEvent: {
+          eventType: "feedback.complete",
+          cursor: cursor ?? null,
+          reason: "timeout"
+        }
       }
-    }
-  }, outputOptions);
+    }, outputOptions);
+  }
+
+  if (subscriptionId) {
+    await client.call(
+      "canvas.execute",
+      {
+        command: "canvas.feedback.unsubscribe",
+        params: {
+          ...params,
+          subscriptionId
+        }
+      }
+    ).catch(() => {});
+  }
 }
 
 const requireValue = (value: string | undefined, flag: string): string => {
@@ -252,6 +254,16 @@ const resolveCanvasParams = (canvasArgs: CanvasArgs): Record<string, unknown> =>
   return {};
 };
 
+const attachRepoRoot = (params: Record<string, unknown>): Record<string, unknown> => {
+  if (typeof params.repoRoot === "string" && params.repoRoot.trim().length > 0) {
+    return params;
+  }
+  return {
+    ...params,
+    repoRoot: process.cwd()
+  };
+};
+
 export async function runCanvas(args: ParsedArgs) {
   const canvasArgs = parseCanvasArgs(args.rawArgs);
   if (!canvasArgs.command) {
@@ -263,7 +275,7 @@ export async function runCanvas(args: ParsedArgs) {
 
   const client = new DaemonClient({ autoRenew: true });
   try {
-    const params = resolveCanvasParams(canvasArgs);
+    const params = attachRepoRoot(resolveCanvasParams(canvasArgs));
     const result = await client.call<unknown>(
       "canvas.execute",
       {
@@ -277,7 +289,7 @@ export async function runCanvas(args: ParsedArgs) {
       && args.outputFormat === "stream-json"
       && isRecord(result)
     ) {
-      await streamFeedbackViaPolling(client, args, canvasArgs, params, result);
+      await streamFeedbackViaSubscription(client, args, canvasArgs, params, result);
       return {
         success: true,
         message: `Canvas executed: ${canvasArgs.command}`,
@@ -307,5 +319,6 @@ export const __test__ = {
   parseCanvasArgs,
   parseJsonObject,
   resolveCanvasParams,
-  toFeedbackPollResult
+  attachRepoRoot,
+  toFeedbackSubscribeResult
 };

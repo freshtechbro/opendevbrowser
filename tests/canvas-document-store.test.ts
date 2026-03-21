@@ -7,12 +7,14 @@ import {
   CanvasDocumentStore,
   createDefaultCanvasDocument,
   evaluateCanvasWarnings,
+  mergeImportedCanvasState,
   missingRequiredSaveBlocks,
   normalizeCanvasDocument,
   resolveCanvasLibraryPolicy,
   validateCanvasSave,
   validateGenerationPlan
 } from "../src/canvas/document-store";
+import { DEFAULT_CODE_SYNC_OWNERSHIP } from "../src/canvas/code-sync/types";
 import type { CanvasDocument, CanvasGenerationPlan } from "../src/canvas/types";
 
 const validPlan = {
@@ -65,8 +67,25 @@ describe("canvas document store", () => {
     document.designGovernance.colorSystem = { roles: { primary: "#0055ff" } };
     document.designGovernance.surfaceSystem = { panels: { elevation: "medium" } };
     document.designGovernance.iconSystem = { primary: "tabler" };
-    document.tokens.brand = "teal";
-    document.componentInventory.push({ componentName: "HeroCard" });
+    document.tokens.values.brand = "teal";
+    document.componentInventory.push({
+      id: "inventory_hero_card",
+      name: "HeroCard",
+      componentName: "HeroCard",
+      sourceFamily: "canvas_document",
+      origin: "document",
+      variants: [],
+      props: [],
+      slots: [],
+      events: [],
+      content: {
+        acceptsText: false,
+        acceptsRichText: false,
+        slotNames: [],
+        metadata: {}
+      },
+      metadata: {}
+    });
 
     const states = buildGovernanceBlockStates(document);
     expect(states.intent.status).toBe("present");
@@ -175,13 +194,25 @@ describe("canvas document store", () => {
     });
     expect(normalized.components).toEqual([]);
     expect(normalized.componentInventory).toEqual([]);
-    expect(normalized.tokens).toEqual({});
+    expect(normalized.tokens).toEqual({
+      values: {},
+      collections: [],
+      aliases: [],
+      bindings: [],
+      metadata: {}
+    });
     expect(normalized.assets).toEqual([]);
     expect(normalized.viewports).toEqual([]);
     expect(normalized.themes).toEqual([]);
     expect(normalized.bindings).toEqual([]);
     expect(normalized.prototypes).toEqual([]);
-    expect(normalized.meta).toEqual({});
+    expect(normalized.meta).toEqual({
+      imports: [],
+      starter: null,
+      adapterPlugins: [],
+      pluginErrors: [],
+      metadata: {}
+    });
 
     const minimal = normalizeCanvasDocument({} as CanvasDocument);
     expect(minimal.designGovernance.libraryPolicy).toEqual(CANVAS_PROJECT_DEFAULTS.libraryPolicy);
@@ -189,9 +220,23 @@ describe("canvas document store", () => {
     expect(minimal.pages).toEqual([]);
     expect(minimal.components).toEqual([]);
     expect(minimal.componentInventory).toEqual([]);
+    expect(minimal.tokens).toEqual({
+      values: {},
+      collections: [],
+      aliases: [],
+      bindings: [],
+      metadata: {}
+    });
     expect(minimal.assets).toEqual([]);
     expect(minimal.bindings).toEqual([]);
     expect(minimal.prototypes).toEqual([]);
+    expect(minimal.meta).toEqual({
+      imports: [],
+      starter: null,
+      adapterPlugins: [],
+      pluginErrors: [],
+      metadata: {}
+    });
   });
 
   it("normalizes sparse asset fields into stable defaults", () => {
@@ -255,6 +300,454 @@ describe("canvas document store", () => {
       status: "ready",
       variants: [{ density: 2 }],
       metadata: { provenance: { sourceUrl: "https://example.com/logo.svg" } }
+    });
+  });
+
+  it("normalizes structured inventory, token, and provenance contracts", () => {
+    const normalized = normalizeCanvasDocument({
+      documentId: "dc_structured",
+      title: "Structured Canvas",
+      pages: [],
+      components: [],
+      componentInventory: [{
+        id: "inventory_button",
+        componentName: "Button",
+        sourceKind: "figma",
+        sourceFamily: "framework_component",
+        origin: "import",
+        framework: { frameworkId: "react", name: "React", extraFramework: "kept" },
+        adapter: { adapterId: "tsx-react-v1", name: "TSX React", extraAdapter: "kept" },
+        plugin: { pluginId: "local-ui-kit", name: "Local UI Kit", extraPlugin: "kept" },
+        variants: [{ id: "primary", label: "Primary", selector: { theme: "light" }, extraVariant: "kept" }],
+        props: [{ name: "size", type: "enum", required: true, defaultValue: "md", description: "Size", extraProp: "kept" }],
+        slots: [{ name: "icon", description: "Icon slot", allowedKinds: ["shape"], extraSlot: "kept" }],
+        events: [{ name: "onClick", description: "Click", payloadShape: { pointer: true }, extraEvent: "kept" }],
+        content: { acceptsText: true, acceptsRichText: false, slotNames: ["icon"], extraContent: "kept" },
+        extraInventory: "kept"
+      }],
+      tokens: {
+        values: { brand: { primary: "#ffffff" } },
+        collections: [{
+          id: "collection_brand",
+          name: "Brand",
+          items: [{
+            id: "token_brand_primary",
+            path: "brand.primary",
+            value: "#ffffff",
+            type: "color",
+            description: "Brand primary",
+            modes: [{ id: "mode_dark", name: "Dark", value: "#000000", extraMode: "kept" }],
+            extraItem: "kept"
+          }],
+          extraCollection: "kept"
+        }],
+        aliases: [{ path: "brand.primary.alias", targetPath: "brand.primary", modeId: "mode_dark", extraAlias: "kept" }],
+        bindings: [{ path: "brand.primary", nodeId: "node_cta", bindingId: "binding_cta", property: "style.color", extraBinding: "kept" }],
+        extraTokenMetadata: "kept"
+      },
+      assets: [],
+      viewports: [],
+      themes: [],
+      bindings: [],
+      prototypes: [],
+      meta: {
+        imports: [{
+          id: "import_figma_1",
+          source: {
+            id: "source_figma_1",
+            kind: "figma",
+            name: "Figma File",
+            sourceDialect: "figma-node",
+            frameworkId: "react",
+            pluginId: "local-ui-kit",
+            adapterIds: ["tsx-react-v1"],
+            extraSource: "kept"
+          },
+          importedAt: "2026-03-14T00:00:00.000Z",
+          assetReceipts: [{
+            assetId: "asset_remote_1",
+            sourceType: "remote",
+            url: "https://example.com/asset.png",
+            status: "ready",
+            extraReceipt: "kept"
+          }],
+          extraImport: "kept"
+        }],
+        starter: {
+          template: {
+            id: "starter_marketing",
+            name: "Marketing Starter",
+            tags: ["landing"],
+            extraTemplate: "kept"
+          },
+          appliedAt: "2026-03-14T00:00:00.000Z",
+          extraStarter: "kept"
+        },
+        adapterPlugins: [{
+          id: "local-ui-kit",
+          name: "Local UI Kit",
+          frameworks: [{ frameworkId: "react", versions: ["18"], extraFrameworkCompatibility: "kept" }],
+          libraries: [{ libraryId: "shadcn", categories: ["components"], extraLibraryCompatibility: "kept" }],
+          declaredCapabilities: ["preview", "tokens"],
+          grantedCapabilities: [
+            { capability: "preview", granted: true, extraGrant: "kept" },
+            { capability: "tokens", granted: false, reason: "policy", extraDenial: "kept" }
+          ],
+          extraPluginDeclaration: "kept"
+        }],
+        pluginErrors: [{
+          pluginId: "local-ui-kit",
+          code: "preview_skipped",
+          message: "Preview skipped.",
+          details: { reason: "policy" }
+        }],
+        extraMeta: "kept"
+      }
+    } as unknown as CanvasDocument);
+
+    expect(normalized.componentInventory[0]).toMatchObject({
+      id: "inventory_button",
+      name: "Button",
+      sourceKind: "figma",
+      sourceFamily: "framework_component",
+      origin: "import",
+      framework: { id: "react", label: "React", metadata: { extraFramework: "kept" } },
+      adapter: { id: "tsx-react-v1", label: "TSX React", metadata: { extraAdapter: "kept" } },
+      plugin: { id: "local-ui-kit", label: "Local UI Kit", metadata: { extraPlugin: "kept" } },
+      variants: [expect.objectContaining({ name: "Primary", metadata: { extraVariant: "kept" } })],
+      props: [expect.objectContaining({ name: "size", metadata: { extraProp: "kept" } })],
+      slots: [expect.objectContaining({ name: "icon", metadata: { extraSlot: "kept" } })],
+      events: [expect.objectContaining({ name: "onClick", metadata: { extraEvent: "kept" } })],
+      content: expect.objectContaining({ acceptsText: true, slotNames: ["icon"], metadata: { extraContent: "kept" } }),
+      metadata: { extraInventory: "kept" }
+    });
+    expect(normalized.tokens).toMatchObject({
+      values: { brand: { primary: "#ffffff" } },
+      collections: [expect.objectContaining({ metadata: { extraCollection: "kept" } })],
+      aliases: [expect.objectContaining({ metadata: { extraAlias: "kept" } })],
+      bindings: [expect.objectContaining({ metadata: { extraBinding: "kept" } })],
+      metadata: { extraTokenMetadata: "kept" }
+    });
+    expect(normalized.meta).toMatchObject({
+      imports: [expect.objectContaining({
+        source: expect.objectContaining({ label: "Figma File", metadata: { extraSource: "kept" } }),
+        assetReceipts: [expect.objectContaining({ metadata: { extraReceipt: "kept" } })],
+        metadata: { extraImport: "kept" }
+      })],
+      starter: expect.objectContaining({
+        template: expect.objectContaining({ metadata: { extraTemplate: "kept" } }),
+        metadata: { extraStarter: "kept" }
+      }),
+      adapterPlugins: [expect.objectContaining({
+        frameworks: [expect.objectContaining({ metadata: { extraFrameworkCompatibility: "kept" } })],
+        libraries: [expect.objectContaining({ metadata: { extraLibraryCompatibility: "kept" } })],
+        grantedCapabilities: [
+          expect.objectContaining({ capability: "preview", granted: true, metadata: { extraGrant: "kept" } }),
+          expect.objectContaining({ capability: "tokens", granted: false, reason: "policy", metadata: { extraDenial: "kept" } })
+        ],
+        metadata: { extraPluginDeclaration: "kept" }
+      })],
+      pluginErrors: [expect.objectContaining({ pluginId: "local-ui-kit", code: "preview_skipped", details: { reason: "policy" } })],
+      metadata: { extraMeta: "kept" }
+    });
+  });
+
+  it("migrates legacy raw inventory, token, and meta bags into typed stores", () => {
+    const normalized = normalizeCanvasDocument({
+      componentInventory: [{ componentName: "LegacyCard", sourceKind: "manual" }],
+      tokens: { theme: { primary: "#ffffff" } },
+      meta: { legacyImportMarker: true }
+    } as unknown as CanvasDocument);
+
+    expect(normalized.componentInventory).toEqual([
+      expect.objectContaining({
+        name: "LegacyCard",
+        componentName: "LegacyCard",
+        sourceKind: "manual",
+        sourceFamily: "unknown",
+        origin: "document"
+      })
+    ]);
+    expect(normalized.tokens).toEqual({
+      values: { theme: { primary: "#ffffff" } },
+      collections: [],
+      aliases: [],
+      bindings: [],
+      metadata: {}
+    });
+    expect(normalized.meta).toEqual({
+      imports: [],
+      starter: null,
+      adapterPlugins: [],
+      pluginErrors: [],
+      metadata: { legacyImportMarker: true }
+    });
+  });
+
+  it("drops malformed structured contract records while preserving fallback defaults", () => {
+    const normalized = normalizeCanvasDocument({
+      componentInventory: [
+        null,
+        {
+          id: "inventory_fallbacks",
+          framework: {},
+          adapter: {},
+          plugin: {},
+          variants: [null, {}],
+          props: [null, {}, { name: "tone", defaultValue: "brand" }],
+          slots: [null, {}],
+          events: [null, {}],
+          content: false
+        }
+      ],
+      tokens: {
+        values: { brand: { primary: "#ffffff" } },
+        collections: [
+          null,
+          {
+            items: [
+              null,
+              {},
+              {
+                path: "brand.primary",
+                value: "#ffffff",
+                modes: [null, { value: false }]
+              }
+            ]
+          }
+        ],
+        aliases: [null, {}, { path: "brand.primary.alias", targetPath: "brand.primary" }],
+        bindings: [null, {}, { path: "brand.primary" }]
+      },
+      meta: {
+        imports: [
+          null,
+          { source: null },
+          { source: {} },
+          {
+            source: { kind: "figma" },
+            assetReceipts: [null, {}, { id: "asset_receipt_valid", sourceType: "remote" }]
+          }
+        ],
+        starter: {
+          template: {}
+        },
+        adapterPlugins: [
+          null,
+          {},
+          {
+            id: "plugin_valid",
+            frameworks: [null, {}],
+            libraries: [null, {}],
+            declaredCapabilities: ["preview", "bogus"],
+            grantedCapabilities: [null, { reason: "policy" }]
+          }
+        ],
+        pluginErrors: [
+          null,
+          {},
+          { code: "missing-message" },
+          { pluginId: "plugin_valid", code: "preview_skipped", message: "Preview skipped" }
+        ]
+      }
+    } as unknown as CanvasDocument);
+
+    expect(normalized.componentInventory).toEqual([
+      expect.objectContaining({
+        id: "inventory_fallbacks",
+        name: "inventory_fallbacks",
+        componentName: "inventory_fallbacks",
+        sourceFamily: "unknown",
+        origin: "document",
+        framework: null,
+        adapter: null,
+        plugin: null,
+        variants: [
+          {
+            id: "variant_2",
+            name: "Variant 2",
+            selector: {},
+            description: null,
+            metadata: {}
+          }
+        ],
+        props: [
+          {
+            name: "tone",
+            type: null,
+            required: undefined,
+            defaultValue: "brand",
+            description: null,
+            metadata: {}
+          }
+        ],
+        slots: [
+          {
+            name: "slot_2",
+            description: null,
+            allowedKinds: [],
+            metadata: {}
+          }
+        ],
+        events: [
+          {
+            name: "event_2",
+            description: null,
+            payloadShape: undefined,
+            metadata: {}
+          }
+        ],
+        content: {
+          acceptsText: false,
+          acceptsRichText: false,
+          slotNames: [],
+          metadata: {}
+        },
+        metadata: {}
+      })
+    ]);
+    expect(normalized.tokens).toEqual({
+      values: { brand: { primary: "#ffffff" } },
+      collections: [
+        {
+          id: "collection_2",
+          name: "Collection 2",
+          items: [
+            {
+              id: "token_3",
+              path: "brand.primary",
+              value: "#ffffff",
+              type: null,
+              description: null,
+              modes: [
+                {
+                  id: "mode_2",
+                  name: "mode_2",
+                  value: false,
+                  metadata: {}
+                }
+              ],
+              metadata: {}
+            }
+          ],
+          metadata: {}
+        }
+      ],
+      aliases: [
+        {
+          path: "brand.primary.alias",
+          targetPath: "brand.primary",
+          modeId: null,
+          metadata: {}
+        }
+      ],
+      bindings: [
+        {
+          path: "brand.primary",
+          nodeId: null,
+          bindingId: null,
+          property: null,
+          metadata: {}
+        }
+      ],
+      metadata: {}
+    });
+    expect(normalized.meta).toEqual({
+      imports: [
+        {
+          id: "import_4",
+          source: {
+            id: "import_source_4",
+            kind: "figma",
+            label: null,
+            uri: null,
+            sourceDialect: null,
+            frameworkId: null,
+            pluginId: null,
+            adapterIds: [],
+            metadata: {}
+          },
+          importedAt: null,
+          assetReceipts: [
+            {
+              assetId: "asset_receipt_valid",
+              sourceType: "remote",
+              repoPath: null,
+              url: null,
+              status: null,
+              metadata: {}
+            }
+          ],
+          metadata: {}
+        }
+      ],
+      starter: {
+        template: null,
+        frameworkId: null,
+        appliedAt: null,
+        metadata: {}
+      },
+      adapterPlugins: [
+        {
+          id: "plugin_valid",
+          label: null,
+          frameworks: [],
+          libraries: [],
+          declaredCapabilities: ["preview"],
+          grantedCapabilities: [
+            {
+              capability: "preview",
+              granted: false,
+              reason: "policy",
+              metadata: {}
+            }
+          ],
+          metadata: {}
+        }
+      ],
+      pluginErrors: [
+        {
+          pluginId: "plugin_valid",
+          code: "preview_skipped",
+          message: "Preview skipped",
+          details: {}
+        }
+      ],
+      metadata: {}
+    });
+
+    expect(normalizeCanvasDocument({ meta: { starter: false } } as unknown as CanvasDocument).meta.starter).toBeNull();
+    expect(normalizeCanvasDocument({
+      meta: {
+        starter: {
+          template: false
+        }
+      }
+    } as unknown as CanvasDocument).meta.starter).toEqual({
+      template: null,
+      frameworkId: null,
+      appliedAt: null,
+      metadata: {}
+    });
+  });
+
+  it("normalizes anonymous inventory descriptors with generated names and empty defaults", () => {
+    const normalized = normalizeCanvasDocument({
+      componentInventory: [{
+        props: [{ name: "title" }],
+        slots: [{}],
+        events: [{}],
+        content: { acceptsText: true }
+      }]
+    } as unknown as CanvasDocument);
+
+    expect(normalized.componentInventory[0]).toMatchObject({
+      id: "inventory_1",
+      name: "Component 1",
+      componentName: "Component 1",
+      props: [expect.objectContaining({ name: "title", defaultValue: undefined })],
+      slots: [expect.objectContaining({ name: "slot_1" })],
+      events: [expect.objectContaining({ name: "event_1" })]
     });
   });
 
@@ -368,6 +861,1120 @@ describe("canvas document store", () => {
       icons: undefined
     } as unknown as CanvasDocument["designGovernance"]["libraryPolicy"];
     expect(buildGovernanceBlockStates(inheritedStateDocument).libraryPolicy.status).toBe("present");
+  });
+
+  it("promotes imported nodes with sanitized templates, inferred slots, and declared plugins", () => {
+    const document = createDefaultCanvasDocument("dc_promote_imported_inventory");
+    const page = document.pages[0];
+    const pageId = page?.id;
+    const rootNodeId = page?.rootNodeId;
+    if (!page || !pageId || !rootNodeId) {
+      throw new Error("Expected default canvas page");
+    }
+    const rootNode = page.nodes.find((node) => node.id === rootNodeId);
+    if (!rootNode) {
+      throw new Error("Expected default root node");
+    }
+
+    page.nodes.push(
+      {
+        id: "node_imported_card",
+        kind: "note",
+        name: "Imported Card",
+        pageId,
+        parentId: rootNodeId,
+        childIds: ["node_imported_child"],
+        rect: { x: 120, y: 120, width: 320, height: 200 },
+        props: {
+          title: "Imported hero",
+          enabled: true,
+          count: 4,
+          payload: { depth: 2 },
+          choices: ["a", "b"],
+          nullable: null,
+          richText: { ops: [{ insert: "Rich copy" }] }
+        },
+        style: { backgroundColor: "#111827" },
+        tokenRefs: {},
+        bindingRefs: {},
+        variantPatches: [
+          { selector: { size: "lg" }, changes: { style: { backgroundColor: "#111827" } } },
+          { selector: {}, changes: { props: { emphasis: true } } }
+        ],
+        metadata: {
+          importSourceId: "figma://hero-card",
+          pluginId: "plugin_declared",
+          events: [
+            null,
+            { event: "submit", description: "Submit", payloadShape: { ok: true }, extraEvent: "kept" }
+          ],
+          inventory: {
+            template: { legacy: true },
+            source: "preserve"
+          }
+        }
+      },
+      {
+        id: "node_imported_child",
+        kind: "text",
+        name: "Imported Label",
+        pageId,
+        parentId: "node_imported_card",
+        childIds: [],
+        rect: { x: 150, y: 168, width: 160, height: 24 },
+        props: { text: "Hello" },
+        style: {},
+        tokenRefs: {},
+        bindingRefs: {},
+        variantPatches: [],
+        metadata: {
+          inventory: {
+            template: { drop: true }
+          }
+        }
+      }
+    );
+    rootNode.childIds.push("node_imported_card");
+    document.meta.adapterPlugins.push({
+      id: "plugin_declared",
+      label: "Declared Plugin",
+      frameworks: [],
+      libraries: [],
+      declaredCapabilities: [],
+      grantedCapabilities: [],
+      version: "1.0.0",
+      packageName: "@repo/declared-plugin"
+    } as unknown as CanvasDocument["meta"]["adapterPlugins"][number]);
+
+    const store = new CanvasDocumentStore(document);
+    store.setGenerationPlan(validPlan);
+
+    store.applyPatches(2, [{
+      op: "inventory.promote",
+      nodeId: "node_imported_card",
+      itemId: "inventory_imported_card",
+      metadata: {
+        catalogHint: "starter"
+      }
+    }]);
+
+    const item = store.getDocument().componentInventory.find((entry) => entry.id === "inventory_imported_card");
+    expect(item).toMatchObject({
+      id: "inventory_imported_card",
+      name: "Imported Card",
+      componentName: "Imported Card",
+      sourceFamily: "design_import",
+      origin: "import",
+      plugin: {
+        id: "plugin_declared",
+        label: "Declared Plugin",
+        version: "1.0.0",
+        packageName: "@repo/declared-plugin"
+      },
+      content: {
+        acceptsText: true,
+        acceptsRichText: true,
+        slotNames: ["default"]
+      },
+      metadata: {
+        catalogHint: "starter",
+        promotedFromNodeId: "node_imported_card",
+        template: {
+          rootNodeId: "node_imported_card"
+        }
+      }
+    });
+    expect(item?.props).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "choices", type: "array" }),
+      expect.objectContaining({ name: "count", type: "number" }),
+      expect.objectContaining({ name: "enabled", type: "boolean" }),
+      expect.objectContaining({ name: "nullable", type: "null" }),
+      expect.objectContaining({ name: "payload", type: "object" }),
+      expect.objectContaining({ name: "title", type: "string" })
+    ]));
+    expect(item?.variants).toEqual([
+      expect.objectContaining({ name: "size:lg" }),
+      expect.objectContaining({ name: "Variant 2" })
+    ]);
+    expect(item?.slots).toEqual([
+      expect.objectContaining({
+        name: "default",
+        allowedKinds: ["text"],
+        metadata: { childCount: 1 }
+      })
+    ]);
+    expect(item?.events).toEqual([
+      expect.objectContaining({
+        name: "submit",
+        description: "Submit",
+        payloadShape: { ok: true },
+        metadata: { extraEvent: "kept" }
+      })
+    ]);
+    const templateNodes = (item?.metadata.template as { nodes?: Array<{ id: string; metadata: Record<string, unknown> }> }).nodes ?? [];
+    expect(templateNodes.find((node) => node.id === "node_imported_card")?.metadata).toEqual({
+      importSourceId: "figma://hero-card",
+      pluginId: "plugin_declared",
+      events: [
+        null,
+        { event: "submit", description: "Submit", payloadShape: { ok: true }, extraEvent: "kept" }
+      ],
+      inventory: {
+        source: "preserve"
+      }
+    });
+    expect(templateNodes.find((node) => node.id === "node_imported_child")?.metadata).toEqual({});
+  });
+
+  it("promotes figma-only imports with valid origin overrides and undeclared plugin fallbacks", () => {
+    const document = createDefaultCanvasDocument("dc_promote_figma_inventory");
+    const page = document.pages[0];
+    const rootNodeId = page?.rootNodeId;
+    if (!page || !rootNodeId) {
+      throw new Error("Expected default canvas page");
+    }
+    const rootNode = page.nodes.find((node) => node.id === rootNodeId);
+    if (!rootNode) {
+      throw new Error("Expected default root node");
+    }
+
+    page.nodes.push({
+      id: "node_figma_badge",
+      kind: "component-instance",
+      name: "Figma Badge",
+      pageId: page.id,
+      parentId: rootNodeId,
+      childIds: [],
+      rect: { x: 96, y: 96, width: 240, height: 96 },
+      props: { label: "Beta" },
+      style: { backgroundColor: "#111827" },
+      tokenRefs: {},
+      bindingRefs: {},
+      variantPatches: [],
+      metadata: {
+        figmaNodeId: "1:2",
+        pluginId: "plugin_ghost",
+        events: [
+          { description: "Implicit analytics event", payloadShape: "ignored" }
+        ]
+      }
+    });
+    rootNode.childIds.push("node_figma_badge");
+
+    const store = new CanvasDocumentStore(document);
+    store.setGenerationPlan(validPlan);
+
+    store.applyPatches(2, [{
+      op: "inventory.promote",
+      nodeId: "node_figma_badge",
+      itemId: "inventory_figma_badge",
+      origin: "starter"
+    }]);
+
+    const item = store.getDocument().componentInventory.find((entry) => entry.id === "inventory_figma_badge");
+    expect(item).toMatchObject({
+      id: "inventory_figma_badge",
+      sourceFamily: "design_import",
+      origin: "starter",
+      plugin: {
+        id: "plugin_ghost",
+        label: "plugin_ghost",
+        metadata: {}
+      }
+    });
+    expect(item?.events).toEqual([
+      expect.objectContaining({
+        name: "event_1",
+        description: "Implicit analytics event",
+        metadata: {}
+      })
+    ]);
+  });
+
+  it("promotes code-sync nodes with explicit binding metadata and replaces existing inventory entries", () => {
+    const document = createDefaultCanvasDocument("dc_promote_code_sync_inventory");
+    const page = document.pages[0];
+    const rootNodeId = page?.rootNodeId;
+    if (!page || !rootNodeId) {
+      throw new Error("Expected default canvas page");
+    }
+    const rootNode = page.nodes.find((node) => node.id === rootNodeId);
+    if (!rootNode) {
+      throw new Error("Expected default root node");
+    }
+
+    rootNode.name = "Explicit Hero";
+    rootNode.props = { title: "Hero title" };
+    rootNode.variantPatches = [{ selector: {}, changes: { props: { emphasis: true } } }];
+    rootNode.metadata = {
+      sourceKind: "bound_component"
+    };
+    rootNode.bindingRefs.primary = "binding_explicit_inventory";
+    document.bindings.push({
+      id: "binding_explicit_inventory",
+      nodeId: rootNodeId,
+      kind: "code-sync",
+      componentName: "ExplicitHero",
+      metadata: {
+        framework: {
+          frameworkId: "nextjs",
+          name: "Next.js",
+          packageName: "next",
+          adapter: { adapterId: "tsx-react-v1", name: "TSX React v1" },
+          source: "explicit"
+        },
+        adapter: {
+          adapterId: "tsx-react-v1",
+          name: "TSX React v1",
+          version: "2.0.0",
+          packageName: "@opendevbrowser/tsx-react-v1",
+          source: "binding"
+        },
+        plugin: {
+          pluginId: "plugin_explicit",
+          name: "Explicit Plugin",
+          version: "3.1.0",
+          packageName: "@repo/explicit-plugin",
+          source: "binding"
+        },
+        events: [
+          null,
+          { name: "onSave", description: "Save", payloadShape: { draft: true }, extraEvent: "kept" }
+        ]
+      },
+      codeSync: {
+        adapter: "tsx-react-v1",
+        repoPath: "src/ExplicitHero.tsx",
+        exportName: "ExplicitHero",
+        syncMode: "manual",
+        ownership: {
+          structure: "shared",
+          text: "shared",
+          style: "shared",
+          tokens: "shared",
+          behavior: "code",
+          data: "code"
+        }
+      }
+    });
+
+    const store = new CanvasDocumentStore(document);
+    store.setGenerationPlan(validPlan);
+
+    store.applyPatches(2, [{
+      op: "inventory.promote",
+      nodeId: rootNodeId,
+      itemId: "inventory_explicit_hero",
+      origin: "invalid-origin" as never,
+      metadata: "ignored" as never
+    }]);
+    store.applyPatches(3, [{
+      op: "inventory.promote",
+      nodeId: rootNodeId,
+      itemId: "inventory_explicit_hero",
+      name: "Explicit Hero Updated",
+      metadata: {
+        tags: ["updated"]
+      }
+    }]);
+
+    const item = store.getDocument().componentInventory.find((entry) => entry.id === "inventory_explicit_hero");
+    expect(item).toMatchObject({
+      id: "inventory_explicit_hero",
+      name: "Explicit Hero Updated",
+      componentName: "ExplicitHero",
+      sourceKind: "bound_component",
+      sourceFamily: "framework_component",
+      origin: "code_sync",
+      framework: {
+        id: "nextjs",
+        label: "Next.js",
+        packageName: "next",
+        adapter: {
+          id: "tsx-react-v1",
+          label: "TSX React v1"
+        },
+        metadata: { source: "explicit" }
+      },
+      adapter: {
+        id: "tsx-react-v1",
+        label: "TSX React v1",
+        version: "2.0.0",
+        packageName: "@opendevbrowser/tsx-react-v1",
+        metadata: { source: "binding" }
+      },
+      plugin: {
+        id: "plugin_explicit",
+        label: "Explicit Plugin",
+        version: "3.1.0",
+        packageName: "@repo/explicit-plugin",
+        metadata: { source: "binding" }
+      },
+      variants: [expect.objectContaining({ name: "Variant 1" })],
+      events: [
+        expect.objectContaining({
+          name: "onSave",
+          description: "Save",
+          payloadShape: { draft: true },
+          metadata: { extraEvent: "kept" }
+        })
+      ],
+      metadata: {
+        tags: ["updated"]
+      }
+    });
+  });
+
+  it("promotes bindings discovered by node fallback with node-level plugins and default projection metadata", () => {
+    const document = createDefaultCanvasDocument("dc_promote_binding_fallback_inventory");
+    const page = document.pages[0];
+    const rootNodeId = page?.rootNodeId;
+    if (!page || !rootNodeId) {
+      throw new Error("Expected default canvas page");
+    }
+    const rootNode = page.nodes.find((node) => node.id === rootNodeId);
+    if (!rootNode) {
+      throw new Error("Expected default root node");
+    }
+
+    page.nodes.push({
+      id: "node_binding_fallback",
+      kind: "component-instance",
+      name: "Binding Fallback Card",
+      pageId: page.id,
+      parentId: rootNodeId,
+      childIds: [],
+      rect: { x: 144, y: 144, width: 280, height: 160 },
+      props: {
+        title: "Fallback bound"
+      },
+      style: {},
+      tokenRefs: {},
+      bindingRefs: {},
+      variantPatches: [],
+      metadata: {
+        plugin: {
+          pluginId: "plugin_node",
+          name: "Node Plugin",
+          version: "0.4.0",
+          packageName: "@repo/node-plugin",
+          source: "node"
+        }
+      }
+    });
+    rootNode.childIds.push("node_binding_fallback");
+    document.bindings.push({
+      id: "binding_fallback",
+      nodeId: "node_binding_fallback",
+      kind: "code-sync",
+      componentName: "BindingFallbackCard",
+      metadata: {
+        events: [{ name: "submit" }]
+      },
+      codeSync: {
+        adapter: "tsx-react-v1",
+        repoPath: "src/BindingFallbackCard.tsx",
+        exportName: "BindingFallbackCard",
+        syncMode: "manual",
+        ownership: { ...DEFAULT_CODE_SYNC_OWNERSHIP }
+      }
+    });
+
+    const store = new CanvasDocumentStore(document);
+    store.setGenerationPlan(validPlan);
+
+    store.applyPatches(2, [{
+      op: "inventory.promote",
+      nodeId: "node_binding_fallback"
+    }]);
+
+    const item = store.getDocument().componentInventory[0];
+    expect(item?.id).toMatch(/^inventory_/);
+    expect(item).toMatchObject({
+      componentName: "BindingFallbackCard",
+      sourceFamily: "framework_component",
+      origin: "code_sync",
+      framework: {
+        id: "react-tsx",
+        label: "React TSX",
+        packageName: "react"
+      },
+      adapter: {
+        id: "tsx-react-v1",
+        metadata: {
+          repoPath: "src/BindingFallbackCard.tsx",
+          syncMode: "manual",
+          projection: "canvas_html"
+        }
+      },
+      plugin: {
+        id: "plugin_node",
+        label: "Node Plugin",
+        version: "0.4.0",
+        packageName: "@repo/node-plugin",
+        metadata: {
+          source: "node"
+        }
+      }
+    });
+    expect(item?.props).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "title", type: "string" })
+    ]));
+  });
+
+  it("falls back to imported origin for figma-only promotions when the requested origin is invalid", () => {
+    const document = createDefaultCanvasDocument("dc_promote_figma_origin_fallback");
+    const page = document.pages[0];
+    const rootNodeId = page?.rootNodeId;
+    if (!page || !rootNodeId) {
+      throw new Error("Expected default canvas page");
+    }
+    const rootNode = page.nodes.find((node) => node.id === rootNodeId);
+    if (!rootNode) {
+      throw new Error("Expected default root node");
+    }
+
+    page.nodes.push({
+      id: "node_figma_origin_fallback",
+      kind: "component-instance",
+      name: "Imported Badge",
+      pageId: page.id,
+      parentId: rootNodeId,
+      childIds: [],
+      rect: { x: 96, y: 96, width: 180, height: 72 },
+      props: {
+        label: "Imported"
+      },
+      style: {},
+      tokenRefs: {},
+      bindingRefs: {},
+      variantPatches: [],
+      metadata: {
+        figmaNodeId: "42:7"
+      }
+    });
+    rootNode.childIds.push("node_figma_origin_fallback");
+
+    const store = new CanvasDocumentStore(document);
+    store.setGenerationPlan(validPlan);
+
+    store.applyPatches(2, [{
+      op: "inventory.promote",
+      nodeId: "node_figma_origin_fallback",
+      origin: "unsupported-origin" as never
+    }]);
+
+    expect(store.getDocument().componentInventory[0]).toMatchObject({
+      name: "Imported Badge",
+      sourceFamily: "design_import",
+      origin: "import"
+    });
+  });
+
+  it("rejects inventory updates for missing items", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_missing_inventory_update"));
+    store.setGenerationPlan(validPlan);
+
+    expect(() => store.applyPatches(2, [{
+      op: "inventory.update",
+      itemId: "inventory_missing",
+      changes: {
+        description: "Nope"
+      }
+    }])).toThrow("Unknown inventory item: inventory_missing");
+  });
+
+  it("merges starter token stores, upserts inventory items, and persists applied starter metadata", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_starter_patch_support"));
+    store.setGenerationPlan(validPlan);
+
+    const result = store.applyPatches(2, [
+      {
+        op: "tokens.merge",
+        tokens: {
+          values: {
+            surface: {
+              starter: "#0f172a"
+            }
+          },
+          collections: [{
+            id: "kit.dashboard.analytics-core.tokens",
+            name: "Analytics Core Tokens",
+            items: [{
+              id: "surface-card",
+              path: "surface.card",
+              value: "#111827",
+              type: "color",
+              description: null,
+              modes: [],
+              metadata: {}
+            }],
+            metadata: {}
+          }],
+          metadata: {
+            starterKitIds: ["dashboard.analytics-core"]
+          }
+        }
+      },
+      {
+        op: "inventory.upsert",
+        item: {
+          id: "kit.dashboard.analytics-core.metric-card",
+          name: "Analytics Metric Card",
+          componentName: "AnalyticsMetricCard",
+          sourceKind: "built-in-kit",
+          sourceFamily: "starter_template",
+          origin: "starter",
+          framework: {
+            id: "nextjs",
+            label: "Next.js",
+            packageName: "next",
+            adapter: {
+              id: "tsx-react-v1",
+              label: "TSX React v1",
+              packageName: "@opendevbrowser/tsx-react-v1",
+              metadata: {}
+            },
+            metadata: {}
+          },
+          adapter: {
+            id: "tsx-react-v1",
+            label: "TSX React v1",
+            packageName: "@opendevbrowser/tsx-react-v1",
+            metadata: {}
+          },
+          plugin: null,
+          variants: [],
+          props: [],
+          slots: [],
+          events: [],
+          content: {
+            acceptsText: false,
+            acceptsRichText: false,
+            slotNames: [],
+            metadata: {}
+          },
+          metadata: {
+            catalog: {
+              kitId: "dashboard.analytics-core"
+            }
+          }
+        }
+      },
+      {
+        op: "starter.apply",
+        starter: {
+          template: {
+            id: "dashboard.analytics",
+            name: "Analytics Dashboard",
+            description: "Starter for KPI dashboards.",
+            tags: ["dashboard", "analytics"],
+            defaultFrameworkId: "react",
+            compatibleFrameworkIds: ["react", "nextjs", "remix"],
+            kitIds: ["dashboard.analytics-core"],
+            metadata: {}
+          },
+          frameworkId: "nextjs",
+          appliedAt: "2026-03-15T00:00:00.000Z",
+          metadata: {
+            degraded: false
+          }
+        }
+      }
+    ]);
+
+    expect(result.appliedRevision).toBe(3);
+    expect(store.getDocument().tokens).toMatchObject({
+      values: {
+        surface: {
+          starter: "#0f172a"
+        }
+      },
+      collections: [
+        expect.objectContaining({
+          id: "kit.dashboard.analytics-core.tokens",
+          items: [expect.objectContaining({ path: "surface.card", value: "#111827" })]
+        })
+      ],
+      metadata: {
+        starterKitIds: ["dashboard.analytics-core"]
+      }
+    });
+    expect(store.getDocument().componentInventory).toEqual([
+      expect.objectContaining({
+        id: "kit.dashboard.analytics-core.metric-card",
+        framework: expect.objectContaining({ id: "nextjs" })
+      })
+    ]);
+    expect(store.getDocument().meta.starter).toEqual(expect.objectContaining({
+      template: expect.objectContaining({
+        id: "dashboard.analytics",
+        compatibleFrameworkIds: ["react", "nextjs", "remix"],
+        kitIds: ["dashboard.analytics-core"]
+      }),
+      frameworkId: "nextjs",
+      appliedAt: "2026-03-15T00:00:00.000Z",
+      metadata: {
+        degraded: false
+      }
+    }));
+  });
+
+  it("merges token aliases and bindings recursively while replacing inventory upserts by id", () => {
+    const document = createDefaultCanvasDocument("dc_token_merge");
+    document.tokens = {
+      values: {
+        surface: {
+          card: "#111827"
+        },
+        nested: {
+          depth: {
+            base: 1
+          }
+        }
+      },
+      collections: [{
+        id: "collection_existing",
+        name: "Existing Collection",
+        items: [],
+        metadata: {}
+      }],
+      aliases: [{
+        path: "surface.card",
+        targetPath: "surface.base",
+        modeId: null,
+        metadata: {
+          source: "original"
+        }
+      }],
+      bindings: [{
+        path: "surface.card",
+        nodeId: "node_existing",
+        property: "backgroundColor",
+        bindingId: "binding_existing",
+        metadata: {
+          source: "original"
+        }
+      }],
+      metadata: {
+        existing: {
+          enabled: true
+        }
+      }
+    };
+    document.componentInventory.push({
+      id: "inventory_existing",
+      name: "Existing Inventory Item",
+      componentName: "ExistingInventoryItem",
+      description: "Original inventory entry",
+      sourceKind: "canvas_document",
+      sourceFamily: "canvas_document",
+      origin: "document",
+      framework: null,
+      adapter: null,
+      plugin: null,
+      variants: [],
+      props: [],
+      slots: [],
+      events: [],
+      content: {
+        acceptsText: false,
+        acceptsRichText: false,
+        slotNames: [],
+        metadata: {}
+      },
+      metadata: {
+        original: true
+      }
+    });
+
+    const store = new CanvasDocumentStore(document);
+    store.setGenerationPlan(validPlan);
+
+    const result = store.applyPatches(2, [
+      {
+        op: "tokens.merge",
+        tokens: {
+          values: {
+            nested: {
+              depth: {
+                accent: 2
+              }
+            }
+          },
+          aliases: [
+            {
+              path: "surface.card",
+              targetPath: "surface.emphasis",
+              modeId: null,
+              metadata: {
+                source: "merged"
+              }
+            },
+            {
+              path: "surface.card",
+              targetPath: "surface.dark",
+              modeId: "dark",
+              metadata: {}
+            }
+          ],
+          bindings: [
+            {
+              path: "surface.card",
+              nodeId: "node_existing",
+              property: "backgroundColor",
+              bindingId: "binding_existing",
+              metadata: {
+                source: "merged"
+              }
+            },
+            {
+              path: "surface.card",
+              nodeId: "node_new",
+              property: "color",
+              bindingId: "binding_new",
+              metadata: {}
+            }
+          ],
+          metadata: {
+            existing: {
+              updated: true
+            },
+            merged: true
+          }
+        }
+      },
+      {
+        op: "inventory.upsert",
+        item: {
+          id: "inventory_existing",
+          name: "Existing Inventory Item Updated",
+          componentName: "ExistingInventoryItem",
+          description: "Updated inventory entry",
+          sourceKind: "starter_template",
+          sourceFamily: "starter_template",
+          origin: "starter",
+          framework: null,
+          adapter: null,
+          plugin: null,
+          variants: [],
+          props: [],
+          slots: [],
+          events: [],
+          content: {
+            acceptsText: true,
+            acceptsRichText: false,
+            slotNames: [],
+            metadata: {}
+          },
+          metadata: {
+            updated: true
+          }
+        }
+      }
+    ]);
+
+    expect(result.appliedRevision).toBe(3);
+    expect(store.getDocument().tokens).toMatchObject({
+      values: {
+        surface: {
+          card: "#111827"
+        },
+        nested: {
+          depth: {
+            base: 1,
+            accent: 2
+          }
+        }
+      },
+      aliases: expect.arrayContaining([
+        expect.objectContaining({
+          path: "surface.card",
+          targetPath: "surface.emphasis",
+          metadata: {
+            source: "merged"
+          }
+        }),
+        expect.objectContaining({
+          path: "surface.card",
+          targetPath: "surface.dark",
+          modeId: "dark"
+        })
+      ]),
+      bindings: expect.arrayContaining([
+        expect.objectContaining({
+          path: "surface.card",
+          nodeId: "node_existing",
+          bindingId: "binding_existing",
+          metadata: {
+            source: "merged"
+          }
+        }),
+        expect.objectContaining({
+          path: "surface.card",
+          nodeId: "node_new",
+          bindingId: "binding_new"
+        })
+      ]),
+      metadata: {
+        existing: {
+          enabled: true,
+          updated: true
+        },
+        merged: true
+      }
+    });
+    expect(store.getDocument().tokens.aliases).toHaveLength(2);
+    expect(store.getDocument().tokens.bindings).toHaveLength(2);
+    expect(store.getDocument().componentInventory).toEqual([
+      expect.objectContaining({
+        id: "inventory_existing",
+        name: "Existing Inventory Item Updated",
+        description: "Updated inventory entry",
+        origin: "starter",
+        sourceFamily: "starter_template",
+        content: expect.objectContaining({
+          acceptsText: true
+        }),
+        metadata: {
+          updated: true
+        }
+      })
+    ]);
+  });
+
+  it("deduplicates sparse token bindings by fallback key fields and rejects invalid inventory upserts", () => {
+    const document = createDefaultCanvasDocument("dc_sparse_token_bindings");
+    document.tokens.bindings = [{
+      path: "surface.card",
+      metadata: {
+        source: "original"
+      }
+    } as CanvasDocument["tokens"]["bindings"][number]];
+
+    const store = new CanvasDocumentStore(document);
+    store.setGenerationPlan(validPlan);
+
+    store.applyPatches(2, [{
+      op: "tokens.merge",
+      tokens: {
+        bindings: [{
+          path: "surface.card",
+          metadata: {
+            source: "merged"
+          }
+        } as CanvasDocument["tokens"]["bindings"][number]]
+      }
+    }]);
+
+    expect(store.getDocument().tokens.bindings).toEqual([
+      expect.objectContaining({
+        path: "surface.card",
+        metadata: {
+          source: "merged"
+        }
+      })
+    ]);
+
+    expect(() => store.applyPatches(3, [{
+      op: "inventory.upsert",
+      item: null as never
+    }])).toThrow("Invalid inventory item for inventory.upsert");
+  });
+
+  it("promotes imported and code-sync nodes with plugin, type, and metadata inference", () => {
+    const document = createDefaultCanvasDocument("dc_inventory_inference");
+    const page = document.pages[0];
+    const rootNodeId = page?.rootNodeId;
+    if (!page || !rootNodeId) {
+      throw new Error("Expected default page root");
+    }
+
+    const rootNode = page.nodes.find((node) => node.id === rootNodeId);
+    if (!rootNode) {
+      throw new Error("Expected root node");
+    }
+
+    rootNode.childIds.push("node_imported", "node_code_sync");
+    page.nodes.push(
+      {
+        id: "node_imported",
+        kind: "frame",
+        name: "Imported Card",
+        pageId: page.id,
+        parentId: rootNodeId,
+        childIds: ["node_imported_copy"],
+        rect: { x: 120, y: 120, width: 320, height: 180 },
+        props: {
+          enabled: true,
+          count: 3,
+          title: "Imported",
+          config: { mode: "full" },
+          nullable: null
+        },
+        style: {},
+        tokenRefs: {},
+        bindingRefs: {},
+        variantPatches: [],
+        metadata: {
+          importSourceId: "figma_import_1",
+          pluginId: "local-plugin",
+          inventory: {
+            template: {
+              remove: true
+            }
+          },
+          events: [{
+            event: "submit",
+            payloadShape: {
+              ok: true
+            }
+          }]
+        }
+      },
+      {
+        id: "node_imported_copy",
+        kind: "text",
+        name: "Imported Copy",
+        pageId: page.id,
+        parentId: "node_imported",
+        childIds: [],
+        rect: { x: 144, y: 160, width: 180, height: 24 },
+        props: {
+          text: "Hello"
+        },
+        style: {},
+        tokenRefs: {},
+        bindingRefs: {},
+        variantPatches: [],
+        metadata: {}
+      },
+      {
+        id: "node_code_sync",
+        kind: "component-instance",
+        name: "Bound Card",
+        pageId: page.id,
+        parentId: rootNodeId,
+        childIds: [],
+        rect: { x: 480, y: 120, width: 280, height: 160 },
+        props: {
+          label: "Bound"
+        },
+        style: {},
+        tokenRefs: {},
+        bindingRefs: {},
+        variantPatches: [],
+        metadata: {}
+      }
+    );
+    document.bindings.push({
+      id: "binding_bound_card",
+      nodeId: "node_code_sync",
+      kind: "code-sync",
+      componentName: "BoundCard",
+      metadata: {
+        events: [{
+          name: "open"
+        }]
+      },
+      codeSync: {
+        adapter: "tsx-react-v1",
+        repoPath: "src/BoundCard.tsx",
+        exportName: "BoundCard",
+        syncMode: "manual",
+        ownership: { ...DEFAULT_CODE_SYNC_OWNERSHIP }
+      }
+    });
+    document.meta.adapterPlugins.push({
+      id: "local-plugin",
+      label: "Local Plugin",
+      frameworks: [],
+      libraries: [],
+      declaredCapabilities: [],
+      grantedCapabilities: [],
+      metadata: {
+        version: "1.2.3",
+        packageName: "@repo/local-plugin"
+      }
+    });
+
+    const store = new CanvasDocumentStore(document);
+    store.setGenerationPlan(validPlan);
+
+    const result = store.applyPatches(2, [
+      {
+        op: "inventory.promote",
+        nodeId: "node_imported",
+        itemId: "inventory_imported"
+      },
+      {
+        op: "inventory.promote",
+        nodeId: "node_code_sync",
+        itemId: "inventory_bound"
+      }
+    ]);
+
+    expect(result.appliedRevision).toBe(3);
+    expect(store.getDocument().componentInventory).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "inventory_imported",
+        sourceFamily: "design_import",
+        origin: "import",
+        plugin: expect.objectContaining({
+          id: "local-plugin",
+          label: "Local Plugin",
+          version: "1.2.3",
+          packageName: "@repo/local-plugin"
+        }),
+        props: expect.arrayContaining([
+          expect.objectContaining({ name: "enabled", type: "boolean" }),
+          expect.objectContaining({ name: "count", type: "number" }),
+          expect.objectContaining({ name: "title", type: "string" }),
+          expect.objectContaining({ name: "config", type: "object" }),
+          expect.objectContaining({ name: "nullable", type: "null" })
+        ]),
+        events: [
+          expect.objectContaining({
+            name: "submit"
+          })
+        ],
+        metadata: expect.objectContaining({
+          template: expect.objectContaining({
+            rootNodeId: "node_imported"
+          })
+        })
+      }),
+      expect.objectContaining({
+        id: "inventory_bound",
+        sourceFamily: "framework_component",
+        origin: "code_sync",
+        framework: expect.objectContaining({
+          id: "react-tsx",
+          label: "React TSX",
+          packageName: "react"
+        }),
+        adapter: expect.objectContaining({
+          id: "tsx-react-v1",
+          metadata: expect.objectContaining({
+            repoPath: "src/BoundCard.tsx",
+            syncMode: "manual",
+            projection: "canvas_html"
+          })
+        }),
+        events: [
+          expect.objectContaining({
+            name: "open"
+          })
+        ]
+      })
+    ]));
+
+    const imported = store.getDocument().componentInventory.find((item) => item.id === "inventory_imported");
+    expect(imported?.metadata.template).toMatchObject({
+      rootNodeId: "node_imported"
+    });
+    const importedTemplateNodes = (imported?.metadata.template as { nodes?: Array<{ metadata?: Record<string, unknown> }> }).nodes ?? [];
+    expect(importedTemplateNodes[0]?.metadata).not.toHaveProperty("inventory");
   });
 
   it("publishes typed Yjs updates and applies encoded state round-trip", () => {
@@ -612,6 +2219,342 @@ describe("canvas document store", () => {
         }
       }
     ])).toThrow("Policy violation for change root");
+  });
+
+  it("supports editor node hierarchy, duplication, and visibility mutations", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_editor_ops"));
+    const homeRootId = store.getDocument().pages[0]?.rootNodeId as string;
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    store.applyPatches(2, [
+      {
+        op: "node.insert",
+        pageId: "page_home",
+        parentId: homeRootId,
+        node: {
+          id: "node_frame",
+          kind: "frame",
+          name: "Frame",
+          props: {},
+          style: { backgroundColor: "#07111d" }
+        }
+      },
+      {
+        op: "node.insert",
+        pageId: "page_home",
+        parentId: homeRootId,
+        node: {
+          id: "node_sidebar",
+          kind: "frame",
+          name: "Sidebar",
+          props: {},
+          style: { backgroundColor: "#111827" }
+        }
+      },
+      {
+        op: "node.insert",
+        pageId: "page_home",
+        parentId: "node_frame",
+        node: {
+          id: "node_copy",
+          kind: "text",
+          name: "Copy",
+          props: { text: "Governed canvas" },
+          style: { color: "#f8fafc" },
+          tokenRefs: { color: "tokens.theme.primary" },
+          bindingRefs: { primary: "binding_copy" },
+          metadata: {
+            codeSync: {
+              repoPath: "src/app.tsx",
+              selector: "#hero-copy"
+            }
+          }
+        }
+      }
+    ]);
+
+    const result = store.applyPatches(3, [
+      {
+        op: "node.reparent",
+        nodeId: "node_sidebar",
+        parentId: "node_frame",
+        index: 1
+      },
+      {
+        op: "node.reorder",
+        nodeId: "node_sidebar",
+        index: 0
+      },
+      {
+        op: "node.duplicate",
+        nodeId: "node_frame",
+        parentId: homeRootId,
+        index: 1,
+        idMap: {
+          node_frame: "node_frame_copy",
+          node_sidebar: "node_sidebar_copy",
+          node_copy: "node_copy_clone"
+        }
+      },
+      {
+        op: "node.visibility.set",
+        nodeId: "node_copy",
+        hidden: true
+      }
+    ]);
+
+    expect(result.appliedRevision).toBe(4);
+
+    const page = store.getDocument().pages.find((entry) => entry.id === "page_home");
+    expect(page).toBeTruthy();
+
+    const frame = page?.nodes.find((entry) => entry.id === "node_frame");
+    const sidebar = page?.nodes.find((entry) => entry.id === "node_sidebar");
+    const copy = page?.nodes.find((entry) => entry.id === "node_copy");
+    const frameCopy = page?.nodes.find((entry) => entry.id === "node_frame_copy");
+    const sidebarCopy = page?.nodes.find((entry) => entry.id === "node_sidebar_copy");
+    const copyClone = page?.nodes.find((entry) => entry.id === "node_copy_clone");
+
+    expect(frame?.childIds).toEqual(["node_sidebar", "node_copy"]);
+    expect(sidebar).toMatchObject({
+      parentId: "node_frame",
+      pageId: "page_home"
+    });
+    expect(copy?.metadata.visibility).toEqual({ hidden: true });
+
+    expect(frameCopy).toMatchObject({
+      name: "Frame Copy",
+      parentId: homeRootId,
+      childIds: ["node_sidebar_copy", "node_copy_clone"]
+    });
+    expect(sidebarCopy).toMatchObject({
+      name: "Sidebar Copy",
+      parentId: "node_frame_copy"
+    });
+    expect(copyClone).toMatchObject({
+      name: "Copy Copy",
+      parentId: "node_frame_copy",
+      bindingRefs: {},
+      tokenRefs: { color: "tokens.theme.primary" }
+    });
+    expect(copyClone?.metadata.codeSync).toBeUndefined();
+  });
+
+  it("guards hierarchy edge cases and mergeImportedCanvasState fallback branches", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_hierarchy_edges"));
+    const pageId = store.getDocument().pages[0]?.id as string;
+    const rootNodeId = store.getDocument().pages[0]?.rootNodeId as string;
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    const seeded = store.applyPatches(2, [
+      {
+        op: "node.insert",
+        pageId,
+        parentId: rootNodeId,
+        node: {
+          id: "node_parent",
+          kind: "frame",
+          name: "Parent"
+        }
+      },
+      {
+        op: "node.insert",
+        pageId,
+        parentId: "node_parent",
+        node: {
+          id: "node_child",
+          kind: "text",
+          name: "Child"
+        }
+      }
+    ]);
+
+    expect(() => store.applyPatches(seeded.appliedRevision, [{
+      op: "node.reparent",
+      nodeId: "node_parent",
+      parentId: "node_parent"
+    }])).toThrow("Cannot reparent node into itself: node_parent");
+    expect(() => store.applyPatches(seeded.appliedRevision, [{
+      op: "node.reparent",
+      nodeId: "node_parent",
+      parentId: "node_child"
+    }])).toThrow("Cannot reparent node into its own descendant: node_parent");
+    expect(() => store.applyPatches(seeded.appliedRevision, [{
+      op: "node.reparent",
+      nodeId: "node_child",
+      parentId: "node_missing"
+    }])).toThrow("Unknown parent node: node_missing");
+    expect(() => store.applyPatches(seeded.appliedRevision, [{
+      op: "node.reorder",
+      nodeId: rootNodeId,
+      index: 1
+    }])).toThrow("Root node can only exist at index 0.");
+
+    const noOpRootReorder = store.applyPatches(seeded.appliedRevision, [{
+      op: "node.reorder",
+      nodeId: rootNodeId,
+      index: 0
+    }]);
+    expect(noOpRootReorder.appliedRevision).toBe(seeded.appliedRevision + 1);
+
+    expect(() => store.applyPatches(noOpRootReorder.appliedRevision, [{
+      op: "node.duplicate",
+      nodeId: "node_parent",
+      parentId: "node_parent"
+    }])).toThrow("Cannot duplicate node into itself: node_parent");
+    expect(() => store.applyPatches(noOpRootReorder.appliedRevision, [{
+      op: "node.duplicate",
+      nodeId: "node_parent",
+      parentId: "node_child"
+    }])).toThrow("Cannot duplicate node into its own descendant: node_parent");
+
+    const inconsistentDocument = createDefaultCanvasDocument("dc_hierarchy_detached");
+    const inconsistentRootId = inconsistentDocument.pages[0]?.rootNodeId as string;
+    inconsistentDocument.pages[0]?.nodes.push({
+      id: "node_detached_child",
+      kind: "text",
+      name: "Detached",
+      pageId: inconsistentDocument.pages[0]?.id as string,
+      parentId: inconsistentRootId,
+      childIds: [],
+      rect: { x: 0, y: 0, width: 100, height: 40 },
+      props: {},
+      style: {},
+      tokenRefs: {},
+      bindingRefs: {},
+      variantPatches: [],
+      metadata: {}
+    });
+    const inconsistentStore = new CanvasDocumentStore(inconsistentDocument);
+    inconsistentStore.setGenerationPlan(validPlan as CanvasGenerationPlan);
+    expect(() => inconsistentStore.applyPatches(2, [{
+      op: "node.reorder",
+      nodeId: "node_detached_child",
+      index: 0
+    }])).toThrow("Node is not attached to its parent: node_detached_child");
+
+    const importedPage = {
+      id: "page_imported",
+      name: "Imported",
+      path: "/imported",
+      rootNodeId: null,
+      prototypeIds: [],
+      nodes: [],
+      metadata: {}
+    };
+    const provenance = {
+      id: "import_figma_1",
+      source: {
+        id: "figma:file",
+        kind: "figma.file",
+        label: "Figma File",
+        uri: "https://www.figma.com/file/abc",
+        sourceDialect: "figma-rest",
+        frameworkId: null,
+        pluginId: null,
+        adapterIds: [],
+        metadata: {}
+      },
+      importedAt: "2026-03-15T12:00:00.000Z",
+      assetReceipts: [],
+      metadata: {}
+    };
+    const current = createDefaultCanvasDocument("dc_merge_import");
+
+    const appended = mergeImportedCanvasState(current, {
+      mode: "append_pages",
+      pages: [importedPage],
+      componentInventory: [{
+        id: "inventory_imported_card",
+        name: "Imported Card",
+        componentName: "ImportedCard",
+        sourceFamily: "design_import",
+        sourceKind: "figma_component",
+        origin: "import",
+        variants: [],
+        props: [],
+        slots: [],
+        events: [],
+        content: {
+          acceptsText: false,
+          acceptsRichText: false,
+          slotNames: [],
+          metadata: {}
+        },
+        metadata: {}
+      }, {} as never],
+      tokens: {
+        values: { "colors/brand": "#111827" },
+        collections: [{
+          id: "collection_imported",
+          name: "Imported",
+          items: [{
+            id: "token_brand",
+            path: "colors/brand",
+            value: "#111827",
+            type: "color",
+            description: null,
+            modes: [],
+            metadata: {}
+          }],
+          metadata: {}
+        }],
+        aliases: [],
+        bindings: [],
+        metadata: {}
+      },
+      assets: [{
+        id: "asset_imported",
+        sourceType: "remote",
+        kind: "image",
+        repoPath: ".opendevbrowser/canvas/assets/imported.png",
+        url: "https://cdn.example.com/imported.png",
+        status: "cached",
+        variants: [],
+        metadata: {}
+      }],
+      provenance
+    });
+    expect(appended.pages.map((page) => page.id)).toContain("page_imported");
+    expect(appended.componentInventory.map((item) => item.id)).toContain("inventory_imported_card");
+    expect(appended.tokens.values).toMatchObject({ "colors/brand": "#111827" });
+    expect(appended.assets.map((asset) => asset.id)).toContain("asset_imported");
+    expect(appended.meta.imports.map((entry) => entry.id)).toContain("import_figma_1");
+
+    const replacedExisting = mergeImportedCanvasState(appended, {
+      mode: "replace_current_page",
+      targetPageId: "page_home",
+      pages: [{ ...importedPage, id: "page_replaced", name: "Replaced", path: "/replaced" }],
+      componentInventory: [],
+      provenance: {
+        ...provenance,
+        id: "import_figma_2"
+      }
+    });
+    expect(replacedExisting.pages[0]?.id).toBe("page_replaced");
+
+    const replacedMissing = mergeImportedCanvasState(appended, {
+      mode: "replace_current_page",
+      targetPageId: "page_missing",
+      pages: [{ ...importedPage, id: "page_fallback", name: "Fallback", path: "/fallback" }],
+      componentInventory: [],
+      provenance: {
+        ...provenance,
+        id: "import_figma_3"
+      }
+    });
+    expect(replacedMissing.pages.map((page) => page.id)).toContain("page_fallback");
+
+    const replaceNoPages = mergeImportedCanvasState(appended, {
+      mode: "replace_current_page",
+      pages: [],
+      componentInventory: [],
+      provenance: {
+        ...provenance,
+        id: "import_figma_4"
+      }
+    });
+    expect(replaceNoPages.pages).toHaveLength(appended.pages.length);
   });
 
   it("upserts variant patches, bindings, assets, and prototypes", () => {
@@ -1157,7 +3100,13 @@ describe("canvas document store", () => {
       { id: "mobile" }
     ] as CanvasDocument["viewports"];
     document.themes = [{ id: 1 as unknown as string }] as CanvasDocument["themes"];
-    document.tokens = { theme: { primary: "#ffffff" } };
+    document.tokens = {
+      values: { theme: { primary: "#ffffff" } },
+      collections: [],
+      aliases: [],
+      bindings: [],
+      metadata: {}
+    };
     rootNode.tokenRefs = {
       color: "theme.primary",
       accent: 7 as unknown as string
@@ -1251,6 +3200,193 @@ describe("canvas document store", () => {
       })],
       metadata: { source: "test" }
     });
+  });
+
+  it("emits specific missing warning codes for empty required governance blocks", () => {
+    const document = createDefaultCanvasDocument("dc_missing_warning_codes");
+    document.designGovernance.contentModel = { requiredStates: ["default", "loading", "empty", "error"] };
+    document.designGovernance.layoutSystem = { grid: { columns: 12 } };
+    document.designGovernance.colorSystem = { roles: { primary: "#0055ff" } };
+    document.designGovernance.surfaceSystem = { panels: { elevation: "medium" } };
+    document.designGovernance.iconSystem = { primary: "tabler" };
+    document.designGovernance.motionSystem = { reducedMotion: "respect-user-preference" };
+    document.designGovernance.responsiveSystem = { breakpoints: { mobile: 390, tablet: 1024, desktop: 1440 } };
+    document.designGovernance.accessibilityPolicy = { reducedMotion: "respect-user-preference" };
+
+    const warnings = evaluateCanvasWarnings(document, { forSave: true });
+    const codes = warnings.map((warning) => warning.code);
+
+    expect(codes).toEqual(expect.arrayContaining([
+      "missing-generation-plan",
+      "missing-intent",
+      "missing-design-language",
+      "missing-typography-system"
+    ]));
+
+    const validation = validateCanvasSave(document);
+    expect(validation.missingBlocks).toEqual([
+      "intent",
+      "generationPlan",
+      "designLanguage",
+      "typographySystem"
+    ]);
+    expect(validation.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "missing-generation-plan" }),
+      expect.objectContaining({ code: "missing-intent" }),
+      expect.objectContaining({ code: "missing-design-language" }),
+      expect.objectContaining({ code: "missing-typography-system" })
+    ]));
+  });
+
+  it("keeps root placement stable during root reparenting and rejects duplicate roots", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_root_reparent_duplicate"));
+    const pageId = store.getDocument().pages[0]?.id as string;
+    const rootNodeId = store.getDocument().pages[0]?.rootNodeId as string;
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    const seeded = store.applyPatches(2, [
+      {
+        op: "node.insert",
+        pageId,
+        parentId: rootNodeId,
+        node: {
+          id: "node_parent",
+          kind: "frame",
+          name: "Parent"
+        }
+      },
+      {
+        op: "node.insert",
+        pageId,
+        parentId: "node_parent",
+        node: {
+          id: "node_child",
+          kind: "text",
+          name: "Child"
+        }
+      }
+    ]);
+
+    const reparented = store.applyPatches(seeded.appliedRevision, [{
+      op: "node.reparent",
+      nodeId: rootNodeId,
+      parentId: null
+    }]);
+    expect(store.getDocument().pages[0]?.rootNodeId).toBe(rootNodeId);
+
+    const duplicated = store.applyPatches(reparented.appliedRevision, [{
+      op: "node.duplicate",
+      nodeId: "node_child"
+    }]);
+    const parentChildren = store.getDocument().pages[0]?.nodes.filter((node) => node.parentId === "node_parent") ?? [];
+    expect(parentChildren.map((node) => node.name)).toEqual(expect.arrayContaining(["Child", "Child Copy"]));
+
+    expect(() => store.applyPatches(duplicated.appliedRevision, [{
+      op: "node.duplicate",
+      nodeId: "node_child",
+      parentId: null
+    }])).toThrow(`Page already has a root node: ${pageId}`);
+  });
+
+  it("rejects invalid sibling indexes and broken duplicate descendants", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_invalid_sibling_index"));
+    const pageId = store.getDocument().pages[0]?.id as string;
+    const rootNodeId = store.getDocument().pages[0]?.rootNodeId as string;
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    const seeded = store.applyPatches(2, [
+      {
+        op: "node.insert",
+        pageId,
+        parentId: rootNodeId,
+        node: {
+          id: "node_parent",
+          kind: "frame",
+          name: "Parent"
+        }
+      },
+      {
+        op: "node.insert",
+        pageId,
+        parentId: "node_parent",
+        node: {
+          id: "node_child",
+          kind: "text",
+          name: "Child"
+        }
+      }
+    ]);
+
+    expect(() => store.applyPatches(seeded.appliedRevision, [{
+      op: "node.reorder",
+      nodeId: "node_child",
+      index: -1
+    }])).toThrow("Invalid sibling index: -1");
+
+    const brokenDocument = createDefaultCanvasDocument("dc_duplicate_missing_descendant");
+    const brokenPage = brokenDocument.pages[0];
+    if (!brokenPage) {
+      throw new Error("Expected default page");
+    }
+    const brokenRootId = brokenPage.rootNodeId;
+    if (!brokenRootId) {
+      throw new Error("Expected default root node");
+    }
+    const brokenRoot = brokenPage.nodes.find((node) => node.id === brokenRootId);
+    if (!brokenRoot) {
+      throw new Error("Expected default root payload");
+    }
+    brokenRoot.childIds.push("node_parent");
+    brokenPage.nodes.push({
+      id: "node_parent",
+      kind: "frame",
+      name: "Parent",
+      pageId: brokenPage.id,
+      parentId: brokenRootId,
+      childIds: ["node_missing"],
+      rect: { x: 0, y: 0, width: 240, height: 120 },
+      props: {},
+      style: {},
+      tokenRefs: {},
+      bindingRefs: {},
+      variantPatches: [],
+      metadata: {}
+    });
+
+    const brokenStore = new CanvasDocumentStore(brokenDocument);
+    brokenStore.setGenerationPlan(validPlan as CanvasGenerationPlan);
+    expect(() => brokenStore.applyPatches(2, [{
+      op: "node.duplicate",
+      nodeId: "node_parent"
+    }])).toThrow("Unknown node: node_missing");
+  });
+
+  it("exposes document ids, supports governance updates, and reloads documents", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_governance_methods"));
+    expect(store.getDocumentId()).toBe("dc_governance_methods");
+
+    const patchResult = store.applyPatches(1, [{
+      op: "governance.update",
+      block: "intent",
+      changes: {
+        summary: "Governed from patch",
+        "metadata.owner": "qa"
+      }
+    }]);
+
+    expect(patchResult.appliedRevision).toBe(2);
+    expect(store.getDocument().designGovernance.intent).toEqual({
+      summary: "Governed from patch",
+      metadata: { owner: "qa" }
+    });
+
+    const replacement = createDefaultCanvasDocument("dc_reloaded");
+    replacement.designGovernance.generationPlan = structuredClone(validPlan);
+    store.loadDocument(replacement);
+
+    expect(store.getDocumentId()).toBe("dc_reloaded");
+    expect(store.getRevision()).toBe(1);
+    expect(store.getDocument().designGovernance.generationPlan).toEqual(validPlan);
   });
 
 });

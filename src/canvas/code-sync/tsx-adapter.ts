@@ -8,6 +8,7 @@ import type {
   CodeSyncSourceLocator,
   CodeSyncUnsupportedFragment
 } from "./types";
+import { normalizeCodeSyncBindingMetadata } from "./types";
 
 type ParsedTsxBinding = {
   graph: CodeSyncGraph;
@@ -273,7 +274,7 @@ function walkJsx(state: BuildState, astPath: string, node: ts.JsxChild | ts.JsxE
 
 function findBoundJsxRoot(sourceFile: ts.SourceFile, sourceText: string, metadata: CanvasCodeSyncBindingMetadata): BoundJsxRoot {
   if (!metadata.exportName) {
-    throw new Error("tsx-react-v1 requires codeSync.exportName.");
+    throw new Error("React TSX bindings require codeSync.exportName.");
   }
   const exportName = metadata.exportName;
   const statements = sourceFile.statements;
@@ -281,7 +282,7 @@ function findBoundJsxRoot(sourceFile: ts.SourceFile, sourceText: string, metadat
     if (ts.isFunctionDeclaration(statement) && statement.name?.text === exportName) {
       const jsx = readReturnedJsx(statement.body);
       if (jsx) {
-        return { jsx, rootLocator: { exportName }, astPath: `export:${exportName}` };
+        return { jsx, rootLocator: { kind: "react-export", exportName }, astPath: `export:${exportName}` };
       }
     }
     if (ts.isVariableStatement(statement)) {
@@ -291,14 +292,14 @@ function findBoundJsxRoot(sourceFile: ts.SourceFile, sourceText: string, metadat
         }
         const jsx = readReturnedJsxFromExpression(declaration.initializer);
         if (jsx) {
-          return { jsx, rootLocator: { exportName }, astPath: `export:${exportName}` };
+          return { jsx, rootLocator: { kind: "react-export", exportName }, astPath: `export:${exportName}` };
         }
       }
     }
     if (ts.isExportAssignment(statement)) {
       const jsx = readReturnedJsxFromExpression(statement.expression);
       if (jsx && exportName === "default") {
-        return { jsx, rootLocator: { exportName }, astPath: "export:default" };
+        return { jsx, rootLocator: { kind: "react-export", exportName }, astPath: "export:default" };
       }
     }
   }
@@ -347,6 +348,7 @@ export function parseTsxCodeSyncBinding(
   bindingId: string,
   metadata: CanvasCodeSyncBindingMetadata
 ): ParsedTsxBinding {
+  const normalizedMetadata = normalizeCodeSyncBindingMetadata(metadata);
   const sourceFile = ts.createSourceFile(repoPath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const diagnostics = (sourceFile as ts.SourceFile & { parseDiagnostics: readonly ts.DiagnosticWithLocation[] }).parseDiagnostics
     .filter((diagnostic: ts.DiagnosticWithLocation) => diagnostic.category === ts.DiagnosticCategory.Error);
@@ -354,7 +356,7 @@ export function parseTsxCodeSyncBinding(
     const message = ts.flattenDiagnosticMessageText(diagnostics[0]!.messageText, "\n");
     throw new Error(`TSX parse failed: ${message}`);
   }
-  const boundRoot = findBoundJsxRoot(sourceFile, sourceText, metadata);
+  const boundRoot = findBoundJsxRoot(sourceFile, sourceText, normalizedMetadata);
   const state: BuildState = {
     sourceFile,
     sourceText,
@@ -366,13 +368,19 @@ export function parseTsxCodeSyncBinding(
   const rootNode = walkJsx(state, boundRoot.astPath, boundRoot.jsx);
   return {
     graph: {
-      adapter: metadata.adapter,
+      adapter: normalizedMetadata.adapter,
+      frameworkAdapterId: normalizedMetadata.frameworkAdapterId,
+      frameworkId: normalizedMetadata.frameworkId,
+      sourceFamily: normalizedMetadata.sourceFamily,
       bindingId,
       repoPath,
       rootKey: rootNode.key,
       nodes: state.nodes,
       sourceHash: hashCodeSyncValue(sourceText),
-      unsupportedFragments: state.unsupportedFragments
+      unsupportedFragments: state.unsupportedFragments,
+      libraryAdapterIds: [...normalizedMetadata.libraryAdapterIds],
+      declaredCapabilities: [...normalizedMetadata.declaredCapabilities],
+      grantedCapabilities: normalizedMetadata.grantedCapabilities.map((entry) => ({ ...entry }))
     },
     rootLocator: boundRoot.rootLocator
   };

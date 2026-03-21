@@ -1,0 +1,32 @@
+{
+  "surfaces": [
+    "managed",
+    "extension",
+    "cdpConnect"
+  ],
+  "designTasks": [
+    {
+      "id": "canvas-hero-refine",
+      "goal": "Refine a live canvas document and validate preview fidelity"
+    },
+    {
+      "id": "page-ui-audit",
+      "goal": "Review a real page for hierarchy, states, and accessibility"
+    },
+    {
+      "id": "responsive-proof",
+      "goal": "Prove the design works at mobile, tablet, and desktop widths"
+    }
+  ],
+  "evidence": [
+    "snapshot",
+    "screenshot",
+    "debug-trace-snapshot",
+    "feedback-poll"
+  ],
+  "blockers": [
+    "restricted-origin",
+    "extension-not-ready",
+    "missing-runtime-proof"
+  ]
+}

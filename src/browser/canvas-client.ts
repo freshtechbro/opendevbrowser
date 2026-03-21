@@ -223,6 +223,10 @@ export class CanvasClient {
     this.pendingChunks.clear();
   }
 
+  hasPendingRequests(): boolean {
+    return this.pendingRequests.size > 0;
+  }
+
   async request<T>(
     command: string,
     payload?: unknown,

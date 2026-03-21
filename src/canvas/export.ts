@@ -1,5 +1,11 @@
 import { resolveCanvasLibraryPolicy } from "./document-store";
 import { CANVAS_SURFACE_TOKENS, CANVAS_SURFACE_TOKEN_VARIABLES } from "./surface-palette";
+import {
+  collectCanvasTokenDefinitions,
+  readCanvasTokenPath,
+  stringifyTokenCssValue,
+  tokenPathToCssVar
+} from "./token-references";
 import type { CanvasBinding, CanvasDocument, CanvasNode, CanvasPage, CanvasParityArtifact, CanvasRect } from "./types";
 
 type RenderElement = {
@@ -90,6 +96,42 @@ const renderSurfaceTokenStyles = (): string => [
   `}`
 ].join(" ");
 
+const renderDocumentTokenStyles = (document: CanvasDocument): string => {
+  const definitions = collectCanvasTokenDefinitions(document.tokens);
+  const lines = [
+    renderSurfaceTokenStyles()
+  ];
+  if (definitions.base.length > 0) {
+    lines.push(
+      [
+        ":root {",
+        ...definitions.base.flatMap((entry) => {
+          const cssValue = stringifyTokenCssValue(entry.value);
+          return cssValue ? [`  ${entry.cssCustomProperty}: ${cssValue};`] : [];
+        }),
+        "}"
+      ].join("\n")
+    );
+  }
+  for (const [modeId, entries] of definitions.byMode.entries()) {
+    const declarations = entries.flatMap((entry) => {
+      const cssValue = stringifyTokenCssValue(entry.value);
+      return cssValue ? [`  ${entry.cssCustomProperty}: ${cssValue};`] : [];
+    });
+    if (declarations.length === 0) {
+      continue;
+    }
+    lines.push(
+      [
+        `[data-token-mode~="${modeId}"], [data-theme="${modeId}"] {`,
+        ...declarations,
+        "}"
+      ].join("\n")
+    );
+  }
+  return lines.join("\n");
+};
+
 const escapeHtml = (value: string): string => value
   .replaceAll("&", "&amp;")
   .replaceAll("<", "&lt;")
@@ -106,6 +148,8 @@ const slugify = (value: string): string => value
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 const readString = (value: unknown): string | null => typeof value === "string" && value.trim().length > 0 ? value : null;
+
+const readActiveTokenModeId = (document: CanvasDocument): string | null => readString(document.tokens.metadata.activeModeId);
 
 const readBoolean = (value: unknown): boolean | null => {
   if (typeof value === "boolean") {
@@ -425,6 +469,12 @@ const buildNodeStyle = (
     }
     return acc;
   }, {});
+  for (const [property, tokenRef] of Object.entries(node.tokenRefs)) {
+    const tokenPath = readCanvasTokenPath(tokenRef);
+    if (tokenPath) {
+      style[property] = tokenPathToCssVar(tokenPath);
+    }
+  }
   if (text.includes("\n") && style.whiteSpace === undefined) {
     style.whiteSpace = "pre-line";
   }
@@ -1086,8 +1136,8 @@ const renderTailwindUtilityStyles = (): string => [
   ".text-slate-100 { color: #f1f5f9; }"
 ].join("\n    ");
 
-const renderDocumentStyles = (tailwindEnabled: boolean): string => [
-  renderSurfaceTokenStyles(),
+const renderDocumentStyles = (document: CanvasDocument, tailwindEnabled: boolean): string => [
+  renderDocumentTokenStyles(document),
   "html, body { min-height: 100%; }",
   "html { scroll-behavior: smooth; }",
   "body { margin: 0; font-family: \"Segoe UI\", sans-serif; background: var(--surface-bg); color: var(--surface-text); }",
@@ -1128,6 +1178,7 @@ const renderDocumentStyles = (tailwindEnabled: boolean): string => [
 
 export function renderCanvasDocumentHtml(document: CanvasDocument, options: RenderHtmlOptions = {}): string {
   const tailwindEnabled = resolveCanvasLibraryPolicy(document).styling.includes(TAILWIND_STYLING_LIBRARY);
+  const activeModeId = readActiveTokenModeId(document);
   const pageFilter = options.pageIds && options.pageIds.length > 0
     ? new Set(options.pageIds)
     : null;
@@ -1136,7 +1187,10 @@ export function renderCanvasDocumentHtml(document: CanvasDocument, options: Rend
     .map((page) => emitHtml(buildPageElement(document, page)))
     .join("\n");
   const libraryAttrs = renderLibraryAttributes(document);
-  const rootAttrs = renderRootAttributes(options.rootAttributes);
+  const rootAttrs = renderRootAttributes({
+    ...(activeModeId ? { "data-token-mode": activeModeId, "data-theme": activeModeId } : {}),
+    ...(options.rootAttributes ?? {})
+  });
   const rootClasses = appendUtilityClasses(["odb-canvas-root"], tailwindEnabled, ["min-h-screen", "w-full", "bg-white", "text-slate-950", "antialiased"]).join(" ");
   return [
     "<!doctype html>",
@@ -1147,7 +1201,7 @@ export function renderCanvasDocumentHtml(document: CanvasDocument, options: Rend
     ...(options.baseHref ? [`  <base href="${escapeHtml(options.baseHref)}" />`] : []),
     `  <title>${escapeHtml(document.title)}</title>`,
     "  <style>",
-    `    ${renderDocumentStyles(tailwindEnabled)}`,
+    `    ${renderDocumentStyles(document, tailwindEnabled)}`,
     "  </style>",
     "</head>",
     "<body>",
@@ -1161,13 +1215,15 @@ export function renderCanvasDocumentHtml(document: CanvasDocument, options: Rend
 
 export function renderCanvasDocumentComponent(document: CanvasDocument): string {
   const tailwindEnabled = resolveCanvasLibraryPolicy(document).styling.includes(TAILWIND_STYLING_LIBRARY);
+  const activeModeId = readActiveTokenModeId(document);
   const pages = document.pages.map((page) => emitTsx(buildPageElement(document, page), 2)).join("\n");
   const libraryAttrs = renderLibraryAttributes(document);
+  const tokenAttrs = activeModeId ? ` data-token-mode="${escapeHtml(activeModeId)}" data-theme="${escapeHtml(activeModeId)}"` : "";
   const rootClasses = appendUtilityClasses(["odb-canvas-root"], tailwindEnabled, ["min-h-screen", "w-full", "bg-white", "text-slate-950", "antialiased"]).join(" ");
   return [
     "export function OpenDevBrowserCanvasDocument() {",
     "  return (",
-    `    <main className=\"${rootClasses}\" data-document-id=\"${escapeHtml(document.documentId)}\"${libraryAttrs}>`,
+    `    <main className=\"${rootClasses}\" data-document-id=\"${escapeHtml(document.documentId)}\"${libraryAttrs}${tokenAttrs}>`,
     pages,
     "    </main>",
     "  );",

@@ -1,10 +1,15 @@
 import { randomUUID } from "crypto";
 import { mkdir } from "fs/promises";
 import { dirname } from "path";
+import type { Page } from "playwright-core";
 import type { OpenDevBrowserConfig } from "../config";
 import type { RelayLike } from "../relay/relay-types";
 import { resolveRelayEndpoint } from "../relay/relay-endpoints";
-import type { BrowserManagerLike } from "./manager-types";
+import type {
+  BrowserCanvasOverlayResult,
+  BrowserCanvasOverlaySelection,
+  BrowserManagerLike
+} from "./manager-types";
 import { CanvasClient } from "./canvas-client";
 import {
   buildDocumentContext,
@@ -13,6 +18,7 @@ import {
   CanvasDocumentStore,
   createDefaultCanvasDocument,
   evaluateCanvasWarnings,
+  mergeImportedCanvasState,
   missingRequiredSaveBlocks,
   normalizeCanvasDocument,
   readCanvasIconRoles,
@@ -26,28 +32,75 @@ import {
   renderCanvasDocumentComponent,
   renderCanvasDocumentHtml
 } from "../canvas/export";
+import {
+  BUILT_IN_CANVAS_KITS,
+  listBuiltInCanvasInventoryItems,
+  listBuiltInCanvasKitIds
+} from "../canvas/kits/catalog";
 import { loadCanvasDocument, loadCanvasDocumentById, resolveCanvasRepoPath, saveCanvasDocument } from "../canvas/repo-store";
+import {
+  getBuiltInCanvasStarterDefinition,
+  listBuiltInCanvasStarterTemplates
+} from "../canvas/starters/catalog";
 import type {
+  CanvasAdapterCapability,
+  CanvasAdapterErrorEnvelope,
   CanvasBlocker,
   CanvasBinding,
+  CanvasCapabilityGrant,
+  CanvasComponentInventoryItem,
   CanvasDegradeReason,
   CanvasDocument,
+  CanvasDocumentImportMode,
+  CanvasDocumentImportRequest,
+  CanvasDocumentImportResult,
+  CanvasFeedbackCompleteReason,
+  CanvasFeedbackEvent,
   CanvasFeedbackItem,
+  CanvasHistoryDirection,
+  CanvasInventoryOrigin,
+  CanvasImportFailureCode,
+  CanvasImportProvenance,
+  CanvasImportSource,
+  CanvasFeedbackSubscribeResult,
+  CanvasFeedbackUnsubscribeResult,
+  CanvasNode,
+  CanvasPage,
   CanvasPatch,
   CanvasPlanStatus,
   CanvasPreflightState,
   CanvasPreviewState,
+  CanvasRect,
   CanvasPrototype,
   CanvasSessionMode,
   CanvasSessionSummary,
+  CanvasStarterTemplate,
   CanvasTargetState,
   CanvasValidationWarning
 } from "../canvas/types";
 import { CANVAS_SCHEMA_VERSION } from "../canvas/types";
 import { CanvasCodeSyncManager } from "./canvas-code-sync-manager";
 import { CanvasSessionSyncManager } from "./canvas-session-sync-manager";
-import type { CodeSyncAttachMode, CodeSyncOwnership, CodeSyncResolutionPolicy } from "../canvas/code-sync/types";
+import {
+  inferBuiltInFrameworkAdapterIdFromPath,
+  isCodeSyncCapability,
+  normalizeCodeSyncCapabilityGrant,
+  normalizeCodeSyncRootLocator,
+  normalizeFrameworkAdapterIdentity
+} from "../canvas/code-sync/types";
+import type {
+  CodeSyncAttachMode,
+  CodeSyncCapability,
+  CodeSyncCapabilityGrant,
+  CodeSyncOwnership,
+  CodeSyncResolutionPolicy
+} from "../canvas/code-sync/types";
 import { applyRuntimePreviewBridge } from "./canvas-runtime-preview-bridge";
+import { FigmaClient, isFigmaClientError } from "../integrations/figma/client";
+import { materializeFigmaAssets } from "../integrations/figma/assets";
+import { normalizeFigmaImportRequest } from "../integrations/figma/url";
+import { mapFigmaImportToCanvas } from "../integrations/figma/mappers";
+import { mapFigmaVariablesToTokenStore } from "../integrations/figma/variables";
 
 type CanvasCommandParams = Record<string, unknown>;
 
@@ -60,9 +113,16 @@ export const PUBLIC_CANVAS_COMMANDS = [
   "canvas.plan.set",
   "canvas.plan.get",
   "canvas.document.load",
+  "canvas.document.import",
   "canvas.document.patch",
+  "canvas.history.undo",
+  "canvas.history.redo",
   "canvas.document.save",
   "canvas.document.export",
+  "canvas.inventory.list",
+  "canvas.inventory.insert",
+  "canvas.starter.list",
+  "canvas.starter.apply",
   "canvas.tab.open",
   "canvas.tab.close",
   "canvas.overlay.mount",
@@ -72,6 +132,8 @@ export const PUBLIC_CANVAS_COMMANDS = [
   "canvas.preview.refresh",
   "canvas.feedback.poll",
   "canvas.feedback.subscribe",
+  "canvas.feedback.next",
+  "canvas.feedback.unsubscribe",
   "canvas.code.bind",
   "canvas.code.unbind",
   "canvas.code.pull",
@@ -80,12 +142,40 @@ export const PUBLIC_CANVAS_COMMANDS = [
   "canvas.code.resolve"
 ] as const;
 
+type CanvasEditorViewportState = {
+  x: number;
+  y: number;
+  zoom: number;
+};
+
+type CanvasHistoryEntry = {
+  id: string;
+  source: PreviewSyncSource;
+  createdAt: string;
+  forwardPatches: CanvasPatch[];
+  inversePatches: CanvasPatch[];
+  beforeSelection: CanvasSession["editorSelection"];
+  afterSelection: CanvasSession["editorSelection"];
+  beforeViewport: CanvasEditorViewportState;
+  afterViewport: CanvasEditorViewportState;
+  expectedUndoRevision: number;
+  expectedRedoRevision: number | null;
+};
+
+type CanvasHistoryStateInternal = {
+  undoStack: CanvasHistoryEntry[];
+  redoStack: CanvasHistoryEntry[];
+  depthLimit: number;
+};
+
 type CanvasSession = {
   canvasSessionId: string;
   browserSessionId: string | null;
+  repoRoot: string;
   documentRepoPath: string | null;
   leaseId: string;
   mode: CanvasSessionMode;
+  usesCanvasRelay: boolean;
   store: CanvasDocumentStore;
   preflightState: CanvasPreflightState;
   planStatus: CanvasPlanStatus;
@@ -100,26 +190,12 @@ type CanvasSession = {
     targetId: string | null;
     updatedAt: string | null;
   };
+  editorViewport: CanvasEditorViewportState;
+  history: CanvasHistoryStateInternal;
   feedbackSubscriptions: Map<string, CanvasFeedbackSubscription>;
 };
 
-type CanvasFeedbackStreamEvent =
-  | {
-    eventType: "feedback.item";
-    item: CanvasFeedbackItem;
-  }
-  | {
-    eventType: "feedback.heartbeat";
-    cursor: string | null;
-    ts: string;
-    activeTargetIds: string[];
-  }
-  | {
-    eventType: "feedback.complete";
-    cursor: string | null;
-    ts: string;
-    reason: "session_closed" | "lease_revoked" | "subscription_replaced" | "document_unloaded";
-  };
+type CanvasFeedbackStreamEvent = CanvasFeedbackEvent;
 
 type CanvasFeedbackSubscription = {
   id: string;
@@ -129,24 +205,12 @@ type CanvasFeedbackSubscription = {
   waiters: Array<(event: CanvasFeedbackStreamEvent | null) => void>;
   cursor: string | null;
   heartbeatTimer: NodeJS.Timeout;
+  heartbeatMs: number;
+  lastHeartbeatAt: number;
   active: boolean;
 };
 
-type ExtensionOverlayResult = {
-  mountId?: string;
-  targetId?: string;
-  overlayState?: string;
-  previewState?: CanvasPreviewState;
-  capabilities?: Record<string, unknown>;
-  selection?: Record<string, unknown>;
-  warnings?: CanvasValidationWarning[];
-  ok?: boolean;
-};
-
-type DirectPageLike = {
-  addStyleTag: (options: { content: string }) => Promise<unknown>;
-  evaluate: <TArg, TResult>(pageFunction: (arg: TArg) => TResult | Promise<TResult>, arg: TArg) => Promise<TResult>;
-};
+type ExtensionOverlayResult = BrowserCanvasOverlayResult;
 
 type PreviewSyncSource = "agent" | "editor";
 
@@ -177,9 +241,15 @@ const DIRECT_OVERLAY_STYLE = `
   outline-offset: 3px !important;
 }
 `;
+const DIRECT_OVERLAY_ROOT_ID = "opendevbrowser-canvas-overlay";
+const DIRECT_OVERLAY_STYLE_ID = "opendevbrowser-canvas-overlay-style";
+const DIRECT_OVERLAY_EVAL_TIMEOUT_MS = 2_500;
 
 const FEEDBACK_BATCH_SIZE = 25;
 const FEEDBACK_RETENTION_LIMIT = 200;
+const FEEDBACK_HEARTBEAT_MS = 15000;
+const CANVAS_HISTORY_DEPTH_LIMIT = 100;
+const DEFAULT_CANVAS_EDITOR_VIEWPORT: CanvasEditorViewportState = { x: 120, y: 96, zoom: 1 };
 
 export type CanvasManagerLike = {
   execute: (command: string, params?: CanvasCommandParams) => Promise<unknown>;
@@ -208,6 +278,7 @@ export class CanvasManager implements CanvasManagerLike {
     this.relay = options.relay;
     this.codeSyncManager = new CanvasCodeSyncManager({
       worktree: this.worktree,
+      configAdapterPluginDeclarations: this.config.canvas?.adapterPlugins ?? [],
       onWatchedSourceChanged: async (canvasSessionId, bindingId) => {
         await this.handleWatchedSourceChange(canvasSessionId, bindingId);
       }
@@ -232,12 +303,26 @@ export class CanvasManager implements CanvasManagerLike {
         return this.getPlan(params);
       case "canvas.document.load":
         return await this.loadDocument(params);
+      case "canvas.document.import":
+        return await this.importDocument(params);
       case "canvas.document.patch":
         return await this.patchDocument(params);
+      case "canvas.history.undo":
+        return await this.applyHistoryDirection(params, "undo");
+      case "canvas.history.redo":
+        return await this.applyHistoryDirection(params, "redo");
       case "canvas.document.save":
         return await this.saveDocument(params);
       case "canvas.document.export":
         return await this.exportDocument(params);
+      case "canvas.inventory.list":
+        return this.listInventory(params);
+      case "canvas.inventory.insert":
+        return await this.insertInventory(params);
+      case "canvas.starter.list":
+        return this.listStarters(params);
+      case "canvas.starter.apply":
+        return await this.applyStarter(params);
       case "canvas.tab.open":
         return await this.openTab(params);
       case "canvas.tab.close":
@@ -256,6 +341,10 @@ export class CanvasManager implements CanvasManagerLike {
         return this.pollFeedback(params);
       case "canvas.feedback.subscribe":
         return this.subscribeFeedback(params);
+      case "canvas.feedback.next":
+        return await this.nextFeedback(params);
+      case "canvas.feedback.unsubscribe":
+        return this.unsubscribeFeedback(params);
       case "canvas.code.bind":
         return await this.bindCodeSync(params);
       case "canvas.code.unbind":
@@ -277,18 +366,21 @@ export class CanvasManager implements CanvasManagerLike {
     const browserSessionId = optionalString(params.browserSessionId);
     const requestedDocumentId = optionalString(params.documentId);
     const repoPath = optionalString(params.repoPath);
-    const mode = (optionalString(params.mode) as CanvasSessionMode | null) ?? "dual-track";
+    const repoRoot = optionalString(params.repoRoot) ?? this.worktree;
+    const mode = requireCanvasSessionMode(params.mode);
     const document = repoPath
-      ? normalizeCanvasDocument(await loadCanvasDocument(this.worktree, repoPath))
+      ? normalizeCanvasDocument(await loadCanvasDocument(repoRoot, repoPath))
       : createDefaultCanvasDocument(requestedDocumentId ?? undefined);
     const sessionId = `canvas_${randomUUID()}`;
     const leaseId = `lease_${randomUUID()}`;
     const session: CanvasSession = {
       canvasSessionId: sessionId,
       browserSessionId,
+      repoRoot,
       documentRepoPath: repoPath ?? null,
       leaseId,
       mode,
+      usesCanvasRelay: false,
       store: new CanvasDocumentStore(document),
       preflightState: "handshake_read",
       planStatus: isNonEmptyRecord(document.designGovernance.generationPlan) ? "accepted" : "missing",
@@ -302,6 +394,12 @@ export class CanvasManager implements CanvasManagerLike {
         nodeId: null,
         targetId: null,
         updatedAt: null
+      },
+      editorViewport: { ...DEFAULT_CANVAS_EDITOR_VIEWPORT },
+      history: {
+        undoStack: [],
+        redoStack: [],
+        depthLimit: CANVAS_HISTORY_DEPTH_LIMIT
       },
       feedbackSubscriptions: new Map()
     };
@@ -343,21 +441,41 @@ export class CanvasManager implements CanvasManagerLike {
     const session = this.requireSession(params);
     this.assertLease(session, params);
     const releasedTargets = [...session.activeTargets.keys()];
+    const warnings: string[] = [];
     for (const mount of session.overlayMounts.values()) {
       await this.unmountOverlay({ canvasSessionId: session.canvasSessionId, leaseId: session.leaseId, mountId: mount.mountId, targetId: mount.targetId });
     }
     if (session.designTabTargetId) {
-      await this.closeTab({
-        canvasSessionId: session.canvasSessionId,
-        leaseId: session.leaseId,
-        targetId: session.designTabTargetId
-      });
+      try {
+        await this.closeTab({
+          canvasSessionId: session.canvasSessionId,
+          leaseId: session.leaseId,
+          targetId: session.designTabTargetId
+        });
+      } catch (error) {
+        if (isAlreadyClosedCanvasTargetError(error)) {
+          session.activeTargets.delete(session.designTabTargetId);
+          session.designTabTargetId = null;
+        } else {
+          if (!isIgnorableCanvasSessionCloseError(error)) {
+            throw error;
+          }
+          const detail = error instanceof Error ? error.message : String(error ?? "Canvas design tab close failed.");
+          const recovered = await this.recoverCanvasDesignTabClose(session, session.designTabTargetId, detail);
+          if (!recovered) {
+            warnings.push(detail);
+          }
+          session.activeTargets.delete(session.designTabTargetId);
+          session.designTabTargetId = null;
+        }
+      }
     }
     this.completeFeedbackSubscriptions(session, "session_closed");
     this.sessionSyncManager.removeSession(session.canvasSessionId);
     this.codeSyncManager.disposeSession(session.canvasSessionId);
     this.sessions.delete(session.canvasSessionId);
-    return { ok: true, releasedTargets, releasedOverlays: true };
+    this.disconnectCanvasClientIfIdle();
+    return { ok: true, releasedTargets, releasedOverlays: true, warnings };
   }
 
   private getCapabilities(params: CanvasCommandParams): unknown {
@@ -404,17 +522,27 @@ export class CanvasManager implements CanvasManagerLike {
     this.assertLease(session, params);
     const documentId = optionalString(params.documentId);
     const repoPath = optionalString(params.repoPath);
+    const repoRoot = this.resolveSessionRepoRoot(session, params);
     if (Boolean(documentId) === Boolean(repoPath)) {
       throw new Error("Provide exactly one of documentId or repoPath.");
+    }
+    if (!repoPath && !session.documentRepoPath && documentId === session.store.getDocumentId()) {
+      return {
+        documentId: session.store.getDocumentId(),
+        documentRevision: session.store.getRevision(),
+        document: session.store.getDocument(),
+        handshake: this.buildHandshake(session)
+      };
     }
     const sessionRepoPath = !repoPath && documentId === session.store.getDocumentId()
       ? session.documentRepoPath
       : null;
     const resolvedRepoPath = repoPath ?? sessionRepoPath;
     const document = resolvedRepoPath
-      ? normalizeCanvasDocument(await loadCanvasDocument(this.worktree, resolvedRepoPath))
-      : normalizeCanvasDocument(await loadCanvasDocumentById(this.worktree, documentId as string) ?? createDefaultCanvasDocument(documentId as string));
+      ? normalizeCanvasDocument(await loadCanvasDocument(repoRoot, resolvedRepoPath))
+      : normalizeCanvasDocument(await loadCanvasDocumentById(repoRoot, documentId as string) ?? createDefaultCanvasDocument(documentId as string));
     session.store.loadDocument(document);
+    session.repoRoot = repoRoot;
     session.documentRepoPath = resolvedRepoPath;
     session.planStatus = isNonEmptyRecord(document.designGovernance.generationPlan) ? "accepted" : "missing";
     session.preflightState = session.planStatus === "accepted" ? "plan_accepted" : "handshake_read";
@@ -424,6 +552,8 @@ export class CanvasManager implements CanvasManagerLike {
       targetId: null,
       updatedAt: new Date().toISOString()
     };
+    session.editorViewport = { ...DEFAULT_CANVAS_EDITOR_VIEWPORT };
+    this.resetHistory(session);
     await this.registerDocumentCodeSyncBindings(session);
     await this.syncLiveViews(session);
     return {
@@ -431,6 +561,173 @@ export class CanvasManager implements CanvasManagerLike {
       documentRevision: session.store.getRevision(),
       document: session.store.getDocument(),
       handshake: this.buildHandshake(session)
+    };
+  }
+
+  private async importDocument(params: CanvasCommandParams): Promise<CanvasDocumentImportResult> {
+    const session = this.requireSession(params);
+    this.assertLease(session, params);
+    if (session.planStatus !== "accepted") {
+      throw this.planRequired("canvas.document.import", session);
+    }
+    const baseRevision = params.baseRevision === undefined
+      ? session.store.getRevision()
+      : requireNumber(params.baseRevision, "baseRevision");
+    const importRequest = normalizeFigmaImportRequest(readCanvasDocumentImportRequest(params));
+    const client = new FigmaClient({ config: this.config });
+    this.pushFeedback(session, {
+      category: "import",
+      class: "figma-import-started",
+      severity: "info",
+      message: `Importing Figma ${importRequest.nodeIds.length > 0 ? "selection" : "file"} ${importRequest.fileKey}.`,
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: [],
+      details: {
+        fileKey: importRequest.fileKey,
+        nodeIds: importRequest.nodeIds,
+        mode: importRequest.mode
+      }
+    });
+
+    const payload = importRequest.nodeIds.length > 0
+      ? await client.getNodes(importRequest.fileKey, importRequest.nodeIds, {
+        branchData: importRequest.branchData,
+        depth: importRequest.depth,
+        geometryPaths: importRequest.geometryPaths
+      })
+      : await client.getFile(importRequest.fileKey, {
+        branchData: importRequest.branchData,
+        geometryPaths: importRequest.geometryPaths
+      });
+
+    const degradedFailureCodes = new Set<CanvasImportFailureCode>();
+    let variableMapping: ReturnType<typeof mapFigmaVariablesToTokenStore> | null = null;
+    if (importRequest.includeVariables) {
+      try {
+        const variables = await client.getLocalVariables(importRequest.fileKey);
+        variableMapping = mapFigmaVariablesToTokenStore(variables);
+      } catch (error) {
+        if (!isFigmaClientError(error)) {
+          throw error;
+        }
+        degradedFailureCodes.add(error.code);
+        this.pushFeedback(session, {
+          category: "validation",
+          class: "figma-variables-degraded",
+          severity: "warning",
+          message: error.message,
+          pageId: session.editorSelection.pageId,
+          prototypeId: null,
+          targetId: session.editorSelection.targetId,
+          evidenceRefs: [],
+          details: {
+            fileKey: importRequest.fileKey,
+            code: error.code,
+            status: error.status,
+            retryAfterMs: error.retryAfterMs,
+            ...error.details
+          }
+        });
+      }
+    }
+
+    const assetResult = await materializeFigmaAssets({
+      worktree: this.resolveSessionRepoRoot(session),
+      fileKey: importRequest.fileKey,
+      nodes: payload.rootNodes,
+      client
+    });
+    if (assetResult.assetReceipts.some((receipt) => receipt.status === "asset_fetch_failed")) {
+      degradedFailureCodes.add("asset_fetch_failed");
+      this.pushFeedback(session, {
+        category: "asset",
+        class: "figma-assets-degraded",
+        severity: "warning",
+        message: "One or more Figma assets could not be cached locally.",
+        pageId: session.editorSelection.pageId,
+        prototypeId: null,
+        targetId: session.editorSelection.targetId,
+        evidenceRefs: assetResult.assetReceipts
+          .flatMap((receipt) => receipt.repoPath ? [receipt.repoPath] : []),
+        details: {
+          fileKey: importRequest.fileKey,
+          assetReceipts: assetResult.assetReceipts
+        }
+      });
+    }
+
+    const frameworkMaterialized = false;
+    const mapping = mapFigmaImportToCanvas({
+      payload,
+      assets: assetResult.assets,
+      variables: variableMapping,
+      requestedFrameworkId: importRequest.frameworkId,
+      requestedFrameworkAdapterId: importRequest.frameworkAdapterId,
+      frameworkMaterialized
+    });
+    for (const code of mapping.degradedFailureCodes) {
+      degradedFailureCodes.add(code);
+    }
+
+    const provenance = buildFigmaImportProvenance(importRequest, payload, assetResult.assetReceipts, [...degradedFailureCodes], frameworkMaterialized);
+    const nextDocument = mergeImportedCanvasState(session.store.getDocument(), {
+      mode: importRequest.mode,
+      targetPageId: session.editorSelection.pageId,
+      pages: mapping.pages,
+      componentInventory: mapping.componentInventory,
+      tokens: mapping.tokens,
+      assets: mapping.assets,
+      provenance
+    });
+    const result = session.store.replaceDocumentState(baseRevision, nextDocument);
+    session.preflightState = "patching_enabled";
+    session.editorSelection = {
+      pageId: mapping.importedPageIds[0] ?? session.editorSelection.pageId,
+      nodeId: mapping.importedNodeIds[0] ?? null,
+      targetId: session.editorSelection.targetId,
+      updatedAt: provenance.importedAt!
+    };
+    this.resetHistory(session);
+    this.emitWarnings(session, result.warnings, { category: "validation" });
+    await this.registerDocumentCodeSyncBindings(session);
+    await this.syncLiveViews(session, { refreshPreviewTargets: true, source: "agent" });
+
+    this.pushFeedback(session, {
+      category: "import",
+      class: [...degradedFailureCodes].length > 0 ? "figma-import-complete-degraded" : "figma-import-complete",
+      severity: [...degradedFailureCodes].length > 0 ? "warning" : "info",
+      message: [...degradedFailureCodes].length > 0
+        ? `Imported Figma content from ${importRequest.fileKey} with degraded paths.`
+        : `Imported Figma content from ${importRequest.fileKey}.`,
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: assetResult.assetReceipts
+        .flatMap((receipt) => receipt.repoPath ? [receipt.repoPath] : []),
+      details: {
+        fileKey: importRequest.fileKey,
+        mode: importRequest.mode,
+        degradedFailureCodes: [...degradedFailureCodes],
+        importedPageIds: mapping.importedPageIds,
+        importedInventoryItemIds: mapping.importedInventoryItemIds,
+        importedTokenCollectionIds: mapping.importedTokenCollectionIds
+      }
+    });
+
+    return {
+      ok: true,
+      mode: importRequest.mode,
+      documentRevision: result.appliedRevision,
+      importedPageIds: mapping.importedPageIds,
+      importedNodeIds: mapping.importedNodeIds,
+      importedInventoryItemIds: mapping.importedInventoryItemIds,
+      importedAssetIds: assetResult.assets.map((asset) => asset.id),
+      importedTokenCollectionIds: mapping.importedTokenCollectionIds,
+      degradedFailureCodes: [...degradedFailureCodes],
+      provenance,
+      summary: this.buildSessionSummary(session)
     };
   }
 
@@ -443,7 +740,9 @@ export class CanvasManager implements CanvasManagerLike {
     const baseRevision = requireNumber(params.baseRevision, "baseRevision");
     const patches = requirePatches(params.patches);
     try {
-      return await this.applyDocumentPatches(session, baseRevision, patches, "agent");
+      return await this.applyDocumentPatches(session, baseRevision, patches, "agent", {
+        recordHistory: true
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.startsWith("Revision conflict")) {
@@ -457,20 +756,36 @@ export class CanvasManager implements CanvasManagerLike {
     session: CanvasSession,
     baseRevision: number,
     patches: CanvasPatch[],
-    source: "agent" | "editor"
+    source: "agent" | "editor",
+    options: {
+      recordHistory?: boolean;
+      beforeSelection?: CanvasSession["editorSelection"];
+      beforeViewport?: CanvasEditorViewportState;
+    } = {}
   ): Promise<{
     transactionId: string;
     appliedRevision: number;
     warnings: CanvasValidationWarning[];
     evidenceRefs: string[];
   }> {
-    const result = session.store.applyPatches(baseRevision, patches);
+    const normalizedPatches = this.normalizeHistoryAwarePatches(session.store.getDocument(), patches);
+    const beforeSelection = options.beforeSelection
+      ? cloneEditorSelection(options.beforeSelection)
+      : cloneEditorSelection(session.editorSelection);
+    const beforeViewport = options.beforeViewport
+      ? cloneEditorViewport(options.beforeViewport)
+      : cloneEditorViewport(session.editorViewport);
+    const beforeDocument = structuredClone(session.store.getDocument());
+    const result = session.store.applyPatches(baseRevision, normalizedPatches);
+    if (options.recordHistory) {
+      this.recordHistoryEntry(session, beforeDocument, normalizedPatches, beforeSelection, beforeViewport, result.appliedRevision, source);
+    }
     session.preflightState = "patching_enabled";
     this.pushFeedback(session, {
       category: "validation",
       class: source === "editor" ? "editor-document-patched" : "document-patched",
       severity: "info",
-      message: `Applied ${patches.length} canvas patch${patches.length === 1 ? "" : "es"} from ${source}.`,
+      message: `Applied ${normalizedPatches.length} canvas patch${normalizedPatches.length === 1 ? "" : "es"} from ${source}.`,
       pageId: session.editorSelection.pageId,
       prototypeId: null,
       targetId: session.editorSelection.targetId,
@@ -495,9 +810,10 @@ export class CanvasManager implements CanvasManagerLike {
       nodeId,
       binding
     }], "agent");
-    const nextBinding = requireCanvasBinding(session.store.getDocument(), binding.id);
+    const nextBinding = requireCodeSyncBinding(session.store.getDocument(), binding.id);
     const bindingStatus = await this.codeSyncManager.bind({
       canvasSessionId: session.canvasSessionId,
+      worktree: this.resolveSessionRepoRoot(session, params),
       document: session.store.getDocument(),
       documentRevision: session.store.getRevision(),
       binding: nextBinding
@@ -506,7 +822,7 @@ export class CanvasManager implements CanvasManagerLike {
       category: "code-sync",
       class: "code-sync-bound",
       severity: "info",
-      message: `Bound ${binding.codeSync?.repoPath ?? binding.selector ?? binding.id} for code sync.`,
+      message: `Bound ${nextBinding.codeSync.repoPath} for code sync.`,
       pageId: session.editorSelection.pageId,
       prototypeId: null,
       targetId: session.editorSelection.targetId,
@@ -571,6 +887,7 @@ export class CanvasManager implements CanvasManagerLike {
     });
     const result = await this.codeSyncManager.pull({
       canvasSessionId: session.canvasSessionId,
+      worktree: this.resolveSessionRepoRoot(session, params),
       document: session.store.getDocument(),
       documentRevision: session.store.getRevision(),
       binding,
@@ -631,6 +948,7 @@ export class CanvasManager implements CanvasManagerLike {
     });
     const result = await this.codeSyncManager.push({
       canvasSessionId: session.canvasSessionId,
+      worktree: this.resolveSessionRepoRoot(session, params),
       document: session.store.getDocument(),
       documentRevision: session.store.getRevision(),
       binding,
@@ -675,6 +993,7 @@ export class CanvasManager implements CanvasManagerLike {
       const binding = requireCodeSyncBinding(session.store.getDocument(), bindingId);
       let bindingStatus = await this.codeSyncManager.getBindingStatus(
         session.canvasSessionId,
+        this.resolveSessionRepoRoot(session, params),
         session.store.getDocument().documentId,
         binding,
         session.store.getRevision()
@@ -683,6 +1002,7 @@ export class CanvasManager implements CanvasManagerLike {
         await this.handleWatchedSourceChange(session.canvasSessionId, binding.id);
         bindingStatus = await this.codeSyncManager.getBindingStatus(
           session.canvasSessionId,
+          this.resolveSessionRepoRoot(session, params),
           session.store.getDocument().documentId,
           binding,
           session.store.getRevision()
@@ -700,6 +1020,7 @@ export class CanvasManager implements CanvasManagerLike {
       }
       const bindingStatus = await this.codeSyncManager.getBindingStatus(
         session.canvasSessionId,
+        this.resolveSessionRepoRoot(session, params),
         session.store.getDocument().documentId,
         binding,
         session.store.getRevision()
@@ -715,9 +1036,10 @@ export class CanvasManager implements CanvasManagerLike {
     const session = this.requireSession(params);
     this.assertLease(session, params);
     const binding = requireCodeSyncBinding(session.store.getDocument(), requireString(params.bindingId, "bindingId"));
-    const resolutionPolicy = requireResolutionPolicy(requireString(params.resolutionPolicy, "resolutionPolicy")) ?? "manual";
+    const resolutionPolicy = requireResolutionPolicy(requireString(params.resolutionPolicy, "resolutionPolicy")) as CodeSyncResolutionPolicy;
     const result = await this.codeSyncManager.resolve({
       canvasSessionId: session.canvasSessionId,
+      worktree: this.resolveSessionRepoRoot(session, params),
       document: session.store.getDocument(),
       documentRevision: session.store.getRevision(),
       binding,
@@ -733,6 +1055,12 @@ export class CanvasManager implements CanvasManagerLike {
     return { ...result, summary: this.buildSessionSummary(session) };
   }
 
+  private resolveSessionRepoRoot(session: CanvasSession, params?: CanvasCommandParams): string {
+    const repoRoot = optionalString(params?.repoRoot) ?? session.repoRoot ?? this.worktree;
+    session.repoRoot = repoRoot;
+    return repoRoot;
+  }
+
   private async registerDocumentCodeSyncBindings(session: CanvasSession): Promise<void> {
     const attachedClients = this.sessionSyncManager.listAttachedClients(session.canvasSessionId);
     const leaseHolderClientId = this.sessionSyncManager.getLeaseHolderClientId(session.canvasSessionId);
@@ -745,6 +1073,7 @@ export class CanvasManager implements CanvasManagerLike {
       knownBindings.delete(binding.id);
       await this.codeSyncManager.bind({
         canvasSessionId: session.canvasSessionId,
+        worktree: this.resolveSessionRepoRoot(session),
         document: session.store.getDocument(),
         documentRevision: session.store.getRevision(),
         binding
@@ -763,6 +1092,7 @@ export class CanvasManager implements CanvasManagerLike {
     const binding = requireCodeSyncBinding(session.store.getDocument(), bindingId);
     const result = await this.codeSyncManager.pull({
       canvasSessionId: session.canvasSessionId,
+      worktree: this.resolveSessionRepoRoot(session),
       document: session.store.getDocument(),
       documentRevision: session.store.getRevision(),
       binding,
@@ -793,11 +1123,12 @@ export class CanvasManager implements CanvasManagerLike {
     const session = this.requireSession(params);
     this.assertLease(session, params);
     const document = session.store.getDocument();
+    const repoRoot = this.resolveSessionRepoRoot(session, params);
     const validation = validateCanvasSave(document);
     if (validation.missingBlocks.length > 0) {
       throw this.policyViolation("canvas.document.save", session, validation.missingBlocks, validation.warnings);
     }
-    const repoPath = await saveCanvasDocument(this.worktree, document, optionalString(params.repoPath));
+    const repoPath = await saveCanvasDocument(repoRoot, document, optionalString(params.repoPath));
     session.documentRepoPath = repoPath;
     this.emitWarnings(session, validation.warnings, { category: "validation" });
     return {
@@ -814,15 +1145,16 @@ export class CanvasManager implements CanvasManagerLike {
     this.assertLease(session, params);
     const exportTarget = requireString(params.exportTarget, "exportTarget");
     const document = session.store.getDocument();
+    const repoRoot = this.resolveSessionRepoRoot(session, params);
     const warnings = evaluateCanvasWarnings(document, { forSave: exportTarget === "design_document" });
-    const exportBase = resolveCanvasRepoPath(this.worktree, document.documentId, ".opendevbrowser/canvas/exports");
+    const exportBase = resolveCanvasRepoPath(repoRoot, document.documentId, ".opendevbrowser/canvas/exports");
     await mkdir(dirname(exportBase), { recursive: true });
     if (exportTarget === "design_document") {
       const validation = validateCanvasSave(document);
       if (validation.missingBlocks.length > 0) {
         throw this.policyViolation("canvas.document.export", session, validation.missingBlocks, validation.warnings);
       }
-      const repoPath = await saveCanvasDocument(this.worktree, document, optionalString(params.repoPath));
+      const repoPath = await saveCanvasDocument(repoRoot, document, optionalString(params.repoPath));
       this.emitWarnings(session, validation.warnings, { category: "validation" });
       return {
         exportTarget,
@@ -861,6 +1193,318 @@ export class CanvasManager implements CanvasManagerLike {
     throw new Error(`Unsupported exportTarget: ${exportTarget}`);
   }
 
+  private listInventory(params: CanvasCommandParams): unknown {
+    const session = this.requireSession(params);
+    const document = session.store.getDocument();
+    const availableInventory = getAvailableInventory(document);
+    const query = optionalString(params.query)?.toLowerCase() ?? null;
+    const sourceFamilies = new Set(normalizeStringArray(params.sourceFamilies));
+    const origins = new Set<CanvasInventoryOrigin>(normalizeStringArray(params.origins) as CanvasInventoryOrigin[]);
+    const frameworkIds = new Set(normalizeStringArray(params.frameworkIds));
+    const adapterIds = new Set(normalizeStringArray(params.adapterIds));
+    const pluginIds = new Set(normalizeStringArray(params.pluginIds));
+    const items = availableInventory.filter((item) => {
+      if (query) {
+        const haystack = [
+          item.id,
+          item.name,
+          item.componentName,
+          item.description,
+          item.sourceKind,
+          item.framework?.id,
+          item.adapter?.id,
+          item.plugin?.id
+        ]
+          .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(query)) {
+          return false;
+        }
+      }
+      if (sourceFamilies.size > 0 && !sourceFamilies.has(item.sourceFamily)) {
+        return false;
+      }
+      if (origins.size > 0 && !origins.has(item.origin)) {
+        return false;
+      }
+      if (frameworkIds.size > 0 && !frameworkIds.has(item.framework?.id ?? "")) {
+        return false;
+      }
+      if (adapterIds.size > 0 && !adapterIds.has(item.adapter?.id ?? "")) {
+        return false;
+      }
+      if (pluginIds.size > 0 && !pluginIds.has(item.plugin?.id ?? "")) {
+        return false;
+      }
+      return true;
+    });
+    return {
+      items,
+      total: items.length,
+      summary: this.buildSessionSummary(session)
+    };
+  }
+
+  private async insertInventory(params: CanvasCommandParams): Promise<unknown> {
+    const session = this.requireSession(params);
+    this.assertLease(session, params);
+    if (session.planStatus !== "accepted") {
+      throw this.planRequired("canvas.inventory.insert", session);
+    }
+    const document = session.store.getDocument();
+    const item = requireInventoryItem(getAvailableInventory(document), requireString(params.itemId, "itemId"));
+    const pageId = optionalString(params.pageId) ?? session.editorSelection.pageId ?? document.pages[0]?.id ?? null;
+    if (!pageId) {
+      throw new Error("Missing pageId");
+    }
+    const page = requireCanvasPage(document, pageId);
+    const parentId = optionalString(params.parentId)
+      ?? session.editorSelection.nodeId
+      ?? page.rootNodeId
+      ?? null;
+    if (parentId) {
+      findNodeInPage(page, parentId);
+    }
+    const baseRevision = params.baseRevision === undefined
+      ? session.store.getRevision()
+      : requireNumber(params.baseRevision, "baseRevision");
+    const placement = readInsertPlacement(params);
+    const materialized = materializeInventoryItem(item, pageId, parentId, placement);
+    const previousSelection = { ...session.editorSelection };
+    session.editorSelection = {
+      pageId,
+      nodeId: materialized.rootNodeId,
+      targetId: previousSelection.targetId,
+      updatedAt: new Date().toISOString()
+    };
+    try {
+      const result = await this.applyDocumentPatches(session, baseRevision, materialized.patches, "agent", {
+        recordHistory: true,
+        beforeSelection: previousSelection
+      });
+      this.pushFeedback(session, {
+        category: "validation",
+        class: "inventory-inserted",
+        severity: "info",
+        message: `Inserted inventory item ${item.name}.`,
+        pageId,
+        prototypeId: null,
+        targetId: session.editorSelection.targetId,
+        evidenceRefs: [],
+        details: {
+          itemId: item.id,
+          insertedNodeIds: materialized.insertedNodeIds
+        }
+      });
+      return {
+        ok: true,
+        itemId: item.id,
+        insertedNodeIds: materialized.insertedNodeIds,
+        rootNodeId: materialized.rootNodeId,
+        documentRevision: result.appliedRevision,
+        summary: this.buildSessionSummary(session)
+      };
+    } catch (error) {
+      session.editorSelection = previousSelection;
+      throw error;
+    }
+  }
+
+  private listStarters(params: CanvasCommandParams): unknown {
+    const session = this.requireSession(params);
+    const query = optionalString(params.query)?.toLowerCase() ?? null;
+    const frameworkIds = new Set(normalizeStringArray(params.frameworkIds).map((entry) => canonicalizeStarterFrameworkId(entry)));
+    const kitIds = new Set(normalizeStringArray(params.kitIds));
+    const tags = new Set(normalizeStringArray(params.tags));
+    const items = listBuiltInCanvasStarterTemplates().filter((starter) => {
+      if (query) {
+        const haystack = [
+          starter.id,
+          starter.name,
+          starter.description,
+          starter.defaultFrameworkId,
+          ...starter.compatibleFrameworkIds,
+          ...starter.kitIds,
+          ...starter.tags
+        ]
+          .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(query)) {
+          return false;
+        }
+      }
+      if (frameworkIds.size > 0 && !starter.compatibleFrameworkIds.some((entry) => frameworkIds.has(entry))) {
+        return false;
+      }
+      if (kitIds.size > 0 && !starter.kitIds.some((entry) => kitIds.has(entry))) {
+        return false;
+      }
+      if (tags.size > 0 && !starter.tags.some((entry) => tags.has(entry))) {
+        return false;
+      }
+      return true;
+    });
+    return {
+      items,
+      total: items.length,
+      summary: this.buildSessionSummary(session)
+    };
+  }
+
+  private async applyStarter(params: CanvasCommandParams): Promise<unknown> {
+    const session = this.requireSession(params);
+    this.assertLease(session, params);
+    const starterId = requireString(params.starterId, "starterId");
+    const definition = getBuiltInCanvasStarterDefinition(starterId);
+    if (!definition) {
+      throw new Error(`Unknown starter template: ${starterId}`);
+    }
+
+    const initialRevision = session.store.getRevision();
+    const requestedBaseRevision = params.baseRevision === undefined
+      ? initialRevision
+      : requireNumber(params.baseRevision, "baseRevision");
+    if (requestedBaseRevision !== initialRevision) {
+      throw this.revisionConflict("canvas.starter.apply", session);
+    }
+
+    const document = session.store.getDocument();
+    const pageId = optionalString(params.pageId) ?? session.editorSelection.pageId ?? document.pages[0]?.id ?? null;
+    if (!pageId) {
+      throw new Error("Missing pageId");
+    }
+    const page = requireCanvasPage(document, pageId);
+    const parentId = optionalString(params.parentId)
+      ?? session.editorSelection.nodeId
+      ?? page.rootNodeId
+      ?? null;
+    if (parentId) {
+      findNodeInPage(page, parentId);
+    }
+    const placement = readInsertPlacement(params);
+    const requestedFrameworkId = optionalString(params.frameworkId);
+    const requestedAdapterId = optionalString(params.libraryAdapterId) ?? optionalString(params.adapterId);
+    const resolvedFramework = resolveStarterFramework(document, definition.template, requestedFrameworkId);
+    const resolvedAdapter = resolveStarterAdapter(definition.template.kitIds, requestedAdapterId);
+    const degradedReason = resolvedFramework.reason ?? resolvedAdapter.reason ?? null;
+    const degraded = degradedReason !== null;
+    let planSeeded = false;
+    if (session.planStatus !== "accepted" || !isNonEmptyRecord(document.designGovernance.generationPlan)) {
+      const result = session.store.setGenerationPlan(structuredClone(definition.generationPlan));
+      session.planStatus = result.planStatus;
+      session.preflightState = "plan_accepted";
+      planSeeded = true;
+      this.emitWarnings(session, result.warnings, { category: "validation" });
+    }
+    const shell = buildStarterShell(definition, pageId, parentId, placement);
+    const inventoryPatches = buildStarterInventoryUpsertPatches(
+      definition.template.kitIds,
+      resolvedFramework.frameworkId,
+      resolvedAdapter.adapterId
+    );
+    const tokenPatch = buildStarterTokenMergePatch(definition.template.kitIds);
+    const seededItems = inventoryPatches.map((patch) => patch.item.id);
+    const materialized = degraded
+      ? { insertedNodeIds: shell.insertedNodeIds, rootNodeId: shell.rootNodeId, itemIds: [] as string[], patches: [] as CanvasPatch[] }
+      : buildStarterMaterialization(
+        definition,
+        resolvedFramework.frameworkId,
+        resolvedAdapter.adapterId,
+        pageId,
+        shell.rootNodeId,
+        shell.rect
+      );
+    const insertedNodeIds = degraded
+      ? shell.insertedNodeIds
+      : [...shell.insertedNodeIds, ...materialized.insertedNodeIds];
+    const starterAppliedAt = new Date().toISOString();
+    const starterPatch: CanvasPatch = {
+      op: "starter.apply",
+      starter: {
+        template: structuredClone(definition.template),
+        frameworkId: resolvedFramework.frameworkId,
+        appliedAt: starterAppliedAt,
+        metadata: {
+          adapterId: resolvedAdapter.adapterId,
+          libraryAdapterId: resolvedAdapter.adapterId,
+          degraded,
+          reason: degradedReason,
+          requestedFrameworkId,
+          requestedAdapterId,
+          installedKitIds: definition.template.kitIds,
+          seededInventoryItemIds: seededItems,
+          materializedItemIds: materialized.itemIds
+        }
+      }
+    };
+    const patches: CanvasPatch[] = [
+      ...shell.patches,
+      ...(tokenPatch ? [tokenPatch] : []),
+      ...inventoryPatches,
+      ...materialized.patches,
+      starterPatch
+    ];
+    const previousSelection = { ...session.editorSelection };
+    session.editorSelection = {
+      pageId,
+      nodeId: materialized.rootNodeId,
+      targetId: previousSelection.targetId,
+      updatedAt: starterAppliedAt
+    };
+    try {
+      const result = await this.applyDocumentPatches(session, session.store.getRevision(), patches, "agent", {
+        recordHistory: true,
+        beforeSelection: previousSelection
+      });
+      this.pushFeedback(session, {
+        category: "validation",
+        class: degraded ? "starter-applied-degraded" : "starter-applied",
+        severity: degraded ? "warning" : "info",
+        message: degraded
+          ? `Applied starter ${definition.template.name} with semantic fallback for ${resolvedFramework.frameworkId}.`
+          : `Applied starter ${definition.template.name}.`,
+        pageId,
+        prototypeId: null,
+        targetId: session.editorSelection.targetId,
+        evidenceRefs: [],
+        details: {
+          starterId: definition.template.id,
+          frameworkId: resolvedFramework.frameworkId,
+          adapterId: resolvedAdapter.adapterId,
+          libraryAdapterId: resolvedAdapter.adapterId,
+          degraded,
+          reason: degradedReason,
+          planSeeded,
+          installedKitIds: definition.template.kitIds,
+          seededInventoryItemIds: seededItems,
+          insertedNodeIds
+        }
+      });
+      return {
+        ok: true,
+        starterId: definition.template.id,
+        frameworkId: resolvedFramework.frameworkId,
+        adapterId: resolvedAdapter.adapterId,
+        libraryAdapterId: resolvedAdapter.adapterId,
+        degraded,
+        reason: degradedReason,
+        planSeeded,
+        pageId,
+        rootNodeId: materialized.rootNodeId,
+        insertedNodeIds,
+        seededInventoryItemIds: seededItems,
+        installedKitIds: definition.template.kitIds,
+        documentRevision: result.appliedRevision,
+        summary: this.buildSessionSummary(session)
+      };
+    } catch (error) {
+      session.editorSelection = previousSelection;
+      throw error;
+    }
+  }
+
   private async openTab(params: CanvasCommandParams): Promise<unknown> {
     const session = this.requireSession(params);
     this.assertLease(session, params);
@@ -881,11 +1525,21 @@ export class CanvasManager implements CanvasManagerLike {
           overlayMounts: [...session.overlayMounts.values()],
           feedback: this.buildFeedbackSnapshot(session),
           feedbackCursor: this.getLatestFeedbackCursor(session),
-          selection: session.editorSelection
+          selection: session.editorSelection,
+          viewport: session.editorViewport
         });
         session.designTabTargetId = typeof result.targetId === "string" ? result.targetId : null;
-        if (session.designTabTargetId && typeof this.browserManager.registerCanvasTarget === "function") {
-          await this.browserManager.registerCanvasTarget(session.browserSessionId, session.designTabTargetId);
+        const registerCanvasTarget = this.browserManager.registerCanvasTarget;
+        if (
+          session.designTabTargetId
+          && typeof registerCanvasTarget === "function"
+          && this.hasLiveOpsDesignTabTransport(session)
+        ) {
+          session.designTabTargetId = await this.ensureExtensionDesignTabRegistered(
+            session.browserSessionId,
+            session.designTabTargetId,
+            registerCanvasTarget.bind(this.browserManager)
+          );
         }
         return {
           targetId: session.designTabTargetId,
@@ -907,6 +1561,39 @@ export class CanvasManager implements CanvasManagerLike {
     throw new Error("canvas.tab.open requires a browserSessionId.");
   }
 
+  private async ensureExtensionDesignTabRegistered(
+    browserSessionId: string,
+    initialTargetId: string,
+    registerCanvasTarget: (sessionId: string, targetId: string) => Promise<{ targetId: string; url?: string; title?: string; adopted?: boolean }>
+  ): Promise<string> {
+    const register = async (targetId: string): Promise<string> => {
+      const adopted = await registerCanvasTarget(browserSessionId, targetId);
+      return typeof adopted.targetId === "string" && adopted.targetId.length > 0
+        ? adopted.targetId
+        : targetId;
+    };
+
+    let targetId = await register(initialTargetId);
+    if (await this.isBrowserTargetRegistered(browserSessionId, targetId)) {
+      return targetId;
+    }
+
+    targetId = await register(targetId);
+    if (await this.isBrowserTargetRegistered(browserSessionId, targetId)) {
+      return targetId;
+    }
+
+    throw new Error("canvas.tab.open could not register the design tab for /ops. Reload the unpacked extension and retry.");
+  }
+
+  private async isBrowserTargetRegistered(browserSessionId: string, targetId: string): Promise<boolean> {
+    if (typeof this.browserManager.listTargets !== "function") {
+      return true;
+    }
+    const listed = await this.browserManager.listTargets(browserSessionId, false);
+    return listed.targets.some((target) => target.targetId === targetId);
+  }
+
   private async closeTab(params: CanvasCommandParams): Promise<unknown> {
     const session = this.requireSession(params);
     this.assertLease(session, params);
@@ -914,9 +1601,12 @@ export class CanvasManager implements CanvasManagerLike {
     if (!session.browserSessionId) {
       throw new Error("canvas.tab.close requires a browserSessionId.");
     }
-    const status = await this.browserManager.status(session.browserSessionId);
-    if (status.mode === "extension" && session.designTabTargetId === targetId) {
-      await this.requestCanvasExtension(session, "canvas.tab.close", { targetId });
+    const useCanvasRelay = session.designTabTargetId === targetId && session.usesCanvasRelay;
+    if (useCanvasRelay) {
+      await this.requestCanvasExtension(session, "canvas.tab.close", {
+        targetId,
+        browserSessionId: session.browserSessionId
+      });
     } else {
       await this.browserManager.closeTarget(session.browserSessionId, targetId);
     }
@@ -924,6 +1614,7 @@ export class CanvasManager implements CanvasManagerLike {
       session.designTabTargetId = null;
     }
     session.activeTargets.delete(targetId);
+    this.disconnectCanvasClientIfIdle();
     return {
       ok: true,
       targetId,
@@ -943,12 +1634,20 @@ export class CanvasManager implements CanvasManagerLike {
     }
     const status = await this.browserManager.status(session.browserSessionId);
     let result: ExtensionOverlayResult;
-    if (status.mode === "extension") {
+    if (this.usesCanvasRelayOverlay(session, targetId, status.mode)) {
       result = await this.requestCanvasExtension(session, "canvas.overlay.mount", {
         targetId,
         prototypeId,
         document: session.store.getDocument(),
         documentRevision: session.store.getRevision()
+      });
+    } else if (status.mode === "extension" && this.supportsOpsOverlayTransport(session) && typeof this.browserManager.mountCanvasOverlay === "function") {
+      const mountId = `mount_${randomUUID()}`;
+      result = await this.browserManager.mountCanvasOverlay(session.browserSessionId, targetId, {
+        mountId,
+        title: session.store.getDocument().title,
+        prototypeId,
+        selection: this.buildOverlaySelection(session, targetId)
       });
     } else {
       result = await this.mountDirectOverlay(session.browserSessionId, targetId, session.store.getDocument(), prototypeId);
@@ -976,13 +1675,16 @@ export class CanvasManager implements CanvasManagerLike {
       return { ok: true, mountId, previewState: (targetId ? session.activeTargets.get(targetId)?.previewState : null) ?? "background", overlayState: "idle" };
     }
     const status = await this.browserManager.status(session.browserSessionId);
-    if (status.mode === "extension") {
+    if (this.usesCanvasRelayOverlay(session, mount.targetId, status.mode)) {
       await this.requestCanvasExtension(session, "canvas.overlay.unmount", { mountId, targetId: mount.targetId });
+    } else if (status.mode === "extension" && this.supportsOpsOverlayTransport(session) && typeof this.browserManager.unmountCanvasOverlay === "function") {
+      await this.browserManager.unmountCanvasOverlay(session.browserSessionId, mount.targetId, mountId);
     } else {
-      await this.unmountDirectOverlay(session.browserSessionId, mount.targetId);
+      await this.unmountDirectOverlay(session.browserSessionId, mount.targetId, mount.mountId);
     }
     session.overlayMounts.delete(mountId);
     await this.syncLiveViews(session);
+    this.disconnectCanvasClientIfIdle();
     return { ok: true, mountId, previewState: session.activeTargets.get(mount.targetId)?.previewState ?? "background", overlayState: "idle" };
   }
 
@@ -1000,9 +1702,15 @@ export class CanvasManager implements CanvasManagerLike {
       throw new Error("canvas.overlay.select requires a browserSessionId.");
     }
     const status = await this.browserManager.status(session.browserSessionId);
-    const selection = status.mode === "extension"
+    const selection = this.usesCanvasRelayOverlay(session, targetId, status.mode)
       ? await this.requestCanvasExtension(session, "canvas.overlay.select", { mountId, targetId, nodeId, selectionHint: hint })
-      : { selection: await this.selectDirectOverlay(session.browserSessionId, targetId, nodeId, hint) };
+      : status.mode === "extension" && this.supportsOpsOverlayTransport(session) && typeof this.browserManager.selectCanvasOverlay === "function"
+        ? await this.browserManager.selectCanvasOverlay(session.browserSessionId, targetId, {
+          mountId,
+          nodeId,
+          selectionHint: hint
+        })
+        : { selection: await this.selectDirectOverlay(session.browserSessionId, targetId, nodeId, hint) };
     if (nodeId) {
       session.editorSelection = {
         pageId: session.editorSelection.pageId ?? session.store.getDocument().pages[0]?.id ?? null,
@@ -1103,7 +1811,7 @@ export class CanvasManager implements CanvasManagerLike {
     const runtimeBinding = findPrototypeRuntimeBinding(document, prototype);
     const html = this.buildPreviewHtml(document, prototype, targetId, sourceUrl);
     let projection: CanvasTargetState["projection"] = "canvas_html";
-    let fallbackReason: string | null = null;
+    let fallbackReason: CanvasTargetState["fallbackReason"] = null;
     let parityArtifact = runtimeBinding ? buildCanvasParityArtifact(document, runtimeBinding.id, "canvas_html") : null;
     if (
       runtimeBinding?.codeSync?.projection === "bound_app_runtime"
@@ -1315,10 +2023,11 @@ export class CanvasManager implements CanvasManagerLike {
     };
   }
 
-  private subscribeFeedback(params: CanvasCommandParams): unknown {
+  private subscribeFeedback(params: CanvasCommandParams): CanvasFeedbackSubscribeResult & Record<string, unknown> {
     const session = this.requireSession(params);
     const polled = this.pollFeedback(params) as { items: CanvasFeedbackItem[]; nextCursor: string | null };
     const subscriptionId = `canvas_sub_${randomUUID()}`;
+    const heartbeatMs = FEEDBACK_HEARTBEAT_MS;
     const subscription: CanvasFeedbackSubscription = {
       id: subscriptionId,
       categories: new Set(normalizeStringArray(params.categories)),
@@ -1326,29 +2035,34 @@ export class CanvasManager implements CanvasManagerLike {
       queue: [],
       waiters: [],
       cursor: polled.nextCursor,
+      heartbeatMs,
+      lastHeartbeatAt: Date.now(),
       heartbeatTimer: setInterval(() => {
         if (!subscription.active) {
           return;
         }
+        if (Date.now() - subscription.lastHeartbeatAt < subscription.heartbeatMs) {
+          return;
+        }
+        subscription.lastHeartbeatAt = Date.now();
         this.enqueueFeedbackEvent(subscription, {
           eventType: "feedback.heartbeat",
           cursor: subscription.cursor,
           ts: new Date().toISOString(),
           activeTargetIds: [...session.activeTargets.keys()]
         });
-      }, 15000),
+      }, heartbeatMs),
       active: true
     };
     subscription.heartbeatTimer.unref?.();
     session.feedbackSubscriptions.set(subscriptionId, subscription);
-    const response: Record<string, unknown> = {
+    const response: CanvasFeedbackSubscribeResult & Record<string, unknown> = {
       subscriptionId,
-      items: polled.items,
       cursor: polled.nextCursor,
-      eventTypes: ["feedback.item", "feedback.heartbeat", "feedback.complete"],
-      heartbeatMs: 15000,
-      activeTargetIds: [...session.activeTargets.keys()],
-      completeReason: null
+      heartbeatMs,
+      expiresAt: null,
+      initialItems: polled.items,
+      activeTargetIds: [...session.activeTargets.keys()]
     };
     Object.defineProperty(response, "stream", {
       enumerable: false,
@@ -1358,9 +2072,29 @@ export class CanvasManager implements CanvasManagerLike {
       enumerable: false,
       value: () => {
         this.completeFeedbackSubscription(session, subscriptionId, "subscription_replaced");
+        session.feedbackSubscriptions.delete(subscriptionId);
       }
     });
     return response;
+  }
+
+  private async nextFeedback(params: CanvasCommandParams): Promise<CanvasFeedbackEvent> {
+    const session = this.requireSession(params);
+    const subscription = this.requireFeedbackSubscription(session, requireString(params.subscriptionId, "subscriptionId"));
+    const timeoutMs = params.timeoutMs === undefined ? undefined : requirePositiveNumber(params.timeoutMs, "timeoutMs");
+    const nextEvent = await this.awaitFeedbackEvent(session, subscription, timeoutMs);
+    if (!subscription.active && nextEvent.eventType === "feedback.complete" && subscription.queue.length === 0) {
+      session.feedbackSubscriptions.delete(subscription.id);
+    }
+    return nextEvent;
+  }
+
+  private unsubscribeFeedback(params: CanvasCommandParams): CanvasFeedbackUnsubscribeResult {
+    const session = this.requireSession(params);
+    const subscriptionId = requireString(params.subscriptionId, "subscriptionId");
+    this.completeFeedbackSubscription(session, subscriptionId, "subscription_replaced");
+    session.feedbackSubscriptions.delete(subscriptionId);
+    return { ok: true, subscriptionId };
   }
 
   private createFeedbackStream(subscription: CanvasFeedbackSubscription): AsyncIterable<CanvasFeedbackStreamEvent> {
@@ -1387,9 +2121,74 @@ export class CanvasManager implements CanvasManagerLike {
     };
   }
 
+  private requireFeedbackSubscription(session: CanvasSession, subscriptionId: string): CanvasFeedbackSubscription {
+    const subscription = session.feedbackSubscriptions.get(subscriptionId);
+    if (!subscription) {
+      throw new Error(`Unknown feedback subscription: ${subscriptionId}`);
+    }
+    return subscription;
+  }
+
+  private async awaitFeedbackEvent(
+    session: CanvasSession,
+    subscription: CanvasFeedbackSubscription,
+    timeoutMs?: number
+  ): Promise<CanvasFeedbackEvent> {
+    if (subscription.queue.length > 0) {
+      return subscription.queue.shift() as CanvasFeedbackEvent;
+    }
+    if (!subscription.active) {
+      return {
+        eventType: "feedback.complete",
+        cursor: subscription.cursor,
+        ts: new Date().toISOString(),
+        reason: "subscription_replaced"
+      };
+    }
+    return await new Promise<CanvasFeedbackEvent>((resolve) => {
+      let timeoutHandle: NodeJS.Timeout | null = null;
+      const resolveWaiter = (event: CanvasFeedbackEvent | null) => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+        if (!event) {
+          resolve({
+            eventType: "feedback.complete",
+            cursor: subscription.cursor,
+            ts: new Date().toISOString(),
+            reason: "subscription_replaced"
+          });
+          return;
+        }
+        resolve(event);
+      };
+      subscription.waiters.push(resolveWaiter);
+      if (timeoutMs === undefined) {
+        return;
+      }
+      timeoutHandle = setTimeout(() => {
+        const waiterIndex = subscription.waiters.indexOf(resolveWaiter);
+        if (waiterIndex >= 0) {
+          subscription.waiters.splice(waiterIndex, 1);
+        }
+        subscription.lastHeartbeatAt = Date.now();
+        resolve({
+          eventType: "feedback.heartbeat",
+          cursor: subscription.cursor,
+          ts: new Date(subscription.lastHeartbeatAt).toISOString(),
+          activeTargetIds: [...session.activeTargets.keys()]
+        });
+      }, timeoutMs);
+      timeoutHandle.unref?.();
+    });
+  }
+
   private enqueueFeedbackEvent(subscription: CanvasFeedbackSubscription, event: CanvasFeedbackStreamEvent): void {
     if (!subscription.active && event.eventType !== "feedback.complete") {
       return;
+    }
+    if (event.eventType === "feedback.heartbeat") {
+      subscription.lastHeartbeatAt = Date.now();
     }
     subscription.cursor = event.eventType === "feedback.item"
       ? event.item.cursor
@@ -1412,7 +2211,7 @@ export class CanvasManager implements CanvasManagerLike {
   private completeFeedbackSubscription(
     session: CanvasSession,
     subscriptionId: string,
-    reason: "session_closed" | "lease_revoked" | "subscription_replaced" | "document_unloaded"
+    reason: CanvasFeedbackCompleteReason
   ): void {
     const subscription = session.feedbackSubscriptions.get(subscriptionId);
     if (!subscription || !subscription.active) {
@@ -1431,7 +2230,7 @@ export class CanvasManager implements CanvasManagerLike {
 
   private completeFeedbackSubscriptions(
     session: CanvasSession,
-    reason: "session_closed" | "lease_revoked" | "subscription_replaced" | "document_unloaded"
+    reason: CanvasFeedbackCompleteReason
   ): void {
     for (const subscriptionId of [...session.feedbackSubscriptions.keys()]) {
       this.completeFeedbackSubscription(session, subscriptionId, reason);
@@ -1565,7 +2364,18 @@ export class CanvasManager implements CanvasManagerLike {
       documentRevision: session.store.getRevision(),
       libraryPolicy: resolveCanvasLibraryPolicy(document),
       componentInventoryCount: document.componentInventory.length,
+      availableInventoryCount: getAvailableInventory(document).length,
+      catalogKitIds: listBuiltInCanvasKitIds(),
+      availableStarterCount: listBuiltInCanvasStarterTemplates().length,
       componentSourceKinds: getComponentSourceKinds(document),
+      frameworkIds: getFrameworkIds(document),
+      pluginIds: getPluginIds(document),
+      inventoryOrigins: getInventoryOrigins(document),
+      declaredCapabilities: getDeclaredCapabilities(document),
+      grantedCapabilities: getGrantedCapabilities(document),
+      capabilityDenials: getCapabilityDenials(document),
+      pluginErrors: getPluginErrors(document),
+      importSources: getImportSources(document),
       iconRoles: readCanvasIconRoles(document),
       targets: [...session.activeTargets.values()],
       overlayMounts: [...session.overlayMounts.values()],
@@ -1577,9 +2387,180 @@ export class CanvasManager implements CanvasManagerLike {
       boundFiles: codeSyncStatus.boundFiles,
       conflictCount: codeSyncStatus.conflictCount,
       driftState: codeSyncStatus.driftState,
-      lastImportAt: codeSyncStatus.lastImportAt,
+      lastImportAt: getLatestImportedAt(document) ?? codeSyncStatus.lastImportAt,
       lastPushAt: codeSyncStatus.lastPushAt,
-      bindings: codeSyncStatus.bindings
+      starterId: document.meta.starter?.template?.id ?? null,
+      starterName: document.meta.starter?.template?.name ?? null,
+      starterFrameworkId: document.meta.starter?.frameworkId ?? null,
+      starterAppliedAt: document.meta.starter?.appliedAt ?? null,
+      bindings: codeSyncStatus.bindings,
+      history: this.buildHistorySummary(session)
+    };
+  }
+
+  private buildHistorySummary(session: CanvasSession): NonNullable<CanvasSessionSummary["history"]> {
+    const stale = this.isHistoryStale(session);
+    return {
+      canUndo: !stale && session.history.undoStack.length > 0,
+      canRedo: !stale && session.history.redoStack.length > 0,
+      undoDepth: session.history.undoStack.length,
+      redoDepth: session.history.redoStack.length,
+      stale,
+      depthLimit: session.history.depthLimit
+    };
+  }
+
+  private isHistoryStale(session: CanvasSession): boolean {
+    const currentRevision = session.store.getRevision();
+    const undoEntry = session.history.undoStack.at(-1);
+    if (undoEntry && undoEntry.expectedUndoRevision !== currentRevision) {
+      return true;
+    }
+    const redoEntry = session.history.redoStack.at(-1);
+    if (redoEntry && redoEntry.expectedRedoRevision !== null && redoEntry.expectedRedoRevision !== currentRevision) {
+      return true;
+    }
+    return false;
+  }
+
+  private resetHistory(session: CanvasSession): void {
+    session.history.undoStack = [];
+    session.history.redoStack = [];
+  }
+
+  private syncHistoryStackHeads(session: CanvasSession): void {
+    const currentRevision = session.store.getRevision();
+    const undoEntry = session.history.undoStack.at(-1);
+    if (undoEntry) {
+      undoEntry.expectedUndoRevision = currentRevision;
+    }
+    const redoEntry = session.history.redoStack.at(-1);
+    if (redoEntry) {
+      redoEntry.expectedRedoRevision = currentRevision;
+    }
+  }
+
+  private normalizeHistoryAwarePatches(document: CanvasDocument, patches: CanvasPatch[]): CanvasPatch[] {
+    return patches.map((patch) => {
+      if (patch.op !== "node.duplicate") {
+        return patch;
+      }
+      return ensureDuplicatePatchIds(document, patch);
+    });
+  }
+
+  private recordHistoryEntry(
+    session: CanvasSession,
+    beforeDocument: CanvasDocument,
+    patches: CanvasPatch[],
+    beforeSelection: CanvasSession["editorSelection"],
+    beforeViewport: CanvasEditorViewportState,
+    appliedRevision: number,
+    source: PreviewSyncSource
+  ): void {
+    const entry = buildCanvasHistoryEntry(beforeDocument, patches, {
+      beforeSelection,
+      beforeViewport,
+      afterSelection: cloneEditorSelection(session.editorSelection),
+      afterViewport: cloneEditorViewport(session.editorViewport),
+      appliedRevision,
+      source
+    });
+    if (!entry) {
+      this.resetHistory(session);
+      return;
+    }
+    session.history.undoStack.push(entry);
+    if (session.history.undoStack.length > session.history.depthLimit) {
+      session.history.undoStack.shift();
+    }
+    session.history.redoStack = [];
+    this.syncHistoryStackHeads(session);
+  }
+
+  private async applyHistoryDirection(
+    params: CanvasCommandParams,
+    direction: CanvasHistoryDirection
+  ): Promise<unknown> {
+    const session = this.requireSession(params);
+    this.assertLease(session, params);
+    if (session.planStatus !== "accepted") {
+      throw this.planRequired(direction === "undo" ? "canvas.history.undo" : "canvas.history.redo", session);
+    }
+    const stack = direction === "undo" ? session.history.undoStack : session.history.redoStack;
+    if (stack.length === 0) {
+      return {
+        ok: false,
+        direction,
+        reason: "history_empty",
+        summary: this.buildSessionSummary(session)
+      };
+    }
+    if (this.isHistoryStale(session)) {
+      this.resetHistory(session);
+      this.pushFeedback(session, {
+        category: "validation",
+        class: "history-invalidated",
+        severity: "warning",
+        message: "Canvas history was invalidated because the document revision changed outside the recorded patch stack.",
+        pageId: session.editorSelection.pageId,
+        prototypeId: null,
+        targetId: session.editorSelection.targetId,
+        evidenceRefs: [],
+        details: { direction }
+      });
+      await this.syncLiveViews(session, { refreshPreviewTargets: true, source: "editor" });
+      return {
+        ok: false,
+        direction,
+        reason: "history_invalidated",
+        summary: this.buildSessionSummary(session)
+      };
+    }
+
+    const entry = stack.pop() as CanvasHistoryEntry;
+    const nextSelection = direction === "undo"
+      ? cloneEditorSelection(entry.beforeSelection)
+      : cloneEditorSelection(entry.afterSelection);
+    const nextViewport = direction === "undo"
+      ? cloneEditorViewport(entry.beforeViewport)
+      : cloneEditorViewport(entry.afterViewport);
+    session.editorSelection = nextSelection;
+    session.editorViewport = nextViewport;
+    const result = await this.applyDocumentPatches(
+      session,
+      session.store.getRevision(),
+      direction === "undo" ? entry.inversePatches : entry.forwardPatches,
+      "editor"
+    );
+    if (direction === "undo") {
+      entry.expectedRedoRevision = result.appliedRevision;
+      session.history.redoStack.push(entry);
+    } else {
+      entry.expectedUndoRevision = result.appliedRevision;
+      entry.expectedRedoRevision = null;
+      session.history.undoStack.push(entry);
+    }
+    this.syncHistoryStackHeads(session);
+    this.pushFeedback(session, {
+      category: "validation",
+      class: direction === "undo" ? "history-undone" : "history-redone",
+      severity: "info",
+      message: direction === "undo" ? "Applied canvas undo." : "Applied canvas redo.",
+      pageId: session.editorSelection.pageId,
+      prototypeId: null,
+      targetId: session.editorSelection.targetId,
+      evidenceRefs: [],
+      details: {
+        direction,
+        entryId: entry.id
+      }
+    });
+    return {
+      ok: true,
+      direction,
+      documentRevision: result.appliedRevision,
+      summary: this.buildSessionSummary(session)
     };
   }
 
@@ -1889,7 +2870,8 @@ export class CanvasManager implements CanvasManagerLike {
       overlayMounts: [...session.overlayMounts.values()],
       feedback: this.buildFeedbackSnapshot(session),
       feedbackCursor: this.getLatestFeedbackCursor(session),
-      selection: session.editorSelection
+      selection: session.editorSelection,
+      viewport: session.editorViewport
     }).catch(() => {});
   }
 
@@ -1899,11 +2881,19 @@ export class CanvasManager implements CanvasManagerLike {
     }
     const status = await this.browserManager.status(session.browserSessionId);
     for (const mount of session.overlayMounts.values()) {
-      if (status.mode === "extension") {
+      if (this.usesCanvasRelayOverlay(session, mount.targetId, status.mode)) {
         await this.requestCanvasExtension(session, "canvas.overlay.sync", {
           mountId: mount.mountId,
           targetId: mount.targetId,
           selection: session.editorSelection
+        }).catch(() => {});
+        continue;
+      }
+      if (status.mode === "extension" && this.supportsOpsOverlayTransport(session) && typeof this.browserManager.syncCanvasOverlay === "function") {
+        await this.browserManager.syncCanvasOverlay(session.browserSessionId, mount.targetId, {
+          mountId: mount.mountId,
+          title: session.store.getDocument().title,
+          selection: this.buildOverlaySelection(session, mount.targetId)
         }).catch(() => {});
         continue;
       }
@@ -1983,8 +2973,101 @@ export class CanvasManager implements CanvasManagerLike {
     command: string,
     payload: Record<string, unknown>
   ): Promise<ExtensionOverlayResult> {
+    session.usesCanvasRelay = true;
     const client = await this.ensureCanvasClient();
     return await client.request<ExtensionOverlayResult>(command, payload, session.canvasSessionId, 30000, session.leaseId);
+  }
+
+  private usesCanvasRelayOverlay(
+    session: CanvasSession,
+    targetId: string,
+    mode: string
+  ): boolean {
+    return mode === "extension" && session.designTabTargetId === targetId;
+  }
+
+  private supportsOpsOverlayTransport(session: CanvasSession): boolean {
+    if (!session.browserSessionId) {
+      return false;
+    }
+    const supports = (this.browserManager as {
+      supportsOpsOverlayTransport?: (sessionId: string) => boolean;
+    }).supportsOpsOverlayTransport;
+    return typeof supports === "function" ? supports.call(this.browserManager, session.browserSessionId) : true;
+  }
+
+  private hasLiveOpsDesignTabTransport(session: CanvasSession): boolean {
+    return this.supportsOpsOverlayTransport(session) && (this.relay?.status().opsConnected ?? false);
+  }
+
+  private buildOverlaySelection(session: CanvasSession, targetId: string): BrowserCanvasOverlaySelection {
+    const updatedAt = typeof session.editorSelection.updatedAt === "string"
+      ? session.editorSelection.updatedAt
+      : undefined;
+    return {
+      pageId: session.editorSelection.pageId,
+      nodeId: session.editorSelection.nodeId,
+      targetId,
+      ...(updatedAt ? { updatedAt } : {})
+    };
+  }
+
+  private async recoverCanvasDesignTabClose(
+    session: CanvasSession,
+    targetId: string,
+    detail: string
+  ): Promise<boolean> {
+    if (!isCanvasRelaySessionLookupError(detail) || !session.browserSessionId) {
+      return false;
+    }
+    const listTargets = (this.browserManager as { listTargets?: (sessionId: string, includeUrls?: boolean) => Promise<{ targets: Array<{ targetId: string }> }> }).listTargets;
+    if (typeof listTargets === "function") {
+      try {
+        const listed = await listTargets.call(this.browserManager, session.browserSessionId, true);
+        if (!listed.targets.some((target) => target.targetId === targetId)) {
+          return true;
+        }
+      } catch (error) {
+        if (isIgnorableCanvasSessionCloseError(error)) {
+          return false;
+        }
+        if (isAlreadyClosedCanvasTargetError(error)) {
+          return true;
+        }
+        throw error;
+      }
+    }
+    try {
+      await this.browserManager.closeTarget(session.browserSessionId, targetId);
+      return true;
+    } catch (error) {
+      if (isIgnorableCanvasSessionCloseError(error)) {
+        return false;
+      }
+      if (isAlreadyClosedCanvasTargetError(error)) {
+        return true;
+      }
+      throw error;
+    }
+  }
+
+  private disconnectCanvasClientIfIdle(): void {
+    if (!this.canvasClient) {
+      return;
+    }
+    if (this.canvasClient.hasPendingRequests()) {
+      return;
+    }
+    const relayStillNeeded = [...this.sessions.values()].some((session) => (
+      session.usesCanvasRelay
+      && session.designTabTargetId !== null
+    ));
+    if (relayStillNeeded) {
+      return;
+    }
+    this.canvasClient.disconnect();
+    this.canvasClient = null;
+    this.canvasEndpoint = null;
   }
 
   private async ensureCanvasClient(): Promise<CanvasClient> {
@@ -2011,7 +3094,7 @@ export class CanvasManager implements CanvasManagerLike {
   }
 
   private async handleCanvasEvent(event: { event: string; canvasSessionId?: string; payload?: unknown }): Promise<void> {
-    if (event.event !== "canvas_patch_requested" || typeof event.canvasSessionId !== "string") {
+    if (typeof event.canvasSessionId !== "string") {
       return;
     }
     const session = this.sessions.get(event.canvasSessionId);
@@ -2022,8 +3105,47 @@ export class CanvasManager implements CanvasManagerLike {
     if (!payload) {
       return;
     }
+    if (event.event === "canvas_target_closed") {
+      const targetId = optionalString(payload.targetId);
+      if (targetId) {
+        if (session.designTabTargetId === targetId) {
+          session.designTabTargetId = null;
+        }
+        session.activeTargets.delete(targetId);
+        for (const [mountId, mount] of session.overlayMounts.entries()) {
+          if (mount.targetId === targetId) {
+            session.overlayMounts.delete(mountId);
+          }
+        }
+        this.disconnectCanvasClientIfIdle();
+      }
+      return;
+    }
+    if (event.event === "canvas_session_closed" || event.event === "canvas_session_expired") {
+      this.completeFeedbackSubscriptions(session, event.event === "canvas_session_closed" ? "session_closed" : "document_unloaded");
+      this.sessionSyncManager.removeSession(session.canvasSessionId);
+      this.codeSyncManager.disposeSession(session.canvasSessionId);
+      this.sessions.delete(session.canvasSessionId);
+      this.disconnectCanvasClientIfIdle();
+      return;
+    }
+    if (event.event === "canvas_history_requested") {
+      const direction = optionalString(payload.direction);
+      if (direction === "undo" || direction === "redo") {
+        await this.applyHistoryDirection({
+          canvasSessionId: session.canvasSessionId,
+          leaseId: session.leaseId
+        }, direction);
+      }
+      return;
+    }
+    if (event.event !== "canvas_patch_requested") {
+      return;
+    }
     const baseRevision = requireNumber(payload.baseRevision, "baseRevision");
     const patches = requirePatches(payload.patches);
+    const beforeSelection = cloneEditorSelection(session.editorSelection);
+    const beforeViewport = cloneEditorViewport(session.editorViewport);
     if (isRecord(payload.selection)) {
       session.editorSelection = {
         pageId: optionalString(payload.selection.pageId) ?? session.editorSelection.pageId,
@@ -2032,9 +3154,22 @@ export class CanvasManager implements CanvasManagerLike {
         updatedAt: new Date().toISOString()
       };
     }
+    if (isRecord(payload.viewport)) {
+      session.editorViewport = {
+        x: typeof payload.viewport.x === "number" ? payload.viewport.x : session.editorViewport.x,
+        y: typeof payload.viewport.y === "number" ? payload.viewport.y : session.editorViewport.y,
+        zoom: typeof payload.viewport.zoom === "number" ? payload.viewport.zoom : session.editorViewport.zoom
+      };
+    }
     try {
-      await this.applyDocumentPatches(session, baseRevision, patches, "editor");
+      await this.applyDocumentPatches(session, baseRevision, patches, "editor", {
+        recordHistory: true,
+        beforeSelection,
+        beforeViewport
+      });
     } catch (error) {
+      session.editorSelection = beforeSelection;
+      session.editorViewport = beforeViewport;
       const message = error instanceof Error ? error.message : String(error);
       this.pushFeedback(session, {
         category: "validation",
@@ -2057,34 +3192,70 @@ export class CanvasManager implements CanvasManagerLike {
     canvasDocument: CanvasDocument,
     prototypeId: string
   ): Promise<ExtensionOverlayResult> {
-    return await this.browserManager.withPage(sessionId, targetId, async (page: DirectPageLike) => {
-      await page.addStyleTag({ content: DIRECT_OVERLAY_STYLE });
-      return await page.evaluate(({ title, prototype, targetId: pageTargetId }) => {
-        const existing = document.getElementById("opendevbrowser-canvas-overlay");
+    return await this.browserManager.withPage(sessionId, targetId, async (page: Page) => {
+      return await this.evaluateDirectOverlay(page, ({ title, prototype, targetId: pageTargetId, overlayRootId, overlayStyleId, overlayStyle }) => {
+        const ensureStyle = () => {
+          if (document.getElementById(overlayStyleId)) {
+            return;
+          }
+          const style = document.createElement("style");
+          style.id = overlayStyleId;
+          style.textContent = overlayStyle;
+          document.body.append(style);
+        };
+        const buildRoot = () => {
+          const root = document.createElement("div");
+          root.id = overlayRootId;
+          const heading = document.createElement("strong");
+          heading.textContent = "OpenDevBrowser Canvas";
+          const titleDetail = document.createElement("div");
+          titleDetail.textContent = title;
+          const prototypeDetail = document.createElement("div");
+          prototypeDetail.textContent = prototype;
+          root.append(heading, titleDetail, prototypeDetail);
+          return root;
+        };
+        ensureStyle();
+        const existing = document.getElementById(overlayRootId);
         if (existing) existing.remove();
-        const root = document.createElement("div");
-        root.id = "opendevbrowser-canvas-overlay";
-        root.innerHTML = `<strong>OpenDevBrowser Canvas</strong><div>${title}</div><div>${prototype}</div>`;
+        const root = buildRoot();
         document.body.append(root);
         return {
-          mountId: `mount_${crypto.randomUUID()}`,
+          mountId: `mount_${typeof globalThis.crypto?.randomUUID === "function"
+            ? globalThis.crypto.randomUUID()
+            : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`}`,
           targetId: pageTargetId,
           previewState: "background",
           overlayState: "mounted",
           capabilities: { selection: true, guides: true }
         };
-      }, { title: canvasDocument.title, prototype: prototypeId, targetId });
+      }, {
+        title: canvasDocument.title,
+        prototype: prototypeId,
+        targetId,
+        overlayRootId: DIRECT_OVERLAY_ROOT_ID,
+        overlayStyleId: DIRECT_OVERLAY_STYLE_ID,
+        overlayStyle: DIRECT_OVERLAY_STYLE
+      });
     }) as ExtensionOverlayResult;
   }
 
-  private async unmountDirectOverlay(sessionId: string, targetId: string): Promise<void> {
-    await this.browserManager.withPage(sessionId, targetId, async (page: DirectPageLike) => {
-      await page.evaluate(() => {
-        document.getElementById("opendevbrowser-canvas-overlay")?.remove();
+  private async unmountDirectOverlay(sessionId: string, targetId: string, mountId?: string): Promise<void> {
+    await this.browserManager.withPage(sessionId, targetId, async (page: Page) => {
+      await this.evaluateDirectOverlay(page, ({ mountId: overlayMountId, overlayRootId, overlayStyleId }) => {
+        if (overlayMountId) {
+          document.getElementById(overlayMountId)?.remove();
+        }
+        document.getElementById(overlayRootId)?.remove();
+        document.getElementById(overlayStyleId)?.remove();
         document.querySelectorAll(".opendevbrowser-canvas-highlight").forEach((element) => {
           element.classList.remove("opendevbrowser-canvas-highlight");
         });
-      }, undefined);
+      }, {
+        mountId,
+        overlayRootId: DIRECT_OVERLAY_ROOT_ID,
+        overlayStyleId: DIRECT_OVERLAY_STYLE_ID
+      });
       return null;
     });
   }
@@ -2096,14 +3267,32 @@ export class CanvasManager implements CanvasManagerLike {
     title: string,
     selection: CanvasSession["editorSelection"]
   ): Promise<void> {
-    await this.browserManager.withPage(sessionId, targetId, async (page: DirectPageLike) => {
-      await page.addStyleTag({ content: DIRECT_OVERLAY_STYLE });
-      await page.evaluate((input) => {
-        let root = document.getElementById(input.mountId);
+    await this.browserManager.withPage(sessionId, targetId, async (page: Page) => {
+      await this.evaluateDirectOverlay(page, (input) => {
+        const ensureStyle = () => {
+          if (document.getElementById(input.overlayStyleId)) {
+            return;
+          }
+          const style = document.createElement("style");
+          style.id = input.overlayStyleId;
+          style.textContent = input.overlayStyle;
+          document.body.append(style);
+        };
+        const buildRoot = () => {
+          const root = document.createElement("div");
+          root.id = input.overlayRootId;
+          const heading = document.createElement("strong");
+          const titleDetail = document.createElement("div");
+          const selectionDetail = document.createElement("div");
+          root.append(heading, titleDetail, selectionDetail);
+          return root;
+        };
+        ensureStyle();
+        let root = input.mountId
+          ? document.getElementById(input.mountId) ?? document.getElementById(input.overlayRootId)
+          : document.getElementById(input.overlayRootId);
         if (!(root instanceof HTMLElement)) {
-          root = document.createElement("div");
-          root.id = input.mountId;
-          root.innerHTML = "<strong>OpenDevBrowser Canvas</strong><div></div><div></div>";
+          root = buildRoot();
           document.body.append(root);
         }
         const [heading, titleDetail, selectionDetail] = Array.from(root.children);
@@ -2125,7 +3314,14 @@ export class CanvasManager implements CanvasManagerLike {
             element.classList.add("opendevbrowser-canvas-highlight");
           }
         }
-      }, { mountId, title, selection });
+      }, {
+        mountId,
+        title,
+        selection,
+        overlayRootId: DIRECT_OVERLAY_ROOT_ID,
+        overlayStyleId: DIRECT_OVERLAY_STYLE_ID,
+        overlayStyle: DIRECT_OVERLAY_STYLE
+      });
       return null;
     });
   }
@@ -2136,8 +3332,8 @@ export class CanvasManager implements CanvasManagerLike {
     nodeId: string | null,
     selectionHint: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
-    return await this.browserManager.withPage(sessionId, targetId, async (page: DirectPageLike) => {
-      return await page.evaluate((input) => {
+    return await this.browserManager.withPage(sessionId, targetId, async (page: Page) => {
+      return await this.evaluateDirectOverlay(page, (input) => {
         document.querySelectorAll(".opendevbrowser-canvas-highlight").forEach((element) => {
           element.classList.remove("opendevbrowser-canvas-highlight");
         });
@@ -2153,7 +3349,7 @@ export class CanvasManager implements CanvasManagerLike {
           matched: true,
           selector,
           tagName: element.tagName.toLowerCase(),
-          text: element.innerText.slice(0, 160),
+          text: (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 160),
           id: element.id || null,
           /* c8 ignore next -- the highlight class is always added immediately above */
           className: element.className || null
@@ -2161,6 +3357,644 @@ export class CanvasManager implements CanvasManagerLike {
       }, { nodeId, selectionHint });
     }) as Record<string, unknown>;
   }
+
+  private async evaluateDirectOverlay<TArg, TResult>(
+    page: Page,
+    pageFunction: (arg: TArg) => TResult | Promise<TResult>,
+    arg: TArg
+  ): Promise<TResult> {
+    let timeoutHandle: NodeJS.Timeout | null = null;
+    try {
+      const timed = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error("DIRECT_OVERLAY_EVAL_TIMEOUT")), DIRECT_OVERLAY_EVAL_TIMEOUT_MS);
+        timeoutHandle.unref?.();
+      });
+      const result = await Promise.race([
+        page.evaluate(pageFunction as never, arg as never) as Promise<TResult>,
+        timed
+      ]);
+      return result;
+    } catch (error) {
+      if (!this.isDirectOverlayEvalFallbackError(error)) {
+        throw error;
+      }
+      return await this.evaluateDirectOverlayViaCdp(page, pageFunction, arg);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  }
+
+  private async evaluateDirectOverlayViaCdp<TArg, TResult>(
+    page: Page,
+    pageFunction: (arg: TArg) => TResult | Promise<TResult>,
+    arg: TArg
+  ): Promise<TResult> {
+    const session = await page.context().newCDPSession(page);
+    try {
+      const result = await session.send("Runtime.evaluate", {
+        expression: `(${pageFunction.toString()})(${JSON.stringify(arg)})`,
+        awaitPromise: true,
+        returnByValue: true
+      }) as {
+        result?: { value?: TResult };
+        exceptionDetails?: { text?: string; exception?: { description?: string } };
+      };
+      const detail = result.exceptionDetails;
+      if (detail) {
+        throw new Error(detail.exception?.description ?? detail.text ?? "Direct overlay Runtime.evaluate failed.");
+      }
+      return result.result?.value as TResult;
+    } finally {
+      await session.detach().catch(() => undefined);
+    }
+  }
+
+  private isDirectOverlayEvalFallbackError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("DIRECT_OVERLAY_EVAL_TIMEOUT");
+  }
+}
+
+function requireCanvasPage(document: CanvasDocument, pageId: string): CanvasPage {
+  const page = document.pages.find((entry) => entry.id === pageId);
+  if (!page) {
+    throw new Error(`Unknown page: ${pageId}`);
+  }
+  return page;
+}
+
+function findNodeInPage(page: CanvasPage, nodeId: string): CanvasNode {
+  const node = page.nodes.find((entry) => entry.id === nodeId);
+  if (!node) {
+    throw new Error(`Unknown node: ${nodeId}`);
+  }
+  return node;
+}
+
+function getAvailableInventory(document: CanvasDocument): CanvasComponentInventoryItem[] {
+  const byId = new Map<string, CanvasComponentInventoryItem>();
+  for (const item of listBuiltInCanvasInventoryItems()) {
+    byId.set(item.id, item);
+  }
+  for (const item of document.componentInventory) {
+    byId.set(item.id, item);
+  }
+  return [...byId.values()];
+}
+
+function requireInventoryItem(items: CanvasComponentInventoryItem[], itemId: string): CanvasComponentInventoryItem {
+  const item = items.find((entry) => entry.id === itemId);
+  if (!item) {
+    throw new Error(`Unknown inventory item: ${itemId}`);
+  }
+  return item;
+}
+
+function readInsertPlacement(params: CanvasCommandParams): { x?: number; y?: number } {
+  const x = typeof params.x === "number" && Number.isFinite(params.x) ? params.x : undefined;
+  const y = typeof params.y === "number" && Number.isFinite(params.y) ? params.y : undefined;
+  return { x, y };
+}
+
+type InventoryTemplateNode = {
+  id: string;
+  kind: CanvasNode["kind"];
+  name: string;
+  parentId: string | null;
+  childIds: string[];
+  rect: CanvasRect;
+  props: Record<string, unknown>;
+  style: Record<string, unknown>;
+  tokenRefs: Record<string, unknown>;
+  variantPatches: CanvasNode["variantPatches"];
+  metadata: Record<string, unknown>;
+};
+
+function materializeInventoryItem(
+  item: CanvasComponentInventoryItem,
+  pageId: string,
+  parentId: string | null,
+  placement: { x?: number; y?: number }
+): { patches: CanvasPatch[]; insertedNodeIds: string[]; rootNodeId: string } {
+  const template = readInventoryTemplate(item);
+  const idMap = new Map(template.nodes.map((node) => [node.id, `node_inventory_${randomUUID().slice(0, 8)}`]));
+  const root = template.nodes.find((node) => node.id === template.rootNodeId) ?? template.nodes[0]!;
+  const offsetX = (placement.x ?? root.rect.x) - root.rect.x;
+  const offsetY = (placement.y ?? root.rect.y) - root.rect.y;
+  const patches: CanvasPatch[] = [];
+  for (const node of template.nodes) {
+    const nextId = idMap.get(node.id) as string;
+    const nextParentId = node.id === template.rootNodeId
+      ? parentId
+      : node.parentId
+        ? idMap.get(node.parentId) ?? null
+        : null;
+    patches.push({
+      op: "node.insert",
+      pageId,
+      parentId: nextParentId,
+      node: {
+        id: nextId,
+        kind: node.kind,
+        name: node.id === template.rootNodeId ? item.name : node.name,
+        rect: {
+          x: Math.round(node.rect.x + offsetX),
+          y: Math.round(node.rect.y + offsetY),
+          width: node.rect.width,
+          height: node.rect.height
+        },
+        props: structuredClone(node.props),
+        style: structuredClone(node.style),
+        tokenRefs: structuredClone(node.tokenRefs),
+        bindingRefs: {},
+        variantPatches: structuredClone(node.variantPatches),
+        metadata: {
+          ...structuredClone(node.metadata),
+          inventory: {
+            itemId: item.id,
+            origin: item.origin
+          }
+        }
+      }
+    });
+  }
+  const rootNodeId = idMap.get(template.rootNodeId);
+  if (!rootNodeId) {
+    throw new Error(`Inventory template is missing root node: ${item.id}`);
+  }
+  return {
+    patches,
+    insertedNodeIds: [...idMap.values()],
+    rootNodeId
+  };
+}
+
+function readInventoryTemplate(item: CanvasComponentInventoryItem): { rootNodeId: string; nodes: InventoryTemplateNode[] } {
+  const metadata = isRecord(item.metadata) ? item.metadata : {};
+  const template = isRecord(metadata.template) ? metadata.template : null;
+  if (template) {
+    const rootNodeId = optionalString(template.rootNodeId) ?? null;
+    const nodes = Array.isArray(template.nodes)
+      ? template.nodes
+        .map((entry) => normalizeInventoryTemplateNode(entry))
+        .filter((entry): entry is InventoryTemplateNode => entry !== null)
+      : [];
+    if (rootNodeId && nodes.length > 0) {
+      return { rootNodeId, nodes };
+    }
+  }
+  return {
+    rootNodeId: item.id,
+    nodes: [{
+      id: item.id,
+      kind: "component-instance",
+      name: item.name,
+      parentId: null,
+      childIds: [],
+      rect: { x: 96, y: 96, width: 320, height: 180 },
+      props: defaultInventoryNodeProps(item),
+      style: {},
+      tokenRefs: {},
+      variantPatches: [],
+      metadata: {
+        inventory: {
+          itemId: item.id,
+          origin: item.origin
+        }
+      }
+    }]
+  };
+}
+
+function normalizeInventoryTemplateNode(value: unknown): InventoryTemplateNode | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = optionalString(value.id);
+  const kind = optionalString(value.kind);
+  if (!id || !kind) {
+    return null;
+  }
+  return {
+    id,
+    kind: kind as CanvasNode["kind"],
+    name: optionalString(value.name) ?? id,
+    parentId: optionalString(value.parentId),
+    childIds: Array.isArray(value.childIds)
+      ? value.childIds.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+      : [],
+    rect: normalizeInventoryRect(value.rect),
+    props: isRecord(value.props) ? structuredClone(value.props) : {},
+    style: isRecord(value.style) ? structuredClone(value.style) : {},
+    tokenRefs: isRecord(value.tokenRefs) ? structuredClone(value.tokenRefs) : {},
+    variantPatches: Array.isArray(value.variantPatches)
+      ? value.variantPatches
+        .filter((entry): entry is CanvasNode["variantPatches"][number] => isRecord(entry))
+        .map((entry) => structuredClone(entry))
+      : [],
+    metadata: isRecord(value.metadata) ? structuredClone(value.metadata) : {}
+  };
+}
+
+function normalizeInventoryRect(value: unknown): CanvasRect {
+  const rect = isRecord(value) ? value : {};
+  return {
+    x: typeof rect.x === "number" && Number.isFinite(rect.x) ? rect.x : 96,
+    y: typeof rect.y === "number" && Number.isFinite(rect.y) ? rect.y : 96,
+    width: typeof rect.width === "number" && Number.isFinite(rect.width) ? rect.width : 320,
+    height: typeof rect.height === "number" && Number.isFinite(rect.height) ? rect.height : 180
+  };
+}
+
+function defaultInventoryNodeProps(item: CanvasComponentInventoryItem): Record<string, unknown> {
+  const defaults = Object.fromEntries(
+    item.props
+      .filter((entry) => entry.defaultValue !== undefined)
+      .map((entry) => [entry.name, structuredClone(entry.defaultValue)])
+  );
+  if (!("text" in defaults) && item.content.acceptsText) {
+    defaults.text = item.name;
+  }
+  return defaults;
+}
+
+type BuiltInCanvasStarterDefinition = NonNullable<ReturnType<typeof getBuiltInCanvasStarterDefinition>>;
+type StarterInventoryUpsertPatch = Extract<CanvasPatch, { op: "inventory.upsert" }>;
+
+function resolveStarterFramework(
+  document: CanvasDocument,
+  starter: CanvasStarterTemplate,
+  requestedFrameworkId: string | null
+): { frameworkId: string; reason: string | null } {
+  const compatible = new Set(starter.compatibleFrameworkIds.map((entry) => canonicalizeStarterFrameworkId(entry)));
+  const requested = requestedFrameworkId ? canonicalizeStarterFrameworkId(requestedFrameworkId) : null;
+  if (requested) {
+    return compatible.has(requested)
+      ? { frameworkId: requested, reason: null }
+      : { frameworkId: requested, reason: `framework_unavailable:${requested}` };
+  }
+  const inferred = getFrameworkIds(document)
+    .map((entry) => canonicalizeStarterFrameworkId(entry))
+    .find((entry) => compatible.has(entry));
+  return {
+    frameworkId: inferred ?? canonicalizeStarterFrameworkId(starter.defaultFrameworkId),
+    reason: null
+  };
+}
+
+function resolveStarterAdapter(
+  kitIds: string[],
+  requestedAdapterId: string | null
+): { adapterId: string | null; reason: string | null } {
+  const entries = getStarterKitEntries(kitIds);
+  const common = entries.reduce<string[] | null>((current, entry) => {
+    if (current === null) {
+      return [...entry.defaultLibraryAdapterIds];
+    }
+    return current.filter((adapterId) => entry.defaultLibraryAdapterIds.includes(adapterId));
+  }, null);
+  if (requestedAdapterId) {
+    if (entries.length === 0 || entries.every((entry) => entry.defaultLibraryAdapterIds.includes(requestedAdapterId))) {
+      return { adapterId: requestedAdapterId, reason: null };
+    }
+    return { adapterId: common?.[0] ?? null, reason: `adapter_unavailable:${requestedAdapterId}` };
+  }
+  if (entries.length === 0) {
+    return { adapterId: null, reason: null };
+  }
+  if (common && common.length > 0) {
+    return { adapterId: common[0] ?? null, reason: null };
+  }
+  return { adapterId: null, reason: "adapter_unavailable" };
+}
+
+function buildStarterTokenMergePatch(kitIds: string[]): CanvasPatch | null {
+  const collections = getStarterKitEntries(kitIds).flatMap((entry) => entry.tokenCollections.map((collection) => structuredClone(collection)));
+  if (collections.length === 0) {
+    return null;
+  }
+  return {
+    op: "tokens.merge",
+    tokens: {
+      collections,
+      metadata: {
+        starterKitIds: [...kitIds]
+      }
+    }
+  };
+}
+
+function buildStarterInventoryUpsertPatches(
+  kitIds: string[],
+  frameworkId: string,
+  adapterId: string | null
+): StarterInventoryUpsertPatch[] {
+  return listStarterKitInventoryItems(kitIds, frameworkId, adapterId).map((item) => ({
+    op: "inventory.upsert" as const,
+    item
+  }));
+}
+
+function buildStarterShell(
+  definition: BuiltInCanvasStarterDefinition,
+  pageId: string,
+  parentId: string | null,
+  placement: { x?: number; y?: number }
+): {
+  patches: CanvasPatch[];
+  insertedNodeIds: string[];
+  rect: CanvasRect;
+  rootNodeId: string;
+} {
+  const rootNodeId = `node_starter_${randomUUID().slice(0, 8)}`;
+  const eyebrowNodeId = `node_starter_${randomUUID().slice(0, 8)}`;
+  const headlineNodeId = `node_starter_${randomUUID().slice(0, 8)}`;
+  const bodyNodeId = `node_starter_${randomUUID().slice(0, 8)}`;
+  const actionNodeId = definition.shell.actionLabel ? `node_starter_${randomUUID().slice(0, 8)}` : null;
+  const rect = {
+    ...definition.shell.rect,
+    x: placement.x ?? definition.shell.rect.x,
+    y: placement.y ?? definition.shell.rect.y
+  };
+  const patches: CanvasPatch[] = [{
+    op: "node.insert",
+    pageId,
+    parentId,
+    node: {
+      id: rootNodeId,
+      kind: "frame",
+      name: definition.shell.shellName,
+      rect,
+      props: {},
+      style: {
+        backgroundColor: "#f8fafc",
+        borderRadius: 28,
+        borderColor: "#e2e8f0",
+        borderWidth: 1,
+        padding: 32
+      },
+      tokenRefs: {},
+      bindingRefs: {},
+      metadata: {
+        starter: {
+          id: definition.template.id,
+          role: "shell"
+        }
+      }
+    }
+  }];
+  const insertedNodeIds = [rootNodeId];
+  let nextY = rect.y + 40;
+  if (definition.shell.eyebrow) {
+    patches.push({
+      op: "node.insert",
+      pageId,
+      parentId: rootNodeId,
+      node: {
+        id: eyebrowNodeId,
+        kind: "text",
+        name: `${definition.template.name} Eyebrow`,
+        rect: { x: rect.x + 32, y: nextY, width: Math.min(rect.width - 64, 420), height: 22 },
+        props: { text: definition.shell.eyebrow },
+        style: { color: "#0f766e", fontSize: 14, fontWeight: 700 },
+        tokenRefs: {},
+        bindingRefs: {},
+        metadata: {
+          starter: { id: definition.template.id, role: "eyebrow" }
+        }
+      }
+    });
+    insertedNodeIds.push(eyebrowNodeId);
+    nextY += 36;
+  }
+  patches.push({
+    op: "node.insert",
+    pageId,
+    parentId: rootNodeId,
+    node: {
+      id: headlineNodeId,
+      kind: "text",
+      name: `${definition.template.name} Headline`,
+      rect: { x: rect.x + 32, y: nextY, width: Math.min(rect.width - 64, 720), height: 108 },
+      props: { text: definition.shell.headline },
+      style: { color: "#0f172a", fontSize: 42, fontWeight: 700 },
+      tokenRefs: {},
+      bindingRefs: {},
+      metadata: {
+        starter: { id: definition.template.id, role: "headline" }
+      }
+    }
+  });
+  insertedNodeIds.push(headlineNodeId);
+  nextY += 120;
+  patches.push({
+    op: "node.insert",
+    pageId,
+    parentId: rootNodeId,
+    node: {
+      id: bodyNodeId,
+      kind: "text",
+      name: `${definition.template.name} Body`,
+      rect: { x: rect.x + 32, y: nextY, width: Math.min(rect.width - 64, 760), height: 72 },
+      props: { text: definition.shell.body },
+      style: { color: "#334155", fontSize: 16, fontWeight: 500 },
+      tokenRefs: {},
+      bindingRefs: {},
+      metadata: {
+        starter: { id: definition.template.id, role: "body" }
+      }
+    }
+  });
+  insertedNodeIds.push(bodyNodeId);
+  if (actionNodeId && definition.shell.actionLabel) {
+    patches.push({
+      op: "node.insert",
+      pageId,
+      parentId: rootNodeId,
+      node: {
+        id: actionNodeId,
+        kind: "note",
+        name: `${definition.template.name} Action`,
+        rect: { x: rect.x + 32, y: nextY + 92, width: 220, height: 48 },
+        props: { text: definition.shell.actionLabel },
+        style: { backgroundColor: "#e2e8f0", borderRadius: 999 },
+        tokenRefs: {},
+        bindingRefs: {},
+        metadata: {
+          starter: { id: definition.template.id, role: "action" }
+        }
+      }
+    });
+    insertedNodeIds.push(actionNodeId);
+  }
+  return { patches, insertedNodeIds, rect, rootNodeId };
+}
+
+function buildStarterMaterialization(
+  definition: BuiltInCanvasStarterDefinition,
+  frameworkId: string,
+  adapterId: string | null,
+  pageId: string,
+  parentId: string,
+  shellRect: CanvasRect
+): {
+  patches: CanvasPatch[];
+  insertedNodeIds: string[];
+  itemIds: string[];
+  rootNodeId: string;
+} {
+  const itemsById = new Map(
+    listStarterKitInventoryItems(definition.template.kitIds, frameworkId, adapterId).map((item) => [item.id, item])
+  );
+  const patches: CanvasPatch[] = [];
+  const insertedNodeIds: string[] = [];
+  const itemIds: string[] = [];
+  for (const insertion of definition.insertions) {
+    const item = itemsById.get(insertion.itemId);
+    if (!item) {
+      continue;
+    }
+    const materialized = materializeInventoryItem(item, pageId, parentId, {
+      x: shellRect.x + insertion.x,
+      y: shellRect.y + insertion.y
+    });
+    patches.push(...materialized.patches);
+    insertedNodeIds.push(...materialized.insertedNodeIds);
+    itemIds.push(item.id);
+  }
+  return {
+    patches,
+    insertedNodeIds,
+    itemIds,
+    rootNodeId: parentId
+  };
+}
+
+function listStarterKitInventoryItems(
+  kitIds: string[],
+  frameworkId: string,
+  adapterId: string | null
+): CanvasComponentInventoryItem[] {
+  return getStarterKitEntries(kitIds).flatMap((entry) =>
+    entry.items.map((item) => adaptStarterInventoryItem(item, entry, frameworkId, adapterId))
+  );
+}
+
+function adaptStarterInventoryItem(
+  item: CanvasComponentInventoryItem,
+  kit: { id: string; defaultFrameworkId: string; compatibleFrameworkIds: string[]; defaultLibraryAdapterIds: string[]; metadata: Record<string, unknown> },
+  frameworkId: string,
+  adapterId: string | null
+): CanvasComponentInventoryItem {
+  const next = structuredClone(item);
+  const resolvedAdapterId = adapterId ?? next.adapter?.id ?? kit.defaultLibraryAdapterIds[0] ?? null;
+  next.framework = {
+    id: frameworkId,
+    label: labelForStarterFramework(frameworkId),
+    packageName: packageNameForStarterFramework(frameworkId),
+    adapter: resolvedAdapterId
+      ? {
+        id: resolvedAdapterId,
+        label: labelForStarterAdapter(resolvedAdapterId),
+        packageName: packageNameForStarterAdapter(resolvedAdapterId),
+        metadata: {}
+      }
+      : null,
+    metadata: {
+      ...structuredClone(next.framework?.metadata ?? {}),
+      catalogKitId: kit.id
+    }
+  };
+  if (resolvedAdapterId) {
+    next.adapter = {
+      id: resolvedAdapterId,
+      label: labelForStarterAdapter(resolvedAdapterId),
+      packageName: packageNameForStarterAdapter(resolvedAdapterId),
+      metadata: structuredClone(next.adapter?.metadata ?? {})
+    };
+  }
+  next.metadata = {
+    ...structuredClone(next.metadata),
+    starter: {
+      appliedFrameworkId: frameworkId,
+      compatibleFrameworkIds: [...kit.compatibleFrameworkIds]
+    }
+  };
+  return next;
+}
+
+function getStarterKitEntries(kitIds: string[]): typeof BUILT_IN_CANVAS_KITS[number][] {
+  const ordered = new Map(BUILT_IN_CANVAS_KITS.map((entry) => [entry.id, entry]));
+  return kitIds.flatMap((kitId) => {
+    const match = ordered.get(kitId);
+    return match ? [match] : [];
+  });
+}
+
+function canonicalizeStarterFrameworkId(value: string): string {
+  switch (value.trim().toLowerCase()) {
+    case "react-tsx":
+      return "react";
+    case "next":
+    case "next.js":
+      return "nextjs";
+    default:
+      return value.trim().toLowerCase();
+  }
+}
+
+function labelForStarterFramework(frameworkId: string): string {
+  switch (frameworkId) {
+    case "nextjs":
+      return "Next.js";
+    case "remix":
+      return "Remix";
+    case "astro":
+      return "Astro";
+    case "react":
+      return "React";
+    default:
+      return frameworkId;
+  }
+}
+
+function packageNameForStarterFramework(frameworkId: string): string | null {
+  switch (frameworkId) {
+    case "nextjs":
+      return "next";
+    case "remix":
+      return "@remix-run/react";
+    case "astro":
+      return "astro";
+    case "react":
+      return "react";
+    default:
+      return null;
+  }
+}
+
+function labelForStarterAdapter(adapterId: string): string {
+  switch (adapterId) {
+    case "builtin:react-tsx-v2":
+      return "React TSX v2";
+    case "tsx-react-v1":
+      return "TSX React v1";
+    default:
+      return adapterId;
+  }
+}
+
+function packageNameForStarterAdapter(adapterId: string): string | null {
+  switch (adapterId) {
+    case "builtin:react-tsx-v2":
+      return "@opendevbrowser/react-tsx-v2";
+    case "tsx-react-v1":
+      return "@opendevbrowser/tsx-react-v1";
+    default:
+      return null;
+    }
 }
 
 function resolvePreviewUrl(currentUrl: string | undefined, route: string): string | null {
@@ -2280,7 +4114,10 @@ function requireCanvasBinding(document: CanvasDocument, bindingId: string): Canv
   return binding;
 }
 
-function requireCodeSyncBinding(document: CanvasDocument, bindingId: string): CanvasBinding {
+function requireCodeSyncBinding(
+  document: CanvasDocument,
+  bindingId: string
+): CanvasBinding & { codeSync: NonNullable<CanvasBinding["codeSync"]> } {
   const binding = requireCanvasBinding(document, bindingId);
   if (!binding.codeSync) {
     throw attachDetails(new Error(`Binding ${bindingId} is not configured for code sync.`), {
@@ -2288,7 +4125,7 @@ function requireCodeSyncBinding(document: CanvasDocument, bindingId: string): Ca
       details: { bindingId }
     });
   }
-  return binding;
+  return binding as CanvasBinding & { codeSync: NonNullable<CanvasBinding["codeSync"]> };
 }
 
 function createCodeSyncBinding(params: CanvasCommandParams, nodeId: string, bindingId: string): Omit<CanvasBinding, "nodeId"> & Partial<Pick<CanvasBinding, "nodeId">> {
@@ -2299,30 +4136,66 @@ function createCodeSyncBinding(params: CanvasCommandParams, nodeId: string, bind
       text: "shared",
       style: "shared",
       tokens: "shared",
-      behavior: "code",
-      data: "code"
-    };
+        behavior: "code",
+        data: "code"
+      };
+  const repoPath = requireString(params.repoPath, "repoPath");
+  const requestedAdapterId = optionalString(params.frameworkAdapterId) ?? optionalString(params.adapterId);
+  const frameworkAdapterId = requestedAdapterId ?? inferBuiltInFrameworkAdapterIdFromPath(repoPath);
+  const exportName = optionalString(params.exportName) ?? undefined;
+  const selector = optionalString(params.selector) ?? undefined;
+  const identity = normalizeFrameworkAdapterIdentity({
+    adapter: frameworkAdapterId,
+    frameworkAdapterId,
+    repoPath
+  });
+  const declaredCapabilities = Array.isArray(params.declaredCapabilities)
+    ? params.declaredCapabilities.filter((entry): entry is CodeSyncCapability => isCodeSyncCapability(entry))
+    : [];
+  const grantedCapabilities = Array.isArray(params.grantedCapabilities)
+    ? params.grantedCapabilities
+      .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+      .map((entry) => normalizeCodeSyncCapabilityGrant(entry))
+      .filter((entry): entry is CodeSyncCapabilityGrant => Boolean(entry))
+    : [];
   return {
     id: bindingId,
     nodeId,
     kind: "code-sync",
     selector: optionalString(params.selector) ?? undefined,
-    componentName: optionalString(params.componentName) ?? undefined,
-    metadata: {},
-    codeSync: {
-      adapter: "tsx-react-v1",
-      repoPath: requireString(params.repoPath, "repoPath"),
-      exportName: optionalString(params.exportName) ?? undefined,
-      selector: optionalString(params.selector) ?? undefined,
-      syncMode: (optionalString(params.syncMode) as "manual" | "watch" | null) ?? "manual",
-      ownership,
-      route: optionalString(params.route) ?? undefined,
-      verificationTarget: optionalString(params.verificationTarget) ?? undefined,
-      runtimeRootSelector: optionalString(params.runtimeRootSelector) ?? undefined,
-      projection: (optionalString(params.projection) as "canvas_html" | "bound_app_runtime" | null) ?? "canvas_html"
-    }
-  };
-}
+      componentName: optionalString(params.componentName) ?? undefined,
+      metadata: {},
+      codeSync: {
+        adapter: identity.adapter,
+        frameworkAdapterId: identity.frameworkAdapterId,
+        frameworkId: identity.frameworkId,
+        sourceFamily: identity.sourceFamily,
+        adapterKind: identity.adapterKind,
+        adapterVersion: identity.adapterVersion,
+        repoPath,
+        rootLocator: normalizeCodeSyncRootLocator(undefined, {
+          sourceFamily: identity.sourceFamily,
+          exportName,
+          selector
+        }),
+        exportName,
+        selector,
+        syncMode: (optionalString(params.syncMode) as "manual" | "watch" | null) ?? "manual",
+        ownership,
+        route: optionalString(params.route) ?? undefined,
+        verificationTarget: optionalString(params.verificationTarget) ?? undefined,
+        runtimeRootSelector: optionalString(params.runtimeRootSelector) ?? undefined,
+        projection: (optionalString(params.projection) as "canvas_html" | "bound_app_runtime" | null) ?? "canvas_html",
+        libraryAdapterIds: Array.isArray(params.libraryAdapterIds)
+          ? params.libraryAdapterIds.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+          : [],
+        declaredCapabilities,
+        grantedCapabilities,
+        manifestVersion: 2,
+        reasonCode: identity.reasonCode
+      }
+    };
+  }
 
 function requireNumber(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -2331,8 +4204,31 @@ function requireNumber(value: unknown, name: string): number {
   return value;
 }
 
+function requirePositiveNumber(value: unknown, name: string): number {
+  const parsed = requireNumber(value, name);
+  if (parsed < 1) {
+    throw new Error(`Invalid ${name}`);
+  }
+  return parsed;
+}
+
 function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function requireCanvasSessionMode(value: unknown): CanvasSessionMode {
+  switch (value) {
+    case undefined:
+    case null:
+      return "dual-track";
+    case "low-fi-wireframe":
+    case "high-fi-live-edit":
+    case "dual-track":
+    case "document-only":
+      return value;
+    default:
+      throw new Error(`Invalid mode: ${String(value)}`);
+  }
 }
 
 function normalizeOptionalString(value: string | null): string[] {
@@ -2377,6 +4273,79 @@ function requireRefreshMode(value: unknown, name: string): "full" | "thumbnail" 
     return value;
   }
   throw new Error(`Missing ${name}`);
+}
+
+function readImportMode(value: unknown): CanvasDocumentImportMode | undefined {
+  switch (value) {
+    case undefined:
+    case null:
+      return undefined;
+    case "replace_current_page":
+    case "append_pages":
+    case "components_only":
+      return value;
+    default:
+      throw new Error(`Invalid import mode: ${String(value)}`);
+  }
+}
+
+function readCanvasDocumentImportRequest(params: CanvasCommandParams): CanvasDocumentImportRequest {
+  return {
+    sourceUrl: optionalString(params.sourceUrl),
+    fileKey: optionalString(params.fileKey),
+    nodeIds: normalizeStringArray(params.nodeIds),
+    mode: readImportMode(params.mode),
+    frameworkId: optionalString(params.frameworkId),
+    frameworkAdapterId: optionalString(params.frameworkAdapterId),
+    includeVariables: typeof params.includeVariables === "boolean" ? params.includeVariables : true,
+    depth: typeof params.depth === "number" && Number.isFinite(params.depth) ? params.depth : null,
+    geometryPaths: params.geometryPaths === true
+  };
+}
+
+function buildFigmaImportProvenance(
+  request: ReturnType<typeof normalizeFigmaImportRequest>,
+  payload: {
+    fileName: string | null;
+    sourceKind: "file" | "nodes";
+    versionId: string | null;
+    branchId: string | null;
+  },
+  assetReceipts: CanvasImportProvenance["assetReceipts"],
+  degradedFailureCodes: CanvasImportFailureCode[],
+  frameworkMaterialized: boolean
+): CanvasImportProvenance {
+  const importedAt = new Date().toISOString();
+  const source: CanvasImportSource = {
+    id: `figma:${request.fileKey}`,
+    kind: payload.sourceKind === "nodes" ? "figma.nodes" : "figma.file",
+    label: payload.fileName ?? request.fileKey,
+    uri: request.sourceUrl,
+    sourceDialect: "figma-rest-v1",
+    frameworkId: request.frameworkId,
+    adapterIds: request.frameworkAdapterId ? [request.frameworkAdapterId] : [],
+    metadata: {
+      fileKey: request.fileKey,
+      nodeIds: [...request.nodeIds],
+      versionId: request.versionId ?? payload.versionId,
+      branchId: request.branchId ?? payload.branchId
+    }
+  };
+  return {
+    id: `canvas-import-${request.fileKey}-${importedAt}`,
+    source,
+    importedAt,
+    assetReceipts,
+    metadata: {
+      mode: request.mode,
+      fileKey: request.fileKey,
+      nodeIds: [...request.nodeIds],
+      requestedFrameworkId: request.frameworkId,
+      requestedFrameworkAdapterId: request.frameworkAdapterId,
+      frameworkMaterialized,
+      degradedFailureCodes
+    }
+  };
 }
 
 function categoryForWarning(warning: CanvasValidationWarning): CanvasFeedbackItem["category"] {
@@ -2425,21 +4394,384 @@ function getRuntimeBudgets(document: CanvasDocument): {
 }
 
 function getComponentSourceKinds(document: CanvasDocument): string[] {
-  const kinds = new Set<string>();
-  for (const component of document.componentInventory) {
-    if (!isRecord(component)) {
+  return sortUniqueStrings(document.componentInventory.flatMap((component) => component.sourceKind ? [component.sourceKind] : []));
+}
+
+function getFrameworkIds(document: CanvasDocument): string[] {
+  return sortUniqueStrings([
+    ...document.componentInventory.flatMap((component) => component.framework?.id ? [component.framework.id] : []),
+    ...document.meta.imports.flatMap((entry) => entry.source.frameworkId ? [entry.source.frameworkId] : []),
+    ...document.meta.adapterPlugins.flatMap((plugin) => plugin.frameworks.map((entry) => entry.frameworkId)),
+    ...document.bindings.flatMap((binding) => {
+      const explicit = isRecord(binding.metadata?.framework) ? optionalString(binding.metadata.framework.id) : null;
+      if (explicit) {
+        return [explicit];
+      }
+      return binding.codeSync ? ["react"] : [];
+    })
+  ]);
+}
+
+function getPluginIds(document: CanvasDocument): string[] {
+  return sortUniqueStrings([
+    ...document.componentInventory.flatMap((component) => component.plugin?.id ? [component.plugin.id] : []),
+    ...document.meta.imports.flatMap((entry) => entry.source.pluginId ? [entry.source.pluginId] : []),
+    ...document.meta.adapterPlugins.map((plugin) => plugin.id),
+    ...document.meta.pluginErrors.flatMap((entry) => entry.pluginId ? [entry.pluginId] : [])
+  ]);
+}
+
+function getInventoryOrigins(document: CanvasDocument): CanvasInventoryOrigin[] {
+  return sortUniqueStrings(document.componentInventory.map((component) => component.origin)) as CanvasInventoryOrigin[];
+}
+
+function getDeclaredCapabilities(document: CanvasDocument): CanvasAdapterCapability[] {
+  return sortUniqueStrings(document.meta.adapterPlugins.flatMap((plugin) => plugin.declaredCapabilities)) as CanvasAdapterCapability[];
+}
+
+function getGrantedCapabilities(document: CanvasDocument): CanvasAdapterCapability[] {
+  return sortUniqueStrings(
+    document.meta.adapterPlugins.flatMap((plugin) =>
+      plugin.grantedCapabilities.flatMap((entry) => entry.granted ? [entry.capability] : [])
+    )
+  ) as CanvasAdapterCapability[];
+}
+
+function getCapabilityDenials(document: CanvasDocument): CanvasCapabilityGrant[] {
+  return document.meta.adapterPlugins.flatMap((plugin) => plugin.grantedCapabilities.filter((entry) => !entry.granted));
+}
+
+function getPluginErrors(document: CanvasDocument): CanvasAdapterErrorEnvelope[] {
+  return document.meta.pluginErrors.map((entry) => ({
+    ...entry,
+    details: { ...entry.details }
+  }));
+}
+
+function getImportSources(document: CanvasDocument): string[] {
+  return sortUniqueStrings(document.meta.imports.map((entry) => entry.source.kind));
+}
+
+function getLatestImportedAt(document: CanvasDocument): string | null {
+  const importedAtValues = document.meta.imports
+    .map((entry) => entry.importedAt)
+    .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+    .sort((left, right) => left.localeCompare(right));
+  return importedAtValues.at(-1) ?? null;
+}
+
+function sortUniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function cloneEditorSelection(selection: CanvasSession["editorSelection"]): CanvasSession["editorSelection"] {
+  return {
+    pageId: selection.pageId,
+    nodeId: selection.nodeId,
+    targetId: selection.targetId,
+    updatedAt: selection.updatedAt
+  };
+}
+
+function cloneEditorViewport(viewport: CanvasEditorViewportState): CanvasEditorViewportState {
+  return {
+    x: viewport.x,
+    y: viewport.y,
+    zoom: viewport.zoom
+  };
+}
+
+function ensureDuplicatePatchIds(document: CanvasDocument, patch: Extract<CanvasPatch, { op: "node.duplicate" }>): CanvasPatch {
+  if (isRecord(patch.idMap) && Object.keys(patch.idMap).length > 0) {
+    return patch;
+  }
+  const subtreeNodeIds = collectSubtreeNodeIds(document, patch.nodeId);
+  const idMap = Object.fromEntries(
+    subtreeNodeIds.map((nodeId) => [nodeId, `${nodeId}_copy_${randomUUID().slice(0, 8)}`])
+  );
+  return {
+    ...patch,
+    idMap
+  };
+}
+
+function buildCanvasHistoryEntry(
+  beforeDocument: CanvasDocument,
+  patches: CanvasPatch[],
+  options: {
+    beforeSelection: CanvasSession["editorSelection"];
+    beforeViewport: CanvasEditorViewportState;
+    afterSelection: CanvasSession["editorSelection"];
+    afterViewport: CanvasEditorViewportState;
+    appliedRevision: number;
+    source: PreviewSyncSource;
+  }
+): CanvasHistoryEntry | null {
+  const scratchStore = new CanvasDocumentStore(structuredClone(beforeDocument));
+  const inversePatches: CanvasPatch[] = [];
+  for (const patch of patches) {
+    const inverse = buildHistoryInversePatches(scratchStore.getDocument(), patch);
+    if (!inverse) {
+      return null;
+    }
+    inversePatches.unshift(...inverse);
+    scratchStore.applyPatches(scratchStore.getRevision(), [patch]);
+  }
+  return {
+    id: `history_${randomUUID().slice(0, 8)}`,
+    source: options.source,
+    createdAt: new Date().toISOString(),
+    forwardPatches: structuredClone(patches),
+    inversePatches,
+    beforeSelection: cloneEditorSelection(options.beforeSelection),
+    afterSelection: cloneEditorSelection(options.afterSelection),
+    beforeViewport: cloneEditorViewport(options.beforeViewport),
+    afterViewport: cloneEditorViewport(options.afterViewport),
+    expectedUndoRevision: options.appliedRevision,
+    expectedRedoRevision: null
+  };
+}
+
+function buildHistoryInversePatches(document: CanvasDocument, patch: CanvasPatch): CanvasPatch[] | null {
+  switch (patch.op) {
+    case "node.insert":
+      return [{ op: "node.remove", nodeId: patch.node.id }];
+    case "node.update": {
+      const node = requireCanvasNode(document, patch.nodeId);
+      const changes = Object.fromEntries(
+        Object.keys(patch.changes).map((path) => [path, structuredClone(readNestedValue(node as Record<string, unknown>, path))])
+      );
+      return [{ op: "node.update", nodeId: patch.nodeId, changes }];
+    }
+    case "node.remove":
+      return buildNodeRestorePatches(document, patch.nodeId);
+    case "node.reparent": {
+      const location = locateCanvasNode(document, patch.nodeId);
+      return [{
+        op: "node.reparent",
+        nodeId: patch.nodeId,
+        parentId: location.node.parentId,
+        index: location.index
+      }];
+    }
+    case "node.reorder": {
+      const location = locateCanvasNode(document, patch.nodeId);
+      return [{
+        op: "node.reorder",
+        nodeId: patch.nodeId,
+        index: location.index
+      }];
+    }
+    case "node.duplicate": {
+      const duplicateRootId = isRecord(patch.idMap) ? optionalString(patch.idMap[patch.nodeId]) : null;
+      if (!duplicateRootId) {
+        return null;
+      }
+      return [{ op: "node.remove", nodeId: duplicateRootId }];
+    }
+    case "node.visibility.set": {
+      const node = requireCanvasNode(document, patch.nodeId);
+      const visibility = isRecord(node.metadata.visibility) ? node.metadata.visibility : {};
+      return [{
+        op: "node.visibility.set",
+        nodeId: patch.nodeId,
+        hidden: visibility.hidden === true
+      }];
+    }
+    case "governance.update": {
+      const block = document.designGovernance[patch.block] as Record<string, unknown>;
+      const changes = Object.fromEntries(
+        Object.keys(patch.changes).map((path) => [path, structuredClone(readNestedValue(block, path))])
+      );
+      return [{
+        op: "governance.update",
+        block: patch.block,
+        changes
+      }];
+    }
+    case "token.set": {
+      return [{
+        op: "token.set",
+        path: patch.path,
+        value: structuredClone(readNestedValue(document.designGovernance as Record<string, unknown>, patch.path))
+      }];
+    }
+    case "tokens.merge":
+    case "tokens.replace": {
+      return [{
+        op: "tokens.replace",
+        tokens: structuredClone(document.tokens)
+      }];
+    }
+    case "inventory.update": {
+      const item = requireInventoryItem(document.componentInventory, patch.itemId);
+      const changes = Object.fromEntries(
+        Object.keys(patch.changes).map((path) => [path, structuredClone(readNestedValue(item as Record<string, unknown>, path))])
+      );
+      return [{
+        op: "inventory.update",
+        itemId: patch.itemId,
+        changes
+      }];
+    }
+    case "inventory.upsert": {
+      const existing = document.componentInventory.find((entry) => entry.id === patch.item.id);
+      if (!existing) {
+        return [{
+          op: "inventory.remove",
+          itemId: patch.item.id
+        }];
+      }
+      return [{
+        op: "inventory.upsert",
+        item: structuredClone(existing)
+      }];
+    }
+    case "inventory.remove": {
+      const existing = document.componentInventory.find((entry) => entry.id === patch.itemId);
+      if (!existing) {
+        return null;
+      }
+      return [{
+        op: "inventory.upsert",
+        item: structuredClone(existing)
+      }];
+    }
+    case "starter.apply":
+      return [{
+        op: "starter.apply",
+        starter: structuredClone(document.meta.starter)
+      }];
+    default:
+      return null;
+  }
+}
+
+function buildNodeRestorePatches(document: CanvasDocument, nodeId: string): CanvasPatch[] {
+  const location = locateCanvasNode(document, nodeId);
+  const removedNodeIds = collectSubtreeNodeIds(document, nodeId);
+  const restorePatches = collectSubtreeNodes(document, nodeId).map((node) => ({
+    op: "node.insert" as const,
+    pageId: location.page.id,
+    parentId: node.id === nodeId ? node.parentId : node.parentId,
+    node: {
+      id: node.id,
+      kind: node.kind,
+      name: node.name,
+      childIds: [],
+      rect: structuredClone(node.rect),
+      props: structuredClone(node.props),
+      style: structuredClone(node.style),
+      tokenRefs: structuredClone(node.tokenRefs),
+      bindingRefs: structuredClone(node.bindingRefs),
+      variantPatches: structuredClone(node.variantPatches),
+      metadata: structuredClone(node.metadata)
+    }
+  }));
+  const reorderPatches = location.node.parentId
+    ? [{
+      op: "node.reorder" as const,
+      nodeId,
+      index: location.index
+    }]
+    : [];
+  const bindingPatches = document.bindings
+    .filter((binding) => removedNodeIds.includes(binding.nodeId))
+    .map((binding) => ({
+      op: "binding.set" as const,
+      nodeId: binding.nodeId,
+      binding: {
+        id: binding.id,
+        kind: binding.kind,
+        selector: binding.selector,
+        componentName: binding.componentName,
+        metadata: structuredClone(binding.metadata),
+        codeSync: structuredClone(binding.codeSync)
+      }
+    }));
+  return [...restorePatches, ...reorderPatches, ...bindingPatches];
+}
+
+function collectSubtreeNodes(document: CanvasDocument, nodeId: string): CanvasNode[] {
+  const { page } = locateCanvasNode(document, nodeId);
+  const walk = (currentNodeId: string): CanvasNode[] => {
+    const node = page.nodes.find((entry) => entry.id === currentNodeId);
+    if (!node) {
+      return [];
+    }
+    return [node, ...node.childIds.flatMap((childId) => walk(childId))];
+  };
+  return walk(nodeId);
+}
+
+function collectSubtreeNodeIds(document: CanvasDocument, nodeId: string): string[] {
+  return collectSubtreeNodes(document, nodeId).map((node) => node.id);
+}
+
+function locateCanvasNode(
+  document: CanvasDocument,
+  nodeId: string
+): {
+  page: CanvasPage;
+  node: CanvasNode;
+  index: number;
+} {
+  for (const page of document.pages) {
+    const node = page.nodes.find((entry) => entry.id === nodeId);
+    if (!node) {
       continue;
     }
-    const sourceKind = optionalString(component.sourceKind);
-    if (sourceKind) {
-      kinds.add(sourceKind);
-    }
+    const siblings = node.parentId
+      ? page.nodes.find((entry) => entry.id === node.parentId)?.childIds ?? []
+      : page.rootNodeId ? [page.rootNodeId] : [];
+    return {
+      page,
+      node,
+      index: siblings.indexOf(node.id)
+    };
   }
-  return [...kinds].sort((left, right) => left.localeCompare(right));
+  throw new Error(`Unknown node: ${nodeId}`);
+}
+
+function requireCanvasNode(document: CanvasDocument, nodeId: string): CanvasNode {
+  return locateCanvasNode(document, nodeId).node;
+}
+
+function readNestedValue(target: Record<string, unknown>, path: string): unknown {
+  const segments = path.split(".");
+  let current: unknown = target;
+  for (const segment of segments) {
+    if (!isRecord(current) || !(segment in current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return current;
 }
 
 function readNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function isIgnorableCanvasSessionCloseError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("[ops_unavailable]")
+    || message.includes("[invalid_session]")
+    || message.includes("Unknown sessionId:")
+    || message.includes("Extension not connected to relay")
+    || message.includes("Ops request timed out");
+}
+
+function isCanvasRelaySessionLookupError(detail: string): boolean {
+  return detail.includes("Unknown sessionId:");
+}
+
+function isAlreadyClosedCanvasTargetError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("Unknown targetId")
+    || message.includes("Unknown tabId")
+    || message.includes("No tab with id")
+    || message.includes("No tab with given id");
 }
 
 function attachDetails(error: Error, details: Record<string, unknown>): Error {
