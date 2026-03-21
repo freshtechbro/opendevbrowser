@@ -123,7 +123,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Extension routing | `extension/src/services/TargetSessionMap.ts` | Root/child session routing |
 | CLI commands | `src/cli/commands/` | Registry-based, daemon mode |
 | Add skill pack | `skills/*/SKILL.md` | Follow naming conventions |
-| Design canvas + code sync | `src/canvas/`, `src/canvas/kits/catalog.ts`, `src/canvas/starters/catalog.ts`, `src/browser/canvas-manager.ts`, `docs/CANVAS_COMPETITIVE_IMPLEMENTATION_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`, `scripts/canvas-competitive-validation.mjs` | Current canvas implementation roadmap, built-in kit and starter inventory, framework-adapter code sync, BYO plugin contract, validator evidence, manifest persistence, and runtime preview fallback |
+| Design canvas + code sync | `src/canvas/`, `src/canvas/kits/catalog.ts`, `src/canvas/starters/catalog.ts`, `src/browser/canvas-manager.ts`, `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`, `scripts/canvas-competitive-validation.mjs` | Current canvas technical docs, built-in kit and starter inventory, framework-adapter code sync, BYO plugin contract, validator evidence, manifest persistence, and runtime preview fallback |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
 | Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 56 CLI + 49 tools + `/ops` + `/canvas` + `/cdp` map |
@@ -237,7 +237,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Architecture: `docs/ARCHITECTURE.md`
 - CLI reference: `docs/CLI.md`
 - Surface inventory: `docs/SURFACE_REFERENCE.md`
-- Canvas competitive spec: `docs/CANVAS_COMPETITIVE_IMPLEMENTATION_SPEC.md`
+- Canvas technical docs: `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`
 - Canvas adapter plugin contract: `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`
 - Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation

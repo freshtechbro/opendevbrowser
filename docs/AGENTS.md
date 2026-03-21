@@ -32,9 +32,10 @@ When canvas session/code-sync/projection behavior changes:
 - `docs/SURFACE_REFERENCE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`
+- `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`
+- `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`
 - `docs/EXTENSION.md`
 - `docs/TROUBLESHOOTING.md`
-- `docs/CANVAS_COMPETITIVE_IMPLEMENTATION_SPEC.md`
 - relevant `AGENTS.md` files under `src/`, `src/browser/`, `src/canvas/`, and `extension/`
 
 When extension behavior changes:

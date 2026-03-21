@@ -158,7 +158,7 @@ The grouped labels in this section are retained as the original `2026-03-13` sna
 - [x] `git status --short`
   - Result: worktree contains the expected release patch files plus:
     - new release docs/tests (`docs/CUTOVER_CHECKLIST.md`, `docs/RELEASE_0.0.17_EVIDENCE.md`, `tests/sync-extension-version.test.ts`)
-    - unrelated untracked `docs/CANVAS_COMPETITIVE_IMPLEMENTATION_SPEC.md` left untouched
+    - unrelated untracked canvas planning docs left untouched
 - [x] `cmp -s <(npx opendevbrowser --help) <(npx opendevbrowser help)`
   - Result: exit code `0` (help parity preserved)
 
