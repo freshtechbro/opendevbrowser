@@ -1,7 +1,7 @@
 # Annotate
 
 Status: active  
-Last updated: 2026-03-13
+Last updated: 2026-03-20
 
 OpenDevBrowser can capture interactive annotations either directly via CDP/Playwright or through the extension relay, and
 return a markdown summary plus structured data and screenshots. This is exposed through both the `annotate` CLI command
@@ -57,15 +57,24 @@ You can start annotations directly from the extension popup:
 
 1. Open the OpenDevBrowser extension popup.
 2. In **Annotation**, add an optional request/context.
-3. Click **Annotate**, then switch to the target tab and select elements.
-4. Use the in-page annotation UI:
-   - the main panel can `Copy`, `Send`, `Cancel`, or `Submit`
-   - each selected note card can `Copy` or `Send` that individual item
-5. Back in the popup, use:
+3. Click **Annotate**. The popup first targets the opener window's active http(s) tab directly. If the focused surface is `canvas.html`, another extension page, or a restricted tab, the background falls back to the last real annotatable web tab it stored, including recovery after an MV3 service-worker restart.
+4. Switch to the target tab and select elements.
+5. Use the in-page annotation UI:
+    - the main panel can `Copy`, `Send`, `Cancel`, or `Submit`
+    - each selected note card can `Copy` or `Send` that individual item
+6. Back in the popup, use:
    - `Copy payload` / `Send payload` for the combined stored annotation payload
    - `Copy item` / `Send item` for an individual stored annotation item
 
 If the extension service worker restarts, screenshots may be omitted from the copied payload; the popup will note when screenshots were dropped.
+If the popup reports `Annotation UI did not load in the page. Reload the tab and retry.`, reload the target page once, then retry from the popup after focusing the intended web tab. The popup now prefers the opener tab id explicitly before it falls back to the stored last annotatable web tab.
+
+Send behavior:
+- Popup, canvas, and in-page `Send` actions dispatch `annotation:sendPayload` to the extension background.
+- The extension background posts `store_agent_payload` through the existing `/annotation` relay lane.
+- The relay handles that command locally, enqueues the sanitized payload into the shared `AgentInbox`, and returns a typed receipt.
+- When a single active chat scope is registered for the current worktree, the UI reports `Delivered to agent`.
+- When scope is missing or ambiguous, or when relay enqueue fails, the UI degrades to `Stored only; fetch with annotate --stored` and keeps the payload available for explicit retrieval.
 
 ## Tool Usage
 
@@ -131,8 +140,11 @@ The tool returns:
 Screenshots are written to the system temp directory (example: `/tmp/opendevbrowser-annotate-*.png`).
 
 Stored payload retrieval notes:
-- `--stored` / `stored: true` returns the latest payload explicitly dispatched from popup, canvas, or in-page annotation surfaces.
-- `--include-screenshots` / `includeScreenshots: true` prefers the in-memory copy when screenshots are still available; otherwise the stored payload falls back to the sanitized payload without screenshots.
+- `--stored` / `stored: true` checks the shared repo-local agent inbox first, then falls back to the extension-local stored payload if no shared entry exists.
+- Shared inbox items are written under `.opendevbrowser/annotate/agent-inbox.jsonl` and `.opendevbrowser/annotate/agent-scopes.json`.
+- Shared inbox persistence always strips screenshots and forces `screenshotMode: "none"`; screenshot refs stay in extension-local memory/storage only.
+- `--include-screenshots` / `includeScreenshots: true` only changes the extension-local fallback path; it prefers the in-memory payload when screenshots are still available and otherwise falls back to the sanitized stored payload without screenshots.
+- Shared inbox retention is bounded to `200` entries total, `50` unread entries, `7` days TTL, and duplicate suppression on the same `(payloadHash, source, label)` within `60` seconds.
 
 ## Redaction
 
@@ -142,8 +154,9 @@ Use `details` for inspection; avoid shipping raw output without review.
 ## Troubleshooting
 
 - **Relay behavior**: the extension websocket is singular, but the relay can serve multiple `/ops` clients. Disconnecting the extension or restarting the relay drops active annotation sessions. If annotations stall, reconnect in the popup (or restart the daemon) before retrying.
+- **Send reports stored-only**: no safe chat scope was available (`no_active_scope`, `ambiguous_scope`) or relay enqueue failed. Fetch the payload explicitly with `annotate --stored`; if more than one chat is open against the same worktree, keep one target chat active and retry the send action.
 - **Restricted URL**: `chrome://` and Chrome Web Store pages cannot be annotated. Use a normal `http(s)` URL.
-- **Release matrix behavior**: strict release-gate runs treat restricted-URL failures as expected boundary checks, not product regressions.
+- **Release gate behavior**: direct annotation probes should be recorded with their stored-payload fallback artifact; restricted-URL failures remain explicit boundary evidence, not silent passes. The canonical direct-run release evidence policy lives in `skills/opendevbrowser-best-practices/SKILL.md`.
 - **Relay unavailable**: start the daemon and confirm the popup shows **Connected**.
 - **Injection failed**: reload the tab and retry; ensure the extension has `<all_urls>` host permissions.
 - **Capture failed**: switch to `visible` or `none` for very long pages or heavy canvas content.

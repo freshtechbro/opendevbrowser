@@ -1,7 +1,7 @@
 # OpenDevBrowser Frontend
 
 Status: active  
-Last updated: 2026-02-25
+Last updated: 2026-03-20
 
 ## Overview
 
@@ -18,6 +18,8 @@ Public repo (`opendevbrowser`) supplies:
 - `skills/`
 - `assets/`
 - `CHANGELOG.md`
+- `src/cli/help.ts`
+- `src/tools/surface.ts`
 - `src/tools/index.ts`
 
 Private repo (`opendevbrowser-website-deploy`) owns:
@@ -47,5 +49,5 @@ npm run build --prefix frontend
 ## Documentation alignment rules
 
 - Do not hand-edit generated frontend JSON in the private repo.
-- Keep public docs/skills/assets/changelog/tool inventory aligned before dispatching sync.
+- Keep public docs/skills/assets/changelog/help metadata/tool inventory aligned before dispatching sync.
 - Validate private workflow output determinism on repeated sync runs.

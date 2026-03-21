@@ -1,12 +1,13 @@
 # skills/ — Agent Guidelines
 
-Bundled canonical OpenDevBrowser skill packs (8 total) plus shared compatibility dirs (`research/`, `shopping/`). Extends root `AGENTS.md`.
+Bundled OpenDevBrowser skill directories (11 total: 9 canonical packs + 2 compatibility aliases, `research/` and `shopping/`). Extends root `AGENTS.md`.
 
 ## Structure
 
 ```
 skills/
 ├── opendevbrowser-best-practices/SKILL.md
+├── opendevbrowser-design-agent/SKILL.md
 ├── opendevbrowser-continuity-ledger/SKILL.md
 ├── opendevbrowser-login-automation/SKILL.md
 ├── opendevbrowser-form-testing/SKILL.md
@@ -44,6 +45,7 @@ Content organized by topic for filtering.
 7. `.amp/skills/` (AmpCLI project compatibility)
 8. `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (AmpCLI global compatibility; fallback `~/.amp/skills`)
 9. `skillPaths` config (custom)
+10. Bundled package `skills/` directory as a fallback when no installed copy is available
 
 ## Constraints
 
@@ -56,10 +58,10 @@ Content organized by topic for filtering.
 - Match the snapshot → refs → actions flow in `docs/ARCHITECTURE.md` and tool list in `docs/CLI.md`.
 - Note that extension relay requires Chrome 125+ and uses hub-only relay ownership when enabled.
 - Refer to root `AGENTS.md` for connection flag/status semantics (extensionConnected, handshake, cdpConnected, pairingRequired).
-- Keep skill operational guidance aligned with release-gate scripts in `docs/CLI.md` (`provider-live-matrix --release-gate`, `live-regression-matrix --release-gate`).
+- Keep skill operational guidance aligned with release-gate scripts in `docs/CLI.md` (`provider-direct-runs --release-gate`, `live-regression-direct --release-gate`).
 
 ## Adding Skills
 
 1. Create `skills/<skill-name>/SKILL.md`
 2. Follow frontmatter format above
-3. Update `docs/CLI.md` if adding CLI-related guidance
+3. Update `README.md`, root `AGENTS.md`, and `docs/CLI.md` when the canonical skill-pack count changes

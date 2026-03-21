@@ -40,10 +40,11 @@ Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changi
 - **Flat sessions**: Chrome 125+ only; route CDP by DebuggerSession `sessionId`
 - **Top-level discovery**: List tabs only; auto-attach child targets recursively
 - **Primary tab**: Handshake/diagnostics track a primary tab without detaching others
-- **Multi-client CDP**: `CDPRouter` multiplexes commands/events for multiple `/cdp` clients via `TargetSessionMap`.
-- **Annotation relay**: `/annotation` channel forwards annotation commands/events to `background.ts`.
+- **Single-client relay `/cdp`**: the relay accepts one `/cdp` websocket at a time; inside that client, `CDPRouter` still multiplexes flat-session commands/events via `TargetSessionMap`.
+- **Annotation relay**: `/annotation` channel forwards annotation commands/events to `background.ts`, including one-off `store_agent_payload` send requests and `fetch_stored` retrieval.
 - **Ops relay**: `/ops` channel routes high-level ops commands through `OpsRuntime`.
 - **Canvas relay**: `/canvas` channel routes design-tab state, overlay sync, and preview/selection updates through `CanvasRuntime`.
+- **Canvas payload shape**: design-tab runtime expects normalized canvas documents plus additive session-summary metadata such as `availableInventoryCount`, `catalogKitIds`, `availableStarterCount`, applied starter fields, framework or plugin capability summaries, and token state required for collection or mode authoring, alias editing, bindings, and usage inspection; keep extension-side parsing compatibility-first when core contract fields expand.
 - **Preview boundary**: projected `canvas_html` remains the default compatibility path; `bound_app_runtime` only succeeds when the binding opts in and the target app exposes the required instrumentation.
 
 ## Connection Flow
@@ -55,6 +56,10 @@ Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changi
 5. Ops relay (when requested by CLI/tools) connects to `ws://127.0.0.1:<port>/ops`
 6. Canvas relay (when requested) connects to `ws://127.0.0.1:<port>/canvas`
 7. Annotation relay (when requested) connects to `ws://127.0.0.1:<port>/annotation`
+
+Annotation send rules:
+- Popup, canvas, and in-page `Send` actions must try `store_agent_payload` first.
+- If scoped delivery fails, keep the extension-local sanitized fallback path intact and report the stored-only receipt truthfully.
 
 ## Status Fields (Relay /status)
 

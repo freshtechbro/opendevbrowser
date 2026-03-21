@@ -30,11 +30,16 @@ pnpm-debug.log*
 
 # Temporary files
 *.tmp
+.tmp/
 tmp/
 .cache/
 artifacts/
 !skills/**/artifacts/
 !skills/**/artifacts/**
+
+# Local OpenDevBrowser runtime data and generated extension sidecars
+.opendevbrowser/
+opendevbrowser-extension.zip.sha256
 
 # Playwright
 test-results/

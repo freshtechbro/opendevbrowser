@@ -36,6 +36,14 @@ Use this skill for robust form automation across dynamic, multi-step, challenge-
 - Verify both UX and network behavior for each submission branch.
 - Keep challenge retries bounded and honor `Retry-After` when 429 pressure appears.
 
+## Session Reuse by Mode
+
+- `extension` reuses the attached live tab or profile state; it does not run system cookie bootstrap.
+- `managed` attempts readable system Chrome-family cookie bootstrap before first navigation.
+- `cdpConnect` attempts readable system Chrome-family cookie bootstrap before first navigation.
+- Use `cookie-import` only when you intentionally need to add or override cookies after session creation.
+- Canonical direct-run release evidence policy lives in `../opendevbrowser-best-practices/SKILL.md`.
+
 ## Parallel Multitab Alignment
 
 - Apply shared concurrency policy from `../opendevbrowser-best-practices/SKILL.md` ("Parallel Operations").

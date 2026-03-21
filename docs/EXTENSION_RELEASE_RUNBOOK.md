@@ -36,6 +36,7 @@ Configure in public GitHub repo secrets:
 - [ ] `npm run extension:sync` keeps `extension/manifest.json` and `extension/package.json` aligned with the root package version.
 - [ ] `npm run extension:build` passes.
 - [ ] `node scripts/generate-store-assets.mjs` refreshes `extension/store-assets/` from the current icon set and popup surfaces.
+- [ ] Verify the generated store assets and listing copy still reflect the shipped popup plus `canvas.html` surfaces, including token authoring, lease-aware history, and annotation flows when those screens are part of the release capture set.
 - [ ] Review `extension/store-assets/LISTING.md` for current homepage, privacy URL, upload copy, and permission/privacy answers.
 - [ ] `node scripts/chrome-store-compliance-check.mjs` passes.
 - [ ] `npm run extension:pack` creates `opendevbrowser-extension.zip`.

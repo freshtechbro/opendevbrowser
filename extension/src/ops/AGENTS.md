@@ -4,7 +4,7 @@ Ops runtime for extension relay. Extends `extension/AGENTS.md`.
 
 ## Overview
 
-High-level ops protocol implementation for browser automation via extension relay. Handles session lifecycle, navigation, interaction, DOM operations, and DevTools integration.
+High-level ops protocol implementation for browser automation via extension relay. Handles session lifecycle, navigation, interaction, DOM operations, DevTools integration, and canvas overlay/runtime preview commands.
 The runtime also enforces per-target parallelism/backpressure and session ownership through coordinator/governor helpers.
 
 ## Structure
@@ -27,11 +27,12 @@ extension/src/ops/
 |----------|----------|
 | Session | `session.launch`, `session.connect`, `session.disconnect`, `session.status` |
 | Storage | `storage.setCookies`, `storage.getCookies` |
-| Targets | `targets.list`, `targets.use`, `targets.new`, `targets.close` |
+| Targets | `targets.list`, `targets.use`, `targets.registerCanvas`, `targets.new`, `targets.close` |
 | Pages | `page.open`, `page.list`, `page.close` |
 | Navigation | `nav.goto`, `nav.wait`, `nav.snapshot` |
 | Interaction | `interact.click`, `interact.hover`, `interact.press`, `interact.check`, `interact.uncheck`, `interact.type`, `interact.select`, `interact.scroll`, `interact.scrollIntoView` |
 | DOM | `dom.getHtml`, `dom.getText`, `dom.getAttr`, `dom.getValue`, `dom.isVisible`, `dom.isEnabled`, `dom.isChecked` |
+| Canvas/Preview | `canvas.overlay.mount`, `canvas.overlay.unmount`, `canvas.overlay.select`, `canvas.overlay.sync`, `canvas.applyRuntimePreviewBridge` |
 | Export | `export.clonePage`, `export.cloneComponent` |
 | DevTools | `devtools.perf`, `devtools.consolePoll`, `devtools.networkPoll`, `page.screenshot` |
 

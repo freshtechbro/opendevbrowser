@@ -2,18 +2,20 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-03-12
+Last updated: 2026-03-20
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/cli/args.ts`
+- `src/cli/help.ts`
 - `src/tools/index.ts`
+- `src/tools/surface.ts`
 - `extension/src/ops/ops-runtime.ts`
 - `extension/src/canvas/canvas-runtime.ts`
 - `src/relay/protocol.ts`
 
 Operational mirror:
-- `npx opendevbrowser --help`
-- `npx opendevbrowser help`
+- `npx opendevbrowser --help` (all commands with usage + primary flags, all grouped flags, all tools)
+- `npx opendevbrowser help` (same inventory as `--help`)
 
 ---
 
@@ -162,7 +164,7 @@ Operational mirror:
 
 ## Relay Channel Inventory
 
-### `/ops` command names (38)
+### `/ops` command names (44)
 
 `/ops` is the high-level relay protocol used by default extension sessions.
 
@@ -176,9 +178,10 @@ Operational mirror:
 - `storage.setCookies`
 - `storage.getCookies`
 
-#### Targets (4)
+#### Targets (5)
 - `targets.list`
 - `targets.use`
+- `targets.registerCanvas`
 - `targets.new`
 - `targets.close`
 
@@ -213,6 +216,13 @@ Operational mirror:
 - `dom.isEnabled`
 - `dom.isChecked`
 
+#### Overlay and runtime preview (5)
+- `canvas.overlay.mount`
+- `canvas.overlay.unmount`
+- `canvas.overlay.select`
+- `canvas.overlay.sync`
+- `canvas.applyRuntimePreviewBridge`
+
 #### Export (2)
 - `export.clonePage`
 - `export.cloneComponent`
@@ -229,7 +239,7 @@ Envelope contract:
 - stream/event: `ops_event`, `ops_chunk`
 - liveness: `ops_ping`, `ops_pong`
 
-### `/canvas` command names (26)
+### `/canvas` command names (35)
 
 `/canvas` is the typed design-canvas relay protocol used by `opendevbrowser_canvas` and the `canvas` CLI command. Canonical document mutations execute in core; extension runtime support is used for the extension-hosted `canvas.html` infinite-canvas editor, converged design-tab state sync, and overlay commands.
 
@@ -242,11 +252,22 @@ Envelope contract:
 - `canvas.plan.set`
 - `canvas.plan.get`
 
-#### Document (4)
+#### Document and history (7)
 - `canvas.document.load`
+- `canvas.document.import`
 - `canvas.document.patch`
+- `canvas.history.undo`
+- `canvas.history.redo`
 - `canvas.document.save`
 - `canvas.document.export`
+
+#### Inventory (2)
+- `canvas.inventory.list`
+- `canvas.inventory.insert`
+
+#### Starters (2)
+- `canvas.starter.list`
+- `canvas.starter.apply`
 
 #### Live targets and overlay (5)
 - `canvas.tab.open`
@@ -255,11 +276,13 @@ Envelope contract:
 - `canvas.overlay.unmount`
 - `canvas.overlay.select`
 
-#### Preview and feedback (4)
+#### Preview and feedback (6)
 - `canvas.preview.render`
 - `canvas.preview.refresh`
 - `canvas.feedback.poll`
 - `canvas.feedback.subscribe`
+- `canvas.feedback.next`
+- `canvas.feedback.unsubscribe`
 
 #### Code sync (6)
 - `canvas.code.bind`
@@ -281,14 +304,20 @@ Extension runtime subset (internal relay helpers, not public agent commands):
 Behavior notes:
 - `canvas.session.open` creates a session and lease; `canvas.session.attach` joins an existing session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
 - `canvas.document.patch` supports governance completion through `governance.update` patch batches in addition to scene/node operations.
+- `canvas.document.patch` also supports reusable inventory mutations through `inventory.promote`, `inventory.update`, and `inventory.remove`.
+- `canvas.document.import` imports Figma file URLs, node URLs, or raw file-key inputs through the same lease-governed session flow. It caches image/SVG receipts under `.opendevbrowser/canvas/assets/figma/<fileKey>/`, records provenance in `document.meta.imports[]`, and treats `variables/local` failures as typed degraded paths instead of opaque fatal errors.
+- `canvas.history.undo` and `canvas.history.redo` are lease-governed mutations. They return `history_empty` before the first accepted-plan mutation, preserve selection and viewport preimages, and emit `history_invalidated` when external revision drift makes the recorded stack stale.
+- Extension design-tab history clicks emit the internal `canvas_event` type `canvas_history_requested`; the actual mutation still runs through public `canvas.history.undo` or `canvas.history.redo` and should not be treated as a separate `/canvas` command.
 - Accepted `canvas.document.patch` batches now auto-refresh every active preview target so browser verification stays in the same edit loop as the design tab.
+- `canvas.inventory.list` is read-only and returns the merged reusable inventory surface: the current document-backed inventory plus the shipped built-in kit catalog entries. `canvas.inventory.insert` expands either inventory template into new stage nodes under the requested or inferred parent.
+- `canvas.starter.list` exposes the eight shipped built-in starters. `canvas.starter.apply` seeds a generation plan when missing, merges kit token collections into `document.tokens`, installs required kit entries into `document.componentInventory`, and inserts starter shell content onto the active page. Unsupported framework or adapter requests degrade to semantic shell nodes with typed feedback instead of failing the entire mutation. Starter payloads now prefer `libraryAdapterId` for the resolved built-in kit adapter; legacy `adapterId` remains as a backward-compatible alias and should not be confused with code-sync `frameworkAdapterId`.
 - `canvas.document.save` and `canvas.document.export` can fail with `policy_violation` when `requiredBeforeSave` governance blocks are still missing.
-- Extension-hosted design tabs persist full same-origin editor state in `IndexedDB`, rebroadcast converged state over `BroadcastChannel`, and forward editor-originated patch requests through `canvas_event` payloads.
+- Extension-hosted design tabs persist full same-origin editor state in `IndexedDB`, rebroadcast converged state over `BroadcastChannel`, forward editor-originated patch requests through `canvas_event` payloads, and expose pages, layers, properties, history controls, and extension-stage region annotation.
 - `canvas.tab.open` is the public command; internal `canvas.tab.sync` keeps extension-hosted design tabs on the same core-rendered HTML materialization path after public mutations.
-- `canvas.code.*` manages TSX-first bindings (`adapter=tsx-react-v1`) with repo-local manifests under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`.
+- `canvas.code.*` manages framework-adapter-backed bindings with repo-local manifests under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`. Built-in lanes currently ship for `builtin:react-tsx-v2`, `builtin:html-static-v1`, `builtin:custom-elements-v1`, `builtin:vue-sfc-v1`, and `builtin:svelte-sfc-v1`; legacy `tsx-react-v1` bindings migrate on load to `builtin:react-tsx-v2`, and repo-local BYO adapter plugins load only from workspace metadata, repo manifests, or explicit local config declarations.
 - `canvas.preview.render` and `canvas.preview.refresh` default to projected `canvas_html`, but bindings that opt into `projection=bound_app_runtime` attempt in-place runtime reconciliation before falling back to canonical HTML projection.
-- `canvas.feedback.subscribe` returns the initial filtered batch publicly. The underlying manager also creates a live async stream (`feedback.item`, `feedback.heartbeat`, `feedback.complete`); the CLI now exposes that through a `stream-json` polling bridge, while the tool wrapper still returns only the initial payload.
-- `canvas.session.status` and `canvas.code.status` surface attached clients, active lease holder, watch state, drift/conflict state, projection mode, fallback reasons, and parity artifacts.
+- `canvas.feedback.poll` remains the snapshot query for cursor-based audits. `canvas.feedback.subscribe` returns `subscriptionId`, `cursor`, `heartbeatMs`, `expiresAt`, `initialItems`, and `activeTargetIds`; `canvas.feedback.next` returns exactly one `feedback.item`, `feedback.heartbeat`, or `feedback.complete` event; `canvas.feedback.unsubscribe` ends the public pull stream. The CLI `stream-json` bridge now uses the same public `subscribe -> next -> unsubscribe` contract, and tool callers can do the same through repeated `opendevbrowser_canvas` calls.
+- `canvas.session.status` and `canvas.code.status` surface attached clients, active lease holder, watch state, drift/conflict state, projection mode, fallback reasons, parity artifacts, available starter count, and the currently applied starter metadata.
 
 Envelope contract:
 - request: `canvas_request` (`requestId`, `canvasSessionId`, `leaseId`, `command`, `payload`)
@@ -308,11 +337,34 @@ Canvas event types:
 - `canvas_lease_changed`
 - `canvas_feedback_item`
 - `canvas_patch_requested`
+- `canvas_history_requested`
 - `canvas_code_sync_started`
 - `canvas_code_sync_applied`
 - `canvas_code_sync_conflict`
 - `canvas_code_sync_failed`
 - `canvas_client_disconnected`
+
+### `/annotation` relay commands (internal)
+
+`/annotation` is an internal relay lane used by annotate capture flows and extension send actions.
+
+Commands:
+- `start`
+- `cancel`
+- `fetch_stored`
+- `store_agent_payload`
+
+Behavior notes:
+- `fetch_stored` resolves the shared repo-local agent inbox path first and the extension-local stored payload fallback second.
+- Popup, canvas, and in-page `Send` actions dispatch `annotation:sendPayload` to the extension background, which posts `store_agent_payload` over `/annotation`.
+- The relay handles `store_agent_payload` locally, enqueues the sanitized payload into the shared `AgentInbox`, and returns a typed receipt with `receiptId`, `deliveryState`, `storedFallback`, optional `reason`, optional `chatScopeKey`, plus `createdAt`, `itemCount`, `byteLength`, `source`, and `label`.
+- Shared inbox persistence strips screenshots and keeps only asset refs plus the sanitized payload in `.opendevbrowser/annotate/agent-inbox.jsonl`.
+
+Envelope contract:
+- request: `AnnotationCommand` (`requestId`, `command`, optional `payload`/`source`/`label`/`options`)
+- success: `AnnotationResponse` with either `payload` or `receipt`
+- error: `AnnotationResponse` with `error`
+- stream/event: `RelayAnnotationEvent`
 
 ### `/cdp` channel contract (legacy)
 
@@ -350,7 +402,7 @@ Event envelope:
 ```
 
 Auth and policy:
-- `/ops`, `/canvas`, and `/cdp` require `?token=<relayToken>` when pairing is enabled.
+- `/ops`, `/canvas`, `/annotation`, and `/cdp` require `?token=<relayToken>` when pairing is enabled.
 - `/ops` is multi-client by design.
 - `/canvas` exposes typed design-session envelopes and reports relay usage via `canvasConnected`.
 - `/cdp` is legacy and is typically subject to binding/lease coordination in hub mode.
