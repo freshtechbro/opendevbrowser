@@ -1,0 +1,5 @@
+{
+  "adapterPlugins": [
+    "./tests/fixtures/canvas/adapter-plugins/validation-fixture"
+  ]
+}
