@@ -95,6 +95,9 @@ const SURFACE_CONFIG = {
   }
 };
 
+export const DISCONNECT_TIMEOUT_MS = 120_000;
+export const DISCONNECT_WRAPPER_TIMEOUT_MS = DISCONNECT_TIMEOUT_MS + 15_000;
+
 export function getSurfaceConfig(surface) {
   return SURFACE_CONFIG[surface] ?? null;
 }
@@ -459,7 +462,7 @@ async function main() {
     const unbound = canvas("canvas.code.unbind", { canvasSessionId, leaseId, bindingId: config.bindingId });
     const closed = canvas("canvas.session.close", { canvasSessionId, leaseId });
     const disconnectArgs = ["disconnect", "--session-id", sessionId, ...(config.closeBrowser ? ["--close-browser"] : [])];
-    const disconnectedRun = runCli(disconnectArgs, { timeoutMs: 120_000 });
+    const disconnectedRun = runCli(disconnectArgs, { timeoutMs: DISCONNECT_WRAPPER_TIMEOUT_MS });
     disconnected = true;
     artifact.steps.push({
       step: "export-save-close",
@@ -485,7 +488,7 @@ async function main() {
   } finally {
     if (sessionId && !disconnected) {
       const disconnectArgs = ["disconnect", "--session-id", sessionId, ...(config.closeBrowser ? ["--close-browser"] : [])];
-      runCli(disconnectArgs, { allowFailure: true, timeoutMs: 120_000 });
+      runCli(disconnectArgs, { allowFailure: true, timeoutMs: DISCONNECT_WRAPPER_TIMEOUT_MS });
     }
     writeJson(options.out, artifact);
     console.log(JSON.stringify({
