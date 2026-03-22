@@ -688,6 +688,209 @@ describe("provider runtime factory", () => {
     });
   });
 
+  it("preserves existing auth challenge summaries and skips disconnect when fallback remains blocked", async () => {
+    const existingChallenge = {
+      challengeId: "challenge-existing",
+      blockerType: "auth_required" as const,
+      ownerSurface: "direct_browser" as const,
+      resumeMode: "manual" as const,
+      status: "active" as const,
+      preserveUntil: "2026-03-22T00:05:00.000Z",
+      verifyUntil: "2026-03-22T00:02:00.000Z",
+      updatedAt: "2026-03-22T00:00:00.000Z",
+      timeline: [
+        {
+          at: "2026-03-22T00:00:00.000Z",
+          event: "claimed" as const,
+          status: "active" as const
+        }
+      ]
+    };
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "preserved-auth-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          content: async () => "<html><head><title>Sign in</title></head><body>Please log in to continue.</body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "managed",
+        url: "https://example.com/login",
+        meta: {
+          challenge: existingChallenge
+        }
+      })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "community/example",
+      source: "community",
+      operation: "fetch",
+      reasonCode: "auth_required",
+      trace: { requestId: "rf-preserved-auth", ts: "2026-03-22T00:00:00.000Z" },
+      url: "https://example.com/protected"
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "token_required",
+      disposition: "challenge_preserved",
+      preservedSessionId: "preserved-auth-session",
+      challenge: {
+        challengeId: "challenge-existing",
+        blockerType: "auth_required",
+        preserveUntil: "2026-03-22T00:05:00.000Z",
+        verifyUntil: "2026-03-22T00:02:00.000Z"
+      }
+    });
+    expect(response?.challenge?.timeline).toEqual(existingChallenge.timeline);
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("synthesizes preserved challenge metadata when status.challenge is malformed", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "preserved-challenge-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => {
+        throw new Error("networkidle never settled");
+      }),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><h1>Security verification</h1><p>Verify you're human to continue.</p></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "extension",
+        activeTargetId: "tab-1",
+        url: "https://example.com/challenge",
+        meta: {
+          challenge: []
+        }
+      })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "social/youtube",
+      source: "social",
+      operation: "fetch",
+      reasonCode: "challenge_detected",
+      trace: { requestId: "rf-preserved-challenge", ts: "2026-03-22T00:00:00.000Z" },
+      url: "https://example.com/watch",
+      ownerSurface: "ops",
+      ownerLeaseId: "lease-1",
+      resumeMode: "manual",
+      suspendedIntent: {
+        kind: "provider.fetch",
+        provider: "social/youtube",
+        source: "social",
+        operation: "fetch"
+      }
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "challenge_detected",
+      disposition: "challenge_preserved",
+      preservedSessionId: "preserved-challenge-session",
+      preservedTargetId: "tab-1",
+      challenge: {
+        blockerType: "anti_bot_challenge",
+        ownerSurface: "ops",
+        ownerLeaseId: "lease-1",
+        resumeMode: "manual",
+        suspendedIntent: {
+          kind: "provider.fetch",
+          provider: "social/youtube"
+        }
+      }
+    });
+    expect(response?.challenge?.challengeId).toMatch(/^fallback-/);
+    expect(response?.challenge?.timeline).toBeUndefined();
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes invalid settle and capture delays while keeping fallback capture alive", async () => {
+    const waitForTimeout = vi.fn(async () => undefined);
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "delay-sanitize-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => {
+        throw new Error("networkidle unavailable");
+      }),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout,
+          content: async () => "<html><body>fallback content</body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "managed", url: "https://example.com/fallback" })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "social/youtube",
+      source: "social",
+      operation: "fetch",
+      reasonCode: "transcript_unavailable",
+      trace: { requestId: "rf-delay-sanitize", ts: "2026-03-22T00:00:00.000Z" },
+      url: "https://example.com/fallback",
+      settleTimeoutMs: Number.NaN,
+      captureDelayMs: -25
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      output: {
+        html: "<html><body>fallback content</body></html>",
+        url: "https://example.com/fallback"
+      }
+    });
+    expect(manager.waitForLoad).toHaveBeenCalledWith(
+      "delay-sanitize-session",
+      "networkidle",
+      expect.any(Number)
+    );
+    expect(waitForTimeout).toHaveBeenCalledWith(0);
+  });
+
+  it("captures empty fallback HTML when the page surface lacks wait/content helpers", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "no-helper-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({});
+      }),
+      status: vi.fn(async () => ({ mode: "managed", url: "https://example.com/no-helper" })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "web/default",
+      source: "web",
+      operation: "fetch",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-no-helper", ts: "2026-03-22T00:00:00.000Z" },
+      url: "https://example.com/no-helper"
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      output: {
+        html: "",
+        url: "https://example.com/no-helper"
+      }
+    });
+    expect(manager.disconnect).toHaveBeenCalledWith("no-helper-session", true);
+  });
+
   it("returns env_limited on fallback manager errors and still disconnects", async () => {
     const manager = {
       launch: vi.fn(async () => ({ sessionId: "fallback-session" })),

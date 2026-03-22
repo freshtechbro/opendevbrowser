@@ -23,6 +23,10 @@ import { createTypeTool } from "./type";
 import { createSelectTool } from "./select";
 import { createScrollTool } from "./scroll";
 import { createScrollIntoViewTool } from "./scroll_into_view";
+import { createPointerMoveTool } from "./pointer_move";
+import { createPointerDownTool } from "./pointer_down";
+import { createPointerUpTool } from "./pointer_up";
+import { createPointerDragTool } from "./pointer_drag";
 import { createDomGetHtmlTool } from "./dom_get_html";
 import { createDomGetTextTool } from "./dom_get_text";
 import { createGetAttrTool } from "./get_attr";
@@ -98,6 +102,10 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_select: wrap("opendevbrowser_select", createSelectTool(deps)),
     opendevbrowser_scroll: wrap("opendevbrowser_scroll", createScrollTool(deps)),
     opendevbrowser_scroll_into_view: wrap("opendevbrowser_scroll_into_view", createScrollIntoViewTool(deps)),
+    opendevbrowser_pointer_move: wrap("opendevbrowser_pointer_move", createPointerMoveTool(deps)),
+    opendevbrowser_pointer_down: wrap("opendevbrowser_pointer_down", createPointerDownTool(deps)),
+    opendevbrowser_pointer_up: wrap("opendevbrowser_pointer_up", createPointerUpTool(deps)),
+    opendevbrowser_pointer_drag: wrap("opendevbrowser_pointer_drag", createPointerDragTool(deps)),
     opendevbrowser_dom_get_html: wrap("opendevbrowser_dom_get_html", createDomGetHtmlTool(deps)),
     opendevbrowser_dom_get_text: wrap("opendevbrowser_dom_get_text", createDomGetTextTool(deps)),
     opendevbrowser_get_attr: wrap("opendevbrowser_get_attr", createGetAttrTool(deps)),

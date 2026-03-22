@@ -21,7 +21,14 @@ import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoin
 import type { RelayStatus } from "../relay/relay-server";
 import { ensureLocalEndpoint } from "../utils/endpoint-validation";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
-import type { BlockerSignalV1 } from "../providers/types";
+import type {
+  BlockerSignalV1,
+  ChallengeOwnerSurface,
+  ResumeMode,
+  SessionChallengeSummary,
+  SuspendedIntentSummary
+} from "../providers/types";
+import type { BrowserResponseMeta } from "./manager-types";
 import {
   evaluateTier1Coherence,
   formatTier1Warnings,
@@ -53,6 +60,7 @@ import {
   type RuntimePreviewBridgeResult
 } from "./canvas-runtime-preview-bridge";
 import { loadSystemChromeCookies } from "./system-chrome-cookies";
+import { GlobalChallengeCoordinator } from "./global-challenge-coordinator";
 
 export type LaunchOptions = {
   profile?: string;
@@ -228,6 +236,7 @@ export class BrowserManager {
   private config: OpenDevBrowserConfig;
   private pageListeners = new WeakMap<Page, () => void>();
   private logger = createLogger("browser-manager");
+  private readonly challengeCoordinator = new GlobalChallengeCoordinator();
 
   constructor(worktree: string, config: OpenDevBrowserConfig) {
     this.worktree = worktree;
@@ -544,6 +553,7 @@ export class BrowserManager {
         }
       }
     } finally {
+      this.challengeCoordinator.release(sessionId);
       this.sessions.delete(sessionId);
       this.clearSessionParallelState(sessionId);
       this.store.delete(sessionId);
@@ -562,16 +572,7 @@ export class BrowserManager {
     activeTargetId: string | null;
     url?: string;
     title?: string;
-    meta?: {
-      blocker?: BlockerSignalV1;
-      blockerState: "clear" | "active" | "resolving";
-      blockerUpdatedAt?: string;
-      blockerResolution?: {
-        status: "resolved" | "unresolved" | "deferred";
-        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-        updatedAt: string;
-      };
-    };
+    meta?: BrowserResponseMeta;
   }> {
     const managed = this.getManaged(sessionId);
     const activeTargetId = managed.targets.getActiveTargetId();
@@ -580,17 +581,24 @@ export class BrowserManager {
     const url = this.safePageUrl(page, "BrowserManager.status");
     const summary = this.store.getBlockerSummary(sessionId);
 
+    const meta = this.syncChallengeMeta(sessionId, {
+      blockerState: summary.state,
+      ...(summary.blocker ? { blocker: summary.blocker } : {}),
+      ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
+      ...(summary.resolution ? { blockerResolution: summary.resolution } : {})
+    }, {
+      ownerSurface: "direct_browser",
+      resumeMode: "manual",
+      preservedSessionId: sessionId,
+      preservedTargetId: activeTargetId ?? undefined
+    });
+
     return {
       mode: managed.mode,
       activeTargetId,
       url,
       title,
-      meta: {
-        blockerState: summary.state,
-        ...(summary.blocker ? { blocker: summary.blocker } : {}),
-        ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
-        ...(summary.resolution ? { blockerResolution: summary.resolution } : {})
-      }
+      ...(meta ? { meta } : {})
     };
   }
 
@@ -928,16 +936,7 @@ export class BrowserManager {
     finalUrl?: string;
     status?: number;
     timingMs: number;
-    meta?: {
-      blocker?: BlockerSignalV1;
-      blockerState: "clear" | "active" | "resolving";
-      blockerUpdatedAt?: string;
-      blockerResolution?: {
-        status: "resolved" | "unresolved" | "deferred";
-        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-        updatedAt: string;
-      };
-    };
+    meta?: BrowserResponseMeta;
   }> {
     if (!sessionOverride && targetId) {
       return this.runTargetScoped(sessionId, targetId, async ({ managed, page }) => {
@@ -1134,16 +1133,7 @@ export class BrowserManager {
     targetId?: string | null
   ): Promise<{
     timingMs: number;
-    meta?: {
-      blocker?: BlockerSignalV1;
-      blockerState: "clear" | "active" | "resolving";
-      blockerUpdatedAt?: string;
-      blockerResolution?: {
-        status: "resolved" | "unresolved" | "deferred";
-        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-        updatedAt: string;
-      };
-    };
+    meta?: BrowserResponseMeta;
   }> {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page }) => {
       const startTime = Date.now();
@@ -1174,16 +1164,7 @@ export class BrowserManager {
     targetId?: string | null
   ): Promise<{
     timingMs: number;
-    meta?: {
-      blocker?: BlockerSignalV1;
-      blockerState: "clear" | "active" | "resolving";
-      blockerUpdatedAt?: string;
-      blockerResolution?: {
-        status: "resolved" | "unresolved" | "deferred";
-        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-        updatedAt: string;
-      };
-    };
+    meta?: BrowserResponseMeta;
   }> {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
@@ -1314,6 +1295,69 @@ export class BrowserManager {
       } else {
         await page.mouse.wheel(0, dy);
       }
+    });
+  }
+
+  async pointerMove(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    steps?: number
+  ): Promise<{ timingMs: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const startedAt = Date.now();
+      await page.mouse.move(x, y, { ...(typeof steps === "number" ? { steps } : {}) });
+      return { timingMs: Date.now() - startedAt };
+    });
+  }
+
+  async pointerDown(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): Promise<{ timingMs: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const startedAt = Date.now();
+      await page.mouse.move(x, y);
+      await page.mouse.down({ button, clickCount });
+      return { timingMs: Date.now() - startedAt };
+    });
+  }
+
+  async pointerUp(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): Promise<{ timingMs: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const startedAt = Date.now();
+      await page.mouse.move(x, y);
+      await page.mouse.up({ button, clickCount });
+      return { timingMs: Date.now() - startedAt };
+    });
+  }
+
+  async drag(
+    sessionId: string,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    targetId?: string | null,
+    steps?: number
+  ): Promise<{ timingMs: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const startedAt = Date.now();
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { ...(typeof steps === "number" ? { steps } : {}) });
+      await page.mouse.up();
+      return { timingMs: Date.now() - startedAt };
     });
   }
 
@@ -1651,6 +1695,7 @@ export class BrowserManager {
         updatedAt: string;
       };
       blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
+      challenge?: SessionChallengeSummary;
     };
   }> {
     const requestId = options.requestId ?? createRequestId();
@@ -2339,10 +2384,158 @@ export class BrowserManager {
     if (!this.store.has(sessionId)) {
       return;
     }
-    this.store.markVerificationFailure(sessionId, {
+    const next = this.store.markVerificationFailure(sessionId, {
       envLimited: this.isEnvLimitedVerifierError(error),
       timedOut: this.isTimeoutVerifierError(error)
     });
+    if (next?.resolution?.status === "deferred") {
+      this.challengeCoordinator.defer(sessionId);
+    }
+  }
+
+  reserveExternalBlockerSlot(sessionId: string): void {
+    this.store.reserveBlockerSlot(sessionId);
+  }
+
+  releaseExternalBlockerSlot(sessionId: string): void {
+    this.challengeCoordinator.release(sessionId);
+    this.store.releaseBlockerSlot(sessionId);
+  }
+
+  reconcileExternalBlockerMeta(
+    sessionId: string,
+    input: {
+      source: "navigation" | "network";
+      url?: string;
+      finalUrl?: string;
+      title?: string;
+      status?: number;
+      message?: string;
+      traceRequestId?: string;
+      networkEvents?: Array<{ url?: string; status?: number }>;
+      consoleEvents?: unknown[];
+      exceptionEvents?: unknown[];
+      verifier?: boolean;
+      includeArtifacts?: boolean;
+      envLimited?: boolean;
+      ownerLeaseId?: string;
+      suspendedIntent?: SuspendedIntentSummary;
+      targetKey?: string;
+    }
+  ): (BrowserResponseMeta & {
+    blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
+  }) | undefined {
+    if (!this.store.hasBlockerSlot(sessionId)) {
+      return undefined;
+    }
+    const now = Date.now();
+    if (input.verifier) {
+      this.store.startResolving(sessionId, now);
+    }
+    const networkEvents = input.networkEvents ?? [];
+    const blocker = classifyBlockerSignal({
+      source: input.source,
+      url: input.url,
+      finalUrl: input.finalUrl,
+      title: input.title,
+      status: input.status,
+      message: input.message,
+      matchedPatterns: this.config.fingerprint.tier2.challengePatterns,
+      networkHosts: this.extractNetworkHosts(networkEvents),
+      traceRequestId: input.traceRequestId,
+      envLimited: input.envLimited,
+      promptGuardEnabled: this.config.security.promptInjectionGuard?.enabled ?? true,
+      threshold: this.config.blockerDetectionThreshold
+    });
+    this.store.reconcileBlocker(sessionId, blocker, {
+      timeoutMs: this.config.blockerResolutionTimeoutMs,
+      verifier: input.verifier,
+      targetKey: input.targetKey,
+      nowMs: now
+    });
+    const summary = this.store.getBlockerSummary(sessionId);
+    const artifacts = input.includeArtifacts && summary.state !== "clear"
+      ? buildBlockerArtifacts({
+        networkEvents: networkEvents as unknown[],
+        consoleEvents: input.consoleEvents,
+        exceptionEvents: input.exceptionEvents,
+        promptGuardEnabled: this.config.security.promptInjectionGuard?.enabled ?? true,
+        caps: this.config.blockerArtifactCaps
+      })
+      : undefined;
+    return this.syncChallengeMeta(sessionId, {
+      blockerState: summary.state,
+      ...(summary.blocker ? { blocker: summary.blocker } : {}),
+      ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
+      ...(summary.resolution ? { blockerResolution: summary.resolution } : {}),
+      ...(artifacts ? { blockerArtifacts: artifacts } : {})
+    }, {
+      ownerSurface: "ops",
+      ownerLeaseId: input.ownerLeaseId,
+      resumeMode: "manual",
+      suspendedIntent: input.suspendedIntent,
+      preservedSessionId: sessionId,
+      preservedTargetId: input.targetKey
+    });
+  }
+
+  private isChallengeLifecycleBlocker(
+    blocker: BlockerSignalV1 | undefined
+  ): blocker is BlockerSignalV1 & { type: "auth_required" | "anti_bot_challenge" } {
+    return blocker?.type === "auth_required" || blocker?.type === "anti_bot_challenge";
+  }
+
+  private syncChallengeMeta(
+    sessionId: string,
+    meta: BrowserResponseMeta | undefined,
+    context: {
+      ownerSurface: ChallengeOwnerSurface;
+      ownerLeaseId?: string;
+      resumeMode: ResumeMode;
+      suspendedIntent?: SuspendedIntentSummary;
+      preservedSessionId?: string;
+      preservedTargetId?: string;
+    }
+  ): BrowserResponseMeta | undefined {
+    if (!meta) {
+      return undefined;
+    }
+    if (this.isChallengeLifecycleBlocker(meta.blocker) && meta.blockerState !== "clear") {
+      const challenge = this.challengeCoordinator.claimOrRefresh({
+        sessionId,
+        blockerType: meta.blocker.type,
+        reasonCode: meta.blocker.reasonCode,
+        ownerSurface: context.ownerSurface,
+        ownerLeaseId: context.ownerLeaseId,
+        resumeMode: context.resumeMode,
+        suspendedIntent: context.suspendedIntent,
+        preservedSessionId: context.preservedSessionId,
+        preservedTargetId: context.preservedTargetId
+      });
+      return {
+        ...meta,
+        challenge
+      };
+    }
+
+    if (meta.blockerResolution?.status === "deferred") {
+      const challenge = this.challengeCoordinator.defer(sessionId);
+      return challenge ? { ...meta, challenge } : meta;
+    }
+
+    if (meta.blockerResolution?.status === "resolved") {
+      const resolved = this.challengeCoordinator.resolve(sessionId) ?? this.challengeCoordinator.getSummary(sessionId);
+      const released = this.challengeCoordinator.release(sessionId) ?? resolved;
+      return released ? { ...meta, challenge: released } : meta;
+    }
+
+    if (meta.blockerState === "clear") {
+      const released = this.challengeCoordinator.release(sessionId);
+      return released ? { ...meta, challenge: released } : meta;
+    }
+
+    const challenge = this.challengeCoordinator.getSummary(sessionId);
+    return challenge ? { ...meta, challenge } : meta;
   }
 
   private reconcileSessionBlocker(
@@ -2364,19 +2557,15 @@ export class BrowserManager {
       includeArtifacts?: boolean;
       envLimited?: boolean;
       restrictedTarget?: boolean;
+      ownerSurface?: ChallengeOwnerSurface;
+      ownerLeaseId?: string;
+      resumeMode?: ResumeMode;
+      suspendedIntent?: SuspendedIntentSummary;
     }
-  ): {
-    blocker?: BlockerSignalV1;
-    blockerState: "clear" | "active" | "resolving";
-    blockerUpdatedAt?: string;
-    blockerResolution?: {
-      status: "resolved" | "unresolved" | "deferred";
-      reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-      updatedAt: string;
-    };
+  ): (BrowserResponseMeta & {
     blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
-  } | undefined {
-    if (!this.store.has(sessionId)) {
+  }) | undefined {
+    if (!this.store.hasBlockerSlot(sessionId)) {
       return undefined;
     }
 
@@ -2421,13 +2610,22 @@ export class BrowserManager {
       })
       : undefined;
 
-    return {
+    const meta = this.syncChallengeMeta(sessionId, {
       blockerState: summary.state,
       ...(summary.blocker ? { blocker: summary.blocker } : {}),
       ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
       ...(summary.resolution ? { blockerResolution: summary.resolution } : {}),
       ...(artifacts ? { blockerArtifacts: artifacts } : {})
-    };
+    }, {
+      ownerSurface: input.ownerSurface ?? "direct_browser",
+      ownerLeaseId: input.ownerLeaseId,
+      resumeMode: input.resumeMode ?? "manual",
+      suspendedIntent: input.suspendedIntent,
+      preservedSessionId: sessionId,
+      preservedTargetId: managed.targets.getActiveTargetId() ?? undefined
+    });
+
+    return meta;
   }
 
   private validateCookieRecord(cookie: CookieImportRecord): {

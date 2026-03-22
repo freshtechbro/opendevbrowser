@@ -1,0 +1,20 @@
+{
+  "fixtures": [
+    {
+      "id": "cloudflare-turnstile-checkbox",
+      "provider": "cloudflare-turnstile",
+      "docUrl": "https://developers.cloudflare.com/turnstile/troubleshooting/testing/",
+      "scriptUrl": "https://challenges.cloudflare.com/turnstile/v0/api.js",
+      "siteKey": "1x00000000000000000000AA",
+      "fixturePath": "turnstile-checkbox.html"
+    },
+    {
+      "id": "google-recaptcha-v2-checkbox",
+      "provider": "google-recaptcha-v2",
+      "docUrl": "https://developers.google.com/recaptcha/docs/faq",
+      "scriptUrl": "https://www.google.com/recaptcha/api.js",
+      "siteKey": "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI",
+      "fixturePath": "recaptcha-v2-checkbox.html"
+    }
+  ]
+}

@@ -335,6 +335,44 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.ref, "ref"),
         optionalString(params.targetId)
       );
+    case "pointer.move":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.pointerMove(
+        requireString(params.sessionId, "sessionId"),
+        requireFiniteNumber(params.x, "x"),
+        requireFiniteNumber(params.y, "y"),
+        optionalString(params.targetId),
+        optionalNumber(params.steps, "steps")
+      );
+    case "pointer.down":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.pointerDown(
+        requireString(params.sessionId, "sessionId"),
+        requireFiniteNumber(params.x, "x"),
+        requireFiniteNumber(params.y, "y"),
+        optionalString(params.targetId),
+        optionalPointerButton(params.button),
+        optionalNumber(params.clickCount, "clickCount") ?? 1
+      );
+    case "pointer.up":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.pointerUp(
+        requireString(params.sessionId, "sessionId"),
+        requireFiniteNumber(params.x, "x"),
+        requireFiniteNumber(params.y, "y"),
+        optionalString(params.targetId),
+        optionalPointerButton(params.button),
+        optionalNumber(params.clickCount, "clickCount") ?? 1
+      );
+    case "pointer.drag":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.drag(
+        requireString(params.sessionId, "sessionId"),
+        requirePointerPoint(params.from, "from"),
+        requirePointerPoint(params.to, "to"),
+        optionalString(params.targetId),
+        optionalNumber(params.steps, "steps")
+      );
     case "dom.getHtml":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.domGetHtml(
@@ -1335,6 +1373,28 @@ function optionalNumber(value: unknown, label: string): number | undefined {
 
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function requireFiniteNumber(value: unknown, label: string): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  throw new Error(`Invalid ${label}`);
+}
+
+function requirePointerPoint(value: unknown, label: string): { x: number; y: number } {
+  const point = requireRecord(value, label);
+  return {
+    x: requireFiniteNumber(point.x, `${label}.x`),
+    y: requireFiniteNumber(point.y, `${label}.y`)
+  };
+}
+
+function optionalPointerButton(value: unknown): "left" | "middle" | "right" {
+  if (value === "middle" || value === "right") {
+    return value;
+  }
+  return "left";
 }
 
 function optionalRenderMode(value: unknown): "compact" | "json" | "md" | "context" | "path" | undefined {

@@ -40,6 +40,10 @@ import { runType } from "./commands/interact/type";
 import { runSelect } from "./commands/interact/select";
 import { runScroll } from "./commands/interact/scroll";
 import { runScrollIntoView } from "./commands/interact/scroll-into-view";
+import { runPointerMove } from "./commands/interact/pointer-move";
+import { runPointerDown } from "./commands/interact/pointer-down";
+import { runPointerUp } from "./commands/interact/pointer-up";
+import { runPointerDrag } from "./commands/interact/pointer-drag";
 import { runTargetsList } from "./commands/targets/list";
 import { runTargetUse } from "./commands/targets/use";
 import { runTargetNew } from "./commands/targets/new";
@@ -499,6 +503,30 @@ async function main(): Promise<void> {
       name: "scroll-into-view",
       description: "Scroll an element into view by ref",
       run: async () => runScrollIntoView(args)
+    });
+
+    registerCommand({
+      name: "pointer-move",
+      description: "Move the pointer to viewport coordinates",
+      run: async () => runPointerMove(args)
+    });
+
+    registerCommand({
+      name: "pointer-down",
+      description: "Press a mouse button at viewport coordinates",
+      run: async () => runPointerDown(args)
+    });
+
+    registerCommand({
+      name: "pointer-up",
+      description: "Release a mouse button at viewport coordinates",
+      run: async () => runPointerUp(args)
+    });
+
+    registerCommand({
+      name: "pointer-drag",
+      description: "Drag the pointer between two viewport coordinates",
+      run: async () => runPointerDrag(args)
     });
 
     registerCommand({

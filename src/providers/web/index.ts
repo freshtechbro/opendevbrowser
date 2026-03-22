@@ -1,6 +1,12 @@
 import { ProviderRuntimeError } from "../errors";
 import { normalizeRecord, normalizeRecords } from "../normalize";
-import { crawlWeb, type CrawlBudget, type CrawlFetcher, type CrawlPipelineBudget } from "./crawler";
+import {
+  crawlWeb,
+  type CrawlBudget,
+  type CrawlFetcher,
+  type CrawlFetcherResponse,
+  type CrawlPipelineBudget
+} from "./crawler";
 import { extractStructuredContent, toSnippet } from "./extract";
 import type {
   JsonValue,
@@ -57,8 +63,13 @@ const capabilities = (id: string, policy: WebCrawlPolicy | undefined): ProviderC
   }
 });
 
-const fetchOne = async (fetcher: CrawlFetcher, url: string): Promise<{ status: number; html: string }> => {
-  const result = await fetcher(url);
+const fetchOne = async (
+  fetcher: CrawlFetcher,
+  url: string,
+  context?: ProviderContext
+): Promise<{ status: number; html: string }> => {
+  const fetcherWithContext = fetcher as unknown as (url: string, context?: ProviderContext) => Promise<CrawlFetcherResponse>;
+  const result = await fetcherWithContext(url, context);
   return {
     status: result.status ?? 200,
     html: result.html
@@ -139,7 +150,7 @@ export const createWebProvider = (options: WebProviderOptions = {}): ProviderAda
       });
     }
 
-    const response = await fetchOne(options.fetcher, queryUrl);
+    const response = await fetchOne(options.fetcher, queryUrl, context);
     const extracted = extractStructuredContent(response.html, queryUrl);
     const title = extracted.metadata.title ?? queryUrl;
     const content = extracted.metadata.description ?? toSnippet(extracted.text);
@@ -188,7 +199,7 @@ export const createWebProvider = (options: WebProviderOptions = {}): ProviderAda
     })];
   };
 
-  const fetch = async (input: ProviderFetchInput): Promise<NormalizedRecord[]> => {
+  const fetch = async (input: ProviderFetchInput, context: ProviderContext): Promise<NormalizedRecord[]> => {
     if (!options.fetcher) {
       throw new ProviderRuntimeError("unavailable", "Web fetcher is not configured", {
         provider: id,
@@ -196,7 +207,7 @@ export const createWebProvider = (options: WebProviderOptions = {}): ProviderAda
       });
     }
 
-    const response = await fetchOne(options.fetcher, input.url);
+    const response = await fetchOne(options.fetcher, input.url, context);
     const extracted = extractStructuredContent(response.html, input.url);
     const title = extracted.metadata.title ?? input.url;
     const content = extracted.metadata.description ?? extracted.text;

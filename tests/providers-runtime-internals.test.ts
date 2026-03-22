@@ -154,7 +154,7 @@ describe("provider runtime internals", () => {
     expect(result.metrics.failed).toBe(2);
   });
 
-  it("computes challenge pressure and scope keys across provider states", () => {
+  it("computes challenge pressure from registry anti-bot state and scope keys", () => {
     const runtime = new ProviderRuntime();
     const web = makeProvider("web/a", "web", {
       search: async () => [normalizeRecord("web/a", "web", { url: "https://example.com/a" })]
@@ -166,13 +166,10 @@ describe("provider runtime internals", () => {
     runtime.register(web);
     runtime.register(community);
 
-    runtime.registry.setHealth("web/a", {
-      status: "unhealthy",
-      updatedAt: new Date().toISOString()
-    });
-    runtime.registry.setHealth("community/b", {
-      status: "degraded",
-      updatedAt: new Date().toISOString()
+    runtime.registry.recordAntiBotOutcome({
+      providerId: "web/a",
+      reasonCode: "auth_required",
+      disposition: "challenge_preserved"
     });
 
     const pressure = (runtime as unknown as {
@@ -185,7 +182,7 @@ describe("provider runtime internals", () => {
       queuePressure: (scopeKey: string) => number;
     }).calculateChallengePressure([web, community]);
 
-    expect(pressure).toBeCloseTo(0.75, 2);
+    expect(pressure).toBeCloseTo(0.5, 2);
 
     const helper = runtime as unknown as {
       resolveScopeKey: (

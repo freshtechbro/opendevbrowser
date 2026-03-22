@@ -1583,9 +1583,12 @@ describe("shopping providers", () => {
         reasonCode: "env_limited",
         useCookies: true,
         cookiePolicyOverride: "required",
+        preferredModes: ["managed_headed", "extension"],
+        settleTimeoutMs: 15000,
+        captureDelayMs: 2000,
         trace: expect.objectContaining({
           provider: "shopping/amazon",
-          requestId: expect.stringMatching(/^shopping-fallback-/)
+          requestId: expect.stringMatching(/^provider-fallback-/)
         })
       }));
     } finally {

@@ -1,3 +1,4 @@
+import type { ProviderRegistry } from "../registry";
 import type { ProviderOperation, ProviderReasonCode } from "../types";
 
 export interface AntiBotPolicyConfig {
@@ -45,12 +46,6 @@ export interface AntiBotPostflightResult {
   sessionHint?: string;
 }
 
-type ProviderCooldownState = {
-  reasonCode: ProviderReasonCode;
-  cooldownUntilMs: number;
-  updatedAt: string;
-};
-
 const clampInt = (value: number | undefined, fallback: number, min: number, max: number): number => {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   const rounded = Math.floor(value);
@@ -81,8 +76,6 @@ const ESCALATION_REASONS = new Set<ProviderReasonCode>([
   "challenge_detected"
 ]);
 
-const toKey = (providerId: string, operation: ProviderOperation): string => `${providerId}:${operation}`;
-
 export const resolveAntiBotPolicyConfig = (
   config: Partial<AntiBotPolicyConfig> | undefined
 ): AntiBotPolicyConfig => ({
@@ -100,10 +93,11 @@ export const resolveAntiBotPolicyConfig = (
 });
 
 export class AntiBotPolicyEngine {
+  private readonly registry: ProviderRegistry;
   private readonly config: AntiBotPolicyConfig;
-  private readonly cooldownByScope = new Map<string, ProviderCooldownState>();
 
-  constructor(config: Partial<AntiBotPolicyConfig> | undefined = {}) {
+  constructor(registry: ProviderRegistry, config: Partial<AntiBotPolicyConfig> | undefined = {}) {
+    this.registry = registry;
     this.config = resolveAntiBotPolicyConfig(config);
   }
 
@@ -115,10 +109,9 @@ export class AntiBotPolicyEngine {
       };
     }
 
-    const key = toKey(context.providerId, context.operation);
     const nowMs = context.nowMs ?? Date.now();
-    const cooldown = this.cooldownByScope.get(key);
-    if (cooldown && cooldown.cooldownUntilMs > nowMs) {
+    const cooldown = this.registry.getAntiBotCooldown(context.providerId, context.operation, nowMs);
+    if (cooldown) {
       const retryAfterMs = cooldown.cooldownUntilMs - nowMs;
       return {
         allow: false,
@@ -129,10 +122,6 @@ export class AntiBotPolicyEngine {
         ...(this.config.sessionHint ? { sessionHint: this.config.sessionHint } : {}),
         escalationIntent: this.config.allowBrowserEscalation && ESCALATION_REASONS.has(cooldown.reasonCode)
       };
-    }
-
-    if (cooldown && cooldown.cooldownUntilMs <= nowMs) {
-      this.cooldownByScope.delete(key);
     }
 
     return {
@@ -149,9 +138,8 @@ export class AntiBotPolicyEngine {
       };
     }
 
-    const key = toKey(context.providerId, context.operation);
     if (context.success) {
-      this.cooldownByScope.delete(key);
+      this.registry.clearAntiBotCooldown(context.providerId, context.operation);
       return {
         allowRetry: false,
         escalationIntent: false
@@ -161,11 +149,13 @@ export class AntiBotPolicyEngine {
     const reasonCode = context.reasonCode;
     const nowMs = context.nowMs ?? Date.now();
     if (reasonCode && COOLDOWN_REASONS.has(reasonCode) && this.config.cooldownMs > 0) {
-      this.cooldownByScope.set(key, {
+      this.registry.setAntiBotCooldown(
+        context.providerId,
+        context.operation,
         reasonCode,
-        cooldownUntilMs: nowMs + this.config.cooldownMs,
-        updatedAt: new Date(nowMs).toISOString()
-      });
+        nowMs + this.config.cooldownMs,
+        nowMs
+      );
     }
 
     const canRetryByAttempt = context.attempt < context.maxAttempts;

@@ -2,9 +2,25 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_PROVIDER_BUDGETS, ProviderRuntime, createDefaultRuntime, createProviderRuntime } from "../src/providers";
 import { ProviderRuntimeError } from "../src/providers/errors";
 import { normalizeRecord } from "../src/providers/normalize";
-import type { AdaptiveConcurrencyDiagnostics, ProviderAdapter, ProviderCallResultByOperation, ProviderSource } from "../src/providers/types";
+import type {
+  AdaptiveConcurrencyDiagnostics,
+  ProviderAdapter,
+  ProviderCallResultByOperation,
+  ProviderContext,
+  ProviderSource
+} from "../src/providers/types";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const makeProviderContext = (overrides: Partial<ProviderContext> = {}): ProviderContext => ({
+  trace: {
+    requestId: "provider-runtime-test",
+    ts: "2026-03-22T00:00:00.000Z"
+  },
+  timeoutMs: DEFAULT_PROVIDER_BUDGETS.timeoutMs.fetch,
+  attempt: 1,
+  ...overrides
+});
 
 const makeProvider = (
   id: string,
@@ -490,6 +506,84 @@ describe("provider runtime branches", () => {
     }
   });
 
+  it("allows direct default web provider fetches without a runtime signal", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body><main>direct provider fetch</main></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const provider = runtime.listProviders().find((entry) => entry.id === "web/default");
+
+      expect(provider?.fetch).toBeTypeOf("function");
+      const records = await provider!.fetch!(
+        { url: "https://example.com/direct-provider-fetch" },
+        makeProviderContext({ signal: undefined })
+      );
+
+      expect(records[0]?.content).toContain("direct provider fetch");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("times out direct default web provider fetches when the signal is already aborted", async () => {
+    const cancel = vi.fn(async () => undefined);
+    const text = vi.fn(async () => "<html><body>should not resolve</body></html>");
+    const controller = new AbortController();
+    controller.abort("manual-timeout");
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      body: {
+        cancel
+      },
+      text
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const provider = runtime.listProviders().find((entry) => entry.id === "web/default");
+
+      await expect(provider!.fetch!(
+        { url: "https://example.com/direct-provider-timeout" },
+        makeProviderContext({ signal: controller.signal })
+      )).rejects.toMatchObject({ code: "timeout" });
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(text).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rethrows response-text failures for direct default web provider fetches when the signal stays live", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      body: {
+        cancel: vi.fn(async () => undefined)
+      },
+      text: async () => {
+        throw new Error("body parse failed");
+      }
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const provider = runtime.listProviders().find((entry) => entry.id === "web/default");
+
+      await expect(provider!.fetch!(
+        { url: "https://example.com/direct-provider-body-error" },
+        makeProviderContext({ signal: new AbortController().signal })
+      )).rejects.toThrow("body parse failed");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("adapts web crawl input concurrency from adaptive scoped limits", async () => {
     let received: ProviderCallResultByOperation["crawl"] | null = null;
 
@@ -913,7 +1007,72 @@ describe("provider runtime branches", () => {
       { source: "web", providerIds: ["web/custom-default"] }
     );
     expect(customFetch.ok).toBe(true);
-    expect(customFetcher).toHaveBeenCalledWith("https://example.com/custom");
+    expect(customFetcher).toHaveBeenCalledWith(
+      "https://example.com/custom",
+      expect.objectContaining({
+        attempt: 1,
+        timeoutMs: DEFAULT_PROVIDER_BUDGETS.timeoutMs.fetch,
+        signal: expect.anything(),
+        trace: expect.objectContaining({
+          provider: "web/custom-default",
+          requestId: expect.any(String)
+        })
+      })
+    );
+  });
+
+  it("keeps env-limited social search shells as records when no hard blocker constraint is present", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>manual interaction required</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "manual interaction shell" },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records[0]?.attributes?.retrievalPath).toBe("social:search:index");
+      expect(String(result.records[0]?.content ?? "")).toContain("manual interaction required");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves minimal social auth details when auth is inferred from the URL alone", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "https://example.com/login" },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.failures[0]?.error.reasonCode).toBe("token_required");
+      expect(result.failures[0]?.error.details).toMatchObject({
+        status: 200,
+        url: "https://example.com/login",
+        reasonCode: "token_required",
+        blockerType: "auth_required",
+        constraint: {
+          kind: "session_required"
+        }
+      });
+      expect(result.failures[0]?.error.details).not.toHaveProperty("title");
+      expect(result.failures[0]?.error.details).not.toHaveProperty("message");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("covers adaptive crawl input branch cases for no-op and missing filters", () => {
@@ -1247,6 +1406,178 @@ describe("provider runtime branches", () => {
     }
   });
 
+  it("maps auth-blocked retrieval failures to token_required fallback reason", async () => {
+    const fallbackResolve = vi.fn(async (request: { url?: string; reasonCode?: string }) => ({
+      ok: true as const,
+      reasonCode: (request.reasonCode ?? "token_required") as "token_required",
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://example.com/protected",
+        html: "<html><body><a href=\"https://example.com/ok\">ok</a></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 401,
+      url: String(input),
+      text: async () => "unauthorized"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.fetch(
+        { url: "https://example.com/protected" },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "web/default",
+        reasonCode: "token_required"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("maps rate-limited retrieval failures to rate_limited fallback reason", async () => {
+    const fallbackResolve = vi.fn(async (request: { url?: string; reasonCode?: string }) => ({
+      ok: true as const,
+      reasonCode: (request.reasonCode ?? "rate_limited") as "rate_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://example.com/rate-limited",
+        html: "<html><body><a href=\"https://example.com/ok\">ok</a></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 429,
+      url: String(input),
+      text: async () => "too many requests"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.fetch(
+        { url: "https://example.com/rate-limited" },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "web/default",
+        reasonCode: "rate_limited"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("maps generic unavailable retrieval failures to env_limited fallback reason", async () => {
+    const fallbackResolve = vi.fn(async (request: { url?: string; reasonCode?: string }) => ({
+      ok: true as const,
+      reasonCode: (request.reasonCode ?? "env_limited") as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://duckduckgo.com/html/?q=provider+fallback&ia=web",
+        html: "<html><body><a href=\"https://example.com/ok\">ok</a></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 404,
+      url: String(input),
+      text: async () => "plain upstream outage"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "generic unavailable fallback", limit: 1 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "web/default",
+        reasonCode: "env_limited"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("returns timeout when the retrieval signal aborts while body text is pending", async () => {
+    const cancel = vi.fn(async () => undefined);
+    const fetchSignals: AbortSignal[] = [];
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const signal = init?.signal;
+      if (signal) {
+        fetchSignals.push(signal);
+      }
+      return {
+        status: 200,
+        url: String(input),
+        body: {
+          cancel
+        },
+        text: () => new Promise<string>((_, reject) => {
+          if (!signal) {
+            return;
+          }
+          if (signal.aborted) {
+            reject(new Error("aborted"));
+            return;
+          }
+          signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        })
+      };
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        budgets: {
+          ...DEFAULT_PROVIDER_BUDGETS,
+          timeoutMs: {
+            ...DEFAULT_PROVIDER_BUDGETS.timeoutMs,
+            fetch: 25
+          },
+          retries: { read: 0, write: 0 },
+          circuitBreaker: { failureThreshold: 99, cooldownMs: 1000 }
+        }
+      });
+      const result = await runtime.fetch(
+        { url: "https://example.com/pending-body" },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.error?.code).toBe("timeout");
+      expect(fetchSignals).toHaveLength(1);
+      expect(fetchSignals[0]?.aborted).toBe(true);
+      expect(cancel).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("skips browser fallback for invalid non-http fetch inputs", async () => {
     const fallbackResolve = vi.fn(async () => ({
       ok: true as const,
@@ -1300,10 +1631,58 @@ describe("provider runtime branches", () => {
         provider: "web/default",
         source: "web",
         operation: "fetch",
+        ownerSurface: "provider_fallback",
+        reasonCode: "env_limited",
+        resumeMode: "auto",
+        suspendedIntent: expect.objectContaining({
+          kind: "provider.fetch",
+          provider: "web/default",
+          source: "web",
+          operation: "fetch"
+        }),
+        details: expect.objectContaining({
+          errorCode: "network",
+          message: "Failed to retrieve https://example.com/runtime-fallback"
+        }),
+        signal: expect.anything(),
+        timeoutMs: DEFAULT_PROVIDER_BUDGETS.timeoutMs.fetch,
+        url: "https://example.com/runtime-fallback",
         trace: expect.objectContaining({
           provider: "web/default",
-          requestId: expect.stringMatching(/^runtime-fallback-/)
+          requestId: expect.any(String)
         })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces invalid browser fallback payloads as internal runtime failures", async () => {
+    const fallbackResolve = vi.fn(async () => undefined as unknown as {
+      ok: boolean;
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve as never
+        }
+      });
+      const result = await runtime.fetch(
+        { url: "https://example.com/runtime-fallback-opt-out" },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.error?.code).toBe("internal");
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "web/default",
+        operation: "fetch",
+        reasonCode: "env_limited"
       }));
     } finally {
       vi.unstubAllGlobals();

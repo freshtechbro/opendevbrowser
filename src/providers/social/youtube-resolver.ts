@@ -3,11 +3,13 @@ import { mkdtemp, readdir, rm } from "fs/promises";
 import { tmpdir } from "os";
 import * as path from "path";
 import { promisify } from "util";
+import { readFallbackString, resolveProviderBrowserFallback } from "../browser-fallback";
 import { providerErrorCodeFromReasonCode } from "../errors";
 import type {
   BrowserFallbackPort,
   JsonValue,
   ProviderContext,
+  ProviderRecoveryHints,
   ProviderReasonCode
 } from "../types";
 
@@ -101,6 +103,7 @@ export interface YouTubeTranscriptResolverDependencies {
   config?: Partial<YouTubeTranscriptResolverConfig>;
   mode?: YouTubeTranscriptModeInput | null;
   browserFallbackPort?: BrowserFallbackPort;
+  recoveryHints?: ProviderRecoveryHints;
   allowBrowserFallbackEscalation?: boolean;
   asrTranscribe?: (args: {
     watchUrl: string;
@@ -1279,76 +1282,75 @@ export const resolveYouTubeTranscript = async (
     }
   }
 
-  if (
-    !forcedMode
-    && config.enableBrowserFallback
-    && deps.browserFallbackPort
-    && deps.allowBrowserFallbackEscalation
-  ) {
-    const fallback = await deps.browserFallbackPort.resolve({
+  if (!forcedMode && config.enableBrowserFallback && deps.browserFallbackPort) {
+    const fallback = await resolveProviderBrowserFallback({
+      browserFallbackPort: deps.browserFallbackPort,
+      allowEscalation: deps.allowBrowserFallbackEscalation,
       provider: "social/youtube",
       source: "social",
       operation: "fetch",
       reasonCode: "transcript_unavailable",
-      trace: deps.context.trace,
       url: deps.watchUrl,
-      preferredModes: ["extension", "managed_headed"],
-      ...(typeof deps.context.useCookies === "boolean"
-        ? { useCookies: deps.context.useCookies }
-        : {}),
-      ...(deps.context.cookiePolicyOverride
-        ? { cookiePolicyOverride: deps.context.cookiePolicyOverride }
-        : {}),
+      context: deps.context,
       details: {
         request: "youtube_transcript"
+      },
+      recoveryHints: deps.recoveryHints,
+      suspendedIntent: {
+        kind: "youtube.transcript",
+        provider: "social/youtube",
+        source: "social",
+        operation: "fetch"
       }
     });
 
-    if (!fallback.ok) {
-      const fallbackDiagnostics = (
-        fallback.details?.cookieDiagnostics
-          && typeof fallback.details.cookieDiagnostics === "object"
-          && !Array.isArray(fallback.details.cookieDiagnostics)
-      )
-        ? { cookieDiagnostics: fallback.details.cookieDiagnostics as Record<string, JsonValue> }
-        : undefined;
-      attemptChain.push({
-        strategy: "browser_assisted",
-        ok: false,
-        reasonCode: fallback.reasonCode,
-        message: typeof fallback.details?.message === "string" ? fallback.details.message : "Browser fallback failed.",
-        ...(fallbackDiagnostics ? { details: fallbackDiagnostics } : {})
+    if (fallback) {
+      if (fallback.disposition !== "completed") {
+        const fallbackDiagnostics = (
+          fallback.details?.cookieDiagnostics
+            && typeof fallback.details.cookieDiagnostics === "object"
+            && !Array.isArray(fallback.details.cookieDiagnostics)
+        )
+          ? { cookieDiagnostics: fallback.details.cookieDiagnostics as Record<string, JsonValue> }
+          : undefined;
+        attemptChain.push({
+          strategy: "browser_assisted",
+          ok: false,
+          reasonCode: fallback.reasonCode,
+          message: typeof fallback.details?.message === "string" ? fallback.details.message : "Browser fallback failed.",
+          ...(fallbackDiagnostics ? { details: fallbackDiagnostics } : {})
+        });
+        return createFailure(mode, fallback.reasonCode, attemptChain);
+      }
+
+      const html = readFallbackString(fallback.output, "html");
+      if (!html) {
+        attemptChain.push(createAttempt("browser_assisted", "env_limited", "Browser fallback did not return page HTML."));
+        return createFailure(mode, "env_limited", attemptChain);
+      }
+
+      const nativeResolved = await resolveNativeCaptionTranscript({
+        pageHtml: html,
+        context: deps.context,
+        manualOnly: mode === "no-auto"
       });
-      return createFailure(mode, fallback.reasonCode, attemptChain);
+
+      if (!nativeResolved.ok) {
+        attemptChain.push(createAttempt("browser_assisted", nativeResolved.reasonCode, nativeResolved.message));
+        return createFailure(mode, nativeResolved.reasonCode, attemptChain);
+      }
+
+      attemptChain.push({ strategy: "browser_assisted", ok: true });
+      return {
+        ok: true,
+        mode,
+        text: nativeResolved.text,
+        language: nativeResolved.language,
+        transcriptStrategy: "browser_assisted",
+        transcriptStrategyDetail: "browser_assisted",
+        attemptChain
+      };
     }
-
-    const html = fallback.output?.html;
-    if (typeof html !== "string" || html.trim().length === 0) {
-      attemptChain.push(createAttempt("browser_assisted", "env_limited", "Browser fallback did not return page HTML."));
-      return createFailure(mode, "env_limited", attemptChain);
-    }
-
-    const nativeResolved = await resolveNativeCaptionTranscript({
-      pageHtml: html,
-      context: deps.context,
-      manualOnly: mode === "no-auto"
-    });
-
-    if (!nativeResolved.ok) {
-      attemptChain.push(createAttempt("browser_assisted", nativeResolved.reasonCode, nativeResolved.message));
-      return createFailure(mode, nativeResolved.reasonCode, attemptChain);
-    }
-
-    attemptChain.push({ strategy: "browser_assisted", ok: true });
-    return {
-      ok: true,
-      mode,
-      text: nativeResolved.text,
-      language: nativeResolved.language,
-      transcriptStrategy: "browser_assisted",
-      transcriptStrategyDetail: "browser_assisted",
-      attemptChain
-    };
   }
 
   return createFailure(

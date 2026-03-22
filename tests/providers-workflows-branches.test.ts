@@ -62,9 +62,11 @@ const makeAggregate = (overrides: Partial<ProviderAggregateResult> = {}): Provid
 const toRuntime = (handlers: {
   search?: ProviderExecutor["search"];
   fetch?: ProviderExecutor["fetch"];
+  getAntiBotSnapshots?: ProviderExecutor["getAntiBotSnapshots"];
 }): ProviderExecutor => ({
   search: handlers.search ?? (async () => makeAggregate()),
-  fetch: handlers.fetch ?? (async () => makeAggregate())
+  fetch: handlers.fetch ?? (async () => makeAggregate()),
+  ...(handlers.getAntiBotSnapshots ? { getAntiBotSnapshots: handlers.getAntiBotSnapshots } : {})
 });
 
 describe("workflow branch coverage", () => {
@@ -326,6 +328,114 @@ describe("workflow branch coverage", () => {
     expect(alerts).toEqual([]);
   });
 
+  it("uses runtime snapshots to emit degraded challenge and cooldown alerts", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        failures: [makeFailure("web/default", "web")],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      }),
+      getAntiBotSnapshots: () => [{
+        providerId: "web/default",
+        activeChallenges: 1,
+        recentChallengeRatio: 0.1,
+        recentRateLimitRatio: 0.1,
+        cooldownUntilMs: Date.now() + 60_000
+      }]
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "runtime snapshot alerts",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    const alerts = (output.meta as {
+      alerts: Array<{ signal: string; state: string; reason: string }>;
+    }).alerts;
+    expect(alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        signal: "anti_bot_challenge",
+        state: "degraded",
+        reason: "preserved challenge session is still active"
+      }),
+      expect.objectContaining({
+        signal: "rate_limited",
+        state: "degraded",
+        reason: "cooldown active"
+      })
+    ]));
+  });
+
+  it("uses runtime snapshot ratios for warning alerts and dedupes transcript failures", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/youtube"],
+        failures: [
+          makeFailure("social/youtube", "social", {
+            code: "unavailable",
+            message: "captions unavailable",
+            reasonCode: "transcript_unavailable"
+          }),
+          makeFailure("social/youtube", "social", {
+            code: "unavailable",
+            message: "captions still unavailable",
+            reasonCode: "transcript_unavailable"
+          }),
+          makeFailure("social/youtube", "social", {
+            code: "rate_limited",
+            message: "rate limited",
+            reasonCode: "rate_limited"
+          })
+        ],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      }),
+      getAntiBotSnapshots: () => [{
+        providerId: "social/youtube",
+        activeChallenges: 0,
+        recentChallengeRatio: 0.2,
+        recentRateLimitRatio: 0.2,
+        cooldownUntilMs: 0
+      }]
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "runtime snapshot warning alerts",
+      sourceSelection: "social",
+      days: 1,
+      mode: "json"
+    });
+
+    const alerts = (output.meta as {
+      alerts: Array<{ provider: string; signal: string; state: string; reason: string }>;
+    }).alerts;
+    expect(alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "social/youtube",
+        signal: "anti_bot_challenge",
+        state: "warning",
+        reason: "signal ratio >= 15%"
+      }),
+      expect.objectContaining({
+        provider: "social/youtube",
+        signal: "rate_limited",
+        state: "warning",
+        reason: "signal ratio >= 15%"
+      }),
+      expect.objectContaining({
+        provider: "social/youtube",
+        signal: "transcript_unavailable",
+        state: "warning"
+      })
+    ]));
+    expect(alerts.filter((alert) => alert.signal === "transcript_unavailable")).toHaveLength(1);
+  });
+
   it("orders research records by timebox status and date confidence", () => {
     const records: ResearchRecord[] = [
       {
@@ -569,6 +679,60 @@ describe("workflow branch coverage", () => {
 
     expect(calledProviders).toEqual(["shopping/amazon"]);
     expect((explicitOutput.meta as { selection: { providers: string[] } }).selection.providers).toEqual(["shopping/amazon"]);
+  });
+
+  it("excludes runtime-degraded shopping providers from default routing", async () => {
+    const calledProviders: string[][] = [];
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerIds = [...(options?.providerIds ?? [])];
+        calledProviders.push(providerIds);
+        const providerId = providerIds[0] ?? "shopping/others";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: providerIds,
+          records: [makeRecord({
+            id: `runtime-${providerId}`,
+            source: "shopping",
+            provider: providerId,
+            url: `https://shop.example/${providerId}`,
+            title: `Offer ${providerId}`,
+            content: "$10.00",
+            attributes: {
+              shopping_offer: {
+                provider: providerId,
+                product_id: `${providerId}-product`,
+                title: `Offer ${providerId}`,
+                url: `https://shop.example/${providerId}`,
+                price: { amount: 10, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.5,
+                reviews_count: 3
+              }
+            }
+          })]
+        });
+      },
+      getAntiBotSnapshots: (providerIds) => (providerIds ?? SHOPPING_PROVIDER_IDS).map((providerId) => ({
+        providerId,
+        activeChallenges: providerId === "shopping/amazon" ? 1 : 0,
+        recentChallengeRatio: providerId === "shopping/amazon" ? 1 : 0,
+        recentRateLimitRatio: 0,
+        cooldownUntilMs: 0
+      }))
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "runtime-degraded-routing",
+      mode: "json"
+    });
+
+    expect(calledProviders[0]).toBeDefined();
+    expect(calledProviders[0]).not.toContain("shopping/amazon");
+    expect((output.meta as {
+      selection: { excluded_providers?: string[] };
+    }).selection.excluded_providers).toContain("shopping/amazon");
   });
 
   it("returns shopping provider ids for known/unknown/invalid URLs", () => {
@@ -2587,10 +2751,20 @@ describe("workflow branch coverage", () => {
       include_copy: false
     });
 
-    expect(fetch).toHaveBeenNthCalledWith(1, { url: "https://www.amazon.com/dp/example" }, {
-      source: "shopping",
-      providerIds: ["shopping/amazon"]
-    });
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      { url: "https://www.amazon.com/dp/example" },
+      expect.objectContaining({
+        source: "shopping",
+        providerIds: ["shopping/amazon"],
+        suspendedIntent: expect.objectContaining({
+          kind: "workflow.product_video",
+          input: expect.objectContaining({
+            product_url: "https://www.amazon.com/dp/example"
+          })
+        })
+      })
+    );
 
     await runProductVideoWorkflow(toRuntime({ fetch }), {
       product_url: "https://www.amazon.com/dp/example",
@@ -2600,10 +2774,21 @@ describe("workflow branch coverage", () => {
       include_copy: false
     });
 
-    expect(fetch).toHaveBeenNthCalledWith(2, { url: "https://www.amazon.com/dp/example" }, {
-      source: "shopping",
-      providerIds: ["shopping/amazon"]
-    });
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      { url: "https://www.amazon.com/dp/example" },
+      expect.objectContaining({
+        source: "shopping",
+        providerIds: ["shopping/amazon"],
+        suspendedIntent: expect.objectContaining({
+          kind: "workflow.product_video",
+          input: expect.objectContaining({
+            product_url: "https://www.amazon.com/dp/example",
+            provider_hint: "amazon"
+          })
+        })
+      })
+    );
   });
 
   it("falls back to zero when transcript price parsing becomes non-finite", async () => {
@@ -2754,14 +2939,31 @@ describe("workflow branch coverage", () => {
     expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       source: "shopping",
       providerIds: ["shopping/amazon"],
-      timeoutMs: 4321
+      timeoutMs: 4321,
+      suspendedIntent: expect.objectContaining({
+        kind: "workflow.shopping",
+        input: expect.objectContaining({
+          query: "product timeout forwarded",
+          providers: ["amazon"],
+          mode: "json",
+          timeoutMs: 4321
+        })
+      })
     }));
     expect(fetch).toHaveBeenCalledWith(
       { url: "https://www.amazon.com/dp/product-timeout-forwarded" },
       expect.objectContaining({
         source: "shopping",
         providerIds: ["shopping/amazon"],
-        timeoutMs: 4321
+        timeoutMs: 4321,
+        suspendedIntent: expect.objectContaining({
+          kind: "workflow.product_video",
+          input: expect.objectContaining({
+            product_name: "product timeout forwarded",
+            provider_hint: "amazon",
+            timeoutMs: 4321
+          })
+        })
       })
     );
   });
@@ -2845,7 +3047,15 @@ describe("workflow branch coverage", () => {
     const search = vi.fn(async (_input, options) => {
       expect(options).toMatchObject({
         source: "shopping",
-        providerIds: ["shopping/amazon"]
+        providerIds: ["shopping/amazon"],
+        suspendedIntent: {
+          kind: "workflow.shopping",
+          input: expect.objectContaining({
+            query: "hint resolved product",
+            providers: ["amazon"],
+            mode: "json"
+          })
+        }
       });
       return makeAggregate({
         sourceSelection: "shopping",
@@ -2909,10 +3119,20 @@ describe("workflow branch coverage", () => {
     });
 
     expect(search).toHaveBeenCalledTimes(1);
-    expect(fetch).toHaveBeenCalledWith({ url: "https://www.amazon.com/dp/B0HINT00001" }, {
-      source: "shopping",
-      providerIds: ["shopping/amazon"]
-    });
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://www.amazon.com/dp/B0HINT00001" },
+      expect.objectContaining({
+        source: "shopping",
+        providerIds: ["shopping/amazon"],
+        suspendedIntent: expect.objectContaining({
+          kind: "workflow.product_video",
+          input: expect.objectContaining({
+            product_name: "hint resolved product",
+            provider_hint: "amazon"
+          })
+        })
+      })
+    );
     expect((output.product as { provider: string }).provider).toBe("shopping/amazon");
   });
 

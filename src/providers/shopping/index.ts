@@ -1,4 +1,9 @@
 import { classifyBlockerSignal } from "../blocker";
+import {
+  readFallbackString,
+  resolveProviderBrowserFallback,
+  toProviderFallbackError
+} from "../browser-fallback";
 import { applyProviderIssueHint, classifyProviderIssue } from "../constraint";
 import { providerErrorCodeFromReasonCode, ProviderRuntimeError, toProviderError } from "../errors";
 import { normalizeRecord, normalizeRecords } from "../normalize";
@@ -14,6 +19,7 @@ import type {
   ProviderErrorCode,
   ProviderFetchInput,
   ProviderHealth,
+  ProviderRecoveryHints,
   ProviderReasonCode,
   ProviderSearchInput
 } from "../types";
@@ -328,74 +334,54 @@ const bindRecoverableFetchSignal = (
   };
 };
 
-const readFallbackString = (output: Record<string, JsonValue> | undefined, key: "html" | "url"): string | undefined => {
-  const value = output?.[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-};
+const buildShoppingRecoveryHints = (profile: ShoppingProviderProfile): ProviderRecoveryHints => ({
+  preferredFallbackModes: ["managed_headed", "extension"],
+  highFrictionTarget: profile.name === "temu" || profile.name === "target",
+  challengeProne: profile.name === "temu" || profile.name === "target" || profile.name === "bestbuy",
+  settleTimeoutMs: 15000,
+  captureDelayMs: 2000
+});
 
 const resolveBrowserFallback = async (args: {
   error: ProviderRuntimeError;
   url: string;
   provider: string;
   operation: "search" | "fetch";
+  recoveryHints: ProviderRecoveryHints;
   context?: ProviderContext;
 }): Promise<ShoppingFetchRecord | null> => {
-  const fallbackPort = args.context?.browserFallbackPort;
-  if (!fallbackPort) return null;
-
   const normalized = toProviderError(args.error, {
     provider: args.provider,
     source: SHOPPING_SOURCE
   });
   const reasonCode = fallbackReasonCodeForError(normalized);
 
-  const fallback = await fallbackPort.resolve({
+  const fallback = await resolveProviderBrowserFallback({
+    browserFallbackPort: args.context?.browserFallbackPort,
     provider: args.provider,
     source: SHOPPING_SOURCE,
     operation: args.operation,
     reasonCode,
-    // Shopping browser recovery should prefer managed headed first now that
-    // managed sessions can reuse the user's Chrome cookies directly. This
-    // avoids leaning on legacy extension /cdp attach for JS-heavy search pages.
-    preferredModes: ["managed_headed", "extension"],
-    trace: args.context?.trace ?? {
-      requestId: `shopping-fallback-${Date.now()}`,
-      provider: args.provider,
-      ts: new Date().toISOString()
-    },
     url: args.url,
-    timeoutMs: args.context?.timeoutMs,
-    signal: args.context?.signal,
+    context: args.context,
     details: {
       errorCode: normalized.code,
       message: normalized.message,
       ...(normalized.details ?? {})
     },
-    ...(typeof args.context?.useCookies === "boolean" ? { useCookies: args.context.useCookies } : {}),
-    ...(args.context?.cookiePolicyOverride ? { cookiePolicyOverride: args.context.cookiePolicyOverride } : {})
+    recoveryHints: args.recoveryHints
   });
-  if (!fallback.ok) {
+  if (!fallback) {
+    return null;
+  }
+  if (fallback.disposition !== "completed") {
     if (fallback.reasonCode !== "env_limited") {
-      throw new ProviderRuntimeError(
-        fallback.reasonCode === "token_required" || fallback.reasonCode === "auth_required"
-          ? "auth"
-          : fallback.reasonCode === "rate_limited"
-            ? "rate_limited"
-            : "unavailable",
-        typeof fallback.details?.message === "string"
-          ? fallback.details.message
-          : `Browser fallback failed for ${args.url}`,
-        {
-          provider: args.provider,
-          source: SHOPPING_SOURCE,
-          retryable: fallback.reasonCode === "rate_limited",
-          reasonCode: fallback.reasonCode,
-          details: {
-            url: args.url,
-            ...(fallback.details ?? {})
-          }
-        }
-      );
+      throw toProviderFallbackError({
+        provider: args.provider,
+        source: SHOPPING_SOURCE,
+        url: args.url,
+        fallback
+      });
     }
     return null;
   }
@@ -445,6 +431,7 @@ export const validateShoppingLegalReviewChecklist = (
 const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operation, context }) => {
   const providerId = provider;
   const profile = getShoppingProviderProfile(providerId) ?? SHOPPING_PROVIDER_PROFILES.at(-1)!;
+  const recoveryHints = buildShoppingRecoveryHints(profile);
   const buildSurfaceIssueError = (
     responseUrl: string,
     issue: ReturnType<typeof classifyProviderIssue>,
@@ -538,6 +525,7 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
       url,
       provider: providerId,
       operation,
+      recoveryHints,
       context
     });
     if (fallback) {
@@ -1419,6 +1407,7 @@ export const createShoppingProvider = (
       const row = await fetch(input, context);
       return [normalizeRecord(providerId, SHOPPING_SOURCE, row)];
     },
+    recoveryHints: () => buildShoppingRecoveryHints(profile),
     health: async () => resolveHealth(),
     capabilities: () => buildCapabilities(profile, providerId)
   };

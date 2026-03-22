@@ -5428,6 +5428,383 @@ describe("BrowserManager", () => {
     });
   });
 
+  it("covers direct challenge meta helper branches for active, deferred, resolved, and clear transitions", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      store: {
+        reserveBlockerSlot: (sessionId: string) => void;
+      };
+      challengeCoordinator: {
+        getSummary: (sessionId: string) => unknown;
+      };
+      reconcileExternalBlockerMeta: (sessionId: string, input: { source: "navigation" | "network" }) => unknown;
+      syncChallengeMeta: (
+        sessionId: string,
+        meta: Record<string, unknown> | undefined,
+        context: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+      releaseExternalBlockerSlot: (sessionId: string) => void;
+    };
+    const blocker = {
+      schemaVersion: "1.0",
+      type: "auth_required",
+      source: "navigation",
+      confidence: 0.9,
+      retryable: false,
+      detectedAt: "2026-03-22T00:00:00.000Z",
+      evidence: {
+        matchedPatterns: [],
+        networkHosts: []
+      },
+      actionHints: []
+    };
+    const context = {
+      ownerSurface: "ops",
+      ownerLeaseId: "lease-1",
+      resumeMode: "manual",
+      suspendedIntent: {
+        kind: "provider.fetch",
+        provider: "social/youtube",
+        source: "social",
+        operation: "fetch"
+      },
+      preservedSessionId: "challenge-slot",
+      preservedTargetId: "tab-1"
+    };
+
+    expect(managerAny.reconcileExternalBlockerMeta("missing-slot", { source: "navigation" })).toBeUndefined();
+    expect(managerAny.syncChallengeMeta("missing-slot", undefined, context)).toBeUndefined();
+
+    managerAny.store.reserveBlockerSlot("challenge-slot");
+    const active = managerAny.syncChallengeMeta("challenge-slot", {
+      blocker,
+      blockerState: "active"
+    }, context);
+    expect(active?.challenge).toMatchObject({
+      blockerType: "auth_required",
+      ownerSurface: "ops",
+      ownerLeaseId: "lease-1",
+      status: "active"
+    });
+
+    const existing = managerAny.syncChallengeMeta("challenge-slot", {
+      blockerState: "active"
+    }, context);
+    expect(existing?.challenge).toMatchObject({
+      challengeId: (active?.challenge as { challengeId?: string } | undefined)?.challengeId
+    });
+
+    const deferred = managerAny.syncChallengeMeta("challenge-slot", {
+      blockerState: "active",
+      blockerResolution: {
+        status: "deferred",
+        reason: "env_limited",
+        updatedAt: "2026-03-22T00:01:00.000Z"
+      }
+    }, context);
+    expect(deferred?.challenge).toMatchObject({
+      status: "deferred"
+    });
+
+    const resolved = managerAny.syncChallengeMeta("challenge-slot", {
+      blockerState: "clear",
+      blockerResolution: {
+        status: "resolved",
+        reason: "verifier_passed",
+        updatedAt: "2026-03-22T00:02:00.000Z"
+      }
+    }, context);
+    expect((resolved?.challenge as { timeline?: Array<{ event?: string }> } | undefined)?.timeline?.at(-1)).toMatchObject({
+      event: "released"
+    });
+    expect(managerAny.challengeCoordinator.getSummary("challenge-slot")).toBeUndefined();
+
+    managerAny.store.reserveBlockerSlot("clear-slot");
+    const claimed = managerAny.syncChallengeMeta("clear-slot", {
+      blocker,
+      blockerState: "active"
+    }, {
+      ...context,
+      preservedSessionId: "clear-slot"
+    });
+    const cleared = managerAny.syncChallengeMeta("clear-slot", {
+      blockerState: "clear"
+    }, {
+      ...context,
+      preservedSessionId: "clear-slot"
+    });
+    expect(cleared?.challenge).toMatchObject({
+      challengeId: (claimed?.challenge as { challengeId?: string } | undefined)?.challengeId
+    });
+    expect((cleared?.challenge as { timeline?: Array<{ event?: string }> } | undefined)?.timeline?.at(-1)).toMatchObject({
+      event: "released"
+    });
+
+    managerAny.releaseExternalBlockerSlot("clear-slot");
+    expect(managerAny.challengeCoordinator.getSummary("clear-slot")).toBeUndefined();
+  });
+
+  it("covers blocker reconciliation helpers for ops and direct browser contexts", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const recentNetworkEvents = vi.spyOn(manager as unknown as {
+      recentNetworkEvents: (managed: unknown) => Array<{ url?: string; status?: number }>;
+    }, "recentNetworkEvents").mockReturnValue([
+      { url: "https://x.com/i/flow/login", status: 401 },
+      { url: "https://static.example.test/app.js", status: 200 }
+    ]);
+    const managerAny = manager as unknown as {
+      store: {
+        reserveBlockerSlot: (sessionId: string) => void;
+      };
+      reconcileExternalBlockerMeta: (
+        sessionId: string,
+        input: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+      reconcileSessionBlocker: (
+        sessionId: string,
+        managed: unknown,
+        input: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+    };
+    const suspendedIntent = {
+      kind: "provider.fetch",
+      provider: "social/youtube",
+      source: "social",
+      operation: "fetch"
+    } as const;
+
+    managerAny.store.reserveBlockerSlot("ops-active");
+    const opsMeta = managerAny.reconcileExternalBlockerMeta("ops-active", {
+      source: "network",
+      url: "https://x.com/i/flow/login",
+      finalUrl: "https://x.com/i/flow/login",
+      title: "Log in to X / X",
+      status: 401,
+      verifier: true,
+      includeArtifacts: true,
+      consoleEvents: [{ type: "warning", text: "auth wall" }],
+      exceptionEvents: [{ message: "blocked" }],
+      ownerLeaseId: "lease-ops",
+      suspendedIntent,
+      targetKey: "tab-ops"
+    });
+    expect(opsMeta).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" },
+      challenge: {
+        ownerSurface: "ops",
+        ownerLeaseId: "lease-ops",
+        resumeMode: "manual",
+        preservedSessionId: "ops-active",
+        preservedTargetId: "tab-ops"
+      }
+    });
+    expect(opsMeta?.blockerArtifacts).toBeDefined();
+
+    managerAny.store.reserveBlockerSlot("ops-clear");
+    const opsClear = managerAny.reconcileExternalBlockerMeta("ops-clear", {
+      source: "network",
+      status: 204
+    });
+    expect(opsClear).toMatchObject({
+      blockerState: "clear"
+    });
+    expect(opsClear).not.toHaveProperty("blocker");
+    expect(opsClear).not.toHaveProperty("blockerArtifacts");
+    expect(opsClear).not.toHaveProperty("challenge");
+
+    managerAny.store.reserveBlockerSlot("direct-active");
+    const directMeta = managerAny.reconcileSessionBlocker("direct-active", {
+      targets: {
+        getActiveTargetId: () => null
+      }
+    }, {
+      source: "navigation",
+      url: "https://x.com/i/flow/login",
+      title: "Log in to X / X",
+      status: 401,
+      verifier: true,
+      includeArtifacts: true,
+      suspendedIntent
+    });
+    expect(directMeta).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" },
+      challenge: {
+        ownerSurface: "direct_browser",
+        resumeMode: "manual",
+        preservedSessionId: "direct-active"
+      }
+    });
+    expect(directMeta?.challenge).not.toHaveProperty("preservedTargetId");
+    expect(directMeta?.blockerArtifacts).toBeDefined();
+
+    managerAny.store.reserveBlockerSlot("direct-clear");
+    const directClear = managerAny.reconcileSessionBlocker("direct-clear", {
+      targets: {
+        getActiveTargetId: () => "tab-direct"
+      }
+    }, {
+      source: "navigation",
+      url: "https://example.com",
+      finalUrl: "https://example.com/home",
+      title: "Example",
+      status: 204
+    });
+    expect(directClear).toMatchObject({
+      blockerState: "clear"
+    });
+    expect(directClear).not.toHaveProperty("blocker");
+    expect(directClear).not.toHaveProperty("challenge");
+
+    recentNetworkEvents.mockRestore();
+  });
+
+  it("covers disabled prompt-guard blocker helper branches", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({
+      security: {
+        promptInjectionGuard: { enabled: false }
+      }
+    }));
+    const recentNetworkEvents = vi.spyOn(manager as unknown as {
+      recentNetworkEvents: (managed: unknown) => Array<{ url?: string; status?: number }>;
+    }, "recentNetworkEvents")
+      .mockReturnValueOnce([
+        { url: "https://x.com/i/flow/login", status: 401 }
+      ])
+      .mockReturnValueOnce([
+        { url: "https://x.com/home", status: 204 }
+      ])
+      .mockReturnValue([
+        { url: "https://x.com/i/flow/login", status: 401 }
+      ]);
+    const managerAny = manager as unknown as {
+      store: {
+        reserveBlockerSlot: (sessionId: string) => void;
+      };
+      reconcileExternalBlockerMeta: (
+        sessionId: string,
+        input: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+      reconcileSessionBlocker: (
+        sessionId: string,
+        managed: unknown,
+        input: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+    };
+
+    managerAny.store.reserveBlockerSlot("ops-disabled-guard");
+    const active = managerAny.reconcileExternalBlockerMeta("ops-disabled-guard", {
+      source: "network",
+      url: "https://x.com/i/flow/login",
+      finalUrl: "https://x.com/i/flow/login",
+      title: "Log in to X / X",
+      status: 401,
+      includeArtifacts: true,
+      consoleEvents: [{ type: "warning", text: "auth wall" }],
+      exceptionEvents: []
+    });
+    expect(active).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" }
+    });
+    expect(active?.blockerArtifacts).toBeDefined();
+
+    managerAny.store.reserveBlockerSlot("direct-disabled-guard");
+    const direct = managerAny.reconcileSessionBlocker("direct-disabled-guard", {
+      targets: {
+        getActiveTargetId: () => null
+      }
+    }, {
+      source: "navigation",
+      url: "https://x.com/i/flow/login",
+      finalUrl: "https://x.com/i/flow/login",
+      title: "Log in to X / X",
+      status: 401,
+      includeArtifacts: true
+    });
+    expect(direct).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" }
+    });
+    expect(direct?.blockerArtifacts).toBeDefined();
+
+    recentNetworkEvents.mockRestore();
+  });
+
+  it("preserves meta when challenge transitions have no tracked summary", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      syncChallengeMeta: (
+        sessionId: string,
+        meta: Record<string, unknown> | undefined,
+        context: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+    };
+    const context = {
+      ownerSurface: "provider_fallback",
+      resumeMode: "auto",
+      suspendedIntent: {
+        kind: "provider.fetch",
+        provider: "social/youtube",
+        source: "social",
+        operation: "fetch"
+      }
+    };
+
+    const deferred = managerAny.syncChallengeMeta("fresh-deferred", {
+      blockerState: "active",
+      blockerResolution: {
+        status: "deferred",
+        reason: "env_limited",
+        updatedAt: "2026-03-22T00:03:00.000Z"
+      }
+    }, context);
+    expect(deferred).toMatchObject({
+      blockerState: "active",
+      blockerResolution: {
+        status: "deferred",
+        reason: "env_limited"
+      }
+    });
+    expect(deferred).not.toHaveProperty("challenge");
+
+    const resolved = managerAny.syncChallengeMeta("fresh-resolved", {
+      blockerState: "clear",
+      blockerResolution: {
+        status: "resolved",
+        reason: "verifier_passed",
+        updatedAt: "2026-03-22T00:04:00.000Z"
+      }
+    }, context);
+    expect(resolved).toMatchObject({
+      blockerState: "clear",
+      blockerResolution: {
+        status: "resolved",
+        reason: "verifier_passed"
+      }
+    });
+    expect(resolved).not.toHaveProperty("challenge");
+
+    const clear = managerAny.syncChallengeMeta("fresh-clear", {
+      blockerState: "clear"
+    }, context);
+    expect(clear).toEqual({
+      blockerState: "clear"
+    });
+
+    const untouched = managerAny.syncChallengeMeta("fresh-open", {
+      blockerState: "active"
+    }, context);
+    expect(untouched).toEqual({
+      blockerState: "active"
+    });
+  });
+
   it("covers parallel helper cleanup and mode resolution branches", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));

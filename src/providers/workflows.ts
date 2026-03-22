@@ -15,6 +15,7 @@ import { normalizeProviderReasonCode } from "./errors";
 import { providerRequestHeaders } from "./shared/request-headers";
 import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, extractText, toSnippet } from "./web/extract";
+import type { ProviderAntiBotSnapshot } from "./registry";
 import type {
   JsonValue,
   NormalizedRecord,
@@ -38,6 +39,7 @@ export interface ProviderExecutor {
     input: ProviderCallResultByOperation["fetch"],
     options?: ProviderRunOptions
   ) => Promise<ProviderAggregateResult>;
+  getAntiBotSnapshots?: (providerIds?: string[]) => ProviderAntiBotSnapshot[];
 }
 
 export interface ResearchRunInput {
@@ -259,12 +261,126 @@ const buildAlerts = (): Array<Record<string, JsonValue>> => {
   return alerts;
 };
 
+const getRuntimeAntiBotSnapshots = (
+  runtime: ProviderExecutor,
+  providerIds?: string[]
+): ProviderAntiBotSnapshot[] => {
+  if (typeof runtime.getAntiBotSnapshots !== "function") {
+    return [];
+  }
+  return runtime.getAntiBotSnapshots(providerIds);
+};
+
+const buildRuntimePressureAlerts = (
+  snapshots: ProviderAntiBotSnapshot[]
+): Array<Record<string, JsonValue>> => {
+  const nowMs = Date.now();
+  const alerts: Array<Record<string, JsonValue>> = [];
+
+  for (const snapshot of snapshots) {
+    if (snapshot.activeChallenges > 0 || snapshot.recentChallengeRatio >= 0.15) {
+      const degraded = snapshot.activeChallenges > 0 || snapshot.recentChallengeRatio >= 0.25;
+      alerts.push({
+        provider: snapshot.providerId,
+        signal: "anti_bot_challenge",
+        reasonCode: "challenge_detected",
+        state: degraded ? "degraded" : "warning",
+        ratio: Number(snapshot.recentChallengeRatio.toFixed(4)),
+        reason: snapshot.activeChallenges > 0
+          ? "preserved challenge session is still active"
+          : degraded
+            ? "signal ratio >= 25%"
+            : "signal ratio >= 15%"
+      });
+    }
+
+    if (snapshot.cooldownUntilMs > nowMs || snapshot.recentRateLimitRatio >= 0.15) {
+      const degraded = snapshot.cooldownUntilMs > nowMs || snapshot.recentRateLimitRatio >= 0.25;
+      alerts.push({
+        provider: snapshot.providerId,
+        signal: "rate_limited",
+        reasonCode: "rate_limited",
+        state: degraded ? "degraded" : "warning",
+        ratio: Number(snapshot.recentRateLimitRatio.toFixed(4)),
+        reason: snapshot.cooldownUntilMs > nowMs
+          ? "cooldown active"
+          : degraded
+            ? "signal ratio >= 25%"
+            : "signal ratio >= 15%"
+      });
+    }
+  }
+
+  return alerts;
+};
+
+const buildTranscriptAlertsFromFailures = (
+  failures: ProviderFailureEntry[]
+): Array<Record<string, JsonValue>> => {
+  const seen = new Set<string>();
+  const alerts: Array<Record<string, JsonValue>> = [];
+
+  for (const failure of failures) {
+    const signal = detectSignal(failure.error);
+    if (signal !== "transcript_unavailable") {
+      continue;
+    }
+    const key = `${failure.provider}:${signal}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    alerts.push({
+      provider: failure.provider,
+      signal,
+      reasonCode: "transcript_unavailable",
+      state: "warning",
+      reason: "transcript retrieval remains unavailable in the current run"
+    });
+  }
+
+  return alerts;
+};
+
+const buildWorkflowAlerts = (
+  runtime: ProviderExecutor,
+  failures: ProviderFailureEntry[],
+  providerIds?: string[]
+): Array<Record<string, JsonValue>> => {
+  const snapshots = getRuntimeAntiBotSnapshots(runtime, providerIds);
+  if (snapshots.length === 0) {
+    return buildAlerts();
+  }
+  return [
+    ...buildRuntimePressureAlerts(snapshots),
+    ...buildTranscriptAlertsFromFailures(failures)
+  ];
+};
+
 const getDegradedProviders = (): Set<string> => {
   const degradedProviders = new Set<string>();
   for (const [provider, state] of providerSignalMap.entries()) {
     if (!isStagedAutoExclusionCandidate(provider)) continue;
     if (state.signalState.anti_bot_challenge === "degraded" || state.signalState.rate_limited === "degraded") {
       degradedProviders.add(provider);
+    }
+  }
+  return degradedProviders;
+};
+
+const getRuntimeDegradedProviders = (
+  runtime: ProviderExecutor,
+  providerIds?: string[]
+): Set<string> => {
+  const snapshots = getRuntimeAntiBotSnapshots(runtime, providerIds);
+  if (snapshots.length === 0) {
+    return getDegradedProviders();
+  }
+  const degradedProviders = new Set<string>();
+  for (const alert of buildRuntimePressureAlerts(snapshots)) {
+    if (alert.state !== "degraded") continue;
+    if (typeof alert.provider === "string" && isStagedAutoExclusionCandidate(alert.provider)) {
+      degradedProviders.add(alert.provider);
     }
   }
   return degradedProviders;
@@ -279,17 +395,28 @@ const toProviderSource = (providerId: string): ProviderSource | null => {
 };
 
 const resolveAutoExcludedProviders = (
+  runtime: ProviderExecutor,
   sourceSelection: ProviderSelection,
   resolvedSources: ProviderSource[]
 ): string[] => {
   if (sourceSelection !== "auto") return [];
   const sourceSet = new Set(resolvedSources);
-  return [...getDegradedProviders()]
+  return [...getRuntimeDegradedProviders(runtime)]
     .filter((provider) => {
       const source = toProviderSource(provider);
       return source !== null && sourceSet.has(source);
     })
     .sort((left, right) => left.localeCompare(right));
+};
+
+const observeWorkflowSignals = (
+  runtime: ProviderExecutor,
+  result: ProviderAggregateResult
+): void => {
+  if (typeof runtime.getAntiBotSnapshots === "function") {
+    return;
+  }
+  trackProviderSignals(result);
 };
 
 const removeExcludedProviders = <T extends { provider: string }>(
@@ -345,6 +472,18 @@ const withCookieOverrides = (
     ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
   };
 };
+
+const withWorkflowResumeIntent = (
+  options: ProviderRunOptions,
+  kind: "workflow.research" | "workflow.shopping" | "workflow.product_video",
+  input: JsonValue
+): ProviderRunOptions => ({
+  ...options,
+  suspendedIntent: {
+    kind,
+    input
+  }
+});
 
 const detectFailureReasonCode = (failure: ProviderFailureEntry): ProviderReasonCode | undefined => {
   return failure.error.reasonCode
@@ -1296,7 +1435,7 @@ export const runResearchWorkflow = async (
   if (resolved.includes("shopping")) {
     enforceShoppingLegalReviewGate(SHOPPING_PROVIDER_IDS, now);
   }
-  const excludedProviders = resolveAutoExcludedProviders(sourceSelection, resolved);
+  const excludedProviders = resolveAutoExcludedProviders(runtime, sourceSelection, resolved);
   const excludedProviderSet = new Set(excludedProviders);
 
   const runs = await Promise.all(resolved.map(async (source) => {
@@ -1308,10 +1447,10 @@ export const runResearchWorkflow = async (
         timebox_from: timebox.from,
         timebox_to: timebox.to
       }
-    }, withCookieOverrides({
+    }, withWorkflowResumeIntent(withCookieOverrides({
       source
-    }, input));
-    trackProviderSignals(result);
+    }, input), "workflow.research", input as unknown as JsonValue));
+    observeWorkflowSignals(runtime, result);
     return {
       source,
       result
@@ -1371,7 +1510,7 @@ export const runResearchWorkflow = async (
       antiBotPressure
     },
     failures: mergedFailures,
-    alerts: buildAlerts()
+    alerts: buildWorkflowAlerts(runtime, mergedFailures)
   } as Record<string, unknown>, mergedFailures);
 
   const rendered = renderResearch({
@@ -1422,7 +1561,7 @@ export const runShoppingWorkflow = async (
 
   const providerIds = resolveShoppingProviders(input.providers);
   const hasExplicitProviderSelection = Boolean(input.providers && input.providers.length > 0);
-  const degradedProviders = getDegradedProviders();
+  const degradedProviders = getRuntimeDegradedProviders(runtime, providerIds);
   const autoExcludedProviders = hasExplicitProviderSelection
     ? []
     : providerIds.filter((providerId) => degradedProviders.has(providerId));
@@ -1443,12 +1582,12 @@ export const runShoppingWorkflow = async (
         ...(typeof input.budget === "number" ? { budget: input.budget } : {}),
         ...(input.region ? { region: input.region } : {})
       }
-    }, withCookieOverrides({
+    }, withWorkflowResumeIntent(withCookieOverrides({
       source: "shopping",
       providerIds: [providerId],
       ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {})
-    }, input));
-    trackProviderSignals(result);
+    }, input), "workflow.shopping", input as unknown as JsonValue));
+    observeWorkflowSignals(runtime, result);
     return {
       providerId,
       result
@@ -1513,7 +1652,7 @@ export const runShoppingWorkflow = async (
       antiBotPressure
     },
     failures,
-    alerts: buildAlerts()
+    alerts: buildWorkflowAlerts(runtime, failures, effectiveProviderIds)
   } as Record<string, unknown>, failures);
 
   const rendered = renderShopping({
@@ -1626,13 +1765,13 @@ export const runProductVideoWorkflow = async (
   }
   const details = await runtime.fetch(
     { url: productUrl },
-    withCookieOverrides({
+    withWorkflowResumeIntent(withCookieOverrides({
       source,
       providerIds: shoppingProviderId ? [shoppingProviderId] : undefined,
       ...timeoutOptions
-    }, input)
+    }, input), "workflow.product_video", input as unknown as JsonValue)
   );
-  trackProviderSignals(details);
+  observeWorkflowSignals(runtime, details);
 
   if (!details.ok || details.records.length === 0) {
     const reason = summarizePrimaryProviderIssue(details.failures)?.summary
@@ -1764,7 +1903,7 @@ export const runProductVideoWorkflow = async (
     screenshots: screenshotPaths,
     images: imagePaths,
     meta: {
-      alerts: buildAlerts(),
+      alerts: buildWorkflowAlerts(runtime, details.failures),
       failures: details.failures,
       reason_code_distribution: reasonCodeDistribution,
       reasonCodeDistribution,

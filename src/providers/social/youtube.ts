@@ -393,6 +393,7 @@ const buildFetch = (options: YouTubeProviderOptions) => {
     const requestedMode = parseYouTubeModeFilter(input.filters?.youtube_mode);
 
     const transcriptConfig = resolveYouTubeTranscriptConfig(options.transcriptResolver);
+    const recoveryHints = options.recoveryHints?.();
     const transcript = await resolveYouTubeTranscript({
       context,
       watchUrl: page.url,
@@ -401,6 +402,7 @@ const buildFetch = (options: YouTubeProviderOptions) => {
       config: transcriptConfig,
       mode: requestedMode,
       browserFallbackPort: options.browserFallbackPort,
+      recoveryHints,
       allowBrowserFallbackEscalation: options.antiBotPolicy?.allowBrowserEscalation ?? true,
       asrTranscribe: options.asrTranscribe
     });
@@ -496,6 +498,12 @@ export const createYouTubeProvider = (options: YouTubeProviderOptions = {}) => {
 
 export const withDefaultYouTubeOptions = (options: YouTubeProviderOptions = {}): YouTubeProviderOptions => ({
   ...options,
+  recoveryHints: options.recoveryHints ?? (() => ({
+    preferredFallbackModes: ["extension", "managed_headed"],
+    challengeProne: true,
+    settleTimeoutMs: 5000,
+    captureDelayMs: 500
+  })),
   defaultTraversal: {
     pageLimit: options.defaultTraversal?.pageLimit ?? 1,
     hopLimit: options.defaultTraversal?.hopLimit ?? 0,

@@ -293,6 +293,26 @@ describe("OpsBrowserManager", () => {
     expect(base.cookieList).toHaveBeenCalledWith("base-session", ["https://example.com"], "req-base-list");
   });
 
+  it("delegates pointer primitives to the base manager for non-ops sessions", async () => {
+    const base = {
+      pointerMove: vi.fn().mockResolvedValue({ timingMs: 1 }),
+      pointerDown: vi.fn().mockResolvedValue({ timingMs: 2 }),
+      pointerUp: vi.fn().mockResolvedValue({ timingMs: 3 }),
+      drag: vi.fn().mockResolvedValue({ timingMs: 4 })
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+
+    await expect(manager.pointerMove("base-session", 10, 20)).resolves.toEqual({ timingMs: 1 });
+    await expect(manager.pointerDown("base-session", 10, 20)).resolves.toEqual({ timingMs: 2 });
+    await expect(manager.pointerUp("base-session", 10, 20)).resolves.toEqual({ timingMs: 3 });
+    await expect(manager.drag("base-session", { x: 1, y: 2 }, { x: 3, y: 4 })).resolves.toEqual({ timingMs: 4 });
+
+    expect(base.pointerMove).toHaveBeenCalledWith("base-session", 10, 20, undefined, undefined);
+    expect(base.pointerDown).toHaveBeenCalledWith("base-session", 10, 20, undefined, "left", 1);
+    expect(base.pointerUp).toHaveBeenCalledWith("base-session", 10, 20, undefined, "left", 1);
+    expect(base.drag).toHaveBeenCalledWith("base-session", { x: 1, y: 2 }, { x: 3, y: 4 }, undefined, undefined);
+  });
+
   it("passes startUrl when delegating cdp relay connections to the base manager", async () => {
     const base = {
       connectRelay: vi.fn().mockResolvedValue({
@@ -680,6 +700,52 @@ describe("OpsBrowserManager", () => {
     );
   });
 
+  it("routes pointer primitives through ops sessions", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-pointer", activeTargetId: "tab-pointer", leaseId: "lease-pointer" };
+      }
+      return { timingMs: 5 };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ reconnectExternalBlockerMeta: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    await manager.pointerMove("ops-pointer", 10, 20, null, 4);
+    await manager.pointerDown("ops-pointer", 10, 20);
+    await manager.pointerUp("ops-pointer", 10, 20);
+    await manager.drag("ops-pointer", { x: 1, y: 2 }, { x: 3, y: 4 }, null, 6);
+
+    expect(requestMock).toHaveBeenCalledWith("pointer.move", { x: 10, y: 20, steps: 4 }, "ops-pointer", 30000, "lease-pointer");
+    expect(requestMock).toHaveBeenCalledWith(
+      "pointer.down",
+      { x: 10, y: 20, button: "left", clickCount: 1 },
+      "ops-pointer",
+      30000,
+      "lease-pointer"
+    );
+    expect(requestMock).toHaveBeenCalledWith(
+      "pointer.up",
+      { x: 10, y: 20, button: "left", clickCount: 1 },
+      "ops-pointer",
+      30000,
+      "lease-pointer"
+    );
+    expect(requestMock).toHaveBeenCalledWith(
+      "pointer.drag",
+      { from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, steps: 6 },
+      "ops-pointer",
+      30000,
+      "lease-pointer"
+    );
+  });
+
   it("tracks ops session close events", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
@@ -940,6 +1006,184 @@ describe("OpsBrowserManager", () => {
       30000,
       "lease-recover"
     );
+  });
+
+  it("builds ops debug traces without optional page metadata and resolves latest status helpers", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-trace", activeTargetId: "tab-1", leaseId: "lease-trace" };
+      }
+      if (command === "session.status") {
+        return { mode: "extension", activeTargetId: "tab-1", url: "", title: "" };
+      }
+      if (command === "devtools.consolePoll") {
+        return { events: [], nextSeq: 12 };
+      }
+      if (command === "devtools.networkPoll") {
+        return { events: [{ status: "bad" }, {}, { status: 503 }], nextSeq: 34 };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const base = {
+      reconcileExternalBlockerMeta: vi.fn().mockReturnValue(undefined)
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    const trace = await manager.debugTraceSnapshot("ops-trace", {
+      sinceConsoleSeq: 2,
+      sinceNetworkSeq: 3,
+      sinceExceptionSeq: 9
+    });
+
+    expect(trace.page).toEqual({
+      mode: "extension",
+      activeTargetId: "tab-1"
+    });
+    expect(trace.channels.exception.nextSeq).toBe(9);
+
+    const managerAny = manager as unknown as {
+      findLatestStatus: (events: Array<{ status?: number | string }>) => number | undefined;
+    };
+    expect(managerAny.findLatestStatus([{ status: "bad" }, {}, { status: 204 }])).toBe(204);
+    expect(managerAny.findLatestStatus([{ status: "bad" }, {}])).toBeUndefined();
+  });
+
+  it("covers ops meta passthrough, non-ops debug-trace delegation, and fallback page metadata branches", async () => {
+    const baseTrace = {
+      requestId: "base-trace",
+      generatedAt: "2026-03-22T00:00:00.000Z",
+      page: {
+        mode: "managed",
+        activeTargetId: null
+      },
+      channels: {
+        console: { nextSeq: 0, events: [] },
+        network: { nextSeq: 0, events: [] },
+        exception: { nextSeq: 0, events: [] }
+      },
+      fingerprint: { tier1: { ok: true } }
+    };
+    const base = {
+      debugTraceSnapshot: vi.fn().mockResolvedValue(baseTrace),
+      reconcileExternalBlockerMeta: vi.fn()
+        .mockReturnValueOnce(undefined)
+        .mockReturnValueOnce({ blockerState: "clear" })
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const managerAny = manager as unknown as {
+      opsLeases: Map<string, string>;
+      withOpsMeta: <T extends Record<string, unknown>>(
+        sessionId: string,
+        result: T,
+        options: Record<string, unknown>
+      ) => T & { meta?: unknown };
+    };
+
+    managerAny.opsLeases.set("ops-meta", "lease-meta");
+    expect(managerAny.withOpsMeta("ops-meta", { timingMs: 1 }, {
+      source: "navigation",
+      url: "https://example.com"
+    })).toEqual({ timingMs: 1 });
+
+    await expect(manager.debugTraceSnapshot("base-session", { max: 5 })).resolves.toEqual(baseTrace);
+    expect(base.debugTraceSnapshot).toHaveBeenCalledWith("base-session", { max: 5 });
+
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-fallback", activeTargetId: null, leaseId: "lease-fallback" };
+      }
+      if (command === "session.status") {
+        return { mode: "extension", activeTargetId: null };
+      }
+      if (command === "nav.goto") {
+        return { timingMs: 7 };
+      }
+      if (command === "devtools.consolePoll") {
+        return { events: [], nextSeq: 4 };
+      }
+      if (command === "devtools.networkPoll") {
+        return { events: [{ status: "ignored" }], nextSeq: 5 };
+      }
+      return { ok: true };
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const goto = await manager.goto("ops-fallback", "https://example.com/fallback", "load", 1000);
+    expect(goto).toMatchObject({
+      timingMs: 7,
+      meta: {
+        blockerState: "clear"
+      }
+    });
+    expect(base.reconcileExternalBlockerMeta).toHaveBeenLastCalledWith("ops-fallback", expect.objectContaining({
+      finalUrl: "https://example.com/fallback",
+      targetKey: undefined
+    }));
+
+    const trace = await manager.debugTraceSnapshot("ops-fallback");
+    expect(trace.page).toEqual({
+      mode: "extension",
+      activeTargetId: null
+    });
+    expect(trace.channels.exception.nextSeq).toBe(0);
+    expect(base.reconcileExternalBlockerMeta).toHaveBeenLastCalledWith("ops-fallback", expect.objectContaining({
+      targetKey: undefined
+    }));
+  });
+
+  it("includes url and title in ops debug traces when status reports them", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-trace-page", activeTargetId: "tab-9", leaseId: "lease-trace-page" };
+      }
+      if (command === "session.status") {
+        return {
+          mode: "extension",
+          activeTargetId: "tab-9",
+          url: "https://example.com/trace",
+          title: "Trace Title"
+        };
+      }
+      if (command === "devtools.consolePoll") {
+        return { events: [], nextSeq: 1 };
+      }
+      if (command === "devtools.networkPoll") {
+        return { events: [], nextSeq: 2 };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({
+      reconcileExternalBlockerMeta: vi.fn().mockReturnValue(undefined)
+    } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    const trace = await manager.debugTraceSnapshot("ops-trace-page");
+    expect(trace.page).toEqual({
+      mode: "extension",
+      activeTargetId: "tab-9",
+      url: "https://example.com/trace",
+      title: "Trace Title"
+    });
   });
 
   it("normalizes secure relay status URLs and rejects invalid websocket endpoints", () => {

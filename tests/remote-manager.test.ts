@@ -73,4 +73,39 @@ describe("RemoteManager.connectRelay", () => {
       startUrl: "http://127.0.0.1:41731/"
     });
   });
+
+  it("forwards manager-shaped blocker and challenge status envelopes unchanged", async () => {
+    const statusEnvelope = {
+      mode: "extension",
+      activeTargetId: "target-status",
+      url: "https://example.com/challenge",
+      title: "Challenge",
+      meta: {
+        blockerState: "active",
+        blocker: {
+          type: "anti_bot_challenge",
+          reasonCode: "challenge_detected"
+        },
+        challenge: {
+          challengeId: "challenge-status",
+          blockerType: "anti_bot_challenge",
+          ownerSurface: "ops",
+          ownerLeaseId: "lease-status",
+          resumeMode: "manual",
+          preservedSessionId: "session-status",
+          preservedTargetId: "target-status",
+          status: "active",
+          updatedAt: "2026-03-22T12:00:00.000Z"
+        }
+      }
+    };
+    const call = vi.fn().mockResolvedValue(statusEnvelope);
+
+    const manager = new RemoteManager({ call } as never);
+    await expect(manager.status("session-status")).resolves.toEqual(statusEnvelope);
+
+    expect(call).toHaveBeenCalledWith("session.status", {
+      sessionId: "session-status"
+    });
+  });
 });

@@ -52,6 +52,10 @@ const TARGET_SCOPED_COMMANDS = new Set<string>([
   "interact.select",
   "interact.scroll",
   "interact.scrollIntoView",
+  "pointer.move",
+  "pointer.down",
+  "pointer.up",
+  "pointer.drag",
   "dom.getHtml",
   "dom.getText",
   "dom.getAttr",
@@ -380,6 +384,18 @@ export class OpsRuntime {
         return;
       case "interact.scrollIntoView":
         await this.withSession(message, clientId, (session) => this.handleScrollIntoView(message, session));
+        return;
+      case "pointer.move":
+        await this.withSession(message, clientId, (session) => this.handlePointerMove(message, session));
+        return;
+      case "pointer.down":
+        await this.withSession(message, clientId, (session) => this.handlePointerDown(message, session));
+        return;
+      case "pointer.up":
+        await this.withSession(message, clientId, (session) => this.handlePointerUp(message, session));
+        return;
+      case "pointer.drag":
+        await this.withSession(message, clientId, (session) => this.handlePointerDrag(message, session));
         return;
       case "dom.getHtml":
         await this.withSession(message, clientId, (session) => this.handleDomGetHtml(message, session));
@@ -1079,6 +1095,85 @@ export class OpsRuntime {
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
+  private async handlePointerMove(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const coords = this.parsePointerCoords(payload);
+    if (!coords) {
+      this.sendError(message, buildError("invalid_request", "Pointer move requires numeric x and y.", false));
+      return;
+    }
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    const start = Date.now();
+    await this.dispatchMouseEvent(target.tabId, "mouseMoved", coords.x, coords.y, {
+      steps: typeof payload.steps === "number" && Number.isFinite(payload.steps)
+        ? Math.max(1, Math.floor(payload.steps))
+        : undefined
+    });
+    this.sendResponse(message, { timingMs: Date.now() - start });
+  }
+
+  private async handlePointerDown(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const coords = this.parsePointerCoords(payload);
+    if (!coords) {
+      this.sendError(message, buildError("invalid_request", "Pointer down requires numeric x and y.", false));
+      return;
+    }
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    const start = Date.now();
+    await this.dispatchMouseEvent(target.tabId, "mouseMoved", coords.x, coords.y);
+    await this.dispatchMouseEvent(target.tabId, "mousePressed", coords.x, coords.y, {
+      button: this.parsePointerButton(payload.button),
+      clickCount: typeof payload.clickCount === "number" && Number.isFinite(payload.clickCount)
+        ? Math.max(1, Math.floor(payload.clickCount))
+        : 1
+    });
+    this.sendResponse(message, { timingMs: Date.now() - start });
+  }
+
+  private async handlePointerUp(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const coords = this.parsePointerCoords(payload);
+    if (!coords) {
+      this.sendError(message, buildError("invalid_request", "Pointer up requires numeric x and y.", false));
+      return;
+    }
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    const start = Date.now();
+    await this.dispatchMouseEvent(target.tabId, "mouseMoved", coords.x, coords.y);
+    await this.dispatchMouseEvent(target.tabId, "mouseReleased", coords.x, coords.y, {
+      button: this.parsePointerButton(payload.button),
+      clickCount: typeof payload.clickCount === "number" && Number.isFinite(payload.clickCount)
+        ? Math.max(1, Math.floor(payload.clickCount))
+        : 1
+    });
+    this.sendResponse(message, { timingMs: Date.now() - start });
+  }
+
+  private async handlePointerDrag(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const from = isRecord(payload.from) ? this.parsePointerCoords(payload.from) : null;
+    const to = isRecord(payload.to) ? this.parsePointerCoords(payload.to) : null;
+    if (!from || !to) {
+      this.sendError(message, buildError("invalid_request", "Pointer drag requires numeric from/to coordinates.", false));
+      return;
+    }
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    const start = Date.now();
+    const steps = typeof payload.steps === "number" && Number.isFinite(payload.steps)
+      ? Math.max(1, Math.floor(payload.steps))
+      : 1;
+    await this.dispatchMouseEvent(target.tabId, "mouseMoved", from.x, from.y);
+    await this.dispatchMouseEvent(target.tabId, "mousePressed", from.x, from.y);
+    await this.dispatchMouseEvent(target.tabId, "mouseMoved", to.x, to.y, { steps });
+    await this.dispatchMouseEvent(target.tabId, "mouseReleased", to.x, to.y);
+    this.sendResponse(message, { timingMs: Date.now() - start });
+  }
+
   private async handleDomGetHtml(message: OpsRequest, session: OpsSession): Promise<void> {
     const payload = isRecord(message.payload) ? message.payload : {};
     const ref = typeof payload.ref === "string" ? payload.ref : null;
@@ -1521,6 +1616,57 @@ export class OpsRuntime {
     } catch (error) {
       logError("ops.enable_domains", error, { code: "enable_domains_failed" });
     }
+  }
+
+  private parsePointerCoords(payload: Record<string, unknown>): { x: number; y: number } | null {
+    const x = typeof payload.x === "number" && Number.isFinite(payload.x) ? payload.x : null;
+    const y = typeof payload.y === "number" && Number.isFinite(payload.y) ? payload.y : null;
+    return x === null || y === null ? null : { x, y };
+  }
+
+  private parsePointerButton(value: unknown): "left" | "middle" | "right" {
+    return value === "middle" || value === "right" ? value : "left";
+  }
+
+  private async dispatchMouseEvent(
+    tabId: number,
+    type: "mouseMoved" | "mousePressed" | "mouseReleased",
+    x: number,
+    y: number,
+    options: {
+      button?: "left" | "middle" | "right";
+      clickCount?: number;
+      steps?: number;
+    } = {}
+  ): Promise<void> {
+    if (type === "mouseMoved" && options.steps && options.steps > 1) {
+      const stepCount = Math.max(1, options.steps);
+      for (let index = 1; index <= stepCount; index += 1) {
+        await this.cdp.sendCommand(
+          { tabId },
+          "Input.dispatchMouseEvent",
+          {
+            type,
+            x,
+            y,
+            button: options.button ?? "none",
+            clickCount: options.clickCount ?? 0
+          }
+        );
+      }
+      return;
+    }
+    await this.cdp.sendCommand(
+      { tabId },
+      "Input.dispatchMouseEvent",
+      {
+        type,
+        x,
+        y,
+        button: options.button ?? (type === "mouseMoved" ? "none" : "left"),
+        clickCount: options.clickCount ?? (type === "mouseMoved" ? 0 : 1)
+      }
+    );
   }
 
   private async withSession(message: OpsRequest, clientId: string, handler: (session: OpsSession) => Promise<void>): Promise<void> {

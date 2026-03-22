@@ -10,10 +10,13 @@ import { toSnippet, extractStructuredContent } from "./web/extract";
 import type {
   BrowserFallbackMode,
   BrowserFallbackPort,
+  BrowserFallbackDisposition,
   BrowserFallbackResponse,
+  JsonValue,
   ProviderCookieImportRecord,
   ProviderCookiePolicy,
-  ProviderCookieSourceConfig
+  ProviderCookieSourceConfig,
+  SessionChallengeSummary
 } from "./types";
 
 type RuntimeConfig = Pick<OpenDevBrowserConfig, "blockerDetectionThreshold" | "security" | "providers">;
@@ -178,11 +181,98 @@ const fallbackFailure = (
 ): BrowserFallbackResponse => ({
   ok: false,
   reasonCode,
+  disposition: reasonCode === "env_limited" ? "deferred" : "failed",
   details: {
     message,
-    ...(cookieDiagnostics ? { cookieDiagnostics } : {})
+    ...(cookieDiagnostics ? { cookieDiagnostics: toJsonRecord(cookieDiagnostics) } : {})
   }
 });
+
+const toJsonValue = (value: unknown): JsonValue | undefined => {
+  if (
+    value === null
+    || typeof value === "string"
+    || typeof value === "number"
+    || typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const entries = value
+      .map((entry) => toJsonValue(entry))
+      .filter((entry): entry is JsonValue => typeof entry !== "undefined");
+    return entries;
+  }
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record: Record<string, JsonValue> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const normalized = toJsonValue(entry);
+    if (typeof normalized !== "undefined") {
+      record[key] = normalized;
+    }
+  }
+  return record;
+};
+
+const toJsonRecord = (value: unknown): Record<string, JsonValue> => {
+  const normalized = toJsonValue(value);
+  return normalized && typeof normalized === "object" && !Array.isArray(normalized)
+    ? normalized
+    : {};
+};
+
+const isPreserveEligibleBlocker = (
+  blocker: { type: string } | null
+): blocker is { type: "auth_required" | "anti_bot_challenge" } => {
+  return blocker?.type === "auth_required" || blocker?.type === "anti_bot_challenge";
+};
+
+const createChallengeSummaryForFallback = (args: {
+  existing?: SessionChallengeSummary;
+  blockerType: "auth_required" | "anti_bot_challenge";
+  reasonCode: BrowserFallbackResponse["reasonCode"];
+  request: Parameters<NonNullable<BrowserFallbackPort>["resolve"]>[0];
+  sessionId: string;
+  targetId?: string | null;
+  now?: Date;
+}): SessionChallengeSummary => {
+  const now = args.now ?? new Date();
+  const summary = args.existing;
+  return {
+    ...(summary ?? {
+      challengeId: `fallback-${now.getTime()}`,
+      blockerType: args.blockerType,
+      status: "active",
+      updatedAt: now.toISOString()
+    }),
+    blockerType: args.blockerType,
+    reasonCode: args.reasonCode,
+    ownerSurface: args.request.ownerSurface ?? "provider_fallback",
+    ...(args.request.ownerLeaseId ? { ownerLeaseId: args.request.ownerLeaseId } : {}),
+    resumeMode: args.request.resumeMode ?? "auto",
+    ...(args.request.suspendedIntent ? { suspendedIntent: args.request.suspendedIntent } : {}),
+    preservedSessionId: args.sessionId,
+    ...(args.targetId ? { preservedTargetId: args.targetId } : {}),
+    status: summary?.status ?? "active",
+    updatedAt: now.toISOString(),
+    ...(summary?.preserveUntil ? { preserveUntil: summary.preserveUntil } : {}),
+    ...(summary?.verifyUntil ? { verifyUntil: summary.verifyUntil } : {}),
+    ...(summary?.timeline ? { timeline: summary.timeline } : {})
+  };
+};
+
+const resolveFallbackDisposition = (args: {
+  blocker: ReturnType<typeof detectFallbackPageBlocker>;
+  reasonCode: BrowserFallbackResponse["reasonCode"];
+}): BrowserFallbackDisposition => {
+  if (isPreserveEligibleBlocker(args.blocker)) {
+    return "challenge_preserved";
+  }
+  return args.reasonCode === "env_limited" ? "deferred" : "failed";
+};
 
 const resolveFallbackSettleTimeoutMs = (source: "social" | "shopping" | "web" | "community"): number => {
   return source === "shopping"
@@ -194,6 +284,13 @@ const resolveFallbackCaptureDelayMs = (source: "social" | "shopping" | "web" | "
   return source === "shopping"
     ? DEFAULT_FALLBACK_SHOPPING_CAPTURE_DELAY_MS
     : DEFAULT_FALLBACK_DEFAULT_CAPTURE_DELAY_MS;
+};
+
+const sanitizeFallbackDelayMs = (value: number | undefined, fallback: number): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.floor(value));
 };
 
 const waitForFallbackPageToSettle = async (
@@ -340,6 +437,7 @@ export const createBrowserFallbackPort = (
 
       for (const preferredMode of preferredModes) {
         let sessionId: string | null = null;
+        let preserveSession = false;
         const policy = resolveEffectiveCookiePolicy(defaults, request);
         const cookieDiagnostics = baseCookieDiagnostics(policy, defaults.source);
         const abortListener = () => {
@@ -420,7 +518,13 @@ export const createBrowserFallbackPort = (
             manager,
             sessionId,
             request.source,
-            clampStepTimeoutMs(resolveFallbackSettleTimeoutMs(request.source), "settle")
+            clampStepTimeoutMs(
+              sanitizeFallbackDelayMs(
+                request.settleTimeoutMs,
+                resolveFallbackSettleTimeoutMs(request.source)
+              ),
+              "settle"
+            )
           );
           if (policy !== "off" && preferredMode === "extension") {
             const verified = await manager.cookieList(sessionId, [requestUrl]);
@@ -439,7 +543,13 @@ export const createBrowserFallbackPort = (
             manager,
             sessionId,
             request.source,
-            clampStepTimeoutMs(resolveFallbackCaptureDelayMs(request.source), "capture")
+            clampStepTimeoutMs(
+              sanitizeFallbackDelayMs(
+                request.captureDelayMs,
+                resolveFallbackCaptureDelayMs(request.source)
+              ),
+              "capture"
+            )
           );
           const status = await manager.status(sessionId);
           ensureNotAborted("status");
@@ -448,6 +558,43 @@ export const createBrowserFallbackPort = (
           if (blocker) {
             const reasonCode = blocker.reasonCode ?? request.reasonCode;
             cookieDiagnostics.reasonCode = reasonCode;
+            const disposition = resolveFallbackDisposition({ blocker, reasonCode });
+            if (isPreserveEligibleBlocker(blocker)) {
+              preserveSession = true;
+              const existingChallenge = (
+                status.meta?.challenge
+                && typeof status.meta.challenge === "object"
+                && !Array.isArray(status.meta.challenge)
+              )
+                ? status.meta.challenge
+                : undefined;
+              return {
+                ok: false,
+                reasonCode,
+                disposition,
+                mode: toFallbackMode(status.mode),
+                output: {
+                  html,
+                  url: resolvedUrl
+                },
+                challenge: createChallengeSummaryForFallback({
+                  existing: existingChallenge,
+                  blockerType: blocker.type,
+                  reasonCode,
+                  request,
+                  sessionId,
+                  targetId: status.activeTargetId
+                }),
+                preservedSessionId: sessionId,
+                ...(status.activeTargetId ? { preservedTargetId: status.activeTargetId } : {}),
+                details: {
+                  provider: request.provider,
+                  operation: request.operation,
+                  message: `Browser fallback preserved ${blocker.type} session at ${resolvedUrl}.`,
+                  cookieDiagnostics: toJsonRecord(cookieDiagnostics)
+                }
+              };
+            }
             lastFailure = fallbackFailure(
               reasonCode,
               `Browser fallback reached ${blocker.type} page at ${resolvedUrl}.`,
@@ -459,6 +606,7 @@ export const createBrowserFallbackPort = (
           return {
             ok: true,
             reasonCode: request.reasonCode,
+            disposition: "completed",
             mode: toFallbackMode(status.mode),
             output: {
               html,
@@ -467,7 +615,7 @@ export const createBrowserFallbackPort = (
             details: {
               provider: request.provider,
               operation: request.operation,
-              cookieDiagnostics
+              cookieDiagnostics: toJsonRecord(cookieDiagnostics)
             }
           };
         } catch (error) {
@@ -481,7 +629,7 @@ export const createBrowserFallbackPort = (
           lastFailure = fallbackFailure("env_limited", message, cookieDiagnostics);
         } finally {
           request.signal?.removeEventListener("abort", abortListener);
-          if (sessionId) {
+          if (sessionId && !preserveSession) {
             await manager.disconnect(sessionId, true).catch(() => {
               // Best effort cleanup for fallback sessions.
             });

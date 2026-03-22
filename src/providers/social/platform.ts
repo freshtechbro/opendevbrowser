@@ -11,6 +11,7 @@ import type {
   ProviderContext,
   ProviderFetchInput,
   ProviderPostInput,
+  ProviderRecoveryHints,
   ProviderSearchInput
 } from "../types";
 
@@ -52,6 +53,7 @@ export interface SocialProviderOptions {
   post?: (input: ProviderPostInput, context: ProviderContext) => Promise<SocialFetchRecord>;
   postPolicyHooks?: PostPolicyHook[];
   defaultTraversal?: Partial<SocialTraversalBudget>;
+  recoveryHints?: () => ProviderRecoveryHints;
 }
 
 export interface SocialPlatformProfile {
@@ -478,6 +480,7 @@ export const createSocialPlatformProvider = (
     search,
     fetch,
     post,
+    ...(typeof options.recoveryHints === "function" ? { recoveryHints: options.recoveryHints } : {}),
     health: async () => ({
       status: options.search || options.fetch || options.post ? "healthy" : "degraded",
       updatedAt: new Date().toISOString(),

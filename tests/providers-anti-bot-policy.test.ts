@@ -4,6 +4,36 @@ import {
   DEFAULT_ANTI_BOT_POLICY_CONFIG,
   resolveAntiBotPolicyConfig
 } from "../src/providers/shared/anti-bot-policy";
+import { ProviderRegistry } from "../src/providers/registry";
+import type { ProviderAdapter } from "../src/providers/types";
+
+const makeRegistry = (providerId = "social/youtube"): ProviderRegistry => {
+  const registry = new ProviderRegistry();
+  const provider: ProviderAdapter = {
+    id: providerId,
+    source: providerId.startsWith("shopping/") ? "shopping" : "social",
+    fetch: async () => [],
+    search: async () => [],
+    capabilities: () => ({
+      providerId,
+      source: providerId.startsWith("shopping/") ? "shopping" : "social",
+      operations: {
+        search: { op: "search", supported: true },
+        fetch: { op: "fetch", supported: true },
+        crawl: { op: "crawl", supported: false },
+        post: { op: "post", supported: false }
+      },
+      policy: {
+        posting: "unsupported",
+        riskNoticeRequired: false,
+        confirmationRequired: false
+      },
+      metadata: {}
+    })
+  };
+  registry.register(provider);
+  return registry;
+};
 
 describe("anti-bot policy engine", () => {
   it("normalizes config bounds and trims optional hints", () => {
@@ -26,7 +56,7 @@ describe("anti-bot policy engine", () => {
   });
 
   it("returns pass-through decisions when policy is disabled", () => {
-    const engine = new AntiBotPolicyEngine({ enabled: false });
+    const engine = new AntiBotPolicyEngine(makeRegistry(), { enabled: false });
 
     expect(engine.preflight({
       providerId: "social/youtube",
@@ -53,7 +83,7 @@ describe("anti-bot policy engine", () => {
   });
 
   it("enforces cooldown windows and emits escalation hints", () => {
-    const engine = new AntiBotPolicyEngine({
+    const engine = new AntiBotPolicyEngine(makeRegistry(), {
       enabled: true,
       cooldownMs: 50,
       maxChallengeRetries: 3,
@@ -107,7 +137,7 @@ describe("anti-bot policy engine", () => {
   });
 
   it("respects challenge retry budget", () => {
-    const engine = new AntiBotPolicyEngine({
+    const engine = new AntiBotPolicyEngine(makeRegistry(), {
       enabled: true,
       cooldownMs: 0,
       maxChallengeRetries: 0,
@@ -140,7 +170,7 @@ describe("anti-bot policy engine", () => {
   });
 
   it("clears cooldown state after success", () => {
-    const engine = new AntiBotPolicyEngine({
+    const engine = new AntiBotPolicyEngine(makeRegistry("shopping/amazon"), {
       enabled: true,
       cooldownMs: 100,
       maxChallengeRetries: 1,

@@ -7,10 +7,15 @@ import {
 import { applyProviderIssueHint, classifyProviderIssue } from "./constraint";
 import { createExecutionMetadata, normalizeFailure, normalizeSuccess, createTraceContext } from "./normalize";
 import { selectProviders } from "./policy";
-import { ProviderRegistry } from "./registry";
+import { ProviderRegistry, type ProviderAntiBotSnapshot } from "./registry";
 import { AdaptiveConcurrencyController } from "./adaptive-concurrency";
 import { applyPromptGuard } from "./safety/prompt-guard";
 import { fallbackTierMetadata, selectTierRoute, shouldFallbackToTierA } from "./tier-router";
+import {
+  readFallbackString,
+  resolveProviderBrowserFallback,
+  toProviderFallbackError
+} from "./browser-fallback";
 import { createLogger } from "../core/logging";
 import {
   AntiBotPolicyEngine,
@@ -31,10 +36,19 @@ import { createWebProvider, type WebProviderOptions } from "./web";
 import { classifyBlockerSignal } from "./blocker";
 import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, toSnippet } from "./web/extract";
+import {
+  runProductVideoWorkflow,
+  runResearchWorkflow,
+  runShoppingWorkflow,
+  type ProductVideoRunInput,
+  type ResearchRunInput,
+  type ShoppingRunInput
+} from "./workflows";
 import type {
   AdaptiveConcurrencyDiagnostics,
   BrowserFallbackPort,
   BlockerSignalV1,
+  ChallengeOwnerSurface,
   JsonValue,
   NormalizedRecord,
   ProviderAdapter,
@@ -54,8 +68,25 @@ import type {
   ProviderSelection,
   ProviderSource,
   ProviderTierMetadata,
+  ResumeMode,
+  SessionChallengeSummary,
+  SuspendedIntentKind,
+  SuspendedIntentSummary,
   TraceContext
 } from "./types";
+
+const DEFAULT_PROVIDER_SUSPENDED_INTENT_KIND: Record<ProviderOperation, SuspendedIntentKind> = {
+  search: "provider.search",
+  fetch: "provider.fetch",
+  crawl: "provider.crawl",
+  post: "provider.post"
+};
+
+type SuspendedIntentResumeResult = ProviderAggregateResult | Record<string, unknown>;
+
+const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
+  typeof value === "object" && value !== null && !Array.isArray(value)
+);
 
 class Semaphore {
   private active = 0;
@@ -261,21 +292,16 @@ const fallbackReasonCodeForError = (error: {
   reasonCode?: ProviderReasonCode;
 }): ProviderReasonCode | undefined => {
   if (error.reasonCode) return error.reasonCode;
-  const normalized = normalizeProviderReasonCode({
-    code: error.code,
-    message: error.message,
-    details: error.details
-  });
-  if (normalized) return normalized;
-  // auth/rate_limited normalize directly from the provider error code above.
-  if (error.code === "upstream") return "ip_blocked";
-  if (error.code === "timeout" || error.code === "network" || error.code === "unavailable") return "env_limited";
-  return undefined;
-};
-
-const readFallbackString = (output: Record<string, JsonValue> | undefined, key: "html" | "url"): string | undefined => {
-  const value = output?.[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  switch (error.code) {
+    case "upstream":
+      return "ip_blocked";
+    case "timeout":
+    case "network":
+    case "unavailable":
+      return "env_limited";
+    default:
+      return undefined;
+  }
 };
 
 const fetchRuntimeDocument = async (args: {
@@ -449,27 +475,30 @@ const fetchRuntimeDocumentWithFallback = async (args: {
     }
     const reasonCode = fallbackReasonCodeForError(normalized) ?? "env_limited";
 
-    const fallback = await fallbackPort.resolve({
+    const fallback = await resolveProviderBrowserFallback({
+      browserFallbackPort: fallbackPort,
       provider: args.provider,
       source: args.source,
       operation: args.operation,
       reasonCode,
-      trace: args.context?.trace ?? {
-        requestId: `runtime-fallback-${Date.now()}`,
-        provider: args.provider,
-        ts: new Date().toISOString()
-      },
       url: args.url,
+      context: args.context,
       details: {
         errorCode: normalized.code,
         message: normalized.message,
         ...(normalized.details ?? {})
-      },
-      ...(typeof args.context?.useCookies === "boolean" ? { useCookies: args.context.useCookies } : {}),
-      ...(args.context?.cookiePolicyOverride ? { cookiePolicyOverride: args.context.cookiePolicyOverride } : {})
+      }
     });
-    if (!fallback.ok) {
+    if (!fallback) {
       throw error;
+    }
+    if (fallback.disposition !== "completed") {
+      throw toProviderFallbackError({
+        provider: args.provider,
+        source: args.source,
+        url: args.url,
+        fallback
+      });
     }
 
     const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? args.url);
@@ -555,7 +584,7 @@ export class ProviderRuntime {
     };
     this.promptGuardEnabled = init.promptInjectionGuard?.enabled ?? true;
     this.blockerDetectionThreshold = clampBlockerThreshold(init.blockerDetectionThreshold);
-    this.antiBotPolicy = new AntiBotPolicyEngine(init.antiBotPolicy);
+    this.antiBotPolicy = new AntiBotPolicyEngine(this.registry, init.antiBotPolicy);
     this.browserFallbackPort = init.browserFallbackPort;
     this.adaptiveConfig = {
       enabled: init.adaptiveConcurrency?.enabled ?? false,
@@ -589,6 +618,13 @@ export class ProviderRuntime {
     return this.registry.getHealth(providerId);
   }
 
+  getAntiBotSnapshots(providerIds?: string[]): ProviderAntiBotSnapshot[] {
+    const allowed = providerIds?.length ? new Set(providerIds) : null;
+    return this.registry
+      .listAntiBotSnapshots()
+      .filter((snapshot) => !allowed || allowed.has(snapshot.providerId));
+  }
+
   updateBudgets(partial: Partial<ProviderRuntimeBudgets>): ProviderRuntimeBudgets {
     this.budgets = mergeBudgets(this.budgets, partial);
     this.globalSemaphore = new Semaphore(this.budgets.concurrency.global);
@@ -618,6 +654,31 @@ export class ProviderRuntime {
 
   async post(input: ProviderCallResultByOperation["post"], options: ProviderRunOptions = {}): Promise<ProviderAggregateResult> {
     return this.execute("post", input, options);
+  }
+
+  async resumeChallengeIntent(
+    challenge: SessionChallengeSummary,
+    options: ProviderRunOptions = {}
+  ): Promise<SuspendedIntentResumeResult> {
+    if (challenge.resumeMode !== "auto") {
+      throw new ProviderRuntimeError("policy_blocked", "Challenge resume is manual for this owner.", {
+        retryable: false,
+        reasonCode: challenge.reasonCode
+      });
+    }
+    if (challenge.status !== "resolved") {
+      throw new ProviderRuntimeError("policy_blocked", "Challenge must be resolved before resume.", {
+        retryable: false,
+        reasonCode: challenge.reasonCode
+      });
+    }
+    if (!challenge.suspendedIntent) {
+      throw new ProviderRuntimeError("invalid_input", "Challenge is missing suspended intent metadata.", {
+        retryable: false,
+        reasonCode: challenge.reasonCode
+      });
+    }
+    return this.resumeSuspendedIntent(challenge.suspendedIntent, options);
   }
 
   async execute<Operation extends ProviderOperation>(
@@ -1049,6 +1110,7 @@ export class ProviderRuntime {
               timeoutMs,
               attempt,
               signal,
+              suspendedIntent: this.buildSuspendedIntent(provider.id, provider.source, operation, input, runOptions),
               ...(typeof runOptions.useCookies === "boolean" ? { useCookies: runOptions.useCookies } : {}),
               ...(runOptions.cookiePolicyOverride
                 ? { cookiePolicyOverride: runOptions.cookiePolicyOverride }
@@ -1141,28 +1203,17 @@ export class ProviderRuntime {
           attempt,
           maxAttempts
         });
+        this.recordAntiBotOutcome({
+          providerId: provider.id,
+          success: true
+        });
         return success;
       } catch (error) {
         let normalizedError = toProviderError(error, {
           provider: provider.id,
           source: provider.source
         });
-        const reasonCode = normalizedError.reasonCode
-          ?? normalizeProviderReasonCode({
-            code: normalizedError.code,
-            message: normalizedError.message,
-            details: normalizedError.details
-          });
-        if (reasonCode && normalizedError.reasonCode !== reasonCode) {
-          normalizedError = {
-            ...normalizedError,
-            reasonCode,
-            details: {
-              ...(normalizedError.details ?? {}),
-              reasonCode
-            }
-          };
-        }
+        const reasonCode = normalizedError.reasonCode;
         this.adaptiveConcurrency.observe(scopeKey, {
           latencyMs: Math.max(0, Date.now() - startedAt),
           timeout: normalizedError.code === "timeout",
@@ -1181,6 +1232,10 @@ export class ProviderRuntime {
           retryable: normalizedError.retryable,
           attempt,
           maxAttempts
+        });
+        this.recordAntiBotOutcome({
+          providerId: provider.id,
+          error: normalizedError
         });
         if (attempt < maxAttempts && postflight.allowRetry) {
           continue;
@@ -1335,9 +1390,7 @@ export class ProviderRuntime {
     if (providers.length === 0) return 0;
     let total = 0;
     for (const provider of providers) {
-      const status = this.registry.getHealth(provider.id).status;
-      if (status === "unhealthy") total += 1;
-      else if (status === "degraded") total += 0.5;
+      total += this.registry.getAntiBotPressure(provider.id);
     }
     return total / providers.length;
   }
@@ -1386,6 +1439,112 @@ export class ProviderRuntime {
       }
     }
     return violations / providers.length >= 0.5;
+  }
+
+  private buildSuspendedIntent<Operation extends ProviderOperation>(
+    providerId: string,
+    source: ProviderSource,
+    operation: Operation,
+    input: ProviderCallResultByOperation[Operation],
+    options: ProviderRunOptions
+  ): SuspendedIntentSummary {
+    const baseInput = input as unknown as JsonValue;
+    const existing = options.suspendedIntent;
+    if (existing) {
+      return typeof existing.input === "undefined" && typeof baseInput !== "undefined"
+        ? {
+          ...existing,
+          input: baseInput
+        }
+        : existing;
+    }
+    return {
+      kind: DEFAULT_PROVIDER_SUSPENDED_INTENT_KIND[operation],
+      provider: providerId,
+      source,
+      operation,
+      input: baseInput
+    };
+  }
+
+  private async resumeSuspendedIntent(
+    intent: SuspendedIntentSummary,
+    options: ProviderRunOptions
+  ): Promise<SuspendedIntentResumeResult> {
+    const input = intent.input;
+    if (!isJsonRecord(input)) {
+      throw new ProviderRuntimeError("invalid_input", "Suspended intent input is missing or malformed.", {
+        retryable: false
+      });
+    }
+    switch (intent.kind) {
+      case "provider.search":
+        return this.search(input as unknown as ProviderCallResultByOperation["search"], {
+          ...options,
+          source: intent.source ?? options.source ?? "auto",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      case "provider.fetch":
+        return this.fetch(input as unknown as ProviderCallResultByOperation["fetch"], {
+          ...options,
+          source: intent.source ?? options.source ?? "auto",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      case "provider.crawl":
+        return this.crawl(input as unknown as ProviderCallResultByOperation["crawl"], {
+          ...options,
+          source: intent.source ?? options.source ?? "auto",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      case "provider.post":
+        return this.post(input as unknown as ProviderCallResultByOperation["post"], {
+          ...options,
+          source: intent.source ?? options.source ?? "auto",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      case "workflow.research":
+        return runResearchWorkflow(this, input as unknown as ResearchRunInput);
+      case "workflow.shopping":
+        return runShoppingWorkflow(this, input as unknown as ShoppingRunInput);
+      case "workflow.product_video":
+        return runProductVideoWorkflow(this, input as unknown as ProductVideoRunInput);
+      case "youtube.transcript":
+        return this.fetch(input as unknown as ProviderCallResultByOperation["fetch"], {
+          ...options,
+          source: intent.source ?? options.source ?? "social",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      default:
+        throw new ProviderRuntimeError("not_supported", `Unsupported suspended intent: ${intent.kind}`, {
+          retryable: false
+        });
+    }
+  }
+
+  private recordAntiBotOutcome(args: {
+    providerId: string;
+    success?: boolean;
+    error?: {
+      reasonCode?: ProviderReasonCode;
+      details?: Record<string, JsonValue>;
+    };
+  }): void {
+    const dispositionValue = args.error?.details?.disposition;
+    const disposition = (
+      dispositionValue === "completed"
+      || dispositionValue === "challenge_preserved"
+      || dispositionValue === "deferred"
+      || dispositionValue === "failed"
+    )
+      ? dispositionValue
+      : undefined;
+
+    this.registry.recordAntiBotOutcome({
+      providerId: args.providerId,
+      ...(args.success ? { success: true } : {}),
+      ...(args.error?.reasonCode ? { reasonCode: args.error.reasonCode } : {}),
+      ...(disposition ? { disposition } : {})
+    });
   }
 
   private isHybridEligible(providers: ProviderAdapter[]): boolean {
@@ -1604,12 +1763,14 @@ const withDefaultWebOptions = (
   const providerId = options?.id ?? "web/default";
   return {
     ...options,
-    fetcher: options?.fetcher ?? (async (url: string) => {
+    fetcher: options?.fetcher ?? (async (url: string, context?: ProviderContext) => {
       const document = await fetchRuntimeDocumentWithFallback({
         url,
         provider: providerId,
         source: "web",
         operation: "fetch",
+        signal: context?.signal,
+        context,
         browserFallbackPort
       });
       return {

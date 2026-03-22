@@ -1,5 +1,6 @@
 /* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
+import type { BlockerSignalV1, SessionChallengeSummary } from "../providers/types";
 import type {
   RuntimePreviewBridgeInput,
   RuntimePreviewBridgeResult
@@ -42,6 +43,22 @@ export type BrowserCanvasOverlayResult = {
   ok?: boolean;
 };
 
+export type BrowserBlockerResolutionMeta = {
+  status: "resolved" | "unresolved" | "deferred";
+  reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
+  updatedAt: string;
+};
+
+export type BrowserChallengeMeta = SessionChallengeSummary;
+
+export type BrowserResponseMeta = {
+  blocker?: BlockerSignalV1;
+  blockerState: "clear" | "active" | "resolving";
+  blockerUpdatedAt?: string;
+  blockerResolution?: BrowserBlockerResolutionMeta;
+  challenge?: BrowserChallengeMeta;
+};
+
 export type BrowserManagerLike = Pick<BrowserManager,
   | "launch"
   | "connect"
@@ -76,6 +93,7 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "screenshot"
   | "consolePoll"
   | "networkPoll"
+  | "debugTraceSnapshot"
   | "listPages"
   | "page"
   | "closePage"
@@ -83,6 +101,10 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "useTarget"
   | "newTarget"
   | "closeTarget"
+  | "pointerMove"
+  | "pointerDown"
+  | "pointerUp"
+  | "drag"
 > & {
   connectRelay: (
     wsEndpoint: string,

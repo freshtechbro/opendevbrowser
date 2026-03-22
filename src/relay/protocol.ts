@@ -88,6 +88,7 @@ export type RelayHandshakeError = {
 export const OPS_PROTOCOL_VERSION = "1";
 export const MAX_OPS_PAYLOAD_BYTES = 12 * 1024 * 1024;
 export const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
+export type OpsPointerCommand = "pointer.move" | "pointer.down" | "pointer.up" | "pointer.drag";
 
 export type ParallelismModeCapsPolicy = {
   managedHeaded: number;

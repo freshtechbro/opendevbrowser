@@ -56,7 +56,7 @@ describe("CLI help surface", () => {
       seen.add(entry.name);
     }
 
-    expect(seen.size).toBe(49);
+    expect(seen.size).toBe(HELP_TOOL_ENTRIES.length);
   });
 
   it("prints complete command, flag, and tool inventories with descriptions", () => {

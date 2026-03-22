@@ -9,7 +9,8 @@ import type {
   BrowserCanvasOverlayResult,
   BrowserCanvasOverlaySelectInput,
   BrowserCanvasOverlaySyncInput,
-  BrowserManagerLike
+  BrowserManagerLike,
+  BrowserResponseMeta
 } from "./manager-types";
 import type { ConnectOptions, LaunchOptions } from "./browser-manager";
 import type { BrowserMode } from "./session-store";
@@ -68,6 +69,21 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.config = config;
   }
 
+  private reserveExternalBlockerSlot(sessionId: string): void {
+    this.base.reserveExternalBlockerSlot?.(sessionId);
+  }
+
+  private releaseExternalBlockerSlot(sessionId: string): void {
+    this.base.releaseExternalBlockerSlot?.(sessionId);
+  }
+
+  private reconcileExternalBlockerMeta(
+    sessionId: string,
+    input: Parameters<BrowserManager["reconcileExternalBlockerMeta"]>[1]
+  ): BrowserResponseMeta | undefined {
+    return this.base.reconcileExternalBlockerMeta?.(sessionId, input);
+  }
+
   async launch(options: LaunchOptions): ReturnType<BrowserManagerLike["launch"]> {
     return this.base.launch(options);
   }
@@ -106,6 +122,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
     const sessionId = result.opsSessionId;
     this.opsSessions.add(sessionId);
     this.opsLeases.set(sessionId, result.leaseId ?? leaseId);
+    this.reserveExternalBlockerSlot(sessionId);
     this.trackProtocolSession(sessionId, result.opsSessionId);
     this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
     this.rememberSessionUrl(sessionId, result.url);
@@ -164,6 +181,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.opsSessions.delete(sessionId);
     this.opsLeases.delete(sessionId);
     this.releaseProtocolSession(sessionId);
+    this.releaseExternalBlockerSlot(sessionId);
     this.opsSessionTabs.delete(sessionId);
     this.opsSessionUrls.delete(sessionId);
     this.closedOpsSessions.delete(sessionId);
@@ -177,14 +195,14 @@ export class OpsBrowserManager implements BrowserManagerLike {
       }
       return this.base.status(sessionId);
     }
-    const result = await this.requestOps<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string }>(
-      sessionId,
-      "session.status",
-      {}
-    );
-    this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
-    this.rememberSessionUrl(sessionId, result.url);
-    return result;
+    const result = await this.getRawOpsStatus(sessionId);
+    return this.withOpsMeta(sessionId, result, {
+      source: "navigation",
+      finalUrl: result.url,
+      title: result.title,
+      targetId: result.activeTargetId,
+      verifier: false
+    });
   }
 
   async withPage<T>(sessionId: string, targetId: string | null, fn: (page: never) => Promise<T>): Promise<T> {
@@ -336,8 +354,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
       "nav.goto",
       this.withTarget({ url, waitUntil, timeoutMs }, targetId)
     );
-    this.rememberSessionUrl(sessionId, result.finalUrl ?? url);
-    return result;
+    const status = await this.getRawOpsStatus(sessionId);
+    const rememberedUrl = typeof result.finalUrl === "string" ? result.finalUrl : url;
+    const finalUrl = typeof result.finalUrl === "string" ? result.finalUrl : status.url ?? url;
+    this.rememberSessionUrl(sessionId, rememberedUrl);
+    return this.withOpsMeta(sessionId, result, {
+      source: "navigation",
+      url,
+      finalUrl,
+      title: status.title,
+      status: typeof result.status === "number" ? result.status : undefined,
+      targetId: targetId ?? status.activeTargetId,
+      verifier: true
+    });
   }
 
   async waitForLoad(
@@ -349,7 +378,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.waitForLoad(sessionId, until, timeoutMs, targetId);
     }
-    return await this.requestOps(sessionId, "nav.wait", this.withTarget({ until, timeoutMs }, targetId));
+    const result = await this.requestOps<Awaited<ReturnType<BrowserManagerLike["waitForLoad"]>>>(
+      sessionId,
+      "nav.wait",
+      this.withTarget({ until, timeoutMs }, targetId)
+    );
+    const status = await this.getRawOpsStatus(sessionId);
+    return this.withOpsMeta(sessionId, result, {
+      source: "navigation",
+      finalUrl: status.url,
+      title: status.title,
+      targetId: targetId ?? status.activeTargetId,
+      verifier: true
+    });
   }
 
   async waitForRef(
@@ -362,7 +403,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.waitForRef(sessionId, ref, state, timeoutMs, targetId);
     }
-    return await this.requestOps(sessionId, "nav.wait", this.withTarget({ ref, state, timeoutMs }, targetId));
+    const result = await this.requestOps<Awaited<ReturnType<BrowserManagerLike["waitForRef"]>>>(
+      sessionId,
+      "nav.wait",
+      this.withTarget({ ref, state, timeoutMs }, targetId)
+    );
+    const status = await this.getRawOpsStatus(sessionId);
+    return this.withOpsMeta(sessionId, result, {
+      source: "navigation",
+      finalUrl: status.url,
+      title: status.title,
+      targetId: targetId ?? status.activeTargetId,
+      verifier: true
+    });
   }
 
   async snapshot(
@@ -451,6 +504,64 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.base.scrollIntoView(sessionId, ref, targetId);
     }
     return await this.requestOps(sessionId, "interact.scrollIntoView", this.withTarget({ ref }, targetId));
+  }
+
+  async pointerMove(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    steps?: number
+  ): Promise<{ timingMs: number }> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.pointerMove(sessionId, x, y, targetId, steps);
+    }
+    return await this.requestOps(sessionId, "pointer.move", this.withTarget({ x, y, steps }, targetId));
+  }
+
+  async pointerDown(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): Promise<{ timingMs: number }> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.pointerDown(sessionId, x, y, targetId, button, clickCount);
+    }
+    return await this.requestOps(sessionId, "pointer.down", this.withTarget({ x, y, button, clickCount }, targetId));
+  }
+
+  async pointerUp(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): Promise<{ timingMs: number }> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.pointerUp(sessionId, x, y, targetId, button, clickCount);
+    }
+    return await this.requestOps(sessionId, "pointer.up", this.withTarget({ x, y, button, clickCount }, targetId));
+  }
+
+  async drag(
+    sessionId: string,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    targetId?: string | null,
+    steps?: number
+  ): Promise<{ timingMs: number }> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.drag(sessionId, from, to, targetId, steps);
+    }
+    return await this.requestOps(
+      sessionId,
+      "pointer.drag",
+      this.withTarget({ from, to, steps }, targetId)
+    );
   }
 
   async domGetHtml(
@@ -587,6 +698,104 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.base.networkPoll(sessionId, sinceSeq, max);
     }
     return await this.requestOps(sessionId, "devtools.networkPoll", { sinceSeq, max });
+  }
+
+  async debugTraceSnapshot(
+    sessionId: string,
+    options: {
+      sinceConsoleSeq?: number;
+      sinceNetworkSeq?: number;
+      sinceExceptionSeq?: number;
+      max?: number;
+      requestId?: string;
+    } = {}
+  ): ReturnType<BrowserManagerLike["debugTraceSnapshot"]> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.debugTraceSnapshot(sessionId, options);
+    }
+    const requestId = options.requestId ?? createRequestId();
+    const status = await this.getRawOpsStatus(sessionId);
+    const consoleChannel = await this.consolePoll(sessionId, options.sinceConsoleSeq, options.max ?? 500);
+    const networkChannel = await this.networkPoll(sessionId, options.sinceNetworkSeq, options.max ?? 500);
+    const meta = this.reconcileExternalBlockerMeta(sessionId, {
+      source: "network",
+      url: status.url,
+      finalUrl: status.url,
+      title: status.title,
+      status: this.findLatestStatus(networkChannel.events),
+      traceRequestId: requestId,
+      networkEvents: networkChannel.events,
+      consoleEvents: consoleChannel.events,
+      exceptionEvents: [],
+      verifier: true,
+      includeArtifacts: true,
+      ownerLeaseId: this.opsLeases.get(sessionId),
+      targetKey: status.activeTargetId ?? undefined
+    });
+    const fingerprint = {
+      tier1: {
+        ok: true,
+        warnings: [],
+        issues: []
+      },
+      tier2: {
+        enabled: false,
+        mode: "disabled",
+        profileId: "extension-ops",
+        healthScore: 0,
+        challengeCount: 0,
+        rotationCount: 0,
+        lastRotationTs: 0,
+        lastAppliedNetworkSeq: 0,
+        recentChallenges: []
+      },
+      tier3: {
+        enabled: false,
+        status: "disabled",
+        adapterName: "extension-ops",
+        fallbackTier: "A",
+        canary: {
+          level: 0,
+          averageScore: 0,
+          lastAction: "ops",
+          sampleCount: 0
+        }
+      }
+    } as unknown as Awaited<ReturnType<BrowserManagerLike["debugTraceSnapshot"]>>["fingerprint"];
+    return {
+      requestId,
+      generatedAt: new Date().toISOString(),
+      page: {
+        mode: status.mode,
+        activeTargetId: status.activeTargetId,
+        ...(status.url ? { url: status.url } : {}),
+        ...(status.title ? { title: status.title } : {})
+      },
+      channels: {
+        console: {
+          nextSeq: consoleChannel.nextSeq,
+          events: consoleChannel.events.map((event) => ({
+            ...event,
+            requestId,
+            sessionId
+          }))
+        },
+        network: {
+          nextSeq: networkChannel.nextSeq,
+          events: networkChannel.events.map((event) => ({
+            ...event,
+            requestId,
+            sessionId
+          }))
+        },
+        exception: {
+          nextSeq: options.sinceExceptionSeq ?? 0,
+          events: []
+        }
+      },
+      fingerprint,
+      meta
+    };
   }
 
   async listTargets(sessionId: string, includeUrls = false): Promise<{ activeTargetId: string | null; targets: TargetInfo[] }> {
@@ -817,6 +1026,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
       this.opsSessions.delete(sessionId);
       this.opsLeases.delete(sessionId);
       this.releaseProtocolSession(sessionId);
+      this.releaseExternalBlockerSlot(sessionId);
       this.opsSessionTabs.delete(sessionId);
       this.opsSessionUrls.delete(sessionId);
       this.closedOpsSessions.set(sessionId, Date.now());
@@ -939,6 +1149,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
 
     this.opsSessions.add(sessionId);
     this.opsLeases.set(sessionId, result.leaseId ?? leaseId);
+    this.reserveExternalBlockerSlot(sessionId);
     this.trackProtocolSession(sessionId, result.opsSessionId);
     this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
     this.rememberSessionUrl(sessionId, result.url ?? fallbackUrl);
@@ -965,6 +1176,67 @@ export class OpsBrowserManager implements BrowserManagerLike {
       this.publicSessionIdsByProtocolId.delete(protocolSessionId);
     }
     this.opsProtocolSessions.delete(sessionId);
+  }
+
+  private async getRawOpsStatus(
+    sessionId: string
+  ): Promise<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string }> {
+    const result = await this.requestOps<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string }>(
+      sessionId,
+      "session.status",
+      {}
+    );
+    this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    this.rememberSessionUrl(sessionId, result.url);
+    return result;
+  }
+
+  private withOpsMeta<T extends Record<string, unknown>>(
+    sessionId: string,
+    result: T,
+    options: {
+      source: "navigation" | "network";
+      url?: string;
+      finalUrl?: string;
+      title?: string;
+      status?: number;
+      targetId?: string | null;
+      verifier?: boolean;
+      includeArtifacts?: boolean;
+      traceRequestId?: string;
+      networkEvents?: Array<{ url?: string; status?: number }>;
+      consoleEvents?: unknown[];
+      exceptionEvents?: unknown[];
+      envLimited?: boolean;
+    }
+  ): T & { meta?: BrowserResponseMeta } {
+    const meta = this.reconcileExternalBlockerMeta(sessionId, {
+      source: options.source,
+      url: options.url,
+      finalUrl: options.finalUrl,
+      title: options.title,
+      status: options.status,
+      traceRequestId: options.traceRequestId,
+      networkEvents: options.networkEvents,
+      consoleEvents: options.consoleEvents,
+      exceptionEvents: options.exceptionEvents,
+      verifier: options.verifier,
+      includeArtifacts: options.includeArtifacts,
+      envLimited: options.envLimited,
+      ownerLeaseId: this.opsLeases.get(sessionId),
+      targetKey: options.targetId ?? undefined
+    });
+    return meta ? { ...result, meta } : result;
+  }
+
+  private findLatestStatus(events: Array<{ status?: number }>): number | undefined {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const status = events[index]?.status;
+      if (typeof status === "number") {
+        return status;
+      }
+    }
+    return undefined;
   }
 }
 

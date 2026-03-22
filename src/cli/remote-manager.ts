@@ -356,6 +356,90 @@ export class RemoteManager implements BrowserManagerLike {
     }>;
   }
 
+  debugTraceSnapshot(
+    sessionId: string,
+    options: {
+      sinceConsoleSeq?: number;
+      sinceNetworkSeq?: number;
+      sinceExceptionSeq?: number;
+      max?: number;
+      requestId?: string;
+    } = {}
+  ): ReturnType<BrowserManagerLike["debugTraceSnapshot"]> {
+    return this.client.call<CallResult<"debugTraceSnapshot">>("devtools.debugTraceSnapshot", {
+      sessionId,
+      ...options
+    });
+  }
+
+  pointerMove(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    steps?: number
+  ): ReturnType<BrowserManagerLike["pointerMove"]> {
+    return this.client.call<CallResult<"pointerMove">>("pointer.move", {
+      sessionId,
+      x,
+      y,
+      ...(typeof steps === "number" ? { steps } : {}),
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
+  }
+
+  pointerDown(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): ReturnType<BrowserManagerLike["pointerDown"]> {
+    return this.client.call<CallResult<"pointerDown">>("pointer.down", {
+      sessionId,
+      x,
+      y,
+      button,
+      clickCount,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
+  }
+
+  pointerUp(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): ReturnType<BrowserManagerLike["pointerUp"]> {
+    return this.client.call<CallResult<"pointerUp">>("pointer.up", {
+      sessionId,
+      x,
+      y,
+      button,
+      clickCount,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
+  }
+
+  drag(
+    sessionId: string,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    targetId?: string | null,
+    steps?: number
+  ): ReturnType<BrowserManagerLike["drag"]> {
+    return this.client.call<CallResult<"drag">>("pointer.drag", {
+      sessionId,
+      from,
+      to,
+      ...(typeof steps === "number" ? { steps } : {}),
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
+  }
+
   listTargets(sessionId: string, includeUrls = false): Promise<{ activeTargetId: string | null; targets: TargetInfo[] }> {
     return this.client.call("targets.list", { sessionId, includeUrls }) as Promise<{
       activeTargetId: string | null;

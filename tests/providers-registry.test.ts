@@ -169,4 +169,57 @@ describe("provider registry + runtime", () => {
       reason: "manual"
     });
   });
+
+  it("tracks preserved outcomes, clears active challenges on success, and exposes cooldown pressure", () => {
+    const registry = new ProviderRegistry();
+    registry.register(makeWebProvider("web/anti-bot", async () => []));
+
+    registry.recordAntiBotOutcome({
+      providerId: "web/anti-bot",
+      reasonCode: "challenge_detected",
+      disposition: "challenge_preserved",
+      nowMs: 1000
+    });
+
+    const activeSnapshot = registry.getAntiBotSnapshot("web/anti-bot", 1000);
+    expect(activeSnapshot).toMatchObject({
+      providerId: "web/anti-bot",
+      activeChallenges: 1,
+      lastChallengeAt: "1970-01-01T00:00:01.000Z",
+      lastPreservedOutcome: {
+        disposition: "challenge_preserved",
+        reasonCode: "challenge_detected",
+        at: "1970-01-01T00:00:01.000Z"
+      }
+    });
+    expect("lastResolvedAt" in activeSnapshot).toBe(false);
+
+    registry.recordAntiBotOutcome({
+      providerId: "web/anti-bot",
+      success: true,
+      nowMs: 2000
+    });
+
+    const resolvedSnapshot = registry.getAntiBotSnapshot("web/anti-bot", 2000);
+    expect(resolvedSnapshot).toMatchObject({
+      activeChallenges: 0,
+      lastResolvedAt: "1970-01-01T00:00:02.000Z"
+    });
+
+    registry.recordAntiBotOutcome({
+      providerId: "web/anti-bot",
+      disposition: "failed",
+      nowMs: 3000
+    });
+
+    const preservedWithoutReason = registry.getAntiBotSnapshot("web/anti-bot", 3000);
+    expect(preservedWithoutReason.lastPreservedOutcome).toEqual({
+      disposition: "failed",
+      at: "1970-01-01T00:00:03.000Z"
+    });
+
+    registry.setAntiBotCooldown("web/anti-bot", "search", "rate_limited", 6000, 4000);
+    expect(registry.getAntiBotPressure("web/anti-bot", 5000)).toBe(0.75);
+    expect(registry.getAntiBotSnapshot("web/anti-bot", 7000).cooldownUntilMs).toBe(0);
+  });
 });

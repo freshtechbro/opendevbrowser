@@ -169,6 +169,35 @@ describe("social platform adapters", () => {
     }
   });
 
+  it("classifies 200 anti-bot social search pages before traversal rows are returned", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Security verification</title></head><body>Verify you're human to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        details: {
+          blockerType: "anti_bot_challenge"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("exposes normalized capability metadata for all configured platforms", () => {
     expect(providers).toHaveLength(9);
 

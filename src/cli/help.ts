@@ -92,7 +92,10 @@ export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = [
   {
     title: "Interaction",
     summary: "Perform ref-based interactions in the active page.",
-    commands: ["click", "hover", "press", "check", "uncheck", "type", "select", "scroll", "scroll-into-view"]
+    commands: [
+      "click", "hover", "press", "check", "uncheck", "type", "select", "scroll", "scroll-into-view",
+      "pointer-move", "pointer-down", "pointer-up", "pointer-drag"
+    ]
   },
   {
     title: "Targets & Pages",
@@ -224,6 +227,10 @@ export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
   select: commandHelp("npx opendevbrowser select --session-id <id> --ref <ref> --values <csv>", "--session-id", "--ref", "--values"),
   scroll: commandHelp("npx opendevbrowser scroll --session-id <id> --dy <pixels> [--ref <ref>]", "--session-id", "--dy", "--ref"),
   "scroll-into-view": commandHelp("npx opendevbrowser scroll-into-view --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  "pointer-move": commandHelp("npx opendevbrowser pointer-move --session-id <id> --x <n> --y <n> [--steps <n>] [--target-id <id>]", "--session-id", "--x", "--y", "--steps", "--target-id"),
+  "pointer-down": commandHelp("npx opendevbrowser pointer-down --session-id <id> --x <n> --y <n> [--button <left|middle|right>] [--click-count <n>] [--target-id <id>]", "--session-id", "--x", "--y", "--button", "--click-count", "--target-id"),
+  "pointer-up": commandHelp("npx opendevbrowser pointer-up --session-id <id> --x <n> --y <n> [--button <left|middle|right>] [--click-count <n>] [--target-id <id>]", "--session-id", "--x", "--y", "--button", "--click-count", "--target-id"),
+  "pointer-drag": commandHelp("npx opendevbrowser pointer-drag --session-id <id> --from-x <n> --from-y <n> --to-x <n> --to-y <n> [--steps <n>] [--target-id <id>]", "--session-id", "--from-x", "--from-y", "--to-x", "--to-y", "--steps", "--target-id"),
   "targets-list": commandHelp("npx opendevbrowser targets-list --session-id <id> [--include-urls]", "--session-id", "--include-urls"),
   "target-use": commandHelp("npx opendevbrowser target-use --session-id <id> --target-id <id>", "--session-id", "--target-id"),
   "target-new": commandHelp("npx opendevbrowser target-new --session-id <id> [--url <url>]", "--session-id", "--url"),
@@ -350,6 +357,15 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--dy", description: "Vertical scroll delta for scroll commands." },
       { flag: "--key", description: "Keyboard key for the press command." },
       { flag: "--attr", description: "DOM attribute name for dom-attr." },
+      { flag: "--x", description: "Viewport x coordinate for pointer commands." },
+      { flag: "--y", description: "Viewport y coordinate for pointer commands." },
+      { flag: "--from-x", description: "Pointer drag start x coordinate." },
+      { flag: "--from-y", description: "Pointer drag start y coordinate." },
+      { flag: "--to-x", description: "Pointer drag end x coordinate." },
+      { flag: "--to-y", description: "Pointer drag end y coordinate." },
+      { flag: "--steps", description: "Interpolation step count for pointer move or drag commands." },
+      { flag: "--button", description: "Pointer button selector for pointer down or up." },
+      { flag: "--click-count", description: "Associated click count for pointer down or up." },
       { flag: "--name", description: "Named page identifier for page commands." },
       { flag: "--target-id", description: "Browser target id for target commands.", example: "opendevbrowser target-use --session-id s1 --target-id page-2" },
       { flag: "--tab-id", description: "Browser tab id override for extension and annotation commands." },
