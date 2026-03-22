@@ -9,6 +9,16 @@ const COVERAGE_TMP = path.join(COVERAGE_ROOT, ".tmp");
 const VITEST_BIN = path.join(ROOT, "node_modules", "vitest", "vitest.mjs");
 const RM_GUARD = path.join(ROOT, "scripts", "vitest-coverage-rm-guard.cjs");
 const RETRYABLE_COVERAGE_SHARD_ERROR = /ENOENT: no such file or directory, open '([^']+coverage\/\.tmp\/coverage-\d+\.json)'/;
+const FOCUSED_COVERAGE_THRESHOLD_ARGS = [
+  "--coverage.thresholds.lines",
+  "0",
+  "--coverage.thresholds.functions",
+  "0",
+  "--coverage.thresholds.branches",
+  "0",
+  "--coverage.thresholds.statements",
+  "0"
+];
 
 export function isRetryableCoverageShardError(output, coverageRoot = COVERAGE_ROOT) {
   if (typeof output !== "string") {
@@ -31,12 +41,29 @@ async function resetCoverageRoot() {
   await mkdir(COVERAGE_TMP, { recursive: true });
 }
 
+export function shouldRelaxCoverageThresholds(args = []) {
+  if (!Array.isArray(args) || args.length === 0) {
+    return false;
+  }
+  return !args.some(
+    (arg) => typeof arg === "string" && arg.startsWith("--coverage.thresholds.")
+  );
+}
+
+export function buildVitestArgs(args = []) {
+  if (!shouldRelaxCoverageThresholds(args)) {
+    return [...args];
+  }
+  return [...args, ...FOCUSED_COVERAGE_THRESHOLD_ARGS];
+}
+
 async function spawnVitest(args) {
+  const vitestArgs = buildVitestArgs(args);
   return await new Promise((resolve) => {
     let combinedOutput = "";
     const child = spawn(
       process.execPath,
-      ["--require", RM_GUARD, VITEST_BIN, "run", "--coverage", ...args],
+      ["--require", RM_GUARD, VITEST_BIN, "run", "--coverage", ...vitestArgs],
       {
         cwd: ROOT,
         stdio: ["inherit", "pipe", "pipe"],

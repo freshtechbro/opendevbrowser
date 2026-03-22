@@ -1,6 +1,10 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { isRetryableCoverageShardError } from "../scripts/run-vitest-coverage.mjs";
+import {
+  buildVitestArgs,
+  isRetryableCoverageShardError,
+  shouldRelaxCoverageThresholds
+} from "../scripts/run-vitest-coverage.mjs";
 
 describe("run-vitest-coverage", () => {
   it("retries only for missing shard ENOENTs under the coverage tmp root", () => {
@@ -23,5 +27,28 @@ describe("run-vitest-coverage", () => {
 
     expect(isRetryableCoverageShardError(unrelatedEnoent, coverageRoot)).toBe(false);
     expect(isRetryableCoverageShardError(assertionFailure, coverageRoot)).toBe(false);
+  });
+
+  it("relaxes coverage thresholds for focused invocations with explicit args", () => {
+    expect(shouldRelaxCoverageThresholds([])).toBe(false);
+    expect(shouldRelaxCoverageThresholds(["tests/cli-help-parity.test.ts"])).toBe(true);
+    expect(buildVitestArgs(["tests/cli-help-parity.test.ts"])).toEqual([
+      "tests/cli-help-parity.test.ts",
+      "--coverage.thresholds.lines",
+      "0",
+      "--coverage.thresholds.functions",
+      "0",
+      "--coverage.thresholds.branches",
+      "0",
+      "--coverage.thresholds.statements",
+      "0"
+    ]);
+  });
+
+  it("preserves explicit coverage threshold overrides", () => {
+    const args = ["tests/cli-help-parity.test.ts", "--coverage.thresholds.lines", "97"];
+
+    expect(shouldRelaxCoverageThresholds(args)).toBe(false);
+    expect(buildVitestArgs(args)).toEqual(args);
   });
 });
