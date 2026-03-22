@@ -2,9 +2,9 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-03-22
 
-OpenDevBrowser exposes 49 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+OpenDevBrowser exposes 53 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff/compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
@@ -131,20 +131,29 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `56`.
-- Categories: install/runtime management, session/connection, navigation, interaction, targets/pages, DOM inspection, design canvas, export/diagnostics/macro/annotation, and internal power (`rpc`).
+- Total commands: `60`.
+- Categories: install/runtime management, session/connection, navigation, interaction plus low-level pointer control, targets/pages, DOM inspection, design canvas, export/diagnostics/macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `49` (`opendevbrowser_*`).
+- Total tools: `53` (`opendevbrowser_*`).
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
 ### Relay channel surface
 
-- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `44` command names.
+- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `48` command names.
 - `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `35` command names and envelope contracts.
 - `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
+
+## Challenge orchestration contract
+
+- Managed and `/ops`-backed manager responses preserve the shipped blocker fields `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution`, and may append additive `meta.challenge`.
+- Browser-assisted provider fallback now reports explicit transport `disposition`: `completed`, `challenge_preserved`, `deferred`, or `failed`. Preserved auth and anti-bot sessions stay open for manual continuation instead of being disconnected in `finally`.
+- `ProviderRegistry` is the only durable anti-bot pressure authority used by policy, runtime routing, and workflow summaries. Provider modules only contribute extraction logic and optional `recoveryHints()`.
+- Direct browser continuation stays manual by default. Provider and workflow auto-resume only happen after manager-owned verification clears the blocker.
+- In scope: preserved sessions, visual observation loops, low-level pointer controls, manual completion on third-party sites, and owned-environment fixtures that use vendor test keys only.
+- Out of scope: hidden bypass paths, CAPTCHA-solving services, challenge token harvesting, or autonomous solving of third-party anti-bot systems.
 
 ---
 
@@ -231,9 +240,9 @@ npx opendevbrowser -v
 ```
 
 `--help` and `help` print the same complete, agent-oriented inventory:
-- All CLI commands (56) grouped by function, each with a one-line description, usage snippet, and primary flags.
+- All CLI commands (60) grouped by function, each with a one-line description, usage snippet, and primary flags.
 - All supported CLI flags, grouped by install/session/navigation/workflow usage, with representative examples on high-value shared flags.
-- All `opendevbrowser_*` tools (49), each with a one-line description and CLI equivalent or tool-only scope.
+- All `opendevbrowser_*` tools (53), each with a one-line description and CLI equivalent or tool-only scope.
 - Macro and design-canvas timeout guidance via `--timeout-ms`.
 - Canonical inventory pointers: `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`, `docs/SURFACE_REFERENCE.md`, and this CLI guide.
 

@@ -50,8 +50,11 @@ Distribution split (current target state):
 | **Design canvas + code sync** | Persist repo-native design documents, attach same-session observers, run framework-adapter-backed code sync across built-in React or HTML or custom-elements or Vue or Svelte lanes plus repo-local BYO plugins, author tokens in `canvas.html`, and drive preview tabs with `canvas_html` or opted-in `bound_app_runtime` reconciliation |
 | **Shared annotation inbox** | Popup/canvas `Send` actions deliver into the active chat when scope is safe and degrade cleanly to `annotate --stored` retrieval when it is not |
 | **Loop-closure diagnostics** | Console/network polling + unified debug trace snapshots for verification workflows |
+| **Challenge-preserving recovery** | Auth and anti-bot fallback paths preserve live sessions with additive `meta.challenge` instead of tearing them down immediately |
+| **Low-level pointer primitives** | `pointer-move`, `pointer-down`, `pointer-up`, and `pointer-drag` are exposed across CLI, tools, and `/ops` for manual challenge handling |
+| **Registry-backed anti-bot pressure** | `ProviderRegistry` is the single durable pressure authority for policy, runtime routing, and workflow summaries |
 | **11 bundled skill directories** | Best practices, design-agent guidance, login, forms, data extraction, research, shopping, and product asset workflows |
-| **49 tools** | Complete browser automation coverage, including the design-canvas command surface |
+| **53 tools** | Complete browser automation coverage, including low-level pointer control and the design-canvas command surface |
 | **97% test coverage** | Production-ready with strict TypeScript |
 
 ---
@@ -241,6 +244,14 @@ npx opendevbrowser run --script ./script.json --output-format json
 
 Use `--output-format json|stream-json` for automation-friendly output.
 
+## Challenge Handling Boundary
+
+- `SessionStore` remains the blocker FSM source of truth. Managed and `/ops`-backed responses keep `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` stable and may append additive `meta.challenge`.
+- Browser fallback now returns explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, or `failed`. Preserved auth or anti-bot sessions stay alive for manual continuation.
+- `ProviderRegistry` is the only durable anti-bot pressure authority. Shared runtime and policy own fallback ordering and resume policy; provider modules only contribute extraction logic and `recoveryHints()`.
+- In scope: preserved sessions, normal browser controls, manual completion on third-party sites, and owned-environment fixtures that use vendor test keys only.
+- Out of scope: hidden bypasses, CAPTCHA-solving services, token harvesting, or autonomous solving of third-party anti-bot systems.
+
 ---
 
 ## Recent Features
@@ -313,7 +324,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **49 tools** organized by category:
+OpenDevBrowser provides **53 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 Terminal help now mirrors the live command and tool surface directly from `src/cli/help.ts` and `src/tools/surface.ts`: `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
@@ -358,6 +369,10 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 | `opendevbrowser_select` | Select dropdown option by ref |
 | `opendevbrowser_scroll` | Scroll page or element |
 | `opendevbrowser_scroll_into_view` | Scroll element into view by ref |
+| `opendevbrowser_pointer_move` | Move the pointer to viewport coordinates |
+| `opendevbrowser_pointer_down` | Press a mouse button at viewport coordinates |
+| `opendevbrowser_pointer_up` | Release a mouse button at viewport coordinates |
+| `opendevbrowser_pointer_drag` | Drag between viewport coordinates |
 | `opendevbrowser_run` | Execute multiple actions in sequence |
 
 ### DOM Inspection
@@ -632,7 +647,7 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 49 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 53 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
@@ -641,7 +656,7 @@ See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accura
 | Install/runtime | `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run` |
 | Session/connection | `launch`, `connect`, `disconnect`, `status`, `cookie-import`, `cookie-list` |
 | Navigation | `goto`, `wait`, `snapshot` |
-| Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view` |
+| Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag` |
 | Targets/pages | `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close` |
 | DOM | `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked` |
 | Design canvas | `canvas` |
@@ -789,7 +804,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 49 opendevbrowser_* tool definitions
+│   ├── tools/        # 53 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)

@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-03-22
 
 ---
 
@@ -18,9 +18,9 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `56`
-- Plugin tools: `49`
-- `/ops` command names: `44`
+- CLI commands: `60`
+- Plugin tools: `53`
+- `/ops` command names: `48`
 - `/canvas` command names: `35`
 
 Human-facing inventory metadata is split intentionally:
@@ -41,6 +41,22 @@ supported platforms, and when the macOS LaunchAgent is malformed; unsupported pl
 transient temp-root path, install-time reconciliation refuses to persist it and surfaces guidance to rerun `daemon install` from a
 stable install location. `getAutostartStatus()` remains the canonical source of auto-start truth for both install reconciliation
 and `daemon status`, and a stable persisted auto-start entry remains authoritative even when the current invocation is transient.
+
+## Challenge orchestration ownership
+
+The anti-bot cutover keeps blocker truth and challenge lifecycle separate on purpose:
+
+- `src/browser/session-store.ts` remains the only blocker FSM authority.
+- `src/browser/browser-manager.ts` and `src/browser/ops-browser-manager.ts` remain the only writers of surfaced blocker and challenge metadata. Existing `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` fields stay stable; additive `meta.challenge` is layered on top.
+- `src/browser/global-challenge-coordinator.ts` owns lifecycle-only state for claim, refresh, resolve, defer, expire, and release. It does not classify blockers.
+- `src/providers/runtime-factory.ts` plus `src/providers/browser-fallback.ts` own preserve-or-complete browser fallback transport. Responses use explicit `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`.
+- `src/providers/registry.ts` is the sole durable anti-bot pressure authority. `src/providers/shared/anti-bot-policy.ts`, `src/providers/policy.ts`, `src/providers/index.ts`, and `src/providers/workflows.ts` read or write that registry-backed state instead of maintaining parallel durable maps.
+- Provider modules keep extraction logic and `recoveryHints()` only. Shared runtime owns fallback ordering, preserve or resume decisions, and legacy compatibility translation for older fallback callers.
+
+Legitimacy boundary:
+
+- In scope: preserved sessions, standard browser controls, manual completion on third-party sites, and owned-environment challenge fixtures that use vendor test keys only.
+- Out of scope: hidden bypasses, CAPTCHA-solving services, token harvesting, or autonomous solving of third-party anti-bot systems.
 
 ---
 

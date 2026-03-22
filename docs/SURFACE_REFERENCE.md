@@ -2,7 +2,7 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-03-22
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/cli/args.ts`
@@ -19,7 +19,7 @@ Operational mirror:
 
 ---
 
-## CLI Command Inventory (56)
+## CLI Command Inventory (60)
 
 ### Install and runtime management (10)
 - `install`
@@ -49,7 +49,7 @@ Operational mirror:
 - `wait`
 - `snapshot`
 
-### Interaction (9)
+### Interaction (13)
 - `click`
 - `hover`
 - `press`
@@ -59,6 +59,10 @@ Operational mirror:
 - `select`
 - `scroll`
 - `scroll-into-view`
+- `pointer-move`
+- `pointer-down`
+- `pointer-up`
+- `pointer-drag`
 
 ### Targets and pages (7)
 - `targets-list`
@@ -95,7 +99,7 @@ Operational mirror:
 
 ---
 
-## Tool Inventory (49)
+## Tool Inventory (53)
 
 ### Session and cookies (6)
 - `opendevbrowser_launch`
@@ -114,7 +118,7 @@ Operational mirror:
 - `opendevbrowser_list`
 - `opendevbrowser_close`
 
-### Navigation and interaction (13)
+### Navigation and interaction (17)
 - `opendevbrowser_goto`
 - `opendevbrowser_wait`
 - `opendevbrowser_snapshot`
@@ -127,6 +131,10 @@ Operational mirror:
 - `opendevbrowser_select`
 - `opendevbrowser_scroll`
 - `opendevbrowser_scroll_into_view`
+- `opendevbrowser_pointer_move`
+- `opendevbrowser_pointer_down`
+- `opendevbrowser_pointer_up`
+- `opendevbrowser_pointer_drag`
 - `opendevbrowser_run`
 
 ### DOM inspection (7)
@@ -164,7 +172,7 @@ Operational mirror:
 
 ## Relay Channel Inventory
 
-### `/ops` command names (44)
+### `/ops` command names (48)
 
 `/ops` is the high-level relay protocol used by default extension sessions.
 
@@ -207,6 +215,12 @@ Operational mirror:
 - `interact.scroll`
 - `interact.scrollIntoView`
 
+#### Pointer (4)
+- `pointer.move`
+- `pointer.down`
+- `pointer.up`
+- `pointer.drag`
+
 #### DOM (7)
 - `dom.getHtml`
 - `dom.getText`
@@ -238,6 +252,18 @@ Envelope contract:
 - error: `ops_error`
 - stream/event: `ops_event`, `ops_chunk`
 - liveness: `ops_ping`, `ops_pong`
+
+## Blocker and challenge surface
+
+- Managed and `/ops`-backed manager responses preserve the shipped blocker fields `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution`.
+- `meta.challenge` is additive and may appear on manager-shaped `status`, `goto`, `wait`, and `debugTraceSnapshot` responses after blocker reconciliation.
+- Provider browser fallback uses explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`.
+- `ProviderRegistry` is the only durable anti-bot pressure authority. Workflow outputs keep their existing keys while reading registry-backed pressure instead of provider-local durable state.
+
+## Legitimacy boundary
+
+- In scope: preserved sessions, low-level pointer control, visual observation loops, manual completion on third-party sites, and owned-environment fixtures that use vendor test keys only.
+- Out of scope: hidden bypasses, CAPTCHA-solving services, challenge token harvesting, or autonomous solving of third-party anti-bot systems.
 
 ### `/canvas` command names (35)
 
