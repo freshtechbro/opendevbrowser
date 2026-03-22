@@ -12,6 +12,22 @@ interface CleanupArgs {
   outputDir?: string;
 }
 
+const PASSTHROUGH_BOOLEAN_FLAGS = new Set([
+  "--with-config",
+  "--no-prompt",
+  "--no-interactive",
+  "--quiet",
+  "--skills-global",
+  "--skills-local",
+  "--no-skills",
+  "--full"
+]);
+
+const PASSTHROUGH_VALUE_FLAGS = new Set([
+  "--output-format",
+  "--transport"
+]);
+
 const usageError = (): never => {
   throw createUsageError("Usage: opendevbrowser artifacts cleanup --expired-only [--output-dir <path>]");
 };
@@ -22,6 +38,29 @@ const requireValue = (rawArgs: string[], index: number, flag: string): string =>
     throw createUsageError(`Missing value for ${flag}`);
   }
   return value;
+};
+
+const consumePassthroughFlag = (rawArgs: string[], index: number): number | null => {
+  const arg = rawArgs[index];
+  if (!arg) {
+    return null;
+  }
+
+  if (PASSTHROUGH_BOOLEAN_FLAGS.has(arg)) {
+    return index;
+  }
+
+  if (PASSTHROUGH_VALUE_FLAGS.has(arg)) {
+    requireValue(rawArgs, index, arg);
+    return index + 1;
+  }
+
+  const equalsFlag = arg.split("=", 2)[0];
+  if (equalsFlag && PASSTHROUGH_VALUE_FLAGS.has(equalsFlag)) {
+    return index;
+  }
+
+  return null;
 };
 
 const parseArtifactsArgs = (rawArgs: string[]): CleanupArgs => {
@@ -53,6 +92,12 @@ const parseArtifactsArgs = (rawArgs: string[]): CleanupArgs => {
         throw createUsageError("Missing value for --output-dir");
       }
       outputDir = value;
+      continue;
+    }
+
+    const passthroughIndex = consumePassthroughFlag(rest, index);
+    if (passthroughIndex !== null) {
+      index = passthroughIndex;
       continue;
     }
 
