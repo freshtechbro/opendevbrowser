@@ -1,6 +1,6 @@
 # OpenDevBrowser Distribution Plan
 
-Last updated: 2026-03-20
+Last updated: 2026-03-13
 
 This document is the active distribution plan for the split model:
 - public repo for runtime + release artifacts
@@ -22,7 +22,7 @@ Public repo no longer carries the `frontend/` application directory.
   - runs quality gates
   - publishes npm package and GitHub release assets
 - `.github/workflows/dispatch-private-sync.yml`
-  - dispatches `repository_dispatch` to private website repo on docs/skills/assets/changelog/help metadata/tool metadata updates
+  - dispatches `repository_dispatch` to private website repo on docs/skills/assets/changelog/tool index updates
   - warns and skips instead of failing the public push when the dispatch token is missing or cannot access the configured private repo
 - `.github/workflows/chrome-store-publish.yml` (optional lane)
   - manual Chrome Web Store upload/publish workflow
@@ -47,20 +47,16 @@ node scripts/audit-zombie-files.mjs
 node scripts/docs-drift-check.mjs
 node scripts/chrome-store-compliance-check.mjs
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
-npx opendevbrowser --help
-npx opendevbrowser help
 npm run lint
 npm run typecheck
 npm run test
 npm run build
 npm run extension:build
-node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json
-node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json
+node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-live-matrix.json
+node scripts/live-regression-matrix.mjs --release-gate
 npm run extension:pack
 npm pack
 ```
-
-`npm run test:release-gate` is grouped contract coverage. The two direct-run commands in the same block are the live release-proof lane.
 
 If one grouped release-gate unit fails, rerun only that unit:
 
@@ -103,8 +99,6 @@ git push origin vX.Y.Z
 - `skills/`
 - `assets/`
 - `CHANGELOG.md`
-- `src/cli/help.ts`
-- `src/tools/surface.ts`
 - `src/tools/index.ts`
 
 2. Private workflow regenerates frontend content and validates:
