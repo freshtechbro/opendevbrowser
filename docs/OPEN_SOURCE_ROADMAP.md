@@ -2,12 +2,13 @@
 
 Status: historical snapshot
 Snapshot date: 2026-02-16
-Last audited against repo: 2026-03-12
+Last audited against repo: 2026-03-18
 Owner: maintainer
 
 Current audit note:
 - this roadmap predates the shipped skill-pack surface already present in the repo and should not be treated as current `/open-source` landing copy without a refresh.
-- the current public repo already ships eight canonical `opendevbrowser-*` skill packs plus two compatibility alias directories under `skills/`.
+- the current public repo already ships nine canonical `opendevbrowser-*` skill packs plus two compatibility alias directories under `skills/`.
+- the M1 window below is already in progress relative to this historical snapshot; keep the milestone body as planning history until a fresh live roadmap replaces it.
 - preserve the milestone body below as planning history; refresh statuses/windows before reusing it for public roadmap claims.
 
 Purpose:
