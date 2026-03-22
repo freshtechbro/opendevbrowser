@@ -1,15 +1,26 @@
 import type {
+  AgentInboxReceipt,
   AnnotationItem,
   AnnotationPayload,
   AnnotationStyle,
   AnnotationDispatchSource
 } from "./types.js";
-import type { CanvasDocument, CanvasNode, CanvasPage } from "./canvas/model.js";
+import type { CanvasDocument, CanvasNode, CanvasPage, CanvasRect } from "./canvas/model.js";
 
-export type CanvasAnnotationDraft = {
-  nodeId: string;
-  note?: string;
-};
+export type CanvasAnnotationDraft =
+  | {
+    kind?: "node";
+    nodeId: string;
+    note?: string;
+  }
+  | {
+    kind: "region";
+    regionId: string;
+    rect: CanvasRect;
+    pageId?: string | null;
+    label?: string;
+    note?: string;
+  };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -153,6 +164,16 @@ export function formatDispatchSourceLabel(source: AnnotationDispatchSource): str
   }
 }
 
+export function formatAnnotationDispatchReceipt(receipt: AgentInboxReceipt | null | undefined): string {
+  if (!receipt) {
+    return "Stored only; fetch with annotate --stored";
+  }
+  if (receipt.deliveryState === "delivered" || receipt.deliveryState === "consumed") {
+    return "Delivered to agent";
+  }
+  return "Stored only; fetch with annotate --stored";
+}
+
 export function buildCanvasAnnotationPayload(options: {
   document: CanvasDocument;
   page: CanvasPage;
@@ -160,13 +181,39 @@ export function buildCanvasAnnotationPayload(options: {
   context?: string;
 }): AnnotationPayload {
   const nodesById = new Map(options.page.nodes.map((node) => [node.id, node]));
-  const annotations: AnnotationItem[] = options.drafts.flatMap((draft) => {
+  const annotations = options.drafts.flatMap<AnnotationItem>((draft) => {
+    if (draft.kind === "region") {
+      const annotation: AnnotationItem = {
+        id: draft.regionId,
+        selector: `[data-canvas-region="${draft.regionId}"]`,
+        tag: "canvas-region",
+        idAttr: draft.regionId,
+        classes: ["canvas-region"],
+        text: readString(draft.label) ?? undefined,
+        rect: {
+          x: draft.rect.x,
+          y: draft.rect.y,
+          width: draft.rect.width,
+          height: draft.rect.height
+        },
+        attributes: {
+          "data-canvas-region": draft.regionId,
+          "data-canvas-kind": "region"
+        },
+        a11y: {},
+        styles: {
+          position: "absolute"
+        },
+        note: readString(draft.note) ?? undefined
+      };
+      return [annotation];
+    }
     const node = nodesById.get(draft.nodeId);
     if (!node) {
       return [];
     }
     const tag = resolveCanvasTag(node);
-    return [{
+    const annotation: AnnotationItem = {
       id: node.id,
       selector: `[data-node-id="${node.id}"]`,
       tag,
@@ -186,7 +233,8 @@ export function buildCanvasAnnotationPayload(options: {
       },
       styles: buildCanvasStyles(node),
       note: readString(draft.note) ?? undefined
-    }];
+    };
+    return [annotation];
   });
   return {
     url: formatCanvasUrl(options.document.documentId, options.page),

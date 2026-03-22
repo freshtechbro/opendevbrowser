@@ -11,6 +11,7 @@ const findChromeExecutable = vi.fn();
 const downloadChromeForTesting = vi.fn();
 const launchPersistentContext = vi.fn();
 const connectOverCDP = vi.fn();
+const loadSystemChromeCookies = vi.fn();
 const captureDom = vi.fn().mockResolvedValue({ html: "<div>ok</div>", styles: { color: "red" } });
 const rm = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
@@ -28,6 +29,7 @@ vi.mock("playwright-core", () => ({
   }
 }));
 vi.mock("../src/export/dom-capture", () => ({ captureDom }));
+vi.mock("../src/browser/system-chrome-cookies", () => ({ loadSystemChromeCookies }));
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -104,6 +106,7 @@ const createPage = (nodes: LegacyNode[]) => {
       currentUrl = url;
       return { status: () => 200 };
     }),
+    setContent: vi.fn().mockResolvedValue(undefined),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
     mainFrame: vi.fn(() => frame),
     isClosed: vi.fn().mockReturnValue(false),
@@ -154,6 +157,15 @@ const createPage = (nodes: LegacyNode[]) => {
       }
       if (method === "Performance.getMetrics") {
         return { metrics: [{ name: "Nodes", value: 1 }] };
+      }
+      if (method === "Page.getFrameTree") {
+        return { frameTree: { frame: { id: "frame-root" } } };
+      }
+      if (method === "Page.setDocumentContent") {
+        return {};
+      }
+      if (method === "Page.captureScreenshot") {
+        return { data: Buffer.from("image").toString("base64") };
       }
       return {};
     }),
@@ -227,7 +239,7 @@ const createBrowserBundle = (
     close: vi.fn().mockResolvedValue(undefined)
   };
 
-  return { browser, context, page, locator };
+  return { browser, context, page, locator, cdpSession };
 };
 
 beforeEach(async () => {
@@ -242,6 +254,7 @@ beforeEach(async () => {
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   rm.mockClear();
   captureDom.mockClear();
+  loadSystemChromeCookies.mockResolvedValue({ cookies: [], source: null, warnings: [] });
 });
 
 afterEach(() => {
@@ -265,7 +278,6 @@ describe("BrowserManager", () => {
 
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
-    manager.updateConfig(resolveConfig({}));
 
     const result = await manager.launch({ profile: "default" });
     expect(result.mode).toBe("managed");
@@ -278,6 +290,112 @@ describe("BrowserManager", () => {
     const status = await manager.status(result.sessionId);
     expect(status.url).toBeDefined();
   }, 15000);
+
+  it("imports system Chrome cookies into managed launches before first navigation", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    loadSystemChromeCookies.mockResolvedValue({
+      cookies: [{
+        name: "sessionid",
+        value: "abc123",
+        domain: ".example.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+        sameSite: "Lax"
+      }],
+      source: {
+        browserName: "chrome",
+        userDataDir: "/Users/test/Library/Application Support/Google/Chrome",
+        profileDirectory: "Default",
+        profilePath: "/Users/test/Library/Application Support/Google/Chrome/Default"
+      },
+      warnings: ["Imported cookies from system Chrome."]
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({ profile: "default", startUrl: "https://example.com/app" });
+
+    expect(loadSystemChromeCookies).toHaveBeenCalledWith("/bin/chrome");
+    expect(context.addCookies).toHaveBeenCalledWith([{
+      name: "sessionid",
+      value: "abc123",
+      domain: ".example.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax"
+    }]);
+    expect(context.addCookies.mock.invocationCallOrder[0]).toBeLessThan(page.goto.mock.invocationCallOrder[0]);
+    expect(result.warnings).toContain("Imported cookies from system Chrome.");
+  });
+
+  it("skips invalid bootstrapped system Chrome cookies instead of failing the launch", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    loadSystemChromeCookies.mockResolvedValue({
+      cookies: [
+        {
+          name: "valid",
+          value: "abc123",
+          domain: ".example.com",
+          path: "/",
+          expires: -1,
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax"
+        },
+        {
+          name: "invalid",
+          value: "bad\u0000value",
+          domain: ".example.com",
+          path: "/",
+          expires: -1,
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax"
+        }
+      ],
+      source: {
+        browserName: "chrome",
+        userDataDir: "/Users/test/Library/Application Support/Google/Chrome",
+        profileDirectory: "Default",
+        profilePath: "/Users/test/Library/Application Support/Google/Chrome/Default"
+      },
+      warnings: []
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({ profile: "default" });
+
+    expect(context.addCookies).toHaveBeenCalledWith([{
+      name: "valid",
+      value: "abc123",
+      domain: ".example.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax"
+    }]);
+    expect(result.warnings).toContain("System Chrome cookie bootstrap skipped 1 invalid cookies.");
+  });
 
   it("updates tracker options when config changes", async () => {
     const nodes = [
@@ -339,6 +457,32 @@ describe("BrowserManager", () => {
     expect(managed.fingerprint.tier2.mode).toBe("adaptive");
     expect(managed.fingerprint.tier3.enabled).toBe(true);
     expect(managed.fingerprint.tier3.fallbackTier).toBe("tier1");
+  });
+
+  it("skips governor refresh when config updates after parallel state is cleared", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+    const managerAny = manager as unknown as {
+      sessionParallel: Map<string, unknown>;
+      wakeWaiters: (sessionId: string) => void;
+    };
+
+    managerAny.sessionParallel.delete(result.sessionId);
+    const wakeSpy = vi.spyOn(managerAny, "wakeWaiters").mockImplementation(() => undefined);
+
+    expect(() => manager.updateConfig(resolveConfig({
+      devtools: { showFullConsole: true, showFullUrls: true }
+    }))).not.toThrow();
+    expect(wakeSpy).not.toHaveBeenCalled();
   });
 
   it("downloads Chrome when missing", async () => {
@@ -549,11 +693,63 @@ describe("BrowserManager", () => {
     expect(result.mode).toBe("cdpConnect");
   });
 
+  it("imports system Chrome cookies into cdpConnect sessions", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
+    }) as never;
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    connectOverCDP.mockResolvedValue(browser);
+    loadSystemChromeCookies.mockResolvedValue({
+      cookies: [{
+        name: "csrftoken",
+        value: "xyz789",
+        domain: ".instagram.com",
+        path: "/",
+        expires: -1,
+        httpOnly: false,
+        secure: true,
+        sameSite: "Lax"
+      }],
+      source: {
+        browserName: "chrome",
+        userDataDir: "/Users/test/Library/Application Support/Google/Chrome",
+        profileDirectory: "Default",
+        profilePath: "/Users/test/Library/Application Support/Google/Chrome/Default"
+      },
+      warnings: ["Imported cookies from system Chrome."]
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connect({ host: "127.0.0.1", port: 9222 });
+
+    expect(loadSystemChromeCookies).toHaveBeenCalledWith("/bin/chrome");
+    expect(context.addCookies).toHaveBeenCalledWith([{
+      name: "csrftoken",
+      value: "xyz789",
+      domain: ".instagram.com",
+      path: "/",
+      expires: -1,
+      httpOnly: false,
+      secure: true,
+      sameSite: "Lax"
+    }]);
+    expect(result.warnings).toContain("Imported cookies from system Chrome.");
+  });
+
   it("opens startUrl after direct CDP connect", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
-    const { browser, page } = createBrowserBundle(nodes);
+    const { browser, page, cdpSession } = createBrowserBundle(nodes);
 
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -599,11 +795,33 @@ describe("BrowserManager", () => {
     expect(result.wsEndpoint).toBe("ws://127.0.0.1:8787/cdp");
   });
 
+  it("still attempts legacy /cdp connect when relay status only reports unrelated /ops clients", async () => {
+    const { browser } = createBrowserBundle([]);
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1" })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ opsConnected: true, cdpConnected: false })
+      }) as never;
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    expect(result.mode).toBe("extension");
+    expect(connectOverCDP).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+  });
+
   it("opens startUrl after legacy relay connect", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
-    const { browser, page } = createBrowserBundle(nodes);
+    const { browser, page, cdpSession } = createBrowserBundle(nodes);
     page.url.mockReturnValue("https://existing.example/");
 
     globalThis.fetch = vi.fn()
@@ -626,6 +844,29 @@ describe("BrowserManager", () => {
       waitUntil: "load",
       timeout: 30000
     });
+  });
+
+  it("retries legacy relay connect when the extension drops the first /cdp attach", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP
+      .mockRejectedValueOnce(new Error("browserType.connectOverCDP: Target page, context or browser has been closed\nExtension disconnected"))
+      .mockResolvedValueOnce(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    expect(result.mode).toBe("extension");
+    expect(connectOverCDP.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("ignores token query params on relay endpoints", async () => {
@@ -924,6 +1165,130 @@ describe("BrowserManager", () => {
 
     const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
     expect(result.mode).toBe("extension");
+    expect(connectOverCDP).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits for a stale legacy /cdp slot to clear before retrying relay connect", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+    connectOverCDP.mockReset();
+
+    const statusReplies = [
+      { opsConnected: false, cdpConnected: true },
+      { opsConnected: false, cdpConnected: false }
+    ];
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/config")) {
+        return {
+          ok: true,
+          json: async () => ({ relayPort: 8787, pairingRequired: false })
+        };
+      }
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => statusReplies.shift() ?? { opsConnected: false, cdpConnected: false }
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({})
+      };
+    }) as never;
+
+    connectOverCDP
+      .mockRejectedValueOnce(new Error("browserType.connectOverCDP: Target page, context or browser has been closed\nBrowser logs:\n\nOnly one CDP client supported"))
+      .mockResolvedValueOnce(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    expect(result.mode).toBe("extension");
+    expect(connectOverCDP).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits for the relay /cdp slot to clear after another retryable legacy attach failure", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+    connectOverCDP.mockReset();
+
+    const statusReplies = [
+      { opsConnected: false, cdpConnected: true },
+      { opsConnected: false, cdpConnected: false }
+    ];
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/config")) {
+        return {
+          ok: true,
+          json: async () => ({ relayPort: 8787, pairingRequired: false })
+        };
+      }
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => statusReplies.shift() ?? { opsConnected: false, cdpConnected: false }
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({})
+      };
+    }) as never;
+
+    connectOverCDP
+      .mockRejectedValueOnce(new Error("Protocol error (Target.setAutoAttach): Chrome 125+ required for extension relay (flat sessions). (No tab with given id 123.)"))
+      .mockRejectedValueOnce(new Error("browserType.connectOverCDP: Target page, context or browser has been closed\nBrowser logs:\n\nOnly one CDP client supported"))
+      .mockResolvedValueOnce(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    expect(result.mode).toBe("extension");
+    expect(connectOverCDP).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses local backoff when retryable extension relay failures happen before relay status polling is available", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+    connectOverCDP.mockReset();
+    connectOverCDP
+      .mockRejectedValueOnce(new Error("browserType.connectOverCDP: Target page, context or browser has been closed\nBrowser logs:\n\nOnly one CDP client supported"))
+      .mockResolvedValueOnce(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      connectWithEndpoint: (
+        connectWsEndpoint: string,
+        mode: "extension" | "managed" | "cdpConnect",
+        reportedWsEndpoint?: string,
+        relayPort?: number
+      ) => Promise<{ mode: string }>;
+    };
+
+    vi.useFakeTimers();
+    try {
+      const resultPromise = managerAny.connectWithEndpoint(
+        "ws://127.0.0.1:8787/cdp?token=test",
+        "extension",
+        "ws://127.0.0.1:8787/cdp"
+      );
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(resultPromise).resolves.toMatchObject({ mode: "extension" });
+    } finally {
+      vi.useRealTimers();
+    }
+
     expect(connectOverCDP).toHaveBeenCalledTimes(2);
   });
 
@@ -1258,6 +1623,216 @@ describe("BrowserManager", () => {
     expect(waitCalls).toBeLessThan(gotoCalls);
   });
 
+  it("falls back to setContent when html data-url navigation aborts on a target-scoped legacy relay page", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page, cdpSession } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com/");
+    page.goto.mockRejectedValueOnce(new Error("page.goto: net::ERR_ABORTED at data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const dataUrl = "data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E";
+    const navigation = await manager.goto(result.sessionId, dataUrl, "load", 30000, undefined, result.activeTargetId);
+
+    expect(page.setContent).toHaveBeenCalledWith("<main>Preview</main>", {
+      waitUntil: "domcontentloaded",
+      timeout: 5000
+    });
+    expect(page.waitForLoadState).toHaveBeenCalledWith("load", { timeout: 5000 });
+    expect(navigation.finalUrl).toBe(dataUrl);
+    expect(navigation).not.toHaveProperty("status");
+  });
+
+  it("skips legacy title probes for data-url navigation targets", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page } = createBrowserBundle(nodes);
+    page.title.mockImplementation(() => {
+      throw new Error("title lookup should be skipped");
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const dataUrl = "data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E";
+    const navigation = await manager.goto(result.sessionId, dataUrl, "load", 30000, undefined, result.activeTargetId);
+
+    expect(navigation.finalUrl).toBe(dataUrl);
+    expect(page.title).not.toHaveBeenCalled();
+  });
+
+  it("skips legacy title probes for http navigation targets too", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page } = createBrowserBundle(nodes);
+    page.title.mockImplementation(() => {
+      throw new Error("title lookup should be skipped");
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const navigation = await manager.goto(
+      result.sessionId,
+      "https://example.com/?legacy-title-skip=1",
+      "load",
+      30000,
+      undefined,
+      result.activeTargetId
+    );
+
+    expect(navigation.finalUrl).toBe("https://example.com/?legacy-title-skip=1");
+    expect(page.title).not.toHaveBeenCalled();
+  });
+
+  it("skips legacy title probes for status and target listings on non-http relay pages", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E");
+    page.title.mockImplementation(() => {
+      throw new Error("title lookup should be skipped");
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const status = await manager.status(result.sessionId);
+    const listed = await manager.listTargets(result.sessionId, true);
+
+    expect(status.title).toBeUndefined();
+    expect(listed.targets[0]?.title).toBeUndefined();
+    expect(listed.targets[0]?.url).toBe("data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E");
+    expect(page.title).not.toHaveBeenCalled();
+  });
+
+  it("writes the html document directly when setContent also times out on legacy data-url fallback", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page, cdpSession } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com/");
+    page.goto.mockRejectedValueOnce(new Error("page.goto: net::ERR_ABORTED at data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E"));
+    page.setContent.mockRejectedValueOnce(new Error("page.setContent: Timeout 5000ms exceeded."));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const dataUrl = "data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E";
+    await manager.goto(result.sessionId, dataUrl, "load", 30000, undefined, result.activeTargetId);
+
+    expect(page.setContent).toHaveBeenCalledWith("<main>Preview</main>", {
+      waitUntil: "domcontentloaded",
+      timeout: 5000
+    });
+    expect(cdpSession.send).toHaveBeenCalledWith("Page.getFrameTree");
+    expect(cdpSession.send).toHaveBeenCalledWith("Page.setDocumentContent", {
+      frameId: "frame-root",
+      html: "<main>Preview</main>"
+    });
+  });
+
+  it("falls back to runtime document writes when cdp document replacement is unavailable", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page, cdpSession } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com/");
+    page.goto.mockRejectedValueOnce(new Error("page.goto: net::ERR_ABORTED at data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E"));
+    page.setContent.mockRejectedValueOnce(new Error("page.setContent: Timeout 5000ms exceeded."));
+    cdpSession.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Page.getFrameTree") {
+        throw new Error("Page.getFrameTree failed");
+      }
+      if (method === "Performance.getMetrics") {
+        return { metrics: [{ name: "Nodes", value: 1 }] };
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        return { nodes: [] };
+      }
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: `obj-${params?.backendNodeId ?? 0}` } };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        return { result: { value: "" } };
+      }
+      return {};
+    });
+    page.evaluate
+      .mockRejectedValueOnce(new Error("page.evaluate: Execution context was destroyed, most likely because of a navigation."))
+      .mockResolvedValueOnce(undefined);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+      const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+      const dataUrl = "data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E";
+      const navigationPromise = manager.goto(result.sessionId, dataUrl, "load", 30000, undefined, result.activeTargetId);
+      await vi.advanceTimersByTimeAsync(2000);
+      await navigationPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(page.evaluate).toHaveBeenCalledTimes(2);
+    expect(cdpSession.send).toHaveBeenCalledWith("Page.getFrameTree");
+  });
+
   it("skips target creation when active tab is about:blank and creation is not allowed", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -1278,6 +1853,210 @@ describe("BrowserManager", () => {
 
     const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
     await manager.goto(result.sessionId, "https://example.com");
+  });
+
+  it("reuses the bootstrapped about:blank relay page before creating a new target", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("about:blank");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.goto(result.sessionId, "https://example.com/blank-bootstrap");
+
+    expect(context.newPage).not.toHaveBeenCalled();
+    expect(page.goto).toHaveBeenCalledWith("https://example.com/blank-bootstrap", {
+      waitUntil: "load",
+      timeout: 30000
+    });
+  });
+
+  it("prefers the newest blank relay page when reconnect leaves multiple blank targets", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("about:blank");
+    page.goto.mockRejectedValue(new Error("should not reuse the oldest blank page"));
+
+    const newest = createPage(nodes);
+    newest.setContext(context);
+    newest.page.url.mockReturnValue("about:blank");
+    context.pages().push(newest.page as never);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.goto(result.sessionId, "https://example.com/newest-blank");
+
+    expect(page.goto).not.toHaveBeenCalled();
+    expect(newest.page.goto).toHaveBeenCalledWith("https://example.com/newest-blank", {
+      waitUntil: "load",
+      timeout: 30000
+    });
+  });
+
+  it("reuses a stable legacy page when the active tab cannot report its url and new page creation closes", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    const fallback = createPage(nodes);
+    fallback.setContext(context);
+    fallback.page.url.mockReturnValue("https://fallback.example");
+    vi.spyOn(context, "pages").mockReturnValue([page, fallback.page]);
+    page.url.mockImplementation(() => {
+      throw new Error("Target page, context or browser has been closed");
+    });
+    vi.spyOn(context, "newPage").mockRejectedValue(new Error("browserContext.newPage: Target page, context or browser has been closed"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.goto(result.sessionId, "https://example.com/next");
+
+    expect(context.newPage).not.toHaveBeenCalled();
+    expect(fallback.page.goto).toHaveBeenCalledWith("https://example.com/next", { waitUntil: "load", timeout: 30000 });
+  });
+
+  it("reuses a stable legacy page when readiness reports the active page closed", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    const fallback = createPage(nodes);
+    fallback.setContext(context);
+    fallback.page.url.mockReturnValue("https://fallback.example");
+    vi.spyOn(context, "pages").mockReturnValue([page, fallback.page]);
+    page.isClosed.mockReturnValue(true);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.goto(result.sessionId, "https://example.com/next");
+
+    expect(fallback.page.goto).toHaveBeenCalledWith("https://example.com/next", { waitUntil: "load", timeout: 30000 });
+  });
+
+  it("reuses another stable legacy page when navigation closes the active page but it still appears in the target list", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    const fallback = createPage(nodes);
+    fallback.setContext(context);
+    page.url.mockReturnValue("https://stale.example");
+    fallback.page.url.mockReturnValue("https://fallback.example");
+    vi.spyOn(context, "pages").mockReturnValue([page, fallback.page]);
+    page.goto.mockRejectedValue(new Error("page.goto: Target page, context or browser has been closed"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.goto(result.sessionId, "https://example.com/next");
+
+    expect(page.goto).toHaveBeenCalledTimes(1);
+    expect(fallback.page.goto).toHaveBeenCalledWith("https://example.com/next", {
+      waitUntil: "load",
+      timeout: 30000
+    });
+  });
+
+  it("reconnects a legacy relay session when navigation closes the only tracked page", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const first = createBrowserBundle(nodes);
+    const second = createBrowserBundle(nodes);
+    const initialConnectCalls = connectOverCDP.mock.calls.length;
+    first.page.url.mockReturnValue("https://legacy.example");
+    let firstPages = [first.page];
+    vi.spyOn(first.context, "pages").mockImplementation(() => firstPages);
+    vi.spyOn(first.context, "newPage").mockRejectedValue(new Error("Target.createTarget Not allowed"));
+    first.page.goto.mockImplementationOnce(async () => {
+      firstPages = [];
+      first.page.isClosed.mockReturnValue(true);
+      throw new Error("page.goto: Target page, context or browser has been closed");
+    });
+    second.page.url.mockReturnValue("https://replacement.example");
+
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => ({ opsConnected: false, cdpConnected: false })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: false })
+      };
+    }) as never;
+
+    connectOverCDP
+      .mockResolvedValueOnce(first.browser)
+      .mockImplementationOnce(async () => {
+        expect(first.browser.close).toHaveBeenCalled();
+        return second.browser;
+      });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    await manager.goto(result.sessionId, "https://example.com/next");
+
+    expect(first.context.newPage).not.toHaveBeenCalled();
+    expect(connectOverCDP.mock.calls.length - initialConnectCalls).toBeGreaterThanOrEqual(2);
+    expect(second.page.goto).toHaveBeenCalledWith("https://example.com/next", {
+      waitUntil: "load",
+      timeout: 30000
+    });
+    expect(first.browser.close).toHaveBeenCalled();
   });
 
   it("continues when extension page readiness times out during creation", async () => {
@@ -1527,7 +2306,7 @@ describe("BrowserManager", () => {
     await expect(manager.goto(result.sessionId, "https://example.com")).rejects.toThrow("boom");
   });
 
-  it("throws when initial target creation fails with a non-allowed error", async () => {
+  it("reuses the active blank page when no stable legacy target exists", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
@@ -1546,10 +2325,16 @@ describe("BrowserManager", () => {
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
     const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
-    await expect(manager.goto(result.sessionId, "https://example.com")).rejects.toThrow("boom");
+    await manager.goto(result.sessionId, "https://example.com");
+
+    expect(context.newPage).not.toHaveBeenCalled();
+    expect(page.goto).toHaveBeenCalledWith("https://example.com", {
+      waitUntil: "load",
+      timeout: 30000
+    });
   });
 
-  it("throws when extension readiness fails with non-detached errors during goto", async () => {
+  it("skips readiness probes during goto for already-addressable relay pages", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
@@ -1568,7 +2353,9 @@ describe("BrowserManager", () => {
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
     const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
-    await expect(manager.goto(result.sessionId, "https://example.com")).rejects.toThrow("boom");
+    const navigation = await manager.goto(result.sessionId, "https://example.com");
+    expect(navigation.finalUrl).toBe("https://example.com/");
+    expect(page.mainFrame().waitForLoadState).not.toHaveBeenCalled();
   });
 
   it("falls back when extension readiness times out during goto", async () => {
@@ -1594,11 +2381,11 @@ describe("BrowserManager", () => {
     await manager.goto(result.sessionId, "https://example.com");
   });
 
-  it("throws when extension target closes before readiness", async () => {
+  it("reuses the active tab when legacy target closes before readiness", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
-    const { browser, context } = createBrowserBundle(nodes);
+    const { browser, context, page } = createBrowserBundle(nodes);
     const nextPage = createPage(nodes);
     nextPage.setContext(context);
     vi.spyOn(context, "newPage").mockResolvedValueOnce(nextPage.page as never);
@@ -1615,9 +2402,10 @@ describe("BrowserManager", () => {
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
     const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
-    await expect(manager.newTarget(result.sessionId, "https://example.com")).rejects.toThrow(
-      "EXTENSION_TARGET_READY_CLOSED"
-    );
+    const created = await manager.newTarget(result.sessionId, "https://example.com");
+
+    expect(created.targetId).toBe(result.activeTargetId);
+    expect(page.goto).toHaveBeenCalledWith("https://example.com", { waitUntil: "load" });
   });
 
   it("retries extension navigation after detached frame", async () => {
@@ -2147,6 +2935,35 @@ describe("BrowserManager", () => {
     expect(page.goto).toHaveBeenCalledWith("https://example.com", { waitUntil: "load" });
   });
 
+  it("falls back to the active tab when legacy target creation closes the context", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+
+    await page.goto("https://example.com");
+
+    const newPageMock = context.newPage as ReturnType<typeof vi.fn>;
+    newPageMock.mockRejectedValueOnce(new Error("browserContext.newPage: Target page, context or browser has been closed"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    const created = await manager.newTarget(result.sessionId, "https://example.com");
+    expect(created.targetId).toBe(result.activeTargetId);
+    expect(context.newPage).toHaveBeenCalledTimes(1);
+    expect(page.goto).toHaveBeenCalledWith("https://example.com", { waitUntil: "load" });
+  });
+
   it("reuses the active tab when extension page creation detaches", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -2176,6 +2993,35 @@ describe("BrowserManager", () => {
     expect(created.targetId).toBe(result.activeTargetId);
     expect(created.created).toBe(true);
     expect(context.newPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses the active tab when legacy page creation closes the context", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+
+    await page.goto("https://example.com");
+
+    const newPageMock = context.newPage as ReturnType<typeof vi.fn>;
+    newPageMock.mockRejectedValueOnce(new Error("browserContext.newPage: Target page, context or browser has been closed"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const created = await manager.page(result.sessionId, "smoke", "https://example.com");
+
+    expect(created.targetId).toBe(result.activeTargetId);
+    expect(created.created).toBe(true);
+    expect(context.newPage).toHaveBeenCalledTimes(1);
   });
 
   it("creates named pages in extension mode", async () => {
@@ -3040,6 +3886,40 @@ describe("BrowserManager", () => {
     }
   });
 
+  it("swallows late title rejections after timing out in useTarget", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+    page.title.mockImplementationOnce(() => new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("late title fail")), 2500);
+    }));
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const unhandledRejection = vi.fn();
+    process.on("unhandledRejection", unhandledRejection);
+    vi.useFakeTimers();
+    try {
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+      const result = await manager.launch({ profile: "default" });
+
+      const active = result.activeTargetId as string;
+      const usePromise = manager.useTarget(result.sessionId, active);
+      await vi.advanceTimersByTimeAsync(2000);
+      const used = await usePromise;
+      expect(used.title).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1000);
+      await Promise.resolve();
+      expect(unhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandledRejection);
+      vi.useRealTimers();
+    }
+  });
+
   it("manages named pages", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -3427,6 +4307,50 @@ describe("BrowserManager", () => {
     expect(locator.getAttribute).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back to locator DOM-state helpers when managed backend evaluation fails for non-stale errors", async () => {
+    const nodes = [
+      { ref: "r1", role: "checkbox", name: "Ready", tag: "input", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, locator } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId, "outline", 500);
+
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "obj-101" } };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof params?.functionDeclaration === "string"
+            ? params.functionDeclaration
+            : "";
+          if (
+            declaration.includes("odb-dom-is-visible")
+            || declaration.includes("odb-dom-is-enabled")
+            || declaration.includes("odb-dom-is-checked")
+          ) {
+            throw new Error("CDP transport unavailable");
+          }
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    expect(await manager.domIsVisible(launch.sessionId, "r1")).toEqual({ value: true });
+    expect(await manager.domIsEnabled(launch.sessionId, "r1")).toEqual({ value: true });
+    expect(await manager.domIsChecked(launch.sessionId, "r1")).toEqual({ value: false });
+    expect(locator.isVisible).toHaveBeenCalledTimes(1);
+    expect(locator.isEnabled).toHaveBeenCalledTimes(1);
+    expect(locator.isChecked).toHaveBeenCalledTimes(1);
+  });
+
   it("exports clones and collects perf metrics", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -3474,6 +4398,96 @@ describe("BrowserManager", () => {
     expect(page.screenshot).toHaveBeenCalledWith(expect.objectContaining({ path: "/tmp/example.png" }));
   });
 
+  it("falls back to CDP screenshot capture when legacy relay screenshots time out", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page, cdpSession } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com/");
+    page.screenshot.mockRejectedValueOnce(new Error("page.screenshot: Timeout 30000ms exceeded."));
+    cdpSession.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Page.captureScreenshot") {
+        return { data: Buffer.from("fallback-image").toString("base64") };
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        return { nodes: [] };
+      }
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: `obj-${params?.backendNodeId ?? 0}` } };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        return { result: { value: "" } };
+      }
+      return {};
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const shot = await manager.screenshot(result.sessionId, undefined, result.activeTargetId);
+
+    expect(cdpSession.send).toHaveBeenCalledWith("Page.captureScreenshot", { format: "png" });
+    expect(shot).toEqual({
+      base64: Buffer.from("fallback-image").toString("base64"),
+      warnings: ["cdp_capture_fallback"]
+    });
+  });
+
+  it("falls back to CDP screenshot capture when legacy relay screenshots hang", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page, cdpSession } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com/");
+    page.screenshot.mockImplementation(() => new Promise<Buffer>(() => {}));
+    cdpSession.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Page.captureScreenshot") {
+        return { data: Buffer.from("fallback-image-hang").toString("base64") };
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        return { nodes: [] };
+      }
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: `obj-${params?.backendNodeId ?? 0}` } };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        return { result: { value: "" } };
+      }
+      return {};
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    vi.useFakeTimers();
+    try {
+      const shotPromise = manager.screenshot(result.sessionId, undefined, result.activeTargetId);
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(shotPromise).resolves.toEqual({
+        base64: Buffer.from("fallback-image-hang").toString("base64"),
+        warnings: ["cdp_capture_fallback"]
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns empty perf metrics when CDP response lacks metrics", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -3493,6 +4507,38 @@ describe("BrowserManager", () => {
 
     const perf = await manager.perfMetrics(launch.sessionId);
     expect(perf.metrics).toEqual([]);
+  });
+
+  it("returns empty perf metrics when legacy relay metrics hang", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com/");
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(() => new Promise(() => {})),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    vi.useFakeTimers();
+    try {
+      const perfPromise = manager.perfMetrics(result.sessionId, result.activeTargetId);
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(perfPromise).resolves.toEqual({ metrics: [] });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("captures exception/channel diagnostics via debug trace snapshot", async () => {
@@ -3623,6 +4669,60 @@ describe("BrowserManager", () => {
       .toThrow("Cookie list url must be http(s)");
   });
 
+  it("skips cookie writes when strict=false leaves no valid cookies and omits empty sameSite values", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+    context.cookies.mockResolvedValue([
+      {
+        name: "session",
+        value: "abc123",
+        domain: "example.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true
+      }
+    ]);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const imported = await manager.cookieImport(
+      launch.sessionId,
+      [{ name: "bad", value: "abc123", sameSite: "None", secure: false }],
+      false,
+      "req-cookie-noop"
+    );
+    expect(imported).toEqual({
+      requestId: "req-cookie-noop",
+      imported: 0,
+      rejected: [{ index: 0, reason: "Cookie bad requires url or domain." }]
+    });
+    expect(context.addCookies).not.toHaveBeenCalled();
+
+    const listed = await manager.cookieList(launch.sessionId, undefined, "req-cookie-list-all");
+    expect(listed).toEqual({
+      requestId: "req-cookie-list-all",
+      cookies: [{
+        name: "session",
+        value: "abc123",
+        domain: "example.com",
+        path: "/",
+        expires: -1,
+        httpOnly: true,
+        secure: true
+      }],
+      count: 1
+    });
+    expect(context.cookies).toHaveBeenCalledWith();
+  });
+
   it("waits for extension readiness in withPage and supports exception polling", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -3637,7 +4737,13 @@ describe("BrowserManager", () => {
     connectOverCDP.mockResolvedValue(browser);
 
     const { BrowserManager } = await import("../src/browser/browser-manager");
-    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const manager = new BrowserManager("/tmp/project", resolveConfig({
+      canary: {
+        targets: {
+          enabled: true
+        }
+      }
+    }));
     const session = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
 
     const viaTarget = await manager.withPage(session.sessionId, session.activeTargetId, async (activePage) => activePage.url());
@@ -3676,6 +4782,63 @@ describe("BrowserManager", () => {
     const currentUrl = await manager.withPage(launch.sessionId, null, async (activePage) => activePage.url());
     expect(currentUrl).toBe("about:blank");
     expect(waitSpy).not.toHaveBeenCalled();
+  });
+
+  it("skips legacy readiness waits for already-addressable relay pages", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com/already-ready");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const session = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    const currentUrl = await manager.withPage(session.sessionId, session.activeTargetId, async (activePage) => activePage.url());
+    expect(currentUrl).toBe("https://example.com/already-ready");
+    expect(page.mainFrame().waitForLoadState).not.toHaveBeenCalled();
+  });
+
+  it("recovers legacy withPage calls when the selected relay page closes", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    const fallback = createPage(nodes);
+    fallback.setContext(context);
+    page.url.mockReturnValue("https://stale.example");
+    fallback.page.url.mockReturnValue("https://fallback.example");
+    vi.spyOn(context, "pages").mockReturnValue([page, fallback.page]);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const session = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    const visited: string[] = [];
+    const currentUrl = await manager.withPage(session.sessionId, session.activeTargetId, async (activePage) => {
+      const url = activePage.url();
+      visited.push(url);
+      if (url === "https://stale.example") {
+        throw new Error("Target page, context or browser has been closed");
+      }
+      return url;
+    });
+
+    expect(currentUrl).toBe("https://fallback.example");
+    expect(visited).toEqual(["https://stale.example", "https://fallback.example"]);
   });
 
   it("applies the runtime preview bridge through managed sessions", async () => {
@@ -4699,10 +5862,869 @@ describe("BrowserManager", () => {
       "https://example.com",
       "https://example.com/"
     ])).toEqual(["https://example.com/"]);
+    expect(() => managerAny.normalizeCookieListUrls(["   "])).toThrow("Cookie list urls must be non-empty strings.");
+    expect(() => managerAny.normalizeCookieListUrls(["not-a-url"])).toThrow("Cookie list url is invalid: not-a-url");
+    expect(() => managerAny.normalizeCookieListUrls(["ftp://example.com"])).toThrow("Cookie list url must be http(s): ftp://example.com");
 
     expect(managerAny.isTargetNotAllowedError("Target.createTarget: Not allowed")).toBe(true);
     expect(managerAny.isTargetNotAllowedError(new Error("something else"))).toBe(false);
     expect(managerAny.isExtensionTargetReadyTimeout("EXTENSION_TARGET_READY_TIMEOUT: nav")).toBe(true);
     expect(managerAny.isExtensionTargetReadyTimeout(new Error("different"))).toBe(false);
+  });
+
+  it("reuses cached governor snapshots and records verifier failures only for tracked sessions", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      sessionParallel: Map<string, {
+        inflight: number;
+        waiters: Array<{ targetId: string; enqueuedAt: number; timeoutMs: number; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> | null }>;
+        waitingByTarget: Map<string, number[]>;
+        governor: { modeVariant: string; staticCap: number; effectiveCap: number; healthyWindows: number; lastSampleAt: number; lastPressure: string };
+        lastSnapshot: {
+          state: { modeVariant: string; staticCap: number; effectiveCap: number; healthyWindows: number; lastSampleAt: number; lastPressure: string };
+          pressure: string;
+          targetCap: number;
+          waitQueueDepth: number;
+          waitQueueAgeMs: number;
+        };
+      }>;
+      refreshGovernorSnapshot: (sessionId: string) => {
+        state: { modeVariant: string; staticCap: number; effectiveCap: number; healthyWindows: number; lastSampleAt: number; lastPressure: string };
+        pressure: string;
+        targetCap: number;
+        waitQueueDepth: number;
+        waitQueueAgeMs: number;
+      };
+      markVerifierFailure: (sessionId: string, error: unknown) => void;
+      store: {
+        has: (sessionId: string) => boolean;
+        markVerificationFailure: (sessionId: string, state: { envLimited: boolean; timedOut: boolean }) => void;
+      };
+    };
+
+    const now = Date.now();
+    const state = {
+      inflight: 1,
+      waiters: [{
+        targetId: "tab-hot",
+        enqueuedAt: now - 2500,
+        timeoutMs: 25,
+        resolve: vi.fn(),
+        reject: vi.fn(),
+        timer: null
+      }],
+      waitingByTarget: new Map([["tab-hot", [now - 2500]]]),
+      governor: {
+        modeVariant: "managedHeaded",
+        staticCap: 2,
+        effectiveCap: 2,
+        healthyWindows: 2,
+        lastSampleAt: now,
+        lastPressure: "healthy"
+      },
+      lastSnapshot: {
+        state: {
+          modeVariant: "managedHeaded",
+          staticCap: 2,
+          effectiveCap: 2,
+          healthyWindows: 2,
+          lastSampleAt: now,
+          lastPressure: "healthy"
+        },
+        pressure: "healthy",
+        targetCap: 2,
+        waitQueueDepth: 0,
+        waitQueueAgeMs: 0
+      }
+    };
+    managerAny.sessionParallel.set("cached-session", state);
+
+    const previousSnapshot = state.lastSnapshot;
+    const snapshot = managerAny.refreshGovernorSnapshot("cached-session");
+    expect(snapshot).not.toBe(previousSnapshot);
+    expect(snapshot.state).toBe(previousSnapshot.state);
+    expect(snapshot.waitQueueDepth).toBe(1);
+    expect(snapshot.waitQueueAgeMs).toBeGreaterThan(0);
+
+    const hasSpy = vi.spyOn(managerAny.store, "has");
+    const markSpy = vi.spyOn(managerAny.store, "markVerificationFailure").mockImplementation(() => undefined);
+
+    hasSpy.mockReturnValueOnce(false);
+    managerAny.markVerifierFailure("missing-session", new Error("extension not connected"));
+    expect(markSpy).not.toHaveBeenCalled();
+
+    hasSpy.mockReturnValueOnce(true);
+    managerAny.markVerifierFailure("tracked-session", new Error("Timed out waiting for extension not connected"));
+    expect(markSpy).toHaveBeenCalledWith("tracked-session", {
+      envLimited: true,
+      timedOut: true
+    });
+  });
+
+  it("covers canary, fingerprint, and blocker helper fallback branches", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      config: { canary: { targets: { enabled: boolean } } };
+      initializeFingerprintState: (sessionId: string, profileName: string, flags: string[]) => {
+        tier1: { ok: boolean };
+      };
+      applyFingerprintSignals: (
+        managed: { sessionId: string; fingerprint: { lastAppliedNetworkSeq: number; tier2: unknown; tier3: unknown } },
+        events: Array<{ seq: number; url: string; status?: number; ts?: number }>,
+        requestId: string,
+        options?: { applyTier2?: boolean; applyTier3?: boolean; source?: string }
+      ) => void;
+      resolveCanaryTargetClass: (url: string, status?: number) => string;
+      extractNetworkHosts: (events: Array<{ url?: string }>) => string[];
+      buildTargetKey: (managed: { targets: { getActiveTargetId: () => string | null } }, url?: string) => string;
+      isEnvLimitedVerifierError: (error: unknown) => boolean;
+      isTimeoutVerifierError: (error: unknown) => boolean;
+    };
+    managerAny.config.canary.targets.enabled = true;
+
+    const fingerprint = managerAny.initializeFingerprintState("session-fp", "profile-fp", ["--lang=en-US"]);
+    expect(fingerprint.tier1.ok).toBe(true);
+
+    const managed = {
+      sessionId: "session-fp",
+      fingerprint: {
+        lastAppliedNetworkSeq: 0,
+        ...(managerAny.initializeFingerprintState("session-fp", "profile-fp", []) as unknown as { tier2: unknown; tier3: unknown })
+      }
+    };
+
+    managerAny.applyFingerprintSignals(managed, [{ seq: 1, url: "https://example.com" }], "req-none", {
+      applyTier2: false,
+      applyTier3: false
+    });
+    expect(managed.fingerprint.lastAppliedNetworkSeq).toBe(0);
+
+    managerAny.applyFingerprintSignals(managed, [{ seq: 1, url: "https://example.com", status: 200 }], "req-tier2-only", {
+      applyTier3: false
+    });
+    expect(managed.fingerprint.lastAppliedNetworkSeq).toBe(1);
+
+    expect(managerAny.resolveCanaryTargetClass("https://example.com/challenge", 500)).toBe("error_surface");
+    expect(managerAny.extractNetworkHosts([
+      { url: "https://Example.com/path" },
+      { url: "notaurl" },
+      { url: "https://example.com/other" }
+    ])).toEqual(["example.com"]);
+    expect(managerAny.buildTargetKey({
+      targets: {
+        getActiveTargetId: () => "tab-1"
+      }
+    }, "http://[")).toBe("tab-1:");
+    expect(managerAny.isEnvLimitedVerifierError(new Error("extension not connected"))).toBe(true);
+    expect(managerAny.isTimeoutVerifierError(new Error("timed out waiting"))).toBe(true);
+  });
+
+  it("covers continuous fingerprint guard paths and url-only cookie normalization", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    let subscriber: ((event: { seq: number; url: string; status?: number }) => void) | null = null;
+    const unsubscribe = vi.fn();
+    const subscribe = vi.fn((callback: (event: { seq: number; url: string; status?: number }) => void) => {
+      subscriber = callback;
+      return unsubscribe;
+    });
+    const managerAny = manager as unknown as {
+      config: {
+        fingerprint: {
+          tier2: { enabled: boolean; continuousSignals?: boolean };
+          tier3: { enabled: boolean; continuousSignals?: boolean };
+        };
+      };
+      networkSignalSubscriptions: Map<string, () => void>;
+      initializeFingerprintState: (
+        sessionId: string,
+        profileName: string,
+        flags: string[]
+      ) => {
+        lastAppliedNetworkSeq: number;
+        tier3: { fallbackReason?: string };
+      };
+      attachContinuousFingerprintSignals: (managed: {
+        sessionId: string;
+        networkTracker: { subscribe: typeof subscribe };
+        fingerprint: {
+          lastAppliedNetworkSeq: number;
+          tier3: { fallbackReason?: string };
+        };
+      }) => void;
+      applyFingerprintSignals: (managed: unknown, events: unknown[], requestId: string, options?: unknown) => void;
+      buildCanaryScoreWindow: (samples: Array<{ score: number }>) => {
+        sampleCount: number;
+        averageScore: number;
+        minScore: number;
+        maxScore: number;
+        latestScore: number | null;
+      };
+      buildFingerprintSummary: (managed: unknown) => {
+        tier3: { fallbackReason?: string };
+      };
+      validateCookieRecord: (cookie: {
+        name: string;
+        value: string;
+        url: string;
+        sameSite: "Lax";
+      }) => {
+        valid: boolean;
+        cookie: Record<string, unknown>;
+      };
+    };
+
+    const managed = {
+      sessionId: "fingerprint-session",
+      networkTracker: { subscribe },
+      fingerprint: managerAny.initializeFingerprintState("fingerprint-session", "profile", [])
+    };
+
+    managerAny.networkSignalSubscriptions.set("fingerprint-session", unsubscribe);
+    managerAny.attachContinuousFingerprintSignals(managed);
+    expect(subscribe).not.toHaveBeenCalled();
+
+    managerAny.networkSignalSubscriptions.clear();
+    managerAny.config.fingerprint.tier2.enabled = true;
+    managerAny.config.fingerprint.tier3.enabled = true;
+    managerAny.config.fingerprint.tier2.continuousSignals = false;
+    managerAny.config.fingerprint.tier3.continuousSignals = false;
+    const applySpy = vi.spyOn(managerAny, "applyFingerprintSignals").mockImplementation(() => undefined);
+
+    managerAny.attachContinuousFingerprintSignals(managed);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    subscriber?.({ seq: 1, url: "https://example.com", status: 200 });
+    expect(applySpy).not.toHaveBeenCalled();
+    expect(managerAny.networkSignalSubscriptions.get("fingerprint-session")).toBe(unsubscribe);
+
+    expect(managerAny.buildCanaryScoreWindow([])).toEqual({
+      sampleCount: 0,
+      averageScore: 0,
+      minScore: 0,
+      maxScore: 0,
+      latestScore: null
+    });
+    expect(managerAny.buildFingerprintSummary(managed).tier3).not.toHaveProperty("fallbackReason");
+
+    const validation = managerAny.validateCookieRecord({
+      name: "sid",
+      value: "abc123",
+      url: "https://example.com/account",
+      sameSite: "Lax"
+    });
+    expect(validation.valid).toBe(true);
+    expect(validation.cookie).toMatchObject({
+      name: "sid",
+      value: "abc123",
+      url: "https://example.com/account",
+      sameSite: "Lax"
+    });
+    expect(validation.cookie).not.toHaveProperty("path");
+    expect(validation.cookie).not.toHaveProperty("domain");
+  });
+
+  it("covers additional helper fallbacks for flags, summaries, cookies, and stale refs", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      config: {
+        blockerArtifactCaps: { maxHosts: number };
+      };
+      initializeFingerprintState: (
+        sessionId: string,
+        profileName: string,
+        flags: string[]
+      ) => {
+        lastAppliedNetworkSeq: number;
+        tier1: { ok: boolean; warnings: string[]; issues: unknown[] };
+        tier2: {
+          enabled: boolean;
+          mode: string;
+          profile: {
+            id: string;
+            healthScore: number;
+            challengeCount: number;
+            rotationCount: number;
+          };
+          lastRotationTs: number;
+          challengeEvents: unknown[];
+        };
+        tier3: {
+          enabled: boolean;
+          status: string;
+          adapterName: string;
+          fallbackTier: string;
+          fallbackReason?: string;
+          canary: {
+            level: number;
+            averageScore: number;
+            lastAction: string;
+            samples: Array<{ score: number }>;
+          };
+        };
+      };
+      buildCanaryScoreWindow: (samples: Array<{ score: number }>) => {
+        sampleCount: number;
+        averageScore: number;
+        minScore: number;
+        maxScore: number;
+        latestScore: number | null;
+      };
+      buildFingerprintSummary: (managed: {
+        fingerprint: {
+          lastAppliedNetworkSeq: number;
+          tier1: { ok: boolean; warnings: string[]; issues: unknown[] };
+          tier2: {
+            enabled: boolean;
+            mode: string;
+            profile: {
+              id: string;
+              healthScore: number;
+              challengeCount: number;
+              rotationCount: number;
+            };
+            lastRotationTs: number;
+            challengeEvents: unknown[];
+          };
+          tier3: {
+            enabled: boolean;
+            status: string;
+            adapterName: string;
+            fallbackTier: string;
+            fallbackReason?: string;
+            canary: {
+              level: number;
+              averageScore: number;
+              lastAction: string;
+              samples: Array<{ score: number }>;
+            };
+          };
+        };
+      }) => {
+        tier3: { fallbackReason?: string };
+      };
+      validateCookieRecord: (cookie: {
+        name: string;
+        value: string;
+        domain: string;
+      }) => {
+        valid: boolean;
+        cookie: Record<string, unknown>;
+      };
+      extractNetworkHosts: (events: Array<{ url?: string }>) => string[];
+      buildTargetKey: (managed: { targets: { getActiveTargetId: () => string | null } }, url?: string) => string;
+      isSnapshotStaleError: (error: unknown) => boolean;
+      buildOverrideSession: (input: {
+        browser: unknown;
+        context: unknown;
+        targets: unknown;
+      }) => {
+        sessionId: string;
+        mode: string;
+        headless: boolean;
+        profileDir: string;
+        persistProfile: boolean;
+      };
+    };
+
+    const initialized = managerAny.initializeFingerprintState("session-flags", "profile-flags", [
+      "--lang=",
+      "--timezone-for-testing=",
+      "--proxy-server="
+    ]);
+    expect(initialized.tier1.ok).toBe(true);
+
+    expect(managerAny.buildCanaryScoreWindow([{ score: 42 }, { score: 84 }])).toEqual({
+      sampleCount: 2,
+      averageScore: 63,
+      minScore: 42,
+      maxScore: 84,
+      latestScore: 84
+    });
+
+    const summary = managerAny.buildFingerprintSummary({
+      fingerprint: {
+        ...initialized,
+        lastAppliedNetworkSeq: 7,
+        tier3: {
+          ...initialized.tier3,
+          fallbackReason: "manual_fallback"
+        }
+      }
+    });
+    expect(summary.tier3.fallbackReason).toBe("manual_fallback");
+
+    const validation = managerAny.validateCookieRecord({
+      name: "sid",
+      value: "cookie-value",
+      domain: "Example.com"
+    });
+    expect(validation.valid).toBe(true);
+    expect(validation.cookie).toMatchObject({
+      name: "sid",
+      value: "cookie-value",
+      domain: "example.com",
+      path: "/"
+    });
+    expect(validation.cookie).not.toHaveProperty("sameSite");
+
+    managerAny.config.blockerArtifactCaps.maxHosts = 2;
+    expect(managerAny.extractNetworkHosts([
+      {},
+      { url: "https://alpha.example/path" },
+      { url: "https://beta.example/path" },
+      { url: "https://gamma.example/path" }
+    ])).toEqual(["alpha.example", "beta.example"]);
+    expect(managerAny.buildTargetKey({
+      targets: {
+        getActiveTargetId: () => null
+      }
+    })).toBe("unknown:");
+    expect(managerAny.isSnapshotStaleError(new Error("cannot find object with id"))).toBe(true);
+    expect(managerAny.buildOverrideSession({
+      browser: {},
+      context: {},
+      targets: {}
+    })).toMatchObject({
+      sessionId: "override",
+      mode: "managed",
+      headless: true,
+      profileDir: "",
+      persistProfile: true
+    });
+  });
+
+  it("covers helper negative branches for default continuous signals and missing blocker state", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({
+      fingerprint: {
+        tier1: {
+          languages: ["en-US"],
+          geolocation: {
+            latitude: 1,
+            longitude: 2,
+            accuracy: 3
+          }
+        }
+      }
+    }));
+    const managerAny = manager as unknown as {
+      initializeFingerprintState: (
+        sessionId: string,
+        profileName: string,
+        flags: string[]
+      ) => {
+        tier1: { ok: boolean };
+      };
+      isContinuousSignalsEnabled: (config: { enabled: boolean }) => boolean;
+      buildCanaryScoreWindow: (samples: Array<{ score: number }>) => {
+        sampleCount: number;
+        averageScore: number;
+        minScore: number;
+        maxScore: number;
+        latestScore: number | null;
+      };
+      isEnvLimitedVerifierError: (error: unknown) => boolean;
+      isTimeoutVerifierError: (error: unknown) => boolean;
+      isSnapshotStaleError: (error: unknown) => boolean;
+      buildTargetKey: (managed: { targets: { getActiveTargetId: () => string | null } }, url?: string) => string;
+      reconcileSessionBlocker: (
+        sessionId: string,
+        managed: unknown,
+        input: { source: "navigation" | "network" }
+      ) => unknown;
+    };
+
+    expect(managerAny.initializeFingerprintState("session-helper", "profile", ["--lang=fr-CA"]).tier1.ok).toBe(false);
+    expect(managerAny.isContinuousSignalsEnabled({ enabled: true })).toBe(true);
+    expect(managerAny.buildCanaryScoreWindow([
+      { score: Number.NaN },
+      { score: Number.POSITIVE_INFINITY }
+    ])).toEqual({
+      sampleCount: 2,
+      averageScore: Number.NaN,
+      minScore: 0,
+      maxScore: 0,
+      latestScore: Number.POSITIVE_INFINITY
+    });
+    expect(managerAny.isEnvLimitedVerifierError("plain failure")).toBe(false);
+    expect(managerAny.isTimeoutVerifierError("plain failure")).toBe(false);
+    expect(managerAny.isSnapshotStaleError("plain failure")).toBe(false);
+    expect(managerAny.buildTargetKey({
+      targets: {
+        getActiveTargetId: () => "tab-helper"
+      }
+    }, "not-a-valid-url")).toBe("tab-helper:");
+    expect(managerAny.reconcileSessionBlocker("missing-session", {}, {
+      source: "navigation"
+    })).toBeUndefined();
+  });
+
+  it("omits optional goto and wait metadata when blocker verification returns nothing", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+    findChromeExecutable.mockResolvedValue("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    vi.spyOn(manager as unknown as {
+      reconcileSessionBlocker: (...args: unknown[]) => unknown;
+    }, "reconcileSessionBlocker").mockReturnValue(undefined);
+
+    const launch = await manager.launch({ headless: true });
+    page.url.mockReturnValue("https://example.com");
+    page.goto.mockResolvedValueOnce(undefined);
+    const gotoResult = await manager.goto(launch.sessionId, "https://example.com");
+    expect(gotoResult).toMatchObject({
+      finalUrl: "https://example.com",
+      timingMs: expect.any(Number)
+    });
+    expect(gotoResult).not.toHaveProperty("status");
+    expect(gotoResult).not.toHaveProperty("meta");
+
+    const waitForLoadResult = await manager.waitForLoad(launch.sessionId, "load");
+    expect(waitForLoadResult).not.toHaveProperty("meta");
+
+    await manager.snapshot(launch.sessionId, "actionables", 500);
+
+    const waitForRefResult = await manager.waitForRef(launch.sessionId, "r1", "visible");
+    expect(waitForRefResult).not.toHaveProperty("meta");
+  });
+
+  it("covers connectOverCDP empty-browser failures and updateConfig sessions without parallel state", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      sessions: Map<string, {
+        consoleTracker: { setOptions: (options: unknown) => void };
+        networkTracker: { setOptions: (options: unknown) => void };
+        fingerprint: {
+          tier2: { enabled: boolean; mode: string };
+          tier3: { enabled: boolean; fallbackTier: "tier1" | "tier2" };
+        };
+      }>;
+    };
+
+    const orphanSession = {
+      consoleTracker: { setOptions: vi.fn() },
+      networkTracker: { setOptions: vi.fn() },
+      fingerprint: {
+        tier2: { enabled: false, mode: "adaptive" },
+        tier3: { enabled: false, fallbackTier: "tier1" as const }
+      }
+    };
+    managerAny.sessions.set("orphan", orphanSession);
+
+    manager.updateConfig(resolveConfig({
+      devtools: {
+        showFullConsole: true,
+        showFullUrls: true
+      }
+    }));
+    expect(orphanSession.consoleTracker.setOptions).toHaveBeenCalledWith({ showFullConsole: true });
+    expect(orphanSession.networkTracker.setOptions).toHaveBeenCalledWith({ showFullUrls: true });
+
+    connectOverCDP.mockResolvedValue(undefined);
+    await expect(manager.connect({
+      wsEndpoint: "ws://127.0.0.1:9222/devtools/browser/test"
+    })).rejects.toThrow("Relay /cdp connectOverCDP failed");
+  });
+
+  it("covers extension entry helpers, relay status fallbacks, and profile-lock messaging", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      selectExistingExtensionEntry: (
+        managed: unknown,
+        preferredTargetId?: string | null
+      ) => { targetId: string; page: { isClosed: () => boolean; url: () => string } } | null;
+      selectStableExtensionEntry: (
+        managed: unknown,
+        preferredTargetId?: string | null
+      ) => { targetId: string; page: { isClosed: () => boolean; url: () => string } } | null;
+      safePageUrl: (page: { url: () => string } | null, context: string) => string | undefined;
+      buildProfileLockLaunchMessage: (launchMessage: string, profileDir: string) => string | null;
+      readRelayStatus: (
+        wsEndpoint: string,
+        relayPort: number
+      ) => Promise<{ opsConnected: boolean; cdpConnected: boolean } | null>;
+      waitForRelayCdpSlot: (wsEndpoint: string, relayPort: number, timeoutMs?: number) => Promise<void>;
+    };
+
+    const httpsPage = {
+      isClosed: vi.fn(() => false),
+      url: vi.fn(() => "https://example.com/stable")
+    };
+    const chromePage = {
+      isClosed: vi.fn(() => false),
+      url: vi.fn(() => "chrome://extensions")
+    };
+    const throwingPage = {
+      isClosed: vi.fn(() => false),
+      url: vi.fn(() => {
+        throw new Error("url-failed");
+      })
+    };
+    const closedPage = {
+      isClosed: vi.fn(() => true),
+      url: vi.fn(() => "https://closed.example")
+    };
+    const setActiveTarget = vi.fn();
+    const managed = {
+      context: {
+        pages: vi.fn(() => [])
+      },
+      targets: {
+        syncPages: vi.fn(() => {
+          throw new Error("sync-failed");
+        }),
+        listPageEntries: vi.fn(() => ([
+          { targetId: "tab-throw", page: throwingPage },
+          { targetId: "tab-http", page: httpsPage },
+          { targetId: "tab-chrome", page: chromePage },
+          { targetId: "tab-closed", page: closedPage }
+        ])),
+        setActiveTarget
+      }
+    };
+
+    expect(managerAny.selectExistingExtensionEntry(managed, "tab-chrome")?.targetId).toBe("tab-chrome");
+    expect(setActiveTarget).toHaveBeenLastCalledWith("tab-chrome");
+
+    setActiveTarget.mockClear();
+    expect(managerAny.selectExistingExtensionEntry(managed, "missing")?.targetId).toBe("tab-http");
+    expect(setActiveTarget).toHaveBeenLastCalledWith("tab-http");
+
+    setActiveTarget.mockClear();
+    expect(managerAny.selectStableExtensionEntry(managed, "tab-chrome")?.targetId).toBe("tab-http");
+    expect(setActiveTarget).toHaveBeenLastCalledWith("tab-http");
+
+    setActiveTarget.mockClear();
+    expect(managerAny.selectStableExtensionEntry(managed, "missing")?.targetId).toBe("tab-http");
+    expect(setActiveTarget).toHaveBeenLastCalledWith("tab-http");
+
+    setActiveTarget.mockClear();
+    expect(managerAny.selectStableExtensionEntry(managed, "tab-http")?.targetId).toBe("tab-http");
+    expect(setActiveTarget).toHaveBeenLastCalledWith("tab-http");
+
+    const managedWithoutStable = {
+      context: { pages: vi.fn(() => []) },
+      targets: {
+        syncPages: vi.fn(),
+        listPageEntries: vi.fn(() => [{ targetId: "tab-throw", page: throwingPage }]),
+        setActiveTarget: vi.fn()
+      }
+    };
+    expect(managerAny.selectStableExtensionEntry(managedWithoutStable, "tab-throw")).toBeNull();
+    expect(managerAny.selectStableExtensionEntry({
+      context: { pages: vi.fn(() => []) },
+      targets: {
+        syncPages: vi.fn(),
+        listPageEntries: vi.fn(() => []),
+        setActiveTarget: vi.fn()
+      }
+    }, "tab-http")).toBeNull();
+
+    expect(managerAny.safePageUrl({
+      url: () => {
+        throw new Error("url boom");
+      }
+    }, "BrowserManager.helper")).toBeUndefined();
+
+    expect(
+      managerAny.buildProfileLockLaunchMessage(
+        "browserType.launchPersistentContext: user data directory is already in use",
+        "/tmp/profile"
+      )
+    ).toContain("profile is locked");
+    expect(managerAny.buildProfileLockLaunchMessage("launch failed for another reason", "/tmp/profile")).toBeNull();
+
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error("status down"))
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ opsConnected: true }) });
+    vi.stubGlobal("fetch", fetchMock as never);
+    manager.updateConfig(resolveConfig({ relayToken: " relay-secret " }));
+
+    await expect(managerAny.readRelayStatus("ws://127.0.0.1:8787/cdp", 8787)).resolves.toBeNull();
+    await expect(managerAny.readRelayStatus("ws://127.0.0.1:8787/cdp", 8787)).resolves.toBeNull();
+    await expect(managerAny.readRelayStatus("ws://127.0.0.1:8787/cdp", 8787)).resolves.toBeNull();
+    await expect(managerAny.readRelayStatus("ws://127.0.0.1:8787/cdp", 8787)).resolves.toEqual({
+      opsConnected: true,
+      cdpConnected: false
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://127.0.0.1:8787/status",
+      { headers: { Accept: "application/json", Authorization: "Bearer relay-secret" } }
+    );
+
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ opsConnected: false, cdpConnected: true }) });
+    await expect(
+      managerAny.readRelayStatus.call(
+        { config: { ...resolveConfig({}), relayToken: null } },
+        "wss://127.0.0.1:8787/cdp",
+        8787
+      )
+    ).resolves.toEqual({ opsConnected: false, cdpConnected: true });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://127.0.0.1:8787/status",
+      { headers: { Accept: "application/json" } }
+    );
+
+    const readRelayStatusSpy = vi.spyOn(managerAny, "readRelayStatus")
+      .mockResolvedValueOnce({ opsConnected: false, cdpConnected: true })
+      .mockResolvedValueOnce({ opsConnected: false, cdpConnected: false });
+    vi.useFakeTimers();
+    try {
+      const waitPromise = managerAny.waitForRelayCdpSlot("ws://127.0.0.1:8787/cdp", 8787, 500);
+      await vi.advanceTimersByTimeAsync(100);
+      await waitPromise;
+    } finally {
+      vi.useRealTimers();
+      readRelayStatusSpy.mockRestore();
+    }
+  });
+
+  it("covers dom-state evaluation success and default runtime-call failures", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      evaluateDomStateByBackendNode: (
+        managed: unknown,
+        ref: string,
+        functionDeclaration: string,
+        args?: unknown[],
+        targetId?: string
+      ) => Promise<unknown>;
+    };
+
+    const successSession = {
+      send: vi.fn()
+        .mockResolvedValueOnce({ object: { objectId: "obj-1" } })
+        .mockResolvedValueOnce({ result: { value: 42 } }),
+      detach: vi.fn().mockResolvedValue(undefined)
+    };
+    const managedSuccess = {
+      targets: {
+        getActiveTargetId: vi.fn(() => "tab-success"),
+        getPage: vi.fn(() => ({}))
+      },
+      refStore: {
+        resolve: vi.fn(() => ({ selector: "#node-success", backendNodeId: 42 }))
+      },
+      context: {
+        newCDPSession: vi.fn(async () => successSession)
+      }
+    };
+
+    await expect(
+      managerAny.evaluateDomStateByBackendNode(managedSuccess, "r1", "function() { return 42; }")
+    ).resolves.toBe(42);
+    expect(successSession.detach).toHaveBeenCalledTimes(1);
+
+    const failureSession = {
+      send: vi.fn()
+        .mockResolvedValueOnce({ object: { objectId: "obj-2" } })
+        .mockResolvedValueOnce({ exceptionDetails: {} }),
+      detach: vi.fn().mockResolvedValue(undefined)
+    };
+    const managedFailure = {
+      targets: {
+        getActiveTargetId: vi.fn(() => "tab-failure"),
+        getPage: vi.fn(() => ({}))
+      },
+      refStore: {
+        resolve: vi.fn(() => ({ selector: "#node-failure", backendNodeId: 84 }))
+      },
+      context: {
+        newCDPSession: vi.fn(async () => failureSession)
+      }
+    };
+
+    await expect(
+      managerAny.evaluateDomStateByBackendNode(managedFailure, "r2", "function() { throw new Error(); }")
+    ).rejects.toThrow("Runtime.callFunctionOn failed");
+    expect(failureSession.detach).toHaveBeenCalledTimes(1);
+  });
+
+  it("covers legacy screenshot fallback helper edge branches and html data-url decode failures", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      captureScreenshotViaCdp: (
+        managed: { extensionLegacy: boolean; context: { newCDPSession: (page: unknown) => Promise<{ send: (method: string, params?: Record<string, unknown>) => Promise<{ data?: string }>; detach: () => Promise<void> }> } },
+        page: unknown,
+        error: unknown
+      ) => Promise<{ base64: string; warnings?: string[] } | null>;
+      decodeHtmlDataUrl: (url: string) => string | null;
+    };
+
+    const page = {};
+
+    const nonLegacyManaged = {
+      extensionLegacy: false,
+      context: { newCDPSession: vi.fn() }
+    };
+    await expect(
+      managerAny.captureScreenshotViaCdp(
+        nonLegacyManaged,
+        page,
+        new Error("page.screenshot: Timeout 30000ms exceeded.")
+      )
+    ).resolves.toBeNull();
+    expect(nonLegacyManaged.context.newCDPSession).not.toHaveBeenCalled();
+
+    const nonTimeoutManaged = {
+      extensionLegacy: true,
+      context: { newCDPSession: vi.fn() }
+    };
+    await expect(
+      managerAny.captureScreenshotViaCdp(nonTimeoutManaged, page, new Error("page.screenshot: detached"))
+    ).resolves.toBeNull();
+    expect(nonTimeoutManaged.context.newCDPSession).not.toHaveBeenCalled();
+
+    const invalidDataSession = {
+      send: vi.fn(async () => ({ data: "" })),
+      detach: vi.fn(async () => undefined)
+    };
+    await expect(
+      managerAny.captureScreenshotViaCdp(
+        {
+          extensionLegacy: true,
+          context: { newCDPSession: vi.fn(async () => invalidDataSession) }
+        },
+        page,
+        new Error("page.screenshot: Timeout 30000ms exceeded.")
+      )
+    ).resolves.toBeNull();
+    expect(invalidDataSession.detach).toHaveBeenCalledTimes(1);
+
+    const failingSession = {
+      send: vi.fn(async () => {
+        throw new Error("capture failed");
+      }),
+      detach: vi.fn(async () => undefined)
+    };
+    await expect(
+      managerAny.captureScreenshotViaCdp(
+        {
+          extensionLegacy: true,
+          context: { newCDPSession: vi.fn(async () => failingSession) }
+        },
+        page,
+        new Error("page.screenshot: Timeout 30000ms exceeded.")
+      )
+    ).resolves.toBeNull();
+    expect(failingSession.detach).toHaveBeenCalledTimes(1);
+
+    expect(managerAny.decodeHtmlDataUrl("data:text/html;charset=utf-8")).toBeNull();
+    expect(managerAny.decodeHtmlDataUrl("data:text/html;charset=utf-8,%E0%A4%A")).toBeNull();
+    expect(managerAny.decodeHtmlDataUrl("data:text/html;base64,PG1haW4+T0s8L21haW4+")).toBe("<main>OK</main>");
   });
 });

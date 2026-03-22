@@ -82,6 +82,12 @@ Expected output:
 - `workerStats[]` with `{ sessionId, processed, failures }`
 - `frontierStats` and checkpoint state
 
+## Release evidence lane
+
+- Use `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json` for provider live release proof.
+- Use `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json` for cross-surface live release proof.
+- Treat parity matrix tests as contract coverage, not live release proof.
+
 ## Failure Policy
 
 - stale refs: re-snapshot and retry once

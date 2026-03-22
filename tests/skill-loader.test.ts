@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, chmod, readFile, stat, access } from "fs/promises";
 import * as os from "os";
 import { join } from "path";
@@ -96,6 +96,9 @@ afterEach(() => {
   } else {
     process.env.AMP_HOME = originalAmpHome;
   }
+
+  vi.resetModules();
+  vi.unmock("../src/utils/package-assets");
 });
 
 describe("SkillLoader", () => {
@@ -160,13 +163,14 @@ Global content.
     expect(content).toContain("Global content.");
   });
 
-  it("throws when skill file is missing", async () => {
+  it("falls back to bundled best practices when project and global skill files are missing", async () => {
     const missingRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-missing-"));
     const loader = new SkillLoader(missingRoot);
-    await expect(loader.loadBestPractices()).rejects.toThrow("not found");
+    const content = await loader.loadBestPractices();
+    expect(content).toContain("# OpenDevBrowser Best Practices");
   });
 
-  it("reports none when no skills are available", async () => {
+  it("reports bundled skills when only the bundled fallback is available", async () => {
     const emptyRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-none-"));
     const emptyConfig = await mkdtemp(join(os.tmpdir(), "odb-skill-none-config-"));
     const originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
@@ -175,7 +179,7 @@ Global content.
     process.env.HOME = emptyConfig;
     try {
       const loader = new SkillLoader(emptyRoot);
-      await expect(loader.loadSkill("missing-skill")).rejects.toThrow("Available: none");
+      await expect(loader.loadSkill("missing-skill")).rejects.toThrow("Available: opendevbrowser-best-practices");
     } finally {
       if (originalHome === undefined) {
         delete process.env.HOME;
@@ -190,7 +194,81 @@ Global content.
     }
   });
 
-  it("rethrows unexpected readFile errors", async () => {
+  it("reports no available skills when bundled fallback is unavailable", async () => {
+    const emptyRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-empty-"));
+    const emptyHome = await mkdtemp(join(os.tmpdir(), "odb-skill-empty-home-"));
+    const originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    const originalHome = process.env.HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const originalAmpCliAliasHome = process.env.AMPCLI_HOME;
+    const originalAmpCliHome = process.env.AMP_CLI_HOME;
+    const originalAmpHome = process.env.AMP_HOME;
+
+    vi.resetModules();
+    vi.doMock("../src/utils/package-assets", () => ({
+      findBundledSkillsDir: () => null
+    }));
+
+    process.env.OPENCODE_CONFIG_DIR = emptyHome;
+    process.env.HOME = emptyHome;
+    process.env.CODEX_HOME = join(emptyHome, "codex-home");
+    process.env.CLAUDECODE_HOME = join(emptyHome, "claudecode-home");
+    delete process.env.CLAUDE_HOME;
+    delete process.env.AMPCLI_HOME;
+    process.env.AMP_CLI_HOME = join(emptyHome, "amp-home");
+    delete process.env.AMP_HOME;
+
+    try {
+      const { SkillLoader: IsolatedSkillLoader } = await import("../src/skills/skill-loader");
+      const loader = new IsolatedSkillLoader(emptyRoot);
+      await expect(loader.loadSkill("missing-skill")).rejects.toThrow("Available: none");
+    } finally {
+      if (originalConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = originalConfigDir;
+      }
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = originalCodexHome;
+      }
+      if (originalClaudeCodeHome === undefined) {
+        delete process.env.CLAUDECODE_HOME;
+      } else {
+        process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
+      }
+      if (originalClaudeHome === undefined) {
+        delete process.env.CLAUDE_HOME;
+      } else {
+        process.env.CLAUDE_HOME = originalClaudeHome;
+      }
+      if (originalAmpCliAliasHome === undefined) {
+        delete process.env.AMPCLI_HOME;
+      } else {
+        process.env.AMPCLI_HOME = originalAmpCliAliasHome;
+      }
+      if (originalAmpCliHome === undefined) {
+        delete process.env.AMP_CLI_HOME;
+      } else {
+        process.env.AMP_CLI_HOME = originalAmpCliHome;
+      }
+      if (originalAmpHome === undefined) {
+        delete process.env.AMP_HOME;
+      } else {
+        process.env.AMP_HOME = originalAmpHome;
+      }
+    }
+  });
+
+  it("falls back to bundled skill when a local skill file cannot be read", async () => {
     if (process.platform === "win32") return;
 
     const restrictedRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-restricted-"));
@@ -201,7 +279,8 @@ Global content.
     await chmod(skillPath, 0o000);
 
     const loader = new SkillLoader(restrictedRoot);
-    await expect(loader.loadBestPractices()).rejects.toThrow();
+    const content = await loader.loadBestPractices();
+    expect(content).toContain("# OpenDevBrowser Best Practices");
 
     await chmod(skillPath, 0o644);
   });
@@ -826,7 +905,12 @@ describe("bundled best-practices skill assets", () => {
   });
 
   it("marks workflow and validator scripts as executable", async () => {
-    for (const scriptRel of ["scripts/odb-workflow.sh", "scripts/run-robustness-audit.sh", "scripts/validate-skill-assets.sh"]) {
+    for (const scriptRel of [
+      "scripts/odb-workflow.sh",
+      "scripts/run-robustness-audit.sh",
+      "scripts/validate-skill-assets.sh",
+      "scripts/resolve-odb-cli.sh"
+    ]) {
       const stats = await stat(join(skillRoot, scriptRel));
       expect((stats.mode & 0o111) !== 0).toBe(true);
     }
@@ -839,5 +923,58 @@ describe("bundled best-practices skill assets", () => {
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Skill assets validated:");
+  }, 20000);
+});
+
+describe("bundled design-agent skill assets", () => {
+  const skillRoot = join(process.cwd(), "skills", "opendevbrowser-design-agent");
+  const requiredAssetRefs = [
+    "artifacts/design-workflows.md",
+    "artifacts/design-contract-playbook.md",
+    "artifacts/frontend-evaluation-rubric.md",
+    "artifacts/external-pattern-synthesis.md",
+    "artifacts/component-pattern-index.md",
+    "artifacts/existing-surface-adaptation.md",
+    "artifacts/app-shell-and-state-wiring.md",
+    "artifacts/state-ownership-matrix.md",
+    "artifacts/async-search-state-ownership.md",
+    "artifacts/loading-and-feedback-surfaces.md",
+    "artifacts/theming-and-token-ownership.md",
+    "artifacts/isolated-preview-validation.md",
+    "artifacts/performance-audit-playbook.md",
+    "artifacts/scroll-reveal-surface-planning.md",
+    "artifacts/research-harvest-workflow.md",
+    "artifacts/design-release-gate.md",
+    "assets/templates/design-contract.v1.json",
+    "assets/templates/canvas-generation-plan.design.v1.json",
+    "assets/templates/reference-pattern-board.v1.json",
+    "assets/templates/design-release-gate.v1.json",
+    "scripts/design-workflow.sh",
+    "scripts/extract-canvas-plan.sh",
+    "scripts/validate-skill-assets.sh"
+  ];
+
+  it("references required artifacts and scripts from SKILL.md", async () => {
+    const skillDoc = await readFile(join(skillRoot, "SKILL.md"), "utf8");
+    for (const assetRef of requiredAssetRefs) {
+      expect(skillDoc).toContain(assetRef);
+      await expect(access(join(skillRoot, assetRef))).resolves.toBeUndefined();
+    }
+  });
+
+  it("marks workflow and validator scripts as executable", async () => {
+    for (const scriptRel of ["scripts/design-workflow.sh", "scripts/extract-canvas-plan.sh", "scripts/validate-skill-assets.sh"]) {
+      const stats = await stat(join(skillRoot, scriptRel));
+      expect((stats.mode & 0o111) !== 0).toBe(true);
+    }
+  });
+
+  it("passes the asset validation script", () => {
+    if (process.platform === "win32") return;
+    const scriptPath = join(skillRoot, "scripts", "validate-skill-assets.sh");
+    const result = spawnSync("bash", [scriptPath], { cwd: process.cwd(), encoding: "utf8" });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Design-agent skill assets validated.");
   }, 20000);
 });

@@ -142,4 +142,89 @@ describe("daemon-client error parsing", () => {
     expect(calls[2]?.params).toEqual(expect.objectContaining({ sessionId: "session-1" }));
     expect(calls[2]?.params.leaseId).toBeUndefined();
   });
+
+  it("times out when a success response body never resolves after headers arrive", async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn(async () => undefined);
+
+    fetchSpy = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => await new Promise<unknown>(() => undefined),
+      body: { cancel }
+    })) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    try {
+      const client = new DaemonClient({ autoRenew: false });
+      const pending = client.call("some.command", {}, { timeoutMs: 25 });
+      const assertion = expect(pending).rejects.toThrow("Request timed out after 25ms");
+
+      await vi.advanceTimersByTimeAsync(25);
+
+      await assertion;
+      expect(cancel).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out when an error response body never resolves after headers arrive", async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn(async () => undefined);
+
+    fetchSpy = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      text: async () => await new Promise<string>(() => undefined),
+      body: { cancel }
+    })) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    try {
+      const client = new DaemonClient({ autoRenew: false });
+      const pending = client.call("some.command", {}, { timeoutMs: 25 });
+      const assertion = expect(pending).rejects.toThrow("Request timed out after 25ms");
+
+      await vi.advanceTimersByTimeAsync(25);
+
+      await assertion;
+      expect(cancel).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not replay a timed-out command through refreshed daemon discovery", async () => {
+    vi.useFakeTimers();
+
+    fetchSpy = vi.fn((_url, options) => {
+      return new Promise<never>((_resolve, reject) => {
+        const signal = options?.signal as AbortSignal | undefined;
+        signal?.addEventListener("abort", () => {
+          const error = new Error("aborted");
+          Object.assign(error, { name: "AbortError" });
+          reject(error);
+        }, { once: true });
+      });
+    }) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    try {
+      const client = new DaemonClient({ autoRenew: false });
+      const pending = client.call("some.command", {}, { timeoutMs: 25 });
+      const assertion = expect(pending).rejects.toThrow("Request timed out after 25ms");
+
+      await vi.advanceTimersByTimeAsync(25);
+
+      await assertion;
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls[0]?.[0]).toBe("http://127.0.0.1:12345/command");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

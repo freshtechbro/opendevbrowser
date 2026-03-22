@@ -3,7 +3,7 @@
 Optional Chrome extension that enables relay mode (attach to existing logged-in tabs).
 
 Status: active  
-Last updated: 2026-03-10
+Last updated: 2026-03-20
 
 Quick file-level overview: `<public-repo-root>/extension/README.md`
 
@@ -15,6 +15,8 @@ Quick file-level overview: `<public-repo-root>/extension/README.md`
 - Supports multi-tab CDP routing with flat sessions (Chrome 125+).
 - Exposes top-level tabs and auto-attached child targets (workers/OOPIF) through `Target.getTargets`.
 - Hosts the dedicated design-canvas runtime used by `/canvas` for design-tab and overlay operations.
+- Preserves additive canvas session-summary metadata such as `availableInventoryCount`, `catalogKitIds`, `availableStarterCount`, and the currently applied starter so the design tab stays in sync with starter and kit availability without introducing a second starter execution path in the extension.
+- Routes popup/canvas/in-page annotation `Send` actions through `/annotation` `store_agent_payload` so the active chat can receive repo-local shared inbox entries when scope is safe.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
 - Extension mode is headed-only; extension-intent headless launch/connect is rejected with `unsupported_mode`.
 - When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
@@ -75,8 +77,10 @@ When auto-pair is enabled:
 Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`. The CLI/tool `connect` command accepts base relay WS URLs
 (for example `ws://127.0.0.1:<relayPort>`) and normalizes them to `/ops`.
 Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for live design-canvas preview and overlay commands.
+Relay annotation endpoint: `ws://127.0.0.1:<relayPort>/annotation` for interactive annotate capture plus one-off `store_agent_payload` and `fetch_stored` requests.
 Legacy relay `/cdp` is still available but must be explicitly opted in (CLI: `--extension-legacy`).
-When pairing is enabled, `/ops`, `/canvas`, and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
+Legacy `/cdp` is mutually exclusive with an active `/ops` lease on the extension target. If the CLI returns `cdp_attach_blocked`, disconnect the `/ops` session first, then retry the legacy path.
+When pairing is enabled, `/ops`, `/canvas`, `/annotation`, and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch `/config` and `/pair`
 to obtain the token before connecting, so users should not manually pass or share tokenized URLs.
 
 Readiness checks:
@@ -102,7 +106,17 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 - Child targets are auto-attached recursively for session-aware routing.
 - A single **primary tab** is used for relay handshake/status; switching tabs updates the handshake without disconnecting others.
 - Design-canvas flows can open dedicated extension-hosted design tabs (`canvas.html`) and mount overlays on existing tabs through the `/canvas` runtime.
-- The extension design tab is a same-origin infinite-canvas editor: it persists full `CanvasPageState` snapshots in `IndexedDB`, fans out same-origin convergence over `BroadcastChannel`, sends editor-originated patch requests back through `/canvas`, and keeps arbitrary page overlays in sync through the same runtime.
+- The extension design tab is a same-origin infinite-canvas editor: it persists full `CanvasPageState` snapshots in `IndexedDB`, fans out same-origin convergence over `BroadcastChannel`, sends editor-originated patch requests back through `/canvas`, keeps arbitrary page overlays in sync through the same runtime, and now exposes page selection, hierarchical layers, a property inspector, lease-aware undo/redo controls, keyboard shortcuts, extension-stage region annotation, and a dedicated token panel for collection or mode creation, token value or alias editing, selected-node binding, and token usage inspection.
+- Extension-hosted design tabs must register their synthetic target through `targets.registerCanvas` before `/ops` `targets.use` can activate that surface.
+
+## Annotation send behavior
+
+- Popup `Annotate` resolves against the opener window's active http(s) tab first. If the focused surface is `canvas.html`, another extension page, or a restricted tab, the background falls back to the last annotatable web tab it stored instead of trying to inject into the extension page itself, so popup annotate can recover after an MV3 service-worker restart.
+- Popup, canvas, and in-page annotation `Send` actions dispatch `annotation:sendPayload` to the background, and the background then posts `/annotation` `store_agent_payload`.
+- The relay handles `store_agent_payload` locally and returns a shared-inbox receipt sourced from `AgentInbox`.
+- Successful scoped delivery reports `Delivered to agent`.
+- When delivery cannot be scoped safely or the relay path fails, the extension stores the sanitized payload locally and reports `Stored only; fetch with annotate --stored`.
+- Shared inbox persistence strips screenshots; `annotate --stored --include-screenshots` only affects the extension-local fallback copy when it is still available in memory.
 
 ## Security notes
 
@@ -114,11 +128,17 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 ## Troubleshooting
 
 - **Extension not connecting**: Confirm the relay is running (`opendevbrowser serve`) and the port matches the popup.
+- **Temp-profile unpacked extension automation does nothing**: Google Chrome stable may ignore startup flags like `--disable-extensions-except` and `--load-extension`. For isolated automation harnesses, prefer Chromium or Chrome for Testing, or use the already-installed unpacked extension in your real Chrome profile.
 - **Auto-pair failing**: Ensure the plugin is running and the relay server is available on the configured port.
 - **Pairing token required**: Enable "Require pairing token" and provide the value from your `opendevbrowser.jsonc`.
 - **No active tab / restricted tab**: The popup cannot attach to `chrome://`, `chrome-extension://`, or Chrome Web Store pages. Focus a normal http(s) tab before connecting.
+- **Popup annotate says `Annotation UI did not load in the page`**: The popup could not confirm the page-side annotation bridge after injection. The popup now sends its opener-tab id directly and otherwise restores the last stored annotatable web tab, but you should still focus the intended http(s) tab once, reload that page, and retry. If you just rebuilt the unpacked extension, reload it in Chrome before retesting so the new background and content-script bundles are active.
+- **Canvas design-tab overlay fails with `restricted_url` on `chrome-extension://.../canvas.html`**: Chrome is still running stale unpacked-extension runtime code. Rebuild if needed, then reload the unpacked extension in Chrome before retrying `canvas.overlay.mount` or related design-tab commands; reconnect the extension after reload so the fresh background bundle owns the relay again.
 - **Debugger attach failed**: Close DevTools on the target tab (or any other debugger) and retry.
 - **Chrome too old**: Extension relay requires Chrome 125+ for flat sessions.
 - **Headless extension launch/connect fails**: expected. Extension mode is headed-only; use `launch --no-extension --headless` for managed headless sessions.
 - **Launch fails due to missing extension**: The CLI/tool will print exact commands for Managed or CDPConnect fallbacks when the extension is not connected.
 - **Popup shows Connected but launch says not connected**: Check the popup note for the relay port/instance (it now includes the relay identity) and ensure it matches the daemon relay port.
+- **Canvas code sync shows `unsupported`**: Run `npx opendevbrowser canvas --command canvas.code.status --params '{"canvasSessionId":"<canvas-session-id>","bindingId":"<binding-id>"}' --output-format json` and inspect `frameworkAdapterId`, `declaredCapabilities`, `grantedCapabilities`, `capabilityDenials`, and `reasonCode`. Built-in lanes currently cover React TSX v2, static HTML, custom elements, Vue SFC, and Svelte SFC; legacy `tsx-react-v1` bindings migrate to `builtin:react-tsx-v2` on load.
+- **Local adapter plugin will not load**: Repo-local BYO plugins only load from local `package.json`, `.opendevbrowser/canvas/adapters.json`, or explicit config declarations. Out-of-worktree package declarations are rejected with `trust_denied`, and malformed manifests or broken entrypoints surface deterministic plugin load failures.
+- **Annotation send says stored only**: no safe chat scope was available for the current worktree or relay enqueue failed. Use `annotate --stored` to fetch the payload explicitly, or keep one target chat active and retry the send.

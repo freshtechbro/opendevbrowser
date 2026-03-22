@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Window } from "happy-dom";
@@ -30,6 +31,9 @@ vi.mock("../src/browser/canvas-client", () => ({
     }
     async request(...args: unknown[]) {
       return await canvasClientRequestMock(...args);
+    }
+    hasPendingRequests() {
+      return false;
     }
     disconnect() {
       canvasClientDisconnectMock();
@@ -81,6 +85,9 @@ const governanceBootstrapPatches = [
     }
   }
 ] as const;
+
+const figmaFileFixture = readJsonFixture("tests/fixtures/figma/file-response.json");
+const figmaNodesFixture = readJsonFixture("tests/fixtures/figma/nodes-response.json");
 
 function countOccurrences(source: string, needle: string): number {
   return source.split(needle).length - 1;
@@ -377,7 +384,13 @@ describe("CanvasManager", () => {
     const subscribed = await manager.execute("canvas.feedback.subscribe", {
       canvasSessionId
     }) as Record<string, unknown>;
-    expect(String(subscribed.subscriptionId)).toContain("canvas_sub_");
+    expect(subscribed).toMatchObject({
+      subscriptionId: expect.stringMatching(/^canvas_sub_/),
+      heartbeatMs: 15000,
+      expiresAt: null,
+      initialItems: expect.any(Array),
+      activeTargetIds: ["tab-preview"]
+    });
 
     await manager.execute("canvas.overlay.unmount", {
       canvasSessionId,
@@ -391,6 +404,1129 @@ describe("CanvasManager", () => {
     }) as Record<string, unknown>;
     expect(closed.ok).toBe(true);
     expect(browserManager.closeTarget).toHaveBeenCalledWith("browser-managed", "tab-design");
+  });
+
+  it("imports figma content through the public command and degrades variables explicitly", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/files/AbCdEf12345/variables/local")) {
+        return new Response(JSON.stringify({ err: "Missing required scope" }), {
+          status: 403,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/files/AbCdEf12345/nodes")) {
+        return new Response(JSON.stringify(figmaNodesFixture), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/files/AbCdEf12345")) {
+        return new Response(JSON.stringify(figmaFileFixture), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/images/AbCdEf12345") && url.includes("format=png")) {
+        return new Response(JSON.stringify({
+          images: {
+            "5:1": "https://cdn.example.com/5:1.png"
+          }
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/images/AbCdEf12345") && url.includes("format=svg")) {
+        return new Response(JSON.stringify({
+          images: {
+            "5:1": "https://cdn.example.com/5:1.svg",
+            "6:1": "https://cdn.example.com/6:1.svg"
+          }
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.endsWith(".png")) {
+        return new Response("png-binary", {
+          status: 200,
+          headers: { "content-type": "image/png" }
+        });
+      }
+      if (url.endsWith(".svg")) {
+        return new Response("<svg />", {
+          status: 200,
+          headers: { "content-type": "image/svg+xml" }
+        });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    }));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config: resolveConfig({
+        integrations: {
+          figma: {
+            accessToken: "figma-config-token"
+          }
+        }
+      })
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    const imported = await manager.execute("canvas.document.import", {
+      canvasSessionId,
+      leaseId,
+      sourceUrl: "https://www.figma.com/file/AbCdEf12345/Marketing-Landing",
+      frameworkId: "react"
+    }) as {
+      degradedFailureCodes: string[];
+      importedPageIds: string[];
+      importedInventoryItemIds: string[];
+      importedAssetIds: string[];
+      summary: { importSources?: string[]; lastImportAt?: string | null };
+    };
+
+    expect(imported.importedPageIds).toHaveLength(1);
+    expect(imported.importedInventoryItemIds).toEqual([
+      "figma-component-ButtonSet",
+      "figma-component-ButtonComponent"
+    ]);
+    expect(imported.importedAssetIds.sort()).toEqual([
+      "figma-AbCdEf12345-5-1-png",
+      "figma-AbCdEf12345-5-1-svg",
+      "figma-AbCdEf12345-6-1-svg"
+    ]);
+    expect(imported.degradedFailureCodes).toContain("scope_denied");
+    expect(imported.degradedFailureCodes).toContain("framework_materializer_missing");
+    expect(imported.summary.importSources).toContain("figma.file");
+    expect(imported.summary.lastImportAt).toBeTruthy();
+  });
+
+  it("imports figma node selections with explicit revisions and no degraded paths when variables are skipped", async () => {
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/files/AbCdEf12345/nodes")) {
+        return new Response(JSON.stringify(figmaNodesFixture), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/images/AbCdEf12345") && url.includes("format=png")) {
+        return new Response(JSON.stringify({
+          images: {
+            "5:1": "https://cdn.example.com/5:1.png"
+          }
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/images/AbCdEf12345") && url.includes("format=svg")) {
+        return new Response(JSON.stringify({
+          images: {
+            "5:1": "https://cdn.example.com/5:1.svg",
+            "6:1": "https://cdn.example.com/6:1.svg"
+          }
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.endsWith(".png")) {
+        return new Response("png-binary", {
+          status: 200,
+          headers: { "content-type": "image/png" }
+        });
+      }
+      if (url.endsWith(".svg")) {
+        return new Response("<svg />", {
+          status: 200,
+          headers: { "content-type": "image/svg+xml" }
+        });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config: resolveConfig({
+        integrations: {
+          figma: {
+            accessToken: "figma-config-token"
+          }
+        }
+      })
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const planned = await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    }) as { documentRevision: number };
+
+    const imported = await manager.execute("canvas.document.import", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: planned.documentRevision,
+      sourceUrl: "https://www.figma.com/design/AbCdEf12345/Marketing-Landing?node-id=2%3A1",
+      includeVariables: false
+    }) as {
+      degradedFailureCodes: string[];
+      importedPageIds: string[];
+      importedNodeIds: string[];
+      summary: { importSources?: string[]; lastImportAt?: string | null };
+    };
+
+    expect(imported.degradedFailureCodes).toEqual([]);
+    expect(imported.importedPageIds).toHaveLength(1);
+    expect(imported.importedNodeIds.length).toBeGreaterThan(0);
+    expect(imported.summary.importSources).toContain("figma.nodes");
+    expect(imported.summary.lastImportAt).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/variables/local"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/files/AbCdEf12345/nodes"))).toBe(true);
+  });
+
+  it("rethrows unexpected figma variable import failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/files/AbCdEf12345/variables/local")) {
+        throw new Error("variables socket reset");
+      }
+      if (url.includes("/files/AbCdEf12345")) {
+        return new Response(JSON.stringify(figmaFileFixture), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    }));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config: resolveConfig({
+        integrations: {
+          figma: {
+            accessToken: "figma-config-token"
+          }
+        }
+      })
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await expect(manager.execute("canvas.document.import", {
+      canvasSessionId,
+      leaseId,
+      sourceUrl: "https://www.figma.com/file/AbCdEf12345/Marketing-Landing"
+    })).rejects.toThrow("variables socket reset");
+  });
+
+  it("requires an accepted generation plan before importing figma content", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+
+    await expect(manager.execute("canvas.document.import", {
+      canvasSessionId: String(opened.canvasSessionId),
+      leaseId: String(opened.leaseId),
+      sourceUrl: "https://www.figma.com/file/AbCdEf12345/Marketing-Landing"
+    })).rejects.toMatchObject({
+      code: "plan_required"
+    });
+  });
+
+  it("rejects invalid import modes before issuing figma requests", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await expect(manager.execute("canvas.document.import", {
+      canvasSessionId,
+      leaseId,
+      sourceUrl: "https://www.figma.com/file/AbCdEf12345/Marketing-Landing",
+      mode: "bogus"
+    })).rejects.toThrow("Invalid import mode: bogus");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("imports figma components-only requests with adapter provenance and asset degradation evidence", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/files/AbCdEf12345")) {
+        return new Response(JSON.stringify(figmaFileFixture), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/images/AbCdEf12345") && url.includes("format=png")) {
+        return new Response(JSON.stringify({
+          images: {
+            "5:1": "https://cdn.example.com/5:1.png"
+          }
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/images/AbCdEf12345") && url.includes("format=svg")) {
+        return new Response(JSON.stringify({
+          images: {
+            "5:1": "https://cdn.example.com/5:1.svg"
+          }
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.endsWith(".png")) {
+        return new Response("png-binary", {
+          status: 200,
+          headers: { "content-type": "image/png" }
+        });
+      }
+      if (url.endsWith(".svg")) {
+        return new Response("svg-down", {
+          status: 503,
+          headers: { "content-type": "text/plain" }
+        });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    }));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config: resolveConfig({
+        integrations: {
+          figma: {
+            accessToken: "figma-config-token"
+          }
+        }
+      })
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    const imported = await manager.execute("canvas.document.import", {
+      canvasSessionId,
+      leaseId,
+      sourceUrl: "https://www.figma.com/file/AbCdEf12345/Marketing-Landing",
+      mode: "components_only",
+      frameworkId: "react",
+      frameworkAdapterId: "tsx-react-v1",
+      includeVariables: false,
+      depth: 2
+    }) as {
+      mode: string;
+      degradedFailureCodes: string[];
+      importedAssetIds: string[];
+      importedInventoryItemIds: string[];
+      provenance: {
+        source: { adapterIds: string[] };
+        metadata: { mode: string; requestedFrameworkAdapterId?: string | null };
+        assetReceipts: Array<{ status: string; repoPath?: string }>;
+      };
+    };
+
+    expect(imported.mode).toBe("components_only");
+    expect(imported.importedInventoryItemIds.length).toBeGreaterThan(0);
+    expect(imported.importedAssetIds).toContain("figma-AbCdEf12345-5-1-png");
+    expect(imported.degradedFailureCodes).toContain("asset_fetch_failed");
+    expect(imported.provenance.source.adapterIds).toEqual(["tsx-react-v1"]);
+    expect(imported.provenance.metadata).toMatchObject({
+      mode: "components_only",
+      requestedFrameworkAdapterId: "tsx-react-v1"
+    });
+    expect(imported.provenance.assetReceipts.some((receipt) => receipt.status === "asset_fetch_failed")).toBe(true);
+    expect(imported.provenance.assetReceipts.some((receipt) => typeof receipt.repoPath === "string")).toBe(true);
+
+    await expect(manager.execute("canvas.feedback.poll", {
+      canvasSessionId,
+      categories: ["asset"]
+    })).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          class: "figma-assets-degraded",
+          evidenceRefs: expect.arrayContaining([expect.stringContaining(".png")])
+        })
+      ])
+    });
+  });
+
+  it("tracks lease-aware history state, resets redo on new mutations, and invalidates stale stacks", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const internalSession = (manager as unknown as {
+      sessions: Map<string, {
+        store: {
+          getDocument: () => { pages: Array<{ rootNodeId: string | null; nodes: Array<{ id: string; style: Record<string, unknown> }> }> };
+          getRevision: () => number;
+          applyPatches: (baseRevision: number, patches: Array<Record<string, unknown>>) => void;
+        };
+      }>;
+    }).sessions.get(canvasSessionId);
+    expect(internalSession).toBeTruthy();
+    const session = internalSession as NonNullable<typeof internalSession>;
+    const rootNodeId = session.store.getDocument().pages[0]?.rootNodeId as string;
+    expect(rootNodeId).toBeTruthy();
+
+    const initialSummary = await manager.execute("canvas.session.status", {
+      canvasSessionId
+    }) as { history: Record<string, unknown> };
+    expect(initialSummary.history).toMatchObject({
+      canUndo: false,
+      canRedo: false,
+      undoDepth: 0,
+      redoDepth: 0,
+      stale: false,
+      depthLimit: 100
+    });
+
+    const planResult = await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    }) as { documentRevision: number };
+
+    const emptyUndo = await manager.execute("canvas.history.undo", {
+      canvasSessionId,
+      leaseId
+    }) as { ok: boolean; reason: string };
+    expect(emptyUndo).toEqual(expect.objectContaining({
+      ok: false,
+      reason: "history_empty"
+    }));
+
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: planResult.documentRevision,
+      patches: [{
+        op: "node.update",
+        nodeId: rootNodeId,
+        changes: {
+          "style.backgroundColor": "#101827"
+        }
+      }]
+    });
+
+    const afterPatch = await manager.execute("canvas.session.status", {
+      canvasSessionId
+    }) as { history: Record<string, unknown> };
+    expect(afterPatch.history).toMatchObject({
+      canUndo: true,
+      canRedo: false,
+      undoDepth: 1,
+      redoDepth: 0,
+      stale: false
+    });
+
+    await expect(manager.execute("canvas.history.undo", {
+      canvasSessionId,
+      leaseId: "lease_wrong"
+    })).rejects.toThrow("The canvas lease was reclaimed or replaced.");
+
+    const undone = await manager.execute("canvas.history.undo", {
+      canvasSessionId,
+      leaseId
+    }) as {
+      ok: boolean;
+      documentRevision: number;
+      summary: { history: Record<string, unknown> };
+    };
+    expect(undone.ok).toBe(true);
+    expect(undone.summary.history).toMatchObject({
+      canUndo: false,
+      canRedo: true,
+      undoDepth: 0,
+      redoDepth: 1,
+      stale: false
+    });
+    expect(session.store.getDocument().pages[0]?.nodes.find((node) => node.id === rootNodeId)?.style.backgroundColor).not.toBe("#101827");
+
+    const redone = await manager.execute("canvas.history.redo", {
+      canvasSessionId,
+      leaseId
+    }) as {
+      ok: boolean;
+      documentRevision: number;
+      summary: { history: Record<string, unknown> };
+    };
+    expect(redone.ok).toBe(true);
+    expect(redone.summary.history).toMatchObject({
+      canUndo: true,
+      canRedo: false,
+      undoDepth: 1,
+      redoDepth: 0,
+      stale: false
+    });
+    expect(session.store.getDocument().pages[0]?.nodes.find((node) => node.id === rootNodeId)?.style.backgroundColor).toBe("#101827");
+
+    const undoneAgain = await manager.execute("canvas.history.undo", {
+      canvasSessionId,
+      leaseId
+    }) as {
+      documentRevision: number;
+      summary: { history: Record<string, unknown> };
+    };
+    expect(undoneAgain.summary.history).toMatchObject({
+      canUndo: false,
+      canRedo: true,
+      undoDepth: 0,
+      redoDepth: 1
+    });
+
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: undoneAgain.documentRevision,
+      patches: [{
+        op: "node.update",
+        nodeId: rootNodeId,
+        changes: {
+          "style.borderRadius": "24px"
+        }
+      }]
+    });
+
+    const afterRedoReset = await manager.execute("canvas.session.status", {
+      canvasSessionId
+    }) as { history: Record<string, unknown> };
+    expect(afterRedoReset.history).toMatchObject({
+      canUndo: true,
+      canRedo: false,
+      undoDepth: 1,
+      redoDepth: 0,
+      stale: false
+    });
+
+    const driftRevision = session.store.getRevision();
+    session.store.applyPatches(driftRevision, [{
+      op: "node.update",
+      nodeId: rootNodeId,
+      changes: {
+        "style.outlineColor": "#22d3ee"
+      }
+    }]);
+
+    const staleSummary = await manager.execute("canvas.session.status", {
+      canvasSessionId
+    }) as { history: Record<string, unknown> };
+    expect(staleSummary.history).toMatchObject({
+      stale: true,
+      undoDepth: 1
+    });
+
+    const invalidated = await manager.execute("canvas.history.undo", {
+      canvasSessionId,
+      leaseId
+    }) as {
+      ok: boolean;
+      reason: string;
+      summary: { history: Record<string, unknown> };
+    };
+    expect(invalidated).toEqual(expect.objectContaining({
+      ok: false,
+      reason: "history_invalidated"
+    }));
+    expect(invalidated.summary.history).toMatchObject({
+      canUndo: false,
+      canRedo: false,
+      undoDepth: 0,
+      redoDepth: 0,
+      stale: false
+    });
+  });
+
+  it("undoes generated duplicate ids, editor hierarchy changes, token mutations, and bound child removals", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const session = (manager as unknown as {
+      sessions: Map<string, {
+        store: {
+          getDocument: () => {
+            designGovernance: {
+              colorSystem: {
+                surface: { default?: string };
+              };
+            };
+            tokens: {
+              collections: Array<{ id: string }>;
+              metadata: Record<string, unknown>;
+            };
+            bindings: Array<{ id: string; nodeId: string }>;
+            pages: Array<{
+              id: string;
+              rootNodeId: string | null;
+              nodes: Array<{
+                id: string;
+                name: string;
+                parentId?: string | null;
+                childIds: string[];
+                metadata: Record<string, unknown>;
+              }>;
+            }>;
+          };
+          getRevision: () => number;
+        };
+      }>;
+    }).sessions.get(canvasSessionId);
+    if (!session) {
+      throw new Error("Missing history-coverage session");
+    }
+    const page = session.store.getDocument().pages[0];
+    const pageId = page?.id;
+    const rootNodeId = page?.rootNodeId;
+    if (!pageId || !rootNodeId) {
+      throw new Error("Missing root canvas page");
+    }
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: governanceBootstrapPatches
+    });
+
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: [
+        {
+          op: "node.insert",
+          pageId,
+          parentId: rootNodeId,
+          node: {
+            id: "node_history_frame",
+            kind: "frame",
+            name: "History Frame",
+            rect: { x: 32, y: 32, width: 320, height: 220 },
+            props: {},
+            style: { backgroundColor: "#ffffff" },
+            tokenRefs: {},
+            bindingRefs: {},
+            variantPatches: [],
+            metadata: {}
+          }
+        },
+        {
+          op: "node.insert",
+          pageId,
+          parentId: "node_history_frame",
+          node: {
+            id: "node_history_copy",
+            kind: "text",
+            name: "History Copy",
+            rect: { x: 64, y: 96, width: 180, height: 40 },
+            props: { text: "History copy" },
+            style: { color: "#0f172a" },
+            tokenRefs: {},
+            bindingRefs: {},
+            variantPatches: [],
+            metadata: {}
+          }
+        },
+        {
+          op: "node.insert",
+          pageId,
+          parentId: rootNodeId,
+          node: {
+            id: "node_history_sidebar",
+            kind: "note",
+            name: "History Sidebar",
+            rect: { x: 400, y: 32, width: 180, height: 120 },
+            props: { text: "Sidebar" },
+            style: { backgroundColor: "#f8fafc" },
+            tokenRefs: {},
+            bindingRefs: {},
+            variantPatches: [],
+            metadata: {}
+          }
+        },
+        {
+          op: "binding.set",
+          nodeId: "node_history_copy",
+          binding: {
+            id: "binding_history_copy",
+            kind: "component-prop",
+            selector: "props.text",
+            componentName: "HistoryTitle",
+            metadata: { source: "cms" }
+          }
+        }
+      ]
+    });
+
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: [
+        {
+          op: "node.reparent",
+          nodeId: "node_history_sidebar",
+          parentId: "node_history_frame",
+          index: 0
+        },
+        {
+          op: "node.reorder",
+          nodeId: "node_history_sidebar",
+          index: 1
+        },
+        {
+          op: "node.duplicate",
+          nodeId: "node_history_frame",
+          parentId: rootNodeId,
+          index: 1
+        },
+        {
+          op: "node.visibility.set",
+          nodeId: "node_history_copy",
+          hidden: true
+        },
+        {
+          op: "token.set",
+          path: "colorSystem.surface.default",
+          value: "#112233"
+        },
+        {
+          op: "tokens.merge",
+          tokens: {
+            collections: [{
+              id: "collection_history_tokens",
+              name: "History Tokens",
+              items: [{
+                id: "token_history_primary",
+                path: "history/primary",
+                value: "#112233",
+                type: "color",
+                description: null,
+                modes: [],
+                metadata: {}
+              }],
+              metadata: {}
+            }],
+            metadata: {
+              activeModeId: "dark"
+            }
+          }
+        }
+      ]
+    });
+
+    const afterComposite = session.store.getDocument();
+    expect(afterComposite.pages[0]?.nodes.filter((node) => node.id === "node_history_frame" || node.id.startsWith("node_history_frame_copy_"))).toHaveLength(2);
+    expect(afterComposite.pages[0]?.nodes.find((node) => node.id === "node_history_sidebar")?.parentId).toBe("node_history_frame");
+    expect(afterComposite.pages[0]?.nodes.find((node) => node.id === "node_history_copy")?.metadata.visibility).toEqual({ hidden: true });
+    expect(afterComposite.designGovernance.colorSystem.surface.default).toBe("#112233");
+    expect(afterComposite.tokens.collections.some((collection) => collection.id === "collection_history_tokens")).toBe(true);
+    expect(afterComposite.tokens.metadata.activeModeId).toBe("dark");
+
+    const undoneComposite = await manager.execute("canvas.history.undo", {
+      canvasSessionId,
+      leaseId
+    }) as { ok: boolean };
+    expect(undoneComposite.ok).toBe(true);
+
+    const afterUndo = session.store.getDocument();
+    expect(afterUndo.pages[0]?.nodes.filter((node) => node.id === "node_history_frame" || node.id.startsWith("node_history_frame_copy_"))).toHaveLength(1);
+    expect(afterUndo.pages[0]?.nodes.find((node) => node.id === "node_history_sidebar")?.parentId).toBe(rootNodeId);
+    expect(afterUndo.pages[0]?.nodes.find((node) => node.id === "node_history_copy")?.metadata.visibility).toEqual({ hidden: false });
+    expect(afterUndo.designGovernance.colorSystem.surface.default).not.toBe("#112233");
+    expect(afterUndo.tokens.collections.some((collection) => collection.id === "collection_history_tokens")).toBe(false);
+    expect(afterUndo.tokens.metadata.activeModeId).toBeUndefined();
+
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: [{
+        op: "node.remove",
+        nodeId: "node_history_copy"
+      }]
+    });
+    expect(session.store.getDocument().pages[0]?.nodes.find((node) => node.id === "node_history_copy")).toBeUndefined();
+    expect(session.store.getDocument().bindings.find((binding) => binding.id === "binding_history_copy")).toBeUndefined();
+
+    const undoneRemove = await manager.execute("canvas.history.undo", {
+      canvasSessionId,
+      leaseId
+    }) as { ok: boolean };
+    expect(undoneRemove.ok).toBe(true);
+    expect(session.store.getDocument().pages[0]?.nodes.find((node) => node.id === "node_history_copy")).toMatchObject({
+      parentId: "node_history_frame"
+    });
+  expect(session.store.getDocument().bindings.find((binding) => binding.id === "binding_history_copy")).toMatchObject({
+    nodeId: "node_history_copy"
+  });
+});
+
+it("covers duplicate-history normalization for later-page nodes, missing descendants, and unknown node ids", async () => {
+  const manager = new CanvasManager({
+    worktree,
+    browserManager: {
+      status: vi.fn(),
+      closeTarget: vi.fn()
+    } as never,
+    config
+  });
+  const managerAny = manager as unknown as {
+    normalizeHistoryAwarePatches: (
+      document: ReturnType<typeof createDefaultCanvasDocument>,
+      patches: Array<Record<string, unknown>>
+    ) => Array<Record<string, unknown>>;
+  };
+
+  const document = createDefaultCanvasDocument("dc_history_duplicate_branches");
+  const firstPage = document.pages[0];
+  const templateRoot = firstPage?.nodes.find((node) => node.id === firstPage.rootNodeId);
+  if (!firstPage || !templateRoot) {
+    throw new Error("Expected default canvas root node");
+  }
+
+  document.pages.push({
+    ...structuredClone(firstPage),
+    id: "page_history_secondary",
+    name: "History Secondary",
+    rootNodeId: "node_history_secondary_root",
+    nodes: [
+      {
+        ...structuredClone(templateRoot),
+        id: "node_history_secondary_root",
+        name: "History Secondary Root",
+        parentId: null,
+        childIds: ["node_history_secondary_frame"]
+      },
+      {
+        ...structuredClone(templateRoot),
+        id: "node_history_secondary_frame",
+        name: "History Secondary Frame",
+        parentId: "node_history_secondary_root",
+        childIds: ["node_history_missing_descendant"]
+      }
+    ]
+  });
+
+  const [normalizedPatch] = managerAny.normalizeHistoryAwarePatches(document, [{
+    op: "node.duplicate",
+    nodeId: "node_history_secondary_frame"
+  }]) as Array<{ nodeId: string; idMap?: Record<string, string> }>;
+
+  expect(normalizedPatch.nodeId).toBe("node_history_secondary_frame");
+  expect(Object.keys(normalizedPatch.idMap ?? {})).toEqual(["node_history_secondary_frame"]);
+  expect(managerAny.normalizeHistoryAwarePatches(document, [{
+    op: "node.duplicate",
+    nodeId: "node_history_secondary_frame",
+    idMap: {
+      node_history_secondary_frame: "node_history_secondary_frame_copy_fixed"
+    }
+  }])).toEqual([{
+    op: "node.duplicate",
+    nodeId: "node_history_secondary_frame",
+    idMap: {
+      node_history_secondary_frame: "node_history_secondary_frame_copy_fixed"
+    }
+  }]);
+
+  expect(() => managerAny.normalizeHistoryAwarePatches(document, [{
+    op: "node.duplicate",
+    nodeId: "node_history_unknown"
+  }])).toThrow("Unknown node: node_history_unknown");
+});
+
+it("resets history when inverse patches cannot be synthesized for duplicate or missing inventory removals", async () => {
+  const manager = new CanvasManager({
+    worktree,
+    browserManager: {
+      status: vi.fn(),
+      closeTarget: vi.fn()
+    } as never,
+    config
+  });
+  const opened = await manager.execute("canvas.session.open", {}) as {
+    canvasSessionId: string;
+    leaseId: string;
+  };
+  const internal = manager as unknown as {
+    sessions: Map<string, {
+      editorSelection: { pageId: string | null; nodeId: string | null; targetId: string | null; updatedAt: string | null };
+      editorViewport: { x: number; y: number; zoom: number };
+      history: { undoStack: unknown[]; redoStack: unknown[] };
+    }>;
+    recordHistoryEntry: (
+      session: {
+        editorSelection: { pageId: string | null; nodeId: string | null; targetId: string | null; updatedAt: string | null };
+        editorViewport: { x: number; y: number; zoom: number };
+        history: { undoStack: unknown[]; redoStack: unknown[] };
+      },
+      beforeDocument: ReturnType<typeof createDefaultCanvasDocument>,
+      patches: Array<Record<string, unknown>>,
+      beforeSelection: { pageId: string | null; nodeId: string | null; targetId: string | null; updatedAt: string | null },
+      beforeViewport: { x: number; y: number; zoom: number },
+      appliedRevision: number,
+      source: "agent" | "editor"
+    ) => void;
+  };
+  const session = internal.sessions.get(opened.canvasSessionId);
+  if (!session) {
+    throw new Error("Expected canvas session");
+  }
+
+  const duplicateDocument = createDefaultCanvasDocument("dc_history_duplicate_null_inverse");
+  const duplicateRootNodeId = duplicateDocument.pages[0]?.rootNodeId;
+  if (!duplicateRootNodeId) {
+    throw new Error("Expected duplicate root node id");
+  }
+
+  session.history.undoStack.push({ stale: true });
+  session.history.redoStack.push({ stale: true });
+  internal.recordHistoryEntry(
+    session,
+    duplicateDocument,
+    [{ op: "node.duplicate", nodeId: duplicateRootNodeId, idMap: {} }],
+    session.editorSelection,
+    session.editorViewport,
+    2,
+    "agent"
+  );
+  expect(session.history.undoStack).toEqual([]);
+  expect(session.history.redoStack).toEqual([]);
+
+  session.history.undoStack.push({ stale: true });
+  session.history.redoStack.push({ stale: true });
+  internal.recordHistoryEntry(
+    session,
+    createDefaultCanvasDocument("dc_history_inventory_null_inverse"),
+    [{ op: "inventory.remove", itemId: "inventory_missing" }],
+    session.editorSelection,
+    session.editorViewport,
+    3,
+    "agent"
+  );
+  expect(session.history.undoStack).toEqual([]);
+  expect(session.history.redoStack).toEqual([]);
+});
+
+  it("undoes inventory upserts, seeded inventory removal, starter patches, and visibility branches together", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+    };
+
+    await manager.execute("canvas.starter.apply", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      starterId: "dashboard.analytics",
+      frameworkId: "react"
+    });
+
+    const session = (manager as unknown as {
+      sessions: Map<string, {
+        store: {
+          getDocument: () => {
+            meta: { starter: Record<string, unknown> | null };
+            componentInventory: Array<{
+              id: string;
+              description: string | null;
+            }>;
+            pages: Array<{
+              rootNodeId: string | null;
+              nodes: Array<{
+                id: string;
+                metadata: Record<string, unknown>;
+              }>;
+            }>;
+          };
+          getRevision: () => number;
+        };
+      }>;
+    }).sessions.get(opened.canvasSessionId);
+    if (!session) {
+      throw new Error("Missing composite history session");
+    }
+
+    const documentBefore = structuredClone(session.store.getDocument());
+    const rootNodeId = documentBefore.pages[0]?.rootNodeId;
+    const seededItem = documentBefore.componentInventory.find((item) => item.id === "kit.dashboard.analytics-core.metric-card");
+    if (!rootNodeId || !seededItem || !documentBefore.meta.starter) {
+      throw new Error("Missing starter-backed history fixture");
+    }
+
+    const extraItem = structuredClone({
+      ...seededItem,
+      id: "kit.dashboard.analytics-core.metric-card-extra",
+      description: "Transient history inventory item"
+    });
+
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: [
+        {
+          op: "inventory.upsert",
+          item: extraItem
+        },
+        {
+          op: "inventory.upsert",
+          item: {
+            ...extraItem,
+            description: "Updated transient history inventory item"
+          }
+        },
+        {
+          op: "inventory.update",
+          itemId: seededItem.id,
+          changes: {
+            description: "Metric card updated during history coverage"
+          }
+        },
+        {
+          op: "node.update",
+          nodeId: rootNodeId,
+          changes: {
+            "metadata.visibility.hidden": false
+          }
+        },
+        {
+          op: "node.visibility.set",
+          nodeId: rootNodeId,
+          hidden: true
+        },
+        {
+          op: "starter.apply",
+          starter: structuredClone(documentBefore.meta.starter)
+        },
+        {
+          op: "inventory.remove",
+          itemId: seededItem.id
+        }
+      ]
+    });
+
+    const afterForward = session.store.getDocument();
+    expect(afterForward.componentInventory.some((item) => item.id === seededItem.id)).toBe(false);
+    expect(afterForward.pages[0]?.nodes.find((node) => node.id === rootNodeId)?.metadata.visibility).toMatchObject({
+      hidden: true
+    });
+
+    const undone = await manager.execute("canvas.history.undo", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId
+    }) as { ok: boolean };
+    expect(undone.ok).toBe(true);
+
+    const afterUndo = session.store.getDocument();
+    expect(afterUndo.componentInventory.find((item) => item.id === seededItem.id)).toMatchObject({
+      description: seededItem.description
+    });
+    expect(afterUndo.componentInventory.some((item) => item.id === extraItem.id)).toBe(false);
+    expect(afterUndo.pages[0]?.nodes.find((node) => node.id === rootNodeId)?.metadata.visibility?.hidden).not.toBe(true);
   });
 
   it("covers repo-only session guard rails and empty feedback branches", async () => {
@@ -455,7 +1591,19 @@ describe("CanvasManager", () => {
     })).rejects.toThrow("Unknown node: node_missing");
   });
 
-  it("reuses the canvas relay client for extension-mode commands", async () => {
+  it("keeps preview overlays on ops while reserving the canvas relay for design-tab commands", async () => {
+    const mountCanvasOverlay = vi.fn().mockResolvedValue({
+      mountId: "mount-ext",
+      targetId: "tab-preview",
+      overlayState: "mounted",
+      capabilities: { selection: true }
+    });
+    const selectCanvasOverlay = vi.fn().mockResolvedValue({
+      selection: { matched: true, selector: "#cta" },
+      targetId: "tab-preview"
+    });
+    const syncCanvasOverlay = vi.fn().mockResolvedValue({ ok: true, overlayState: "mounted" });
+    const unmountCanvasOverlay = vi.fn().mockResolvedValue({ ok: true, overlayState: "idle" });
     const browserManager = {
       status: vi.fn().mockResolvedValue({
         mode: "extension",
@@ -463,6 +1611,10 @@ describe("CanvasManager", () => {
         url: "https://example.com/app",
         title: "App"
       }),
+      mountCanvasOverlay,
+      selectCanvasOverlay,
+      syncCanvasOverlay,
+      unmountCanvasOverlay,
       goto: vi.fn().mockResolvedValue({ finalUrl: "https://example.com/", status: 200, timingMs: 5 }),
       screenshot: vi.fn().mockResolvedValue({ path: join(worktree, "preview-ext.png") }),
       perfMetrics: vi.fn().mockResolvedValue({ metrics: [{ name: "LayoutDuration", value: 4 }] }),
@@ -483,13 +1635,7 @@ describe("CanvasManager", () => {
       if (command === "canvas.tab.sync") {
         return { ok: true };
       }
-      if (command === "canvas.overlay.mount") {
-        return { mountId: "mount-ext", targetId: "tab-preview", previewState: "background", overlayState: "mounted", capabilities: { selection: true } };
-      }
-      if (command === "canvas.overlay.select") {
-        return { selection: { matched: true, selector: "#cta" }, targetId: "tab-preview" };
-      }
-      if (command === "canvas.overlay.unmount" || command === "canvas.tab.close") {
+      if (command === "canvas.tab.close") {
         return { ok: true };
       }
       return { ok: true };
@@ -613,6 +1759,9 @@ describe("CanvasManager", () => {
     expect(resolveRelayEndpointMock).toHaveBeenCalledTimes(1);
     expect(canvasClientConnectMock).toHaveBeenCalledTimes(1);
     expect(canvasClientRequestMock).toHaveBeenCalledWith("canvas.tab.open", expect.any(Object), canvasSessionId, 30000, leaseId);
+    expect(canvasClientRequestMock).not.toHaveBeenCalledWith("canvas.overlay.mount", expect.any(Object), canvasSessionId, 30000, leaseId);
+    expect(canvasClientRequestMock).not.toHaveBeenCalledWith("canvas.overlay.select", expect.any(Object), canvasSessionId, 30000, leaseId);
+    expect(canvasClientRequestMock).not.toHaveBeenCalledWith("canvas.overlay.unmount", expect.any(Object), canvasSessionId, 30000, leaseId);
     const openCall = canvasClientRequestMock.mock.calls.find(([command]) => command === "canvas.tab.open");
     expect(openCall?.[1]).toEqual(expect.objectContaining({
       html: expect.stringContaining("odb-canvas-component-button")
@@ -621,12 +1770,1088 @@ describe("CanvasManager", () => {
     expect(syncCall?.[1]).toEqual(expect.objectContaining({
       html: expect.stringContaining("data-icon-libraries")
     }));
+    expect(mountCanvasOverlay).toHaveBeenCalledWith("browser-extension", "tab-preview", expect.objectContaining({
+      title: expect.any(String),
+      prototypeId: "proto_home_default",
+      mountId: expect.stringMatching(/^mount_/)
+    }));
+    expect(selectCanvasOverlay).toHaveBeenCalledWith("browser-extension", "tab-preview", {
+      mountId: "mount-ext",
+      nodeId: null,
+      selectionHint: { selector: "#cta" }
+    });
+    expect(syncCanvasOverlay).toHaveBeenCalled();
+    expect(unmountCanvasOverlay).toHaveBeenCalledWith("browser-extension", "tab-preview", "mount-ext");
+  });
+
+  it("avoids redundant design-tab sync payloads for canvas-relay overlay commands", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      closeTarget: vi.fn().mockResolvedValue(undefined)
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string, payload?: Record<string, unknown>) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-1", previewState: "focused" };
+      }
+      if (command === "canvas.overlay.mount") {
+        return {
+          mountId: "mount-design",
+          targetId: payload?.targetId,
+          overlayState: "mounted",
+          capabilities: { selection: true, guides: true }
+        };
+      }
+      if (command === "canvas.overlay.select") {
+        return {
+          targetId: payload?.targetId,
+          selection: {
+            matched: true,
+            nodeId: payload?.nodeId,
+            selector: `[data-node-id="${String(payload?.nodeId ?? "")}"]`
+          }
+        };
+      }
+      if (command === "canvas.overlay.unmount") {
+        return { ok: true, mountId: payload?.mountId, overlayState: "idle" };
+      }
+      if (command === "canvas.tab.close") {
+        return { ok: true, targetId: payload?.targetId };
+      }
+      if (command === "canvas.tab.sync") {
+        throw new Error("design-tab overlay should not trigger canvas.tab.sync");
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+    const internal = manager as unknown as {
+      syncLiveViews: (session: unknown) => Promise<void>;
+    };
+    const syncLiveViewsSpy = vi.spyOn(internal, "syncLiveViews");
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const documentId = String(opened.documentId);
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    }) as { document: { pages: Array<{ rootNodeId: string | null }> } };
+    const rootNodeId = loaded.document.pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await expect(manager.execute("canvas.tab.open", {
+      canvasSessionId,
+      leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    })).resolves.toMatchObject({
+      targetId: "tab-ext-1",
+      targetIds: ["tab-ext-1"],
+      designTab: true
+    });
+
+    canvasClientRequestMock.mockClear();
+    syncLiveViewsSpy.mockClear();
+
+    await expect(manager.execute("canvas.overlay.mount", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-ext-1",
+      prototypeId: "proto_home_default"
+    })).resolves.toMatchObject({
+      mountId: "mount-design",
+      targetId: "tab-ext-1"
+    });
+
+    await expect(manager.execute("canvas.overlay.select", {
+      canvasSessionId,
+      leaseId,
+      mountId: "mount-design",
+      targetId: "tab-ext-1",
+      nodeId: rootNodeId
+    })).resolves.toMatchObject({
+      selection: {
+        matched: true,
+        nodeId: rootNodeId
+      }
+    });
+
+    await expect(manager.execute("canvas.overlay.unmount", {
+      canvasSessionId,
+      leaseId,
+      mountId: "mount-design",
+      targetId: "tab-ext-1"
+    })).resolves.toMatchObject({
+      ok: true,
+      mountId: "mount-design"
+    });
+
+    expect(syncLiveViewsSpy).not.toHaveBeenCalled();
+    expect(canvasClientRequestMock).toHaveBeenCalledWith(
+      "canvas.overlay.mount",
+      { targetId: "tab-ext-1", prototypeId: "proto_home_default" },
+      canvasSessionId,
+      30000,
+      leaseId
+    );
+    expect(canvasClientRequestMock).not.toHaveBeenCalledWith("canvas.tab.sync", expect.any(Object), canvasSessionId, 30000, leaseId);
+  });
+
+  it("disconnects the canvas relay client when the last extension-backed session closes", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      })
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-1", previewState: "focused" };
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.tab.open", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    });
+    await manager.execute("canvas.session.close", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId
+    });
+
+    expect(canvasClientConnectMock).toHaveBeenCalledTimes(1);
+    expect(canvasClientRequestMock).toHaveBeenCalledWith(
+      "canvas.tab.close",
+      expect.any(Object),
+      opened.canvasSessionId,
+      30000,
+      opened.leaseId
+    );
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a warning instead of failing when extension design-tab close hits a transient relay error", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      })
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-1", previewState: "focused" };
+      }
+      if (command === "canvas.tab.close") {
+        throw new Error("[ops_unavailable] Extension not connected to relay.");
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.tab.open", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    });
+
+    await expect(manager.execute("canvas.session.close", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId
+    })).resolves.toMatchObject({
+      ok: true,
+      releasedOverlays: true,
+      warnings: ["[ops_unavailable] Extension not connected to relay."]
+    });
+
+    expect(canvasClientRequestMock).toHaveBeenCalledWith(
+      "canvas.tab.close",
+      expect.any(Object),
+      opened.canvasSessionId,
+      30000,
+      opened.leaseId
+    );
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
+    expect((manager as { sessions: Map<string, unknown> }).sessions.has(opened.canvasSessionId)).toBe(false);
+  });
+
+  it.each([
+    "[invalid_session] Unknown ops session",
+    "Extension not connected to relay",
+    "Ops request timed out"
+  ])("treats extension design-tab close error `%s` as an ignorable session-close warning", async (closeMessage) => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      closeTarget: vi.fn()
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-variant", previewState: "focused" };
+      }
+      if (command === "canvas.tab.close") {
+        throw new Error(closeMessage);
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.tab.open", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    });
+
+    await expect(manager.execute("canvas.session.close", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId
+    })).resolves.toMatchObject({
+      ok: true,
+      warnings: [closeMessage]
+    });
+
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
+    expect((manager as { sessions: Map<string, unknown> }).sessions.has(opened.canvasSessionId)).toBe(false);
+  });
+
+  it("falls back to browser target close when the canvas relay session is already gone", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      closeTarget: vi.fn(async () => undefined)
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-variant", previewState: "focused" };
+      }
+      if (command === "canvas.tab.close") {
+        throw new Error("Unknown sessionId: canvas-stale");
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.tab.open", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    });
+
+    await expect(manager.execute("canvas.session.close", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId
+    })).resolves.toMatchObject({
+      ok: true,
+      warnings: []
+    });
+
+    expect(browserManager.closeTarget).toHaveBeenCalledWith("browser-extension", "tab-ext-variant");
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
+    expect((manager as { sessions: Map<string, unknown> }).sessions.has(opened.canvasSessionId)).toBe(false);
+  });
+
+  it("treats an already-missing extension design tab as closed during session shutdown", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      listTargets: vi.fn().mockResolvedValue({
+        activeTargetId: "tab-root",
+        targets: [{ targetId: "tab-root", type: "page", title: "App", url: "https://example.com/app" }]
+      }),
+      closeTarget: vi.fn(async () => undefined)
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-missing", previewState: "focused" };
+      }
+      if (command === "canvas.tab.close") {
+        throw new Error("Unknown sessionId: canvas-stale");
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.tab.open", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    });
+
+    await expect(manager.execute("canvas.session.close", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId
+    })).resolves.toMatchObject({
+      ok: true,
+      warnings: []
+    });
+
+    expect(browserManager.listTargets).toHaveBeenCalledWith("browser-extension", true);
+    expect(browserManager.closeTarget).not.toHaveBeenCalled();
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
+    expect((manager as { sessions: Map<string, unknown> }).sessions.has(opened.canvasSessionId)).toBe(false);
+  });
+
+  it("treats an already-closed extension design tab as closed during session shutdown", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      })
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-already-closed", previewState: "focused" };
+      }
+      if (command === "canvas.tab.close") {
+        throw new Error("No tab with id: 1245671463.");
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.tab.open", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    });
+
+    await expect(manager.execute("canvas.session.close", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId
+    })).resolves.toMatchObject({
+      ok: true,
+      warnings: []
+    });
+
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
+    expect((manager as { sessions: Map<string, unknown> }).sessions.has(opened.canvasSessionId)).toBe(false);
+  });
+
+  it("closes an already-closed extension design tab without querying a restricted active browser tab", async () => {
+    const browserManager = {
+      status: vi.fn()
+        .mockResolvedValueOnce({
+          mode: "extension",
+          activeTargetId: "tab-preview",
+          url: "https://example.com/app",
+          title: "App"
+        })
+        .mockRejectedValue(new Error("[restricted_url] Active tab uses a restricted URL scheme. Focus a normal http(s) tab and retry."))
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-restricted-root", previewState: "focused" };
+      }
+      if (command === "canvas.tab.close") {
+        throw new Error("No tab with id: 1245671468.");
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.tab.open", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    });
+
+    await expect(manager.execute("canvas.session.close", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId
+    })).resolves.toMatchObject({
+      ok: true,
+      warnings: []
+    });
+
+    expect(browserManager.status).toHaveBeenCalledTimes(1);
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
+    expect((manager as { sessions: Map<string, unknown> }).sessions.has(opened.canvasSessionId)).toBe(false);
+  });
+
+  it("rethrows non-ignorable extension design-tab close failures during session shutdown", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      })
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-hard-fail", previewState: "focused" };
+      }
+      if (command === "canvas.tab.close") {
+        throw new Error("hard close failure");
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.tab.open", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    });
+
+    await expect(manager.execute("canvas.session.close", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId
+    })).rejects.toThrow("hard close failure");
+
+    expect(canvasClientDisconnectMock).not.toHaveBeenCalled();
+    expect((manager as { sessions: Map<string, unknown> }).sessions.has(opened.canvasSessionId)).toBe(true);
+  });
+
+  it("keeps the canvas relay client connected while another extension-backed session is still active", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      })
+    };
+    let targetIndex = 0;
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        targetIndex += 1;
+        return { targetId: `tab-ext-${targetIndex}`, previewState: "focused" };
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const first = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+    const second = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    for (const session of [first, second]) {
+      await manager.execute("canvas.plan.set", {
+        canvasSessionId: session.canvasSessionId,
+        leaseId: session.leaseId,
+        generationPlan: structuredClone(validGenerationPlan)
+      });
+      await manager.execute("canvas.tab.open", {
+        canvasSessionId: session.canvasSessionId,
+        leaseId: session.leaseId,
+        prototypeId: "proto_home_default",
+        previewMode: "focused"
+      });
+    }
+
+    await manager.execute("canvas.session.close", {
+      canvasSessionId: first.canvasSessionId,
+      leaseId: first.leaseId
+    });
+    expect(canvasClientDisconnectMock).not.toHaveBeenCalled();
+
+    await manager.execute("canvas.session.close", {
+      canvasSessionId: second.canvasSessionId,
+      leaseId: second.leaseId
+    });
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("disconnects the idle canvas relay client when the extension reports canvas_session_closed", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      })
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-1", previewState: "focused" };
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.tab.open", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    });
+
+    const internal = manager as unknown as {
+      sessions: Map<string, unknown>;
+      handleCanvasEvent: (event: { event: string; canvasSessionId?: string; payload?: unknown }) => Promise<void>;
+    };
+
+    await internal.handleCanvasEvent({
+      event: "canvas_session_closed",
+      canvasSessionId: opened.canvasSessionId,
+      payload: { reason: "target_closed" }
+    });
+
+    expect(internal.sessions.has(opened.canvasSessionId)).toBe(false);
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
   });
 
   it("covers repo-backed sessions and non-browser guard paths", async () => {
     const document = createDefaultCanvasDocument("dc_repo_backed");
     document.title = "Repo Backed Document";
     document.designGovernance.generationPlan = structuredClone(validGenerationPlan);
+    document.componentInventory.push({
+      id: "inventory_hero_card",
+      name: "HeroCard",
+      componentName: "HeroCard",
+      sourceKind: "code-sync",
+      sourceFamily: "framework_component",
+      origin: "code_sync",
+      framework: {
+        id: "react",
+        label: "React",
+        packageName: "react",
+        metadata: {}
+      },
+      adapter: {
+        id: "tsx-react-v1",
+        label: "TSX React v1",
+        packageName: "@opendevbrowser/tsx-react-v1",
+        metadata: {}
+      },
+      plugin: {
+        id: "local-ui-kit",
+        label: "Local UI Kit",
+        packageName: "@repo/local-ui-kit",
+        metadata: {}
+      },
+      variants: [],
+      props: [],
+      slots: [],
+      events: [],
+      content: {
+        acceptsText: false,
+        acceptsRichText: false,
+        slotNames: [],
+        metadata: {}
+      },
+      metadata: {}
+    });
+    document.meta.imports.push({
+      id: "import_figma_1",
+      source: {
+        id: "source_figma_1",
+        kind: "figma",
+        frameworkId: "react",
+        pluginId: "local-ui-kit",
+        adapterIds: ["tsx-react-v1"],
+        metadata: {}
+      },
+      assetReceipts: [],
+      metadata: {}
+    });
+    document.meta.adapterPlugins.push({
+      id: "local-ui-kit",
+      label: "Local UI Kit",
+      frameworks: [{ frameworkId: "react", versions: ["18"], metadata: {} }],
+      libraries: [{ libraryId: "shadcn", categories: ["components"], metadata: {} }],
+      declaredCapabilities: ["preview", "code_sync"],
+      grantedCapabilities: [
+        { capability: "preview", granted: true, metadata: {} },
+        { capability: "tokens", granted: false, reason: "not_requested", metadata: {} }
+      ],
+      metadata: {}
+    });
+    document.meta.pluginErrors.push({
+      pluginId: "local-ui-kit",
+      code: "preview_skipped",
+      message: "Preview capability remains document-only for this binding.",
+      details: {}
+    });
     const repoPath = await saveCanvasDocument(worktree, document, ".opendevbrowser/canvas/documents/preseeded.json");
     const browserManager = {
       closeTarget: vi.fn().mockResolvedValue(undefined),
@@ -651,8 +2876,20 @@ describe("CanvasManager", () => {
       mode: "document-only",
       planStatus: "accepted",
       libraryPolicy: CANVAS_PROJECT_DEFAULTS.libraryPolicy,
-      componentInventoryCount: 0,
-      componentSourceKinds: []
+      componentInventoryCount: 1,
+      componentSourceKinds: ["code-sync"],
+      frameworkIds: ["react"],
+      pluginIds: ["local-ui-kit"],
+      inventoryOrigins: ["code_sync"],
+      declaredCapabilities: ["code_sync", "preview"],
+      grantedCapabilities: ["preview"],
+      capabilityDenials: [
+        expect.objectContaining({ capability: "tokens", granted: false, reason: "not_requested" })
+      ],
+      pluginErrors: [
+        expect.objectContaining({ pluginId: "local-ui-kit", code: "preview_skipped" })
+      ],
+      importSources: ["figma"]
     });
     expect(await manager.execute("canvas.capabilities.get", { canvasSessionId })).toMatchObject({
       documentId: "dc_repo_backed"
@@ -747,7 +2984,8 @@ describe("CanvasManager", () => {
       canvasSessionId,
       afterCursor: "cursor_404"
     })).toMatchObject({
-      cursor: "fb_9"
+      cursor: "fb_9",
+      initialItems: expect.any(Array)
     });
     await expect(manager.execute("canvas.document.patch", {
       canvasSessionId,
@@ -866,12 +3104,67 @@ describe("CanvasManager", () => {
     });
     await expect(manager.execute("canvas.unknown", {})).rejects.toThrow("Unsupported canvas command: canvas.unknown");
 
-    expect(await manager.execute("canvas.session.close", {
+  expect(await manager.execute("canvas.session.close", {
       canvasSessionId,
       leaseId
     })).toMatchObject({
       ok: true,
       releasedTargets: []
+    });
+  });
+
+  it("preserves the active unsaved document when canvas.document.load is called with the session document id", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config: resolveConfig({})
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-managed"
+    }) as Record<string, unknown>;
+    const canvasSessionId = opened.canvasSessionId as string;
+    const leaseId = opened.leaseId as string;
+    const documentId = opened.documentId as string;
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    expect(await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    })).toMatchObject({
+      documentId,
+      documentRevision: 2,
+      document: {
+        designGovernance: {
+          generationPlan: structuredClone(validGenerationPlan)
+        }
+      },
+      handshake: {
+        preflightState: "plan_accepted",
+        governanceBlockStates: {
+          generationPlan: {
+            status: "present"
+          }
+        }
+      }
+    });
+
+    expect(await manager.execute("canvas.plan.get", {
+      canvasSessionId,
+      leaseId
+    })).toMatchObject({
+      planStatus: "accepted",
+      documentRevision: 2,
+      generationPlan: structuredClone(validGenerationPlan)
     });
   });
 
@@ -1175,6 +3468,111 @@ describe("CanvasManager", () => {
     });
   });
 
+  it("exposes public feedback next and unsubscribe commands", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: 2,
+      patches: [...governanceBootstrapPatches]
+    });
+
+    const session = (manager as unknown as {
+      sessions: Map<string, { store: { getRevision: () => number; getDocument: () => { pages: Array<{ rootNodeId: string | null }> } } }>;
+      handleCanvasEvent: (event: { event: string; canvasSessionId: string; payload: Record<string, unknown> }) => Promise<void>;
+    }).sessions.get(canvasSessionId);
+    const rootNodeId = session?.store.getDocument().pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+
+    const subscribed = await manager.execute("canvas.feedback.subscribe", {
+      canvasSessionId
+    }) as {
+      subscriptionId: string;
+      heartbeatMs: number;
+      expiresAt: string | null;
+      initialItems: Array<Record<string, unknown>>;
+      activeTargetIds: string[];
+    };
+    expect(subscribed).toMatchObject({
+      subscriptionId: expect.stringMatching(/^canvas_sub_/),
+      heartbeatMs: 15000,
+      expiresAt: null,
+      initialItems: expect.any(Array),
+      activeTargetIds: []
+    });
+
+    const nextItem = manager.execute("canvas.feedback.next", {
+      canvasSessionId,
+      subscriptionId: subscribed.subscriptionId,
+      timeoutMs: 1000
+    });
+
+    await (manager as unknown as {
+      handleCanvasEvent: (event: { event: string; canvasSessionId: string; payload: Record<string, unknown> }) => Promise<void>;
+    }).handleCanvasEvent({
+      event: "canvas_patch_requested",
+      canvasSessionId,
+      payload: {
+        baseRevision: session?.store.getRevision(),
+        selection: {
+          pageId: "page_home",
+          nodeId: rootNodeId,
+          targetId: "tab-preview"
+        },
+        patches: [{
+          op: "node.update",
+          nodeId: rootNodeId,
+          changes: { "metadata.editor": "public-next" }
+        }]
+      }
+    });
+
+    await expect(nextItem).resolves.toMatchObject({
+      eventType: "feedback.item",
+      item: {
+        class: "editor-document-patched",
+        details: { source: "editor" }
+      }
+    });
+
+    expect(await manager.execute("canvas.feedback.unsubscribe", {
+      canvasSessionId,
+      subscriptionId: subscribed.subscriptionId
+    })).toEqual({
+      ok: true,
+      subscriptionId: subscribed.subscriptionId
+    });
+    expect(await manager.execute("canvas.feedback.unsubscribe", {
+      canvasSessionId,
+      subscriptionId: subscribed.subscriptionId
+    })).toEqual({
+      ok: true,
+      subscriptionId: subscribed.subscriptionId
+    });
+
+    await manager.execute("canvas.session.close", {
+      canvasSessionId,
+      leaseId
+    });
+  });
+
   it("auto-refreshes active preview targets after accepted editor patches", async () => {
     const browserManager = {
       status: vi.fn().mockResolvedValue({
@@ -1295,6 +3693,8 @@ describe("CanvasManager", () => {
             queue: Array<{ eventType: string } | undefined>;
             waiters: Array<(event: unknown) => void>;
             cursor: string | null;
+            heartbeatMs: number;
+            lastHeartbeatAt: number;
             heartbeatTimer: NodeJS.Timeout;
             active: boolean;
           }>;
@@ -1303,6 +3703,8 @@ describe("CanvasManager", () => {
           queue: Array<{ eventType: string } | undefined>;
           waiters: Array<(event: unknown) => void>;
           cursor: string | null;
+          heartbeatMs: number;
+          lastHeartbeatAt: number;
           heartbeatTimer: NodeJS.Timeout;
           active: boolean;
         }) => AsyncIterable<unknown>;
@@ -1311,6 +3713,8 @@ describe("CanvasManager", () => {
             queue: Array<{ eventType: string } | undefined>;
             waiters: Array<(event: unknown) => void>;
             cursor: string | null;
+            heartbeatMs: number;
+            lastHeartbeatAt: number;
             heartbeatTimer: NodeJS.Timeout;
             active: boolean;
           },
@@ -1322,23 +3726,40 @@ describe("CanvasManager", () => {
       const subscription = session?.feedbackSubscriptions.get(subscribed.subscriptionId);
       expect(subscription?.queue).toHaveLength(0);
 
+      if (!subscription) {
+        throw new Error("Expected active feedback subscription");
+      }
+      subscription.lastHeartbeatAt = Date.now() + 1;
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(subscription.queue).toHaveLength(0);
+
+      subscription.lastHeartbeatAt = Date.now() - subscription.heartbeatMs;
       await vi.advanceTimersByTimeAsync(15000);
       expect(subscription?.queue).toEqual([
         expect.objectContaining({ eventType: "feedback.heartbeat" })
       ]);
+      await expect(manager.execute("canvas.feedback.next", {
+        canvasSessionId,
+        subscriptionId: subscribed.subscriptionId
+      })).resolves.toMatchObject({
+        eventType: "feedback.heartbeat"
+      });
+      expect(subscription?.queue).toHaveLength(0);
 
       const queuedCount = subscription?.queue.length ?? 0;
-      if (!subscription) {
-        throw new Error("Expected active feedback subscription");
-      }
       subscription.active = false;
       await vi.advanceTimersByTimeAsync(15000);
       expect(subscription.queue).toHaveLength(queuedCount);
 
       const emptyQueuedSubscription = {
+        id: "empty-queued",
+        categories: new Set<string>(),
+        targetIds: new Set<string>(),
         queue: [undefined],
         waiters: [],
         cursor: null,
+        heartbeatMs: 1000,
+        lastHeartbeatAt: Date.now(),
         heartbeatTimer: setInterval(() => undefined, 1000),
         active: false
       };
@@ -1350,9 +3771,14 @@ describe("CanvasManager", () => {
       clearInterval(emptyQueuedSubscription.heartbeatTimer);
 
       const waitingSubscription = {
+        id: "waiting",
+        categories: new Set<string>(),
+        targetIds: new Set<string>(),
         queue: [],
         waiters: [],
         cursor: null,
+        heartbeatMs: 1000,
+        lastHeartbeatAt: Date.now(),
         heartbeatTimer: setInterval(() => undefined, 1000),
         active: true
       };
@@ -1368,6 +3794,175 @@ describe("CanvasManager", () => {
 
       clearInterval(subscription.heartbeatTimer);
       session?.feedbackSubscriptions.delete(subscribed.subscriptionId);
+      await manager.execute("canvas.session.close", {
+        canvasSessionId,
+        leaseId
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("covers feedback next cleanup and waiter edge branches", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = new CanvasManager({
+        worktree,
+        browserManager: {
+          status: vi.fn(),
+          closeTarget: vi.fn()
+        } as never,
+        config
+      });
+
+      const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+      const canvasSessionId = String(opened.canvasSessionId);
+      const leaseId = String(opened.leaseId);
+      const subscribed = await manager.execute("canvas.feedback.subscribe", {
+        canvasSessionId
+      }) as { subscriptionId: string };
+
+      type InternalFeedbackEvent = {
+        eventType: string;
+        cursor?: string | null;
+        ts?: string;
+        reason?: string;
+        activeTargetIds?: string[];
+      };
+      type InternalFeedbackSubscription = {
+        id: string;
+        categories: Set<string>;
+        targetIds: Set<string>;
+        queue: Array<InternalFeedbackEvent | undefined>;
+        waiters: Array<(event: InternalFeedbackEvent | null) => void>;
+        cursor: string | null;
+        heartbeatMs: number;
+        lastHeartbeatAt: number;
+        heartbeatTimer: NodeJS.Timeout;
+        active: boolean;
+      };
+      type InternalCanvasSession = {
+        activeTargets: Map<string, unknown>;
+        feedbackSubscriptions: Map<string, InternalFeedbackSubscription>;
+      };
+      const managerState = manager as unknown as {
+        sessions: Map<string, InternalCanvasSession>;
+        awaitFeedbackEvent: (
+          session: InternalCanvasSession,
+          subscription: InternalFeedbackSubscription,
+          timeoutMs?: number
+        ) => Promise<InternalFeedbackEvent>;
+        flushSubscriptionWaiters: (
+          subscription: InternalFeedbackSubscription,
+          event: InternalFeedbackEvent | null
+        ) => void;
+      };
+
+      const session = managerState.sessions.get(canvasSessionId);
+      if (!session) {
+        throw new Error("Expected canvas session");
+      }
+
+      const inactiveSubscription: InternalFeedbackSubscription = {
+        id: "inactive-fast-path",
+        categories: new Set<string>(),
+        targetIds: new Set<string>(),
+        queue: [],
+        waiters: [],
+        cursor: "fb_inactive",
+        heartbeatMs: 1000,
+        lastHeartbeatAt: Date.now(),
+        heartbeatTimer: setInterval(() => undefined, 1000),
+        active: false
+      };
+      await expect(managerState.awaitFeedbackEvent(session, inactiveSubscription)).resolves.toMatchObject({
+        eventType: "feedback.complete",
+        cursor: "fb_inactive",
+        reason: "subscription_replaced"
+      });
+      clearInterval(inactiveSubscription.heartbeatTimer);
+
+      const undefinedTimeoutSubscription: InternalFeedbackSubscription = {
+        id: "undefined-timeout",
+        categories: new Set<string>(),
+        targetIds: new Set<string>(),
+        queue: [],
+        waiters: [],
+        cursor: "fb_undefined",
+        heartbeatMs: 1000,
+        lastHeartbeatAt: Date.now(),
+        heartbeatTimer: setInterval(() => undefined, 1000),
+        active: true
+      };
+      const undefinedTimeoutPromise = managerState.awaitFeedbackEvent(session, undefinedTimeoutSubscription);
+      expect(undefinedTimeoutSubscription.waiters).toHaveLength(1);
+      undefinedTimeoutSubscription.active = false;
+      managerState.flushSubscriptionWaiters(undefinedTimeoutSubscription, null);
+      await expect(undefinedTimeoutPromise).resolves.toMatchObject({
+        eventType: "feedback.complete",
+        cursor: "fb_undefined",
+        reason: "subscription_replaced"
+      });
+      clearInterval(undefinedTimeoutSubscription.heartbeatTimer);
+
+      const removedWaiterSubscription: InternalFeedbackSubscription = {
+        id: "removed-waiter",
+        categories: new Set<string>(),
+        targetIds: new Set<string>(),
+        queue: [],
+        waiters: [],
+        cursor: "fb_timeout",
+        heartbeatMs: 1000,
+        lastHeartbeatAt: Date.now(),
+        heartbeatTimer: setInterval(() => undefined, 1000),
+        active: true
+      };
+      const timeoutPromise = managerState.awaitFeedbackEvent(session, removedWaiterSubscription, 25);
+      expect(removedWaiterSubscription.waiters).toHaveLength(1);
+      removedWaiterSubscription.waiters.splice(0, 1);
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(timeoutPromise).resolves.toMatchObject({
+        eventType: "feedback.heartbeat",
+        cursor: "fb_timeout",
+        activeTargetIds: []
+      });
+      clearInterval(removedWaiterSubscription.heartbeatTimer);
+
+      const queuedCompleteSubscription: InternalFeedbackSubscription = {
+        id: "queued-complete",
+        categories: new Set<string>(),
+        targetIds: new Set<string>(),
+        queue: [{
+          eventType: "feedback.complete",
+          cursor: "fb_complete",
+          ts: new Date().toISOString(),
+          reason: "subscription_replaced"
+        }],
+        waiters: [],
+        cursor: "fb_complete",
+        heartbeatMs: 1000,
+        lastHeartbeatAt: Date.now(),
+        heartbeatTimer: setInterval(() => undefined, 1000),
+        active: false
+      };
+      session.feedbackSubscriptions.set(queuedCompleteSubscription.id, queuedCompleteSubscription);
+      await expect(manager.execute("canvas.feedback.next", {
+        canvasSessionId,
+        subscriptionId: queuedCompleteSubscription.id
+      })).resolves.toMatchObject({
+        eventType: "feedback.complete",
+        cursor: "fb_complete",
+        reason: "subscription_replaced"
+      });
+      expect(session.feedbackSubscriptions.has(queuedCompleteSubscription.id)).toBe(false);
+      clearInterval(queuedCompleteSubscription.heartbeatTimer);
+
+      await expect(manager.execute("canvas.feedback.next", {
+        canvasSessionId,
+        subscriptionId: subscribed.subscriptionId,
+        timeoutMs: 0
+      })).rejects.toThrow("Invalid timeoutMs");
+
       await manager.execute("canvas.session.close", {
         canvasSessionId,
         leaseId
@@ -1441,6 +4036,58 @@ describe("CanvasManager", () => {
     await manager.execute("canvas.session.close", {
       canvasSessionId,
       leaseId
+    });
+  });
+
+  it("preserves prior editor viewport values when canvas patch events omit or invalidate fields", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    const managerState = manager as unknown as {
+      sessions: Map<string, {
+        store: { getRevision: () => number };
+        editorViewport: { x: number; y: number; zoom: number };
+      }>;
+      handleCanvasEvent: (event: { event: string; canvasSessionId: string; payload: Record<string, unknown> }) => Promise<void>;
+    };
+    const session = managerState.sessions.get(canvasSessionId);
+    expect(session).toBeTruthy();
+    session!.editorViewport = { x: 24, y: 48, zoom: 1.25 };
+
+    await managerState.handleCanvasEvent({
+      event: "canvas_patch_requested",
+      canvasSessionId,
+      payload: {
+        baseRevision: session!.store.getRevision(),
+        patches: [],
+        viewport: {
+          x: 128,
+          y: "bad",
+          zoom: undefined
+        }
+      }
+    });
+
+    expect(session!.editorViewport).toEqual({
+      x: 128,
+      y: 48,
+      zoom: 1.25
     });
   });
 
@@ -2041,6 +4688,8 @@ describe("CanvasManager", () => {
     const dom = createDomHarness();
     vi.stubGlobal("document", dom.documentStub);
     vi.stubGlobal("HTMLElement", FakeHTMLElement);
+    const originalCrypto = globalThis.crypto;
+    vi.stubGlobal("crypto", {});
 
     const browserManager = {
       status: vi.fn().mockResolvedValue({
@@ -2051,7 +4700,6 @@ describe("CanvasManager", () => {
       }),
       withPage: vi.fn().mockImplementation(async (_sessionId: string, _targetId: string, fn: (page: unknown) => Promise<unknown>) => {
         return await fn({
-          addStyleTag: vi.fn().mockResolvedValue(undefined),
           evaluate: vi.fn(async (pageFunction: (arg: unknown) => unknown, arg: unknown) => await pageFunction(arg))
         });
       })
@@ -2068,29 +4716,44 @@ describe("CanvasManager", () => {
     }) as Record<string, unknown>;
     const canvasSessionId = opened.canvasSessionId as string;
     const leaseId = opened.leaseId as string;
+    let activeMountId = "";
 
     await manager.execute("canvas.plan.set", {
       canvasSessionId,
       leaseId,
       generationPlan: structuredClone(validGenerationPlan)
     });
-    await manager.execute("canvas.overlay.mount", {
-      canvasSessionId,
-      leaseId,
-      targetId: "tab-preview",
-      prototypeId: "proto_home_default"
-    });
-    await manager.execute("canvas.overlay.mount", {
-      canvasSessionId,
-      leaseId,
-      targetId: "tab-preview",
-      prototypeId: "proto_home_default"
-    });
+    try {
+      const firstOverlay = await manager.execute("canvas.overlay.mount", {
+        canvasSessionId,
+        leaseId,
+        targetId: "tab-preview",
+        prototypeId: "proto_home_default"
+      }) as Record<string, unknown>;
+      const secondOverlay = await manager.execute("canvas.overlay.mount", {
+        canvasSessionId,
+        leaseId,
+        targetId: "tab-preview",
+        prototypeId: "proto_home_default"
+      }) as Record<string, unknown>;
+      activeMountId = String(secondOverlay.mountId);
+      expect(dom.documentStub.getElementById(String(firstOverlay.mountId))).toBeNull();
+      expect(dom.documentStub.getElementById(String(secondOverlay.mountId))).toBeNull();
+    } finally {
+      if (originalCrypto) {
+        vi.stubGlobal("crypto", originalCrypto);
+      } else {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, "crypto");
+      }
+    }
 
     const overlays = dom.documentStub.body.children.filter((child) => child.id === "opendevbrowser-canvas-overlay");
     expect(overlays).toHaveLength(2);
     expect(overlays[0]?.removed).toBe(true);
     expect(overlays[1]?.removed).toBe(false);
+    const overlayStyles = dom.documentStub.body.children.filter((child) => child.id === "opendevbrowser-canvas-overlay-style");
+    expect(overlayStyles).toHaveLength(1);
+    expect(overlayStyles[0]?.removed).toBe(false);
 
     expect(await manager.execute("canvas.overlay.select", {
       canvasSessionId,
@@ -2138,6 +4801,15 @@ describe("CanvasManager", () => {
       selection: { matched: false }
     });
 
+    await manager.execute("canvas.overlay.unmount", {
+      canvasSessionId,
+      leaseId,
+      mountId: activeMountId,
+      targetId: "tab-preview"
+    });
+    expect(overlays[1]?.removed).toBe(true);
+    expect(overlayStyles[0]?.removed).toBe(true);
+
     await expect(manager.execute("canvas.tab.open", {
       canvasSessionId,
       leaseId,
@@ -2146,9 +4818,141 @@ describe("CanvasManager", () => {
     })).rejects.toThrow("Missing previewMode");
   });
 
+  it("falls back to CDP runtime evaluation when direct overlay evaluate times out", async () => {
+    const send = vi.fn().mockResolvedValue({
+      result: {
+        value: {
+          matched: true,
+          selector: "[data-node-id=\"node_cta\"]",
+          tagName: "div",
+          text: "Node Bound",
+          id: null,
+          className: "opendevbrowser-canvas-highlight"
+        }
+      }
+    });
+    const detach = vi.fn().mockResolvedValue(undefined);
+    const newCDPSession = vi.fn().mockResolvedValue({ send, detach });
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "managed",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      withPage: vi.fn().mockImplementation(async (_sessionId: string, _targetId: string, fn: (page: unknown) => Promise<unknown>) => {
+        return await fn({
+          evaluate: vi.fn().mockRejectedValue(new Error("DIRECT_OVERLAY_EVAL_TIMEOUT")),
+          context: () => ({ newCDPSession })
+        });
+      })
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-managed"
+    }) as Record<string, unknown>;
+    const canvasSessionId = opened.canvasSessionId as string;
+    const leaseId = opened.leaseId as string;
+
+    const selection = await manager.execute("canvas.overlay.select", {
+      canvasSessionId,
+      leaseId,
+      mountId: "probe_mount",
+      targetId: "tab-preview",
+      nodeId: "node_cta"
+    }) as Record<string, unknown>;
+
+    expect(selection).toMatchObject({
+      selection: {
+        matched: true,
+        selector: "[data-node-id=\"node_cta\"]"
+      }
+    });
+    expect(newCDPSession).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith("Runtime.evaluate", expect.objectContaining({
+      awaitPromise: true,
+      returnByValue: true
+    }));
+    expect(detach).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses textContent for direct overlay selection summaries", async () => {
+    const dom = createDomHarness();
+    vi.stubGlobal("document", dom.documentStub);
+    vi.stubGlobal("HTMLElement", FakeHTMLElement);
+
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "managed",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      withPage: vi.fn().mockImplementation(async (_sessionId: string, _targetId: string, fn: (page: unknown) => Promise<unknown>) => {
+        return await fn({
+          evaluate: vi.fn(async (pageFunction: (arg: unknown) => unknown, arg: unknown) => await pageFunction(arg))
+        });
+      })
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-managed"
+    }) as Record<string, unknown>;
+    const canvasSessionId = opened.canvasSessionId as string;
+    const leaseId = opened.leaseId as string;
+
+    const selectable = new FakeHTMLElement("DIV", () => {});
+    selectable.textContent = "  Primary   hero   copy  ";
+    Object.defineProperty(selectable, "innerText", {
+      configurable: true,
+      get() {
+        throw new Error("innerText should not be read");
+      }
+    });
+    dom.registerSelector(".slow-copy", selectable);
+
+    await expect(manager.execute("canvas.overlay.select", {
+      canvasSessionId,
+      leaseId,
+      mountId: "mount_existing",
+      targetId: "tab-preview",
+      selectionHint: { selector: ".slow-copy" }
+    })).resolves.toMatchObject({
+      selection: {
+        matched: true,
+        selector: ".slow-copy",
+        text: "Primary hero copy"
+      }
+    });
+  });
+
   it("covers extension relay replacement, defaults, and cleanup", async () => {
     let relayUrl: string | null = null;
     let openCount = 0;
+    const mountCanvasOverlay = vi.fn().mockResolvedValue({
+      mountId: "mount-preview-ops",
+      targetId: "tab-preview",
+      overlayState: "mounted",
+      capabilities: { selection: true, guides: true }
+    });
+    const selectCanvasOverlay = vi.fn().mockResolvedValue({
+      selection: { matched: true, selector: "#cta" },
+      targetId: "tab-preview"
+    });
+    const syncCanvasOverlay = vi.fn().mockResolvedValue({ ok: true, overlayState: "mounted" });
+    const unmountCanvasOverlay = vi.fn().mockResolvedValue({ ok: true, overlayState: "idle" });
     const browserManager = {
       status: vi.fn().mockResolvedValue({
         mode: "extension",
@@ -2156,6 +4960,10 @@ describe("CanvasManager", () => {
         url: "https://example.com/app",
         title: "App"
       }),
+      mountCanvasOverlay,
+      selectCanvasOverlay,
+      syncCanvasOverlay,
+      unmountCanvasOverlay,
       registerCanvasTarget: vi.fn().mockResolvedValue({
         targetId: "tab-ext-1",
         adopted: true,
@@ -2176,12 +4984,6 @@ describe("CanvasManager", () => {
       }
       if (command === "canvas.tab.sync") {
         throw new Error("sync failed");
-      }
-      if (command === "canvas.overlay.mount") {
-        return {};
-      }
-      if (command === "canvas.overlay.select") {
-        return { matched: true, selector: "#cta" };
       }
       return { ok: true };
     });
@@ -2271,7 +5073,7 @@ describe("CanvasManager", () => {
       targetId: "tab-preview",
       prototypeId: "proto_home_default"
     }) as Record<string, unknown>;
-    expect(String(overlay.mountId)).toContain("mount_");
+    expect(overlay.mountId).toBe("mount-preview-ops");
     expect(overlay.previewState).toBe("background");
     expect(overlay.overlayState).toBe("mounted");
     const extensionSyncCall = [...canvasClientRequestMock.mock.calls].reverse().find(([command]) => command === "canvas.tab.sync");
@@ -2302,11 +5104,528 @@ describe("CanvasManager", () => {
     });
 
     expect(resolveRelayEndpointMock).toHaveBeenCalledTimes(2);
-    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
+    expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(2);
     expect(browserManager.closeTarget).toHaveBeenCalledWith("browser-extension", "tab-other");
     expect(browserManager.registerCanvasTarget).toHaveBeenCalledWith("browser-extension", "tab-ext-1");
-    expect(canvasClientRequestMock).toHaveBeenCalledWith("canvas.overlay.unmount", expect.any(Object), canvasSessionId, 30000, leaseId);
+    expect(canvasClientRequestMock).not.toHaveBeenCalledWith("canvas.overlay.mount", expect.any(Object), canvasSessionId, 30000, leaseId);
+    expect(canvasClientRequestMock).not.toHaveBeenCalledWith("canvas.overlay.select", expect.any(Object), canvasSessionId, 30000, leaseId);
+    expect(canvasClientRequestMock).not.toHaveBeenCalledWith("canvas.overlay.unmount", expect.any(Object), canvasSessionId, 30000, leaseId);
     expect(canvasClientRequestMock).toHaveBeenCalledWith("canvas.tab.close", expect.any(Object), canvasSessionId, 30000, leaseId);
+    expect(mountCanvasOverlay).toHaveBeenCalledWith("browser-extension", "tab-preview", expect.objectContaining({
+      mountId: expect.stringMatching(/^mount_/),
+      prototypeId: "proto_home_default"
+    }));
+    expect(selectCanvasOverlay).toHaveBeenCalledWith("browser-extension", "tab-preview", {
+      mountId: "mount-preview-ops",
+      nodeId: null,
+      selectionHint: { selector: "#cta" }
+    });
+    expect(syncCanvasOverlay).toHaveBeenCalled();
+    expect(unmountCanvasOverlay).toHaveBeenCalledWith("browser-extension", "tab-preview", "mount-preview-ops");
+  });
+
+  it("falls back to direct overlays when an extension session is not backed by /ops", async () => {
+    const mountCanvasOverlay = vi.fn();
+    const selectCanvasOverlay = vi.fn();
+    const syncCanvasOverlay = vi.fn();
+    const unmountCanvasOverlay = vi.fn();
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      supportsOpsOverlayTransport: vi.fn().mockReturnValue(false),
+      mountCanvasOverlay,
+      selectCanvasOverlay,
+      syncCanvasOverlay,
+      unmountCanvasOverlay
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: true,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: true,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+    const internal = manager as unknown as {
+      mountDirectOverlay: (
+        sessionId: string,
+        targetId: string,
+        canvasDocument: unknown,
+        prototypeId: string
+      ) => Promise<Record<string, unknown>>;
+      selectDirectOverlay: (
+        sessionId: string,
+        targetId: string,
+        nodeId: string | null,
+        hint: Record<string, unknown>
+      ) => Promise<Record<string, unknown>>;
+      unmountDirectOverlay: (sessionId: string, targetId: string) => Promise<void>;
+      syncLiveViews: (session: unknown) => Promise<void>;
+    };
+    const mountDirectOverlay = vi.spyOn(internal, "mountDirectOverlay").mockResolvedValue({
+      mountId: "mount-direct",
+      targetId: "tab-preview",
+      overlayState: "mounted",
+      capabilities: { selection: true, guides: true }
+    });
+    const selectDirectOverlay = vi.spyOn(internal, "selectDirectOverlay").mockResolvedValue({
+      matched: true,
+      selector: "#cta"
+    });
+    const unmountDirectOverlay = vi.spyOn(internal, "unmountDirectOverlay").mockResolvedValue(undefined);
+    vi.spyOn(internal, "syncLiveViews").mockResolvedValue(undefined);
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    const overlay = await manager.execute("canvas.overlay.mount", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    }) as Record<string, unknown>;
+    expect(overlay.mountId).toBe("mount-direct");
+
+    await manager.execute("canvas.overlay.select", {
+      canvasSessionId,
+      leaseId,
+      mountId: "mount-direct",
+      targetId: "tab-preview",
+      selectionHint: { selector: "#cta" }
+    });
+    await manager.execute("canvas.overlay.unmount", {
+      canvasSessionId,
+      leaseId,
+      mountId: "mount-direct",
+      targetId: "tab-preview"
+    });
+
+    expect(browserManager.supportsOpsOverlayTransport).toHaveBeenCalledWith("browser-extension");
+    expect(mountCanvasOverlay).not.toHaveBeenCalled();
+    expect(selectCanvasOverlay).not.toHaveBeenCalled();
+    expect(syncCanvasOverlay).not.toHaveBeenCalled();
+    expect(unmountCanvasOverlay).not.toHaveBeenCalled();
+    expect(mountDirectOverlay).toHaveBeenCalledWith(
+      "browser-extension",
+      "tab-preview",
+      expect.objectContaining({ title: expect.any(String) }),
+      "proto_home_default"
+    );
+    expect(selectDirectOverlay).toHaveBeenCalledWith("browser-extension", "tab-preview", null, { selector: "#cta" });
+    expect(unmountDirectOverlay).toHaveBeenCalledWith("browser-extension", "tab-preview", "mount-direct");
+  });
+
+  it("uses the adopted ops target id for extension design tabs after registration", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      registerCanvasTarget: vi.fn().mockResolvedValue({
+        targetId: "tab-ext-adopted",
+        adopted: true,
+        url: "chrome-extension://test/canvas.html",
+        title: "Canvas"
+      }),
+      closeTarget: vi.fn().mockResolvedValue(undefined)
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string, payload?: Record<string, unknown>) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-raw", previewState: "focused" };
+      }
+      if (command === "canvas.tab.close") {
+        return { ok: true, targetId: payload?.targetId };
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: true,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: true,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await expect(manager.execute("canvas.tab.open", {
+      canvasSessionId,
+      leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    })).resolves.toMatchObject({
+      targetId: "tab-ext-adopted",
+      targetIds: ["tab-ext-adopted"],
+      designTab: true
+    });
+
+    await manager.execute("canvas.tab.close", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-ext-adopted"
+    });
+
+    expect(browserManager.registerCanvasTarget).toHaveBeenCalledWith("browser-extension", "tab-ext-raw");
+    expect(canvasClientRequestMock).toHaveBeenCalledWith(
+      "canvas.tab.close",
+      expect.objectContaining({ targetId: "tab-ext-adopted" }),
+      canvasSessionId,
+      30000,
+      leaseId
+    );
+  });
+
+  it("retries extension design-tab registration when the target is not yet visible to /ops", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-root",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      registerCanvasTarget: vi.fn()
+        .mockResolvedValueOnce({
+          targetId: "tab-ext-raw",
+          adopted: true,
+          url: "chrome-extension://test/canvas.html",
+          title: "Canvas"
+        })
+        .mockResolvedValueOnce({
+          targetId: "tab-ext-raw",
+          adopted: false,
+          url: "chrome-extension://test/canvas.html",
+          title: "Canvas"
+        }),
+      listTargets: vi.fn()
+        .mockResolvedValueOnce({
+          activeTargetId: "tab-root",
+          targets: [{ targetId: "tab-root", type: "page", title: "App", url: "https://example.com/app" }]
+        })
+        .mockResolvedValueOnce({
+          activeTargetId: "tab-root",
+          targets: [
+            { targetId: "tab-root", type: "page", title: "App", url: "https://example.com/app" },
+            { targetId: "tab-ext-raw", type: "page", title: "Canvas", url: "chrome-extension://test/canvas.html" }
+          ]
+        }),
+      closeTarget: vi.fn().mockResolvedValue(undefined)
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-raw", previewState: "focused" };
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: true,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: true,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await expect(manager.execute("canvas.tab.open", {
+      canvasSessionId,
+      leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    })).resolves.toMatchObject({
+      targetId: "tab-ext-raw",
+      targetIds: ["tab-ext-raw"],
+      designTab: true
+    });
+
+    expect(browserManager.registerCanvasTarget).toHaveBeenCalledTimes(2);
+    expect(browserManager.listTargets).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails canvas.tab.open when the extension design tab never becomes an /ops target", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-root",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      registerCanvasTarget: vi.fn().mockResolvedValue({
+        targetId: "tab-ext-raw",
+        adopted: true,
+        url: "chrome-extension://test/canvas.html",
+        title: "Canvas"
+      }),
+      listTargets: vi.fn().mockResolvedValue({
+        activeTargetId: "tab-root",
+        targets: [{ targetId: "tab-root", type: "page", title: "App", url: "https://example.com/app" }]
+      }),
+      closeTarget: vi.fn().mockResolvedValue(undefined)
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-raw", previewState: "focused" };
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: true,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: true,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await expect(manager.execute("canvas.tab.open", {
+      canvasSessionId,
+      leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    })).rejects.toThrow("canvas.tab.open could not register the design tab for /ops. Reload the unpacked extension and retry.");
+
+    expect(browserManager.registerCanvasTarget).toHaveBeenCalledTimes(2);
+    expect(browserManager.listTargets).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the raw extension design-tab target when the relay has no live /ops transport", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-root",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      supportsOpsOverlayTransport: vi.fn().mockReturnValue(true),
+      registerCanvasTarget: vi.fn(),
+      listTargets: vi.fn(),
+      closeTarget: vi.fn().mockResolvedValue(undefined)
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-raw", previewState: "focused" };
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: true,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: true,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => "ws://127.0.0.1:8787/cdp",
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension-legacy"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await expect(manager.execute("canvas.tab.open", {
+      canvasSessionId,
+      leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    })).resolves.toMatchObject({
+      targetId: "tab-ext-raw",
+      targetIds: ["tab-ext-raw"],
+      designTab: true
+    });
+
+    await manager.execute("canvas.tab.close", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-ext-raw"
+    });
+
+    expect(browserManager.supportsOpsOverlayTransport).toHaveBeenCalledWith("browser-extension-legacy");
+    expect(browserManager.registerCanvasTarget).not.toHaveBeenCalled();
+    expect(browserManager.listTargets).not.toHaveBeenCalled();
+    expect(canvasClientRequestMock).toHaveBeenCalledWith(
+      "canvas.tab.close",
+      expect.objectContaining({ targetId: "tab-ext-raw" }),
+      canvasSessionId,
+      30000,
+      leaseId
+    );
   });
 
   it("tracks attached observers, lease reclaim, and summary state", async () => {
@@ -2493,10 +5812,24 @@ describe("CanvasManager", () => {
       exportName: "Hero",
       syncMode: "manual"
     }) as {
-      bindingStatus: { state: string };
+      bindingStatus: {
+        state: string;
+        frameworkAdapterId: string;
+        declaredCapabilities: string[];
+        grantedCapabilities: string[];
+        capabilityDenials: unknown[];
+        reasonCode: string;
+      };
       summary: { bindings: Array<{ bindingId: string }> };
     };
-    expect(bound.bindingStatus.state).toBe("idle");
+    expect(bound.bindingStatus).toMatchObject({
+      state: "idle",
+      frameworkAdapterId: "builtin:react-tsx-v2",
+      declaredCapabilities: ["preview", "inventory_extract", "code_pull", "code_push", "token_roundtrip"],
+      grantedCapabilities: ["preview", "inventory_extract", "code_pull", "code_push", "token_roundtrip"],
+      capabilityDenials: [],
+      reasonCode: "none"
+    });
     expect(bound.summary.bindings).toEqual(expect.arrayContaining([
       expect.objectContaining({ bindingId: "binding_code" })
     ]));
@@ -2612,7 +5945,12 @@ describe("CanvasManager", () => {
       bindingStatus: {
         bindingId: "binding_code",
         state: "in_sync",
-        projection: "canvas_html"
+        projection: "canvas_html",
+        frameworkAdapterId: "builtin:react-tsx-v2",
+        declaredCapabilities: ["preview", "inventory_extract", "code_pull", "code_push", "token_roundtrip"],
+        grantedCapabilities: ["preview", "inventory_extract", "code_pull", "code_push", "token_roundtrip"],
+        capabilityDenials: [],
+        reasonCode: "none"
       },
       summary: {
         boundFiles: [sourcePath],
@@ -2691,6 +6029,311 @@ describe("CanvasManager", () => {
           expect.objectContaining({ bindingId: "binding_code" })
         ])
       }
+    });
+  });
+
+  it("resolves relative code-sync and document paths against the session repoRoot", async () => {
+    const repoRoot = join(worktree, "caller-root");
+    const relativeSourcePath = join("src", "Hero.tsx");
+    const sourcePath = join(repoRoot, relativeSourcePath);
+    const relativeSavePath = ".opendevbrowser/canvas/relative-session.canvas.json";
+    const expectedSavePath = join(repoRoot, ".opendevbrowser", "canvas", "relative-session.canvas.json");
+    await mkdir(join(repoRoot, "src"), { recursive: true });
+    await writeFile(sourcePath, [
+      "export function Hero() {",
+      "  return <section className=\"hero-shell\"><span>Hello repo root</span></section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", { repoRoot }) as {
+      canvasSessionId: string;
+      leaseId: string;
+      documentId: string;
+    };
+    const session = (manager as {
+      sessions: Map<string, { store: { getRevision: () => number } }>;
+    }).sessions.get(opened.canvasSessionId);
+    if (!session) {
+      throw new Error("Missing canvas session");
+    }
+
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      documentId: opened.documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    const rootNodeId = loaded.document.pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      baseRevision: session.store.getRevision(),
+      patches: governanceBootstrapPatches.map((patch) => ({ ...patch }))
+    });
+
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      nodeId: rootNodeId,
+      bindingId: "binding_relative_repo_root",
+      repoPath: relativeSourcePath,
+      exportName: "Hero",
+      syncMode: "manual"
+    });
+
+    expect(await manager.execute("canvas.code.pull", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      bindingId: "binding_relative_repo_root"
+    })).toMatchObject({
+      ok: true,
+      repoPath: sourcePath
+    });
+
+    expect(await manager.execute("canvas.document.save", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      repoPath: relativeSavePath
+    })).toMatchObject({
+      repoPath: expectedSavePath
+    });
+    expect(await readFile(expectedSavePath, "utf-8")).toContain(`"documentId": "${opened.documentId}"`);
+    await expect(readFile(join(worktree, ".opendevbrowser", "canvas", "relative-session.canvas.json"), "utf-8")).rejects.toThrow();
+  });
+
+  it("surfaces missing plugin adapters and denial reasons through canvas.code.status", async () => {
+    const sourcePath = join(worktree, "PluginBinding.astro");
+    await writeFile(sourcePath, "<main id=\"plugin-root\">Plugin shell</main>\n");
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+      documentId: string;
+    };
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      documentId: opened.documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    const rootNodeId = loaded.document.pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    const bound = await manager.execute("canvas.code.bind", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      nodeId: rootNodeId,
+      bindingId: "binding_missing_plugin",
+      repoPath: sourcePath,
+      frameworkAdapterId: "acme-plugin/astro-v1",
+      selector: "#plugin-root",
+      syncMode: "manual",
+      declaredCapabilities: ["preview", "code_pull"],
+      grantedCapabilities: [
+        { capability: "preview", granted: true },
+        {
+          capability: "code_pull",
+          granted: false,
+          reasonCode: "capability_denied",
+          details: { source: "workspace-policy" }
+        }
+      ]
+    }) as {
+      bindingStatus: {
+        state: string;
+        frameworkAdapterId: string;
+        declaredCapabilities: string[];
+        grantedCapabilities: string[];
+        capabilityDenials: Array<{ capability: string; granted: boolean; reasonCode?: string }>;
+        reasonCode: string;
+      };
+    };
+
+    expect(bound.bindingStatus).toMatchObject({
+      state: "unsupported",
+      frameworkAdapterId: "acme-plugin/astro-v1",
+      declaredCapabilities: ["preview", "code_pull"],
+      grantedCapabilities: ["preview"],
+      capabilityDenials: [
+        expect.objectContaining({
+          capability: "code_pull",
+          granted: false,
+          reasonCode: "capability_denied"
+        })
+      ],
+      reasonCode: "plugin_not_found"
+    });
+
+    expect(await manager.execute("canvas.code.status", {
+      canvasSessionId: opened.canvasSessionId,
+      bindingId: "binding_missing_plugin"
+    })).toMatchObject({
+      bindingStatus: {
+        bindingId: "binding_missing_plugin",
+        state: "unsupported",
+        frameworkAdapterId: "acme-plugin/astro-v1",
+        declaredCapabilities: ["preview", "code_pull"],
+        grantedCapabilities: ["preview"],
+        capabilityDenials: [
+          expect.objectContaining({
+            capability: "code_pull",
+            granted: false,
+            reasonCode: "capability_denied"
+          })
+        ],
+        reasonCode: "plugin_not_found"
+      },
+      summary: {
+        boundFiles: [sourcePath],
+        codeSyncState: "unsupported"
+      }
+    });
+  });
+
+  it("auto-generates code-sync binding ids and falls back to default conflict messages", async () => {
+    const sourcePath = join(worktree, "GeneratedBinding.tsx");
+    await writeFile(sourcePath, [
+      "export function GeneratedBinding() {",
+      "  return <section><span>Generated</span></section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+      documentId: string;
+    };
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      documentId: opened.documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    const rootNodeId = loaded.document.pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    const bound = await manager.execute("canvas.code.bind", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      nodeId: rootNodeId,
+      repoPath: sourcePath,
+      exportName: "GeneratedBinding",
+      syncMode: "manual"
+    }) as {
+      binding: { id: string; codeSync: { repoPath: string } };
+      summary: { bindings: Array<{ bindingId: string }> };
+    };
+    expect(bound.binding.id).toMatch(/^binding_sync_/);
+    expect(bound.binding.codeSync.repoPath).toBe(sourcePath);
+    expect(bound.summary.bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ bindingId: bound.binding.id })
+    ]));
+
+    expect(await manager.execute("canvas.code.status", {
+      canvasSessionId: opened.canvasSessionId
+    })).toMatchObject({
+      codeSyncState: "idle",
+      boundFiles: [sourcePath]
+    });
+
+    const internal = manager as unknown as {
+      codeSyncManager: {
+        pull: (args: unknown) => Promise<unknown>;
+        push: (args: unknown) => Promise<unknown>;
+      };
+    };
+
+    vi.spyOn(internal.codeSyncManager, "pull").mockResolvedValueOnce({
+      ok: false,
+      conflicts: []
+    });
+    expect(await manager.execute("canvas.code.pull", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      bindingId: bound.binding.id
+    })).toMatchObject({
+      ok: false,
+      conflicts: []
+    });
+
+    vi.spyOn(internal.codeSyncManager, "push").mockResolvedValueOnce({
+      ok: false,
+      conflicts: []
+    });
+    expect(await manager.execute("canvas.code.push", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      bindingId: bound.binding.id
+    })).toMatchObject({
+      ok: false,
+      conflicts: []
+    });
+
+    await expect(manager.execute("canvas.feedback.poll", {
+      canvasSessionId: opened.canvasSessionId,
+      categories: ["code-sync"]
+    })).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          class: "code-sync-conflict",
+          message: "Code-sync pull failed."
+        }),
+        expect.objectContaining({
+          class: "code-sync-conflict",
+          message: "Code-sync push failed."
+        })
+      ])
     });
   });
 
@@ -2886,6 +6529,159 @@ describe("CanvasManager", () => {
           message: "Source drift requires manual review."
         })
       ])
+    });
+  });
+
+  it("covers watch-source change early-return and empty-conflict fallback branches", async () => {
+    const sourcePath = join(worktree, "WatchEmptyConflictHero.tsx");
+    await writeFile(sourcePath, [
+      "export function WatchEmptyConflictHero() {",
+      "  return <section><span>Watch fallback</span></section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const internal = manager as unknown as {
+      codeSyncManager: {
+        pull: (args: unknown) => Promise<unknown>;
+      };
+      handleWatchedSourceChange: (canvasSessionId: string, bindingId: string) => Promise<void>;
+    };
+
+    await expect(internal.handleWatchedSourceChange("canvas_missing", "binding_missing")).resolves.toBeUndefined();
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+      documentId: string;
+    };
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      documentId: opened.documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      baseRevision: 2,
+      patches: governanceBootstrapPatches
+    });
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      nodeId: loaded.document.pages[0]?.rootNodeId,
+      bindingId: "binding_watch_empty_conflict",
+      repoPath: sourcePath,
+      exportName: "WatchEmptyConflictHero",
+      syncMode: "watch"
+    });
+
+    const pullSpy = vi.spyOn(internal.codeSyncManager, "pull").mockResolvedValueOnce({
+      ok: false,
+      conflicts: []
+    });
+
+    await internal.handleWatchedSourceChange(opened.canvasSessionId, "binding_watch_empty_conflict");
+
+    expect(pullSpy).toHaveBeenCalledTimes(1);
+    await expect(manager.execute("canvas.feedback.poll", {
+      canvasSessionId: opened.canvasSessionId,
+      categories: ["code-sync"]
+    })).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          class: "code-sync-watch-conflict",
+          message: "Watched source change could not be imported."
+        })
+      ])
+    });
+  });
+
+  it("accepts explicit session modes and rejects invalid ones", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    for (const mode of ["low-fi-wireframe", "high-fi-live-edit", "dual-track"] as const) {
+      const opened = await manager.execute("canvas.session.open", { mode }) as {
+        canvasSessionId: string;
+      };
+      expect(await manager.execute("canvas.session.status", {
+        canvasSessionId: opened.canvasSessionId
+      })).toMatchObject({ mode });
+    }
+
+    await expect(manager.execute("canvas.session.open", {
+      mode: "unsupported-mode"
+    })).rejects.toThrow("Invalid mode: unsupported-mode");
+  });
+
+  it("rejects full preview refresh when the active target no longer has a prototype id", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-refresh"
+    }) as {
+      canvasSessionId: string;
+      leaseId: string;
+    };
+
+    const session = (manager as unknown as {
+      sessions: Map<string, {
+        activeTargets: Map<string, Record<string, unknown>>;
+      }>;
+    }).sessions.get(opened.canvasSessionId);
+    session?.activeTargets.set("tab-lost-prototype", {
+      targetId: "tab-lost-prototype",
+      prototypeId: null,
+      previewMode: "focused",
+      previewState: "focused",
+      renderStatus: "rendered",
+      telemetryMode: "full",
+      sourceUrl: null,
+      screenshotPath: null,
+      projection: "canvas_html",
+      fallbackReason: null,
+      degradeReason: null,
+      lastSyncedAt: new Date().toISOString(),
+      parityArtifact: null
+    });
+
+    await expect(manager.execute("canvas.preview.refresh", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      targetId: "tab-lost-prototype",
+      refreshMode: "full"
+    })).rejects.toMatchObject({
+      code: "unsupported_target"
     });
   });
 
@@ -3285,4 +7081,740 @@ describe("CanvasManager", () => {
       sourceUrl: "https://example.com/app"
     });
   });
+
+  it("filters starters and applies degraded starter fallbacks with canonical framework ids", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+    };
+
+    const listed = await manager.execute("canvas.starter.list", {
+      canvasSessionId: opened.canvasSessionId,
+      query: "sign-in",
+      frameworkIds: ["Next.js"],
+      kitIds: ["auth.multi-step"],
+      tags: ["auth"]
+    }) as {
+      total: number;
+      items: Array<{ id: string }>;
+    };
+    expect(listed.total).toBe(1);
+    expect(listed.items[0]?.id).toBe("auth.sign-in");
+
+    const applied = await manager.execute("canvas.starter.apply", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      starterId: "hero.saas-product",
+      frameworkId: "Next.js",
+      libraryAdapterId: "builtin:html-static-v1"
+    }) as {
+      starterId: string;
+      frameworkId: string;
+      adapterId: string | null;
+      libraryAdapterId: string | null;
+      degraded: boolean;
+      reason: string | null;
+      planSeeded: boolean;
+      seededInventoryItemIds: string[];
+    };
+
+    expect(applied).toMatchObject({
+      starterId: "hero.saas-product",
+      frameworkId: "nextjs",
+      adapterId: "tsx-react-v1",
+      libraryAdapterId: "tsx-react-v1",
+      degraded: true,
+      reason: "adapter_unavailable:builtin:html-static-v1",
+      planSeeded: true,
+      seededInventoryItemIds: ["kit.marketing.product-launch.feature-hero"]
+    });
+
+    const session = (manager as unknown as {
+      sessions: Map<string, {
+        store: {
+          getDocument: () => {
+            componentInventory: Array<{ id: string }>;
+            pages: Array<{ nodes: Array<{ metadata?: Record<string, unknown> }> }>;
+          };
+        };
+      }>;
+    }).sessions.get(opened.canvasSessionId);
+    if (!session) {
+      throw new Error("Missing starter session");
+    }
+    expect(session.store.getDocument().componentInventory.some((item) => item.id === "kit.marketing.product-launch.feature-hero")).toBe(true);
+    expect(session.store.getDocument().pages.some((page) =>
+      page.nodes.some((node) => node.metadata?.starter)
+    )).toBe(true);
+
+    await expect(manager.execute("canvas.feedback.poll", {
+      canvasSessionId: opened.canvasSessionId,
+      categories: ["validation"]
+    })).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          class: "starter-applied-degraded",
+          message: "Applied starter SaaS Product Hero with semantic fallback for nextjs."
+        })
+      ])
+    });
+  });
+
+  it("applies compatible starters without degradation and fills framework adapter metadata", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+    };
+
+    const applied = await manager.execute("canvas.starter.apply", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      starterId: "dashboard.analytics",
+      frameworkId: "react-tsx"
+    }) as {
+      starterId: string;
+      frameworkId: string;
+      adapterId: string | null;
+      libraryAdapterId: string | null;
+      degraded: boolean;
+      reason: string | null;
+      seededInventoryItemIds: string[];
+    };
+
+    expect(applied).toMatchObject({
+      starterId: "dashboard.analytics",
+      frameworkId: "react",
+      adapterId: "tsx-react-v1",
+      libraryAdapterId: "tsx-react-v1",
+      degraded: false,
+      reason: null,
+      seededInventoryItemIds: ["kit.dashboard.analytics-core.metric-card"]
+    });
+
+    const session = (manager as unknown as {
+      sessions: Map<string, {
+        store: {
+          getDocument: () => {
+            componentInventory: Array<{
+              id: string;
+              framework?: {
+                id: string;
+                label: string;
+                packageName: string | null;
+                adapter: { id: string; label: string; packageName: string | null } | null;
+              };
+              adapter?: { id: string; label: string; packageName: string | null };
+            }>;
+          };
+        };
+      }>;
+    }).sessions.get(opened.canvasSessionId);
+    if (!session) {
+      throw new Error("Missing starter session");
+    }
+    const metricCard = session.store.getDocument().componentInventory.find((item) => item.id === "kit.dashboard.analytics-core.metric-card");
+    expect(metricCard).toMatchObject({
+      framework: {
+        id: "react",
+        label: "React",
+        packageName: "react",
+        adapter: {
+          id: "tsx-react-v1",
+          label: "TSX React v1",
+          packageName: "@opendevbrowser/tsx-react-v1"
+        }
+      },
+      adapter: {
+        id: "tsx-react-v1",
+        label: "TSX React v1",
+        packageName: "@opendevbrowser/tsx-react-v1"
+      }
+    });
+
+    await expect(manager.execute("canvas.feedback.poll", {
+      canvasSessionId: opened.canvasSessionId,
+      categories: ["validation"]
+    })).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          class: "starter-applied",
+          details: expect.objectContaining({
+            starterId: "dashboard.analytics",
+            frameworkId: "react",
+            adapterId: "tsx-react-v1",
+            degraded: false,
+            reason: null
+          })
+        })
+      ])
+    });
+  });
+
+  it("applies starter templates without kit hooks and preserves null adapter metadata", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+    };
+
+    const applied = await manager.execute("canvas.starter.apply", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      starterId: "docs.reference",
+      frameworkId: "astro"
+    }) as {
+      starterId: string;
+      frameworkId: string;
+      adapterId: string | null;
+      degraded: boolean;
+      reason: string | null;
+      planSeeded: boolean;
+      seededInventoryItemIds: string[];
+      installedKitIds: string[];
+      insertedNodeIds: string[];
+    };
+
+    expect(applied).toMatchObject({
+      starterId: "docs.reference",
+      frameworkId: "astro",
+      adapterId: null,
+      degraded: false,
+      reason: null,
+      planSeeded: true,
+      seededInventoryItemIds: [],
+      installedKitIds: []
+    });
+    expect(applied.insertedNodeIds.length).toBeGreaterThan(0);
+
+    const session = (manager as unknown as {
+      sessions: Map<string, {
+        store: {
+          getDocument: () => {
+            meta: {
+              starter: {
+                frameworkId: string;
+                metadata?: {
+                  adapterId?: string | null;
+                  installedKitIds?: string[];
+                  seededInventoryItemIds?: string[];
+                  materializedItemIds?: string[];
+                };
+              } | null;
+            };
+            componentInventory: Array<{ id: string }>;
+            tokens: { collections: Array<{ id: string }> };
+            pages: Array<{ nodes: Array<{ metadata?: { starter?: { id?: string; role?: string } } }> }>;
+          };
+        };
+      }>;
+    }).sessions.get(opened.canvasSessionId);
+    if (!session) {
+      throw new Error("Missing docs starter session");
+    }
+    const document = session.store.getDocument();
+    expect(document.componentInventory).toEqual([]);
+    expect(document.tokens.collections).toEqual([]);
+    expect(document.meta.starter).toMatchObject({
+      frameworkId: "astro",
+      metadata: {
+        adapterId: null,
+        installedKitIds: [],
+        seededInventoryItemIds: [],
+        materializedItemIds: []
+      }
+    });
+    expect(document.pages.some((page) =>
+      page.nodes.some((node) => node.metadata?.starter?.id === "docs.reference")
+    )).toBe(true);
+
+    await expect(manager.execute("canvas.feedback.poll", {
+      canvasSessionId: opened.canvasSessionId,
+      categories: ["validation"]
+    })).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          class: "starter-applied",
+          details: expect.objectContaining({
+            starterId: "docs.reference",
+            frameworkId: "astro",
+            adapterId: null,
+            degraded: false,
+            installedKitIds: [],
+            seededInventoryItemIds: []
+          })
+        })
+      ])
+    });
+  });
+
+  it("applies remix starter metadata with remix framework package details", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+    };
+
+    const applied = await manager.execute("canvas.starter.apply", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      starterId: "auth.sign-up",
+      frameworkId: "remix"
+    }) as {
+      starterId: string;
+      frameworkId: string;
+      adapterId: string | null;
+      libraryAdapterId: string | null;
+      degraded: boolean;
+      reason: string | null;
+      seededInventoryItemIds: string[];
+    };
+
+    expect(applied).toMatchObject({
+      starterId: "auth.sign-up",
+      frameworkId: "remix",
+      adapterId: "tsx-react-v1",
+      libraryAdapterId: "tsx-react-v1",
+      degraded: false,
+      reason: null,
+      seededInventoryItemIds: ["kit.auth.multi-step.sign-in-shell"]
+    });
+
+    const session = (manager as unknown as {
+      sessions: Map<string, {
+        store: {
+          getDocument: () => {
+            componentInventory: Array<{
+              id: string;
+              framework?: {
+                id: string;
+                label: string;
+                packageName: string | null;
+                adapter: { id: string; label: string; packageName: string | null } | null;
+              };
+              adapter?: { id: string; label: string; packageName: string | null };
+              metadata?: {
+                starter?: {
+                  appliedFrameworkId?: string;
+                  compatibleFrameworkIds?: string[];
+                };
+              };
+            }>;
+          };
+        };
+      }>;
+    }).sessions.get(opened.canvasSessionId);
+    if (!session) {
+      throw new Error("Missing remix starter session");
+    }
+    const signUpShell = session.store.getDocument().componentInventory.find((item) => item.id === "kit.auth.multi-step.sign-in-shell");
+    expect(signUpShell).toMatchObject({
+      framework: {
+        id: "remix",
+        label: "Remix",
+        packageName: "@remix-run/react",
+        adapter: {
+          id: "tsx-react-v1",
+          label: "TSX React v1",
+          packageName: "@opendevbrowser/tsx-react-v1"
+        }
+      },
+      adapter: {
+        id: "tsx-react-v1",
+        label: "TSX React v1",
+        packageName: "@opendevbrowser/tsx-react-v1"
+      },
+      metadata: {
+        starter: {
+          appliedFrameworkId: "remix",
+          compatibleFrameworkIds: expect.arrayContaining(["react", "nextjs", "remix"])
+        }
+      }
+    });
+  });
+
+  it("routes canvas_history_requested events only for supported undo and redo directions", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+    };
+
+    const internal = manager as unknown as {
+      handleCanvasEvent: (event: { event: string; canvasSessionId?: string; payload?: unknown }) => Promise<void>;
+      applyHistoryDirection: (params: { canvasSessionId: string; leaseId: string }, direction: "undo" | "redo") => Promise<void>;
+    };
+    const applyHistoryDirection = vi.spyOn(internal, "applyHistoryDirection").mockResolvedValue(undefined);
+
+    await internal.handleCanvasEvent({
+      event: "canvas_history_requested",
+      canvasSessionId: opened.canvasSessionId,
+      payload: { direction: "undo" }
+    });
+    await internal.handleCanvasEvent({
+      event: "canvas_history_requested",
+      canvasSessionId: opened.canvasSessionId,
+      payload: { direction: "redo" }
+    });
+    await internal.handleCanvasEvent({
+      event: "canvas_history_requested",
+      canvasSessionId: opened.canvasSessionId,
+      payload: { direction: "sideways" }
+    });
+
+    expect(applyHistoryDirection.mock.calls).toEqual([
+      [{ canvasSessionId: opened.canvasSessionId, leaseId: opened.leaseId }, "undo"],
+      [{ canvasSessionId: opened.canvasSessionId, leaseId: opened.leaseId }, "redo"]
+    ]);
+  });
+
+  it("returns empty perf metrics on missing or failing browser hooks and passes through successful metrics", async () => {
+    const managerWithoutMetrics = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+    const perfMetrics = vi.fn()
+      .mockRejectedValueOnce(new Error("metrics unavailable"))
+      .mockResolvedValueOnce({ metrics: [{ name: "Nodes", value: 42 }] });
+    const managerWithMetrics = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn(),
+        perfMetrics
+      } as never,
+      config
+    });
+    const withoutMetrics = managerWithoutMetrics as unknown as {
+      collectPerfMetrics: (sessionId: string, targetId: string) => Promise<{ metrics: Array<{ name: string; value: number }> }>;
+    };
+    const withMetrics = managerWithMetrics as unknown as {
+      collectPerfMetrics: (sessionId: string, targetId: string) => Promise<{ metrics: Array<{ name: string; value: number }> }>;
+    };
+
+    await expect(withoutMetrics.collectPerfMetrics("session-a", "target-a")).resolves.toEqual({ metrics: [] });
+    await expect(withMetrics.collectPerfMetrics("session-b", "target-b")).resolves.toEqual({ metrics: [] });
+    await expect(withMetrics.collectPerfMetrics("session-c", "target-c")).resolves.toEqual({
+      metrics: [{ name: "Nodes", value: 42 }]
+    });
+  });
+
+  it("reconciles watched bindings during summary canvas.code.status without an explicit binding id", async () => {
+    const sourcePath = join(worktree, "WatchSummaryHero.tsx");
+    await writeFile(sourcePath, [
+      "export function WatchSummaryHero() {",
+      "  return <section><span>Watch summary</span></section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      } as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as {
+      canvasSessionId: string;
+      leaseId: string;
+      documentId: string;
+    };
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      documentId: opened.documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      nodeId: loaded.document.pages[0]?.rootNodeId,
+      bindingId: "binding_watch_summary",
+      repoPath: sourcePath,
+      exportName: "WatchSummaryHero",
+      syncMode: "watch"
+    });
+
+    const internal = manager as unknown as {
+      codeSyncManager: {
+        getBindingStatus: (...args: unknown[]) => Promise<unknown>;
+      };
+      handleWatchedSourceChange: (canvasSessionId: string, bindingId: string) => Promise<void>;
+    };
+    vi.spyOn(internal.codeSyncManager, "getBindingStatus").mockResolvedValue({
+      bindingId: "binding_watch_summary",
+      nodeId: loaded.document.pages[0]?.rootNodeId,
+      repoPath: sourcePath,
+      adapter: "builtin:react-tsx-v2",
+      frameworkAdapterId: "builtin:react-tsx-v2",
+      frameworkId: "react",
+      sourceFamily: "react-tsx",
+      adapterKind: "tsx-react",
+      adapterVersion: 2,
+      syncMode: "watch",
+      projection: "canvas_html",
+      state: "drift_detected",
+      driftState: "source_changed",
+      watchEnabled: true,
+      conflictCount: 0,
+      unsupportedCount: 0,
+      libraryAdapterIds: [],
+      manifestVersion: 2,
+      declaredCapabilities: [],
+      grantedCapabilities: [],
+      capabilityDenials: [],
+      reasonCode: "none"
+    });
+    const watchedChange = vi.spyOn(internal, "handleWatchedSourceChange").mockResolvedValue(undefined);
+
+    await manager.execute("canvas.code.status", {
+      canvasSessionId: opened.canvasSessionId
+    });
+
+    expect(watchedChange).toHaveBeenCalledWith(opened.canvasSessionId, "binding_watch_summary");
+  });
+
+  it("falls back to canvas_html without a runtime fallback reason when the bound runtime node is removed", async () => {
+    const sourcePath = join(worktree, "RuntimeMissingBinding.tsx");
+    await writeFile(sourcePath, [
+      "export function RuntimeMissingBinding() {",
+      "  return <section>Runtime missing binding</section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "managed",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      goto: vi.fn().mockResolvedValue({ finalUrl: "https://example.com/app", status: 200, timingMs: 5 }),
+      screenshot: vi.fn().mockResolvedValue({ path: undefined }),
+      perfMetrics: vi.fn().mockResolvedValue({ metrics: [] }),
+      consolePoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      networkPoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 })
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-runtime-missing-binding"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const documentId = String(opened.documentId);
+
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    const rootNodeId = loaded.document.pages[0]?.rootNodeId;
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId,
+      leaseId,
+      nodeId: rootNodeId,
+      bindingId: "binding_runtime_missing_html",
+      repoPath: sourcePath,
+      exportName: "RuntimeMissingBinding",
+      projection: "bound_app_runtime",
+      runtimeRootSelector: "#runtime-root"
+    });
+    const runtimeSession = (manager as unknown as {
+      sessions: Map<string, { store: { getRevision: () => number } }>;
+    }).sessions.get(canvasSessionId);
+    if (!runtimeSession) {
+      throw new Error("Missing runtime fallback session");
+    }
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: runtimeSession.store.getRevision(),
+      patches: [{
+        op: "node.remove",
+        nodeId: String(rootNodeId)
+      }]
+    });
+
+    await expect(manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    })).resolves.toMatchObject({
+      renderStatus: "rendered",
+      previewState: "focused"
+    });
+
+    expect(String(browserManager.goto.mock.calls.at(-1)?.[1])).toContain("data:text/html");
+    await expect(manager.execute("canvas.feedback.poll", {
+      canvasSessionId,
+      categories: ["render"]
+    })).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          details: expect.objectContaining({
+            projection: "canvas_html",
+            fallbackReason: null
+          })
+        })
+      ])
+    });
+  });
+
+  it("uses browserManager.applyRuntimePreviewBridge when available and reports explicit runtime fallback reasons", async () => {
+    const sourcePath = join(worktree, "RuntimeBridgeFailure.tsx");
+    await writeFile(sourcePath, [
+      "export function RuntimeBridgeFailure() {",
+      "  return <section>Runtime bridge failure</section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "managed",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      goto: vi.fn().mockResolvedValue({ finalUrl: "https://example.com/app", status: 200, timingMs: 5 }),
+      screenshot: vi.fn().mockResolvedValue({ path: undefined }),
+      perfMetrics: vi.fn().mockResolvedValue({ metrics: [] }),
+      consolePoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      networkPoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      applyRuntimePreviewBridge: vi.fn().mockResolvedValue({
+        ok: false,
+        fallbackReason: "runtime_root_missing",
+        artifact: null
+      })
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-runtime-bridge-failure"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const documentId = String(opened.documentId);
+
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId,
+      leaseId,
+      nodeId: loaded.document.pages[0]?.rootNodeId,
+      bindingId: "binding_runtime_bridge_failure",
+      repoPath: sourcePath,
+      exportName: "RuntimeBridgeFailure",
+      projection: "bound_app_runtime",
+      runtimeRootSelector: "#runtime-root"
+    });
+
+    await manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    });
+    expect(browserManager.applyRuntimePreviewBridge).toHaveBeenCalled();
+    expect(String(browserManager.goto.mock.calls.at(-1)?.[1])).toContain("data:text/html");
+
+    const feedback = await manager.execute("canvas.feedback.poll", {
+      canvasSessionId,
+      categories: ["render"]
+    }) as {
+      items: Array<{ details?: { projection?: string; fallbackReason?: string | null } }>;
+    };
+    expect(feedback.items.some((item) =>
+      item.details?.projection === "canvas_html"
+      && item.details.fallbackReason === "runtime_root_missing"
+    )).toBe(true);
+  });
 });
+
+function readJsonFixture(relativePath: string): unknown {
+  return JSON.parse(readFileSync(join(process.cwd(), relativePath), "utf-8"));
+}

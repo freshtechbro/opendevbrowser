@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 
 type StorageListener = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => void;
+type TabActivatedListener = (activeInfo: chrome.tabs.TabActiveInfo) => void;
 type TabRemovedListener = (tabId: number) => void;
 type TabUpdatedListener = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void;
 type DebuggerEventListener = (source: chrome.debugger.Debuggee, method: string, params?: object) => void;
@@ -13,6 +14,7 @@ type ConnectListener = (port: chrome.runtime.Port) => void;
 export type ChromeMockState = {
   chrome: typeof chrome;
   setActiveTab: (tab: chrome.tabs.Tab | null) => void;
+  emitTabActivated: (tabId: number) => void;
   emitStorageChange: (value: unknown) => void;
   emitTabRemoved: (tabId: number) => void;
   emitTabUpdated: (tabId: number, tab: chrome.tabs.Tab) => void;
@@ -30,6 +32,7 @@ export type ChromeMockState = {
 
 export const createChromeMock = (initial?: {
   activeTab?: chrome.tabs.Tab | null;
+  tabs?: chrome.tabs.Tab[];
   pairingToken?: string | null;
   pairingEnabled?: boolean | null;
   relayPort?: number | null;
@@ -39,6 +42,7 @@ export const createChromeMock = (initial?: {
   autoConnect?: boolean | null;
   autoPair?: boolean | null;
 }): ChromeMockState => {
+  const hasExplicitTabs = Array.isArray(initial?.tabs) && initial.tabs.length > 0;
   let activeTab = initial?.activeTab ?? {
     id: 1,
     url: "https://example.com",
@@ -47,10 +51,20 @@ export const createChromeMock = (initial?: {
     status: "complete"
   };
   const tabsById = new Map<number, chrome.tabs.Tab>();
-  if (activeTab && typeof activeTab.id === "number") {
-    tabsById.set(activeTab.id, activeTab);
+  for (const tab of initial?.tabs ?? []) {
+    if (typeof tab.id === "number") {
+      tabsById.set(tab.id, tab);
+    }
   }
-  let nextTabId = activeTab && typeof activeTab.id === "number" ? activeTab.id + 1 : 1;
+  if (!activeTab) {
+    const seededActive = Array.from(tabsById.values()).find((tab) => tab.active);
+    activeTab = seededActive ?? null;
+  }
+  if (activeTab && typeof activeTab.id === "number") {
+    tabsById.set(activeTab.id, { ...tabsById.get(activeTab.id), ...activeTab });
+  }
+  const highestSeededTabId = Array.from(tabsById.keys()).reduce((max, id) => Math.max(max, id), 0);
+  let nextTabId = highestSeededTabId > 0 ? highestSeededTabId + 1 : 1;
   let storageData: Record<string, unknown> = {
     pairingToken: initial?.pairingToken ?? null,
     pairingEnabled: initial?.pairingEnabled ?? true,
@@ -65,6 +79,7 @@ export const createChromeMock = (initial?: {
   };
 
   const storageListeners = new Set<StorageListener>();
+  const tabActivatedListeners = new Set<TabActivatedListener>();
   const tabRemovedListeners = new Set<TabRemovedListener>();
   const tabUpdatedListeners = new Set<TabUpdatedListener>();
   const debuggerEventListeners = new Set<DebuggerEventListener>();
@@ -79,6 +94,31 @@ export const createChromeMock = (initial?: {
   let captureVisibleTabResult = "data:image/png;base64,AAAA";
   let captureVisibleTabError: string | null = null;
   let lastCaptureArgs: { windowId: number | undefined; options?: chrome.tabs.CaptureVisibleTabOptions } | null = null;
+
+  const setActiveTabState = (tab: chrome.tabs.Tab | null) => {
+    if (activeTab && typeof activeTab.id === "number") {
+      if (!hasExplicitTabs) {
+        tabsById.delete(activeTab.id);
+      } else {
+        const previous = tabsById.get(activeTab.id);
+        if (previous) {
+          tabsById.set(activeTab.id, { ...previous, active: false });
+        }
+      }
+    }
+    activeTab = tab ? { ...tab, active: true } : null;
+    if (activeTab && typeof activeTab.id === "number") {
+      tabsById.set(activeTab.id, activeTab);
+    }
+  };
+
+  const listTabs = (): chrome.tabs.Tab[] => {
+    const tabs = Array.from(tabsById.values());
+    if (!activeTab || typeof activeTab.id !== "number") {
+      return tabs;
+    }
+    return tabs.sort((left, right) => Number(right.id === activeTab.id) - Number(left.id === activeTab.id));
+  };
 
   const createPort = (name = "", sender: chrome.runtime.MessageSender = activeTab ? { tab: activeTab } : {}): chrome.runtime.Port => {
     const messageListeners = new Set<(message: unknown, port: chrome.runtime.Port) => void>();
@@ -194,7 +234,13 @@ export const createChromeMock = (initial?: {
       }
     },
     tabs: {
-      query: vi.fn(async () => (activeTab ? [activeTab] : [])),
+      query: vi.fn(async (queryInfo?: chrome.tabs.QueryInfo) => {
+        const tabs = listTabs();
+        if (queryInfo?.active) {
+          return activeTab ? [activeTab] : [];
+        }
+        return tabs;
+      }),
       get: vi.fn(async (tabId: number) => {
         return tabsById.get(tabId) ?? null;
       }),
@@ -203,6 +249,19 @@ export const createChromeMock = (initial?: {
       }),
       sendMessage: vi.fn((tabId: number, _message: unknown, callback?: (response: unknown) => void) => {
         void tabId;
+        const type = (_message as { type?: string } | null)?.type;
+        if (type === "annotation:start" || type === "annotation:toggle") {
+          callback?.({ ok: true, bootId: "mock-boot", active: true });
+          return;
+        }
+        if (type === "annotation:cancel") {
+          callback?.({ ok: true, bootId: "mock-boot", active: false });
+          return;
+        }
+        if (type === "annotation:ping") {
+          callback?.({ ok: true, bootId: "mock-boot", active: false });
+          return;
+        }
         callback?.({ ok: true });
       }),
       captureVisibleTab: vi.fn((windowId: number | undefined, options: chrome.tabs.CaptureVisibleTabOptions, callback: (dataUrl?: string) => void) => {
@@ -221,11 +280,12 @@ export const createChromeMock = (initial?: {
           id: tabId,
           url: createProperties.url ?? "about:blank",
           title: createProperties.url ?? "New Tab",
-          status: "complete"
+          status: "complete",
+          active: createProperties.active ?? true
         };
         tabsById.set(tabId, tab);
         if (createProperties.active ?? true) {
-          activeTab = tab;
+          setActiveTabState(tab);
         }
         callback?.(tab);
         return tab;
@@ -240,11 +300,12 @@ export const createChromeMock = (initial?: {
           ...existing,
           url: updateProperties.url ?? existing.url,
           title: updateProperties.url ? updateProperties.url : existing.title,
-          status: "complete"
+          status: "complete",
+          active: updateProperties.active ?? existing.active
         };
         tabsById.set(tabId, updated);
         if (updateProperties.active) {
-          activeTab = updated;
+          setActiveTabState(updated);
         }
         callback?.(updated);
         return updated;
@@ -268,9 +329,17 @@ export const createChromeMock = (initial?: {
           tabRemovedListeners.add(listener);
         }
       },
+      onActivated: {
+        addListener: (listener: TabActivatedListener) => {
+          tabActivatedListeners.add(listener);
+        }
+      },
       onUpdated: {
         addListener: (listener: TabUpdatedListener) => {
           tabUpdatedListeners.add(listener);
+        },
+        removeListener: (listener: TabUpdatedListener) => {
+          tabUpdatedListeners.delete(listener);
         }
       }
     },
@@ -283,6 +352,19 @@ export const createChromeMock = (initial?: {
       })
     },
     debugger: {
+      getTargets: vi.fn((callback: (result: chrome.debugger.TargetInfo[]) => void) => {
+        const targets = listTabs()
+          .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === "number")
+          .map((tab) => ({
+            id: `target-${tab.id}`,
+            tabId: tab.id,
+            type: "page",
+            title: tab.title ?? "",
+            url: tab.url ?? "",
+            attached: false
+          })) as chrome.debugger.TargetInfo[];
+        callback(targets);
+      }),
       attach: vi.fn((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
         void debuggee;
         callback();
@@ -323,9 +405,15 @@ export const createChromeMock = (initial?: {
   return {
     chrome: chromeMock,
     setActiveTab: (tab) => {
-      activeTab = tab;
-      if (tab && typeof tab.id === "number") {
-        tabsById.set(tab.id, tab);
+      setActiveTabState(tab);
+    },
+    emitTabActivated: (tabId) => {
+      const tab = tabsById.get(tabId) ?? null;
+      if (tab) {
+        setActiveTabState(tab);
+      }
+      for (const listener of tabActivatedListeners) {
+        listener({ tabId, windowId: 1 });
       }
     },
     emitStorageChange: (value) => {
@@ -350,7 +438,7 @@ export const createChromeMock = (initial?: {
         tabsById.set(tab.id, tab);
       }
       for (const listener of tabUpdatedListeners) {
-        listener(tabId, {}, tab);
+        listener(tabId, tab.status ? { status: tab.status } : {}, tab);
       }
     },
     emitDebuggerEvent: (source, method, params) => {

@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "variableCollections": [
+      {
+        "id": "collection-colors",
+        "name": "Colors",
+        "defaultModeId": "mode-light",
+        "hiddenFromPublishing": false,
+        "modes": [
+          { "modeId": "mode-light", "name": "Light" },
+          { "modeId": "mode-dark", "name": "Dark" }
+        ],
+        "variableIds": ["var-color-primary"]
+      },
+      {
+        "id": "collection-spacing",
+        "name": "Spacing",
+        "defaultModeId": "mode-base",
+        "hiddenFromPublishing": false,
+        "modes": [
+          { "modeId": "mode-base", "name": "Base" }
+        ],
+        "variableIds": ["var-spacing-md", "var-spacing-lg"]
+      }
+    ],
+    "variables": [
+      {
+        "id": "var-color-primary",
+        "name": "Primary",
+        "resolvedType": "COLOR",
+        "variableCollectionId": "collection-colors",
+        "valuesByMode": {
+          "mode-light": { "r": 0.07, "g": 0.13, "b": 0.18, "a": 1 },
+          "mode-dark": { "r": 0.92, "g": 0.95, "b": 0.98, "a": 1 }
+        },
+        "scopes": ["ALL_FILLS"],
+        "hiddenFromPublishing": false,
+        "codeSyntax": {}
+      },
+      {
+        "id": "var-spacing-md",
+        "name": "Md",
+        "resolvedType": "FLOAT",
+        "variableCollectionId": "collection-spacing",
+        "valuesByMode": {
+          "mode-base": 16
+        },
+        "scopes": ["GAP", "WIDTH_HEIGHT"],
+        "hiddenFromPublishing": false,
+        "codeSyntax": {}
+      },
+      {
+        "id": "var-spacing-lg",
+        "name": "Lg",
+        "resolvedType": "FLOAT",
+        "variableCollectionId": "collection-spacing",
+        "valuesByMode": {
+          "mode-base": { "type": "VARIABLE_ALIAS", "id": "var-spacing-md" }
+        },
+        "scopes": ["GAP", "WIDTH_HEIGHT"],
+        "hiddenFromPublishing": false,
+        "codeSyntax": {}
+      }
+    ]
+  }
+}

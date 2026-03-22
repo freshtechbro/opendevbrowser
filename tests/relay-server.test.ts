@@ -3,7 +3,9 @@ import { WebSocket } from "ws";
 import http from "http";
 import type { IncomingMessage, ServerResponse } from "http";
 import type { AddressInfo } from "net";
+import { EventEmitter } from "events";
 import { RelayServer } from "../src/relay/relay-server";
+import { ANNOTATION_MANUAL_COMPLETION_TIMEOUT_MESSAGE } from "../src/annotate/timeout-messages";
 
 const getAvailablePort = async (): Promise<number> => {
   const tempServer = http.createServer();
@@ -91,6 +93,15 @@ const nextMessage = async (socket: WebSocket): Promise<Record<string, unknown>> 
   return JSON.parse(text) as Record<string, unknown>;
 };
 
+const nextMessageWithTimeout = async (socket: WebSocket, timeoutMs = 4000): Promise<Record<string, unknown>> => {
+  return await Promise.race([
+    nextMessage(socket),
+    new Promise<Record<string, unknown>>((_, reject) => {
+      setTimeout(() => reject(new Error("Timed out waiting for socket message")), timeoutMs);
+    })
+  ]);
+};
+
 const waitForHandshakeAck = async (socket: WebSocket): Promise<Record<string, unknown>> => {
   const message = await nextMessage(socket);
   expect(message.type).toBe("handshakeAck");
@@ -143,6 +154,12 @@ describe("RelayServer", () => {
     server = new RelayServer();
     const started = await server.start(0);
     expect(server.getAnnotationUrl()).toBe(`${started.url}/annotation`);
+  });
+
+  it("returns null ops and canvas urls when not running", () => {
+    server = new RelayServer();
+    expect(server.getOpsUrl()).toBeNull();
+    expect(server.getCanvasUrl()).toBeNull();
   });
 
   it("returns ops url when running", async () => {
@@ -219,6 +236,37 @@ describe("RelayServer", () => {
     expect(limitedResponse.writeHead).toHaveBeenCalledWith(429, { "Content-Type": "application/json" });
   });
 
+  it("authorizes extension-origin and loopback http requests", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      authorizeHttpRequest: (origin: string | undefined, req: IncomingMessage, res: ServerResponse) => boolean;
+    };
+
+    const extensionResponse = {
+      setHeader: vi.fn(),
+      writeHead: vi.fn(),
+      end: vi.fn()
+    } as unknown as ServerResponse;
+    const extensionRequest = {
+      headers: {},
+      socket: { remoteAddress: "10.0.0.1" }
+    } as unknown as IncomingMessage;
+    expect(internal.authorizeHttpRequest(EXTENSION_ORIGIN, extensionRequest, extensionResponse)).toBe(true);
+    expect(extensionResponse.writeHead).not.toHaveBeenCalled();
+
+    const loopbackResponse = {
+      setHeader: vi.fn(),
+      writeHead: vi.fn(),
+      end: vi.fn()
+    } as unknown as ServerResponse;
+    const loopbackRequest = {
+      headers: {},
+      socket: { remoteAddress: "127.0.0.1" }
+    } as unknown as IncomingMessage;
+    expect(internal.authorizeHttpRequest(undefined, loopbackRequest, loopbackResponse)).toBe(true);
+    expect(loopbackResponse.writeHead).not.toHaveBeenCalled();
+  });
+
   it("sets CORS headers for config preflight helper", () => {
     server = new RelayServer();
     const internal = server as unknown as {
@@ -239,6 +287,42 @@ describe("RelayServer", () => {
     expect(response.writeHead).toHaveBeenCalledWith(204);
   });
 
+  it("allows null-origin config preflight requests", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      handleConfigPreflight: (origin: string | undefined, req: IncomingMessage, res: ServerResponse) => void;
+    };
+    const request = {
+      headers: {
+        "access-control-request-private-network": "true"
+      }
+    } as unknown as IncomingMessage;
+    const response = {
+      setHeader: vi.fn(),
+      writeHead: vi.fn(),
+      end: vi.fn()
+    } as unknown as ServerResponse;
+
+    internal.handleConfigPreflight("null", request, response);
+
+    expect(response.setHeader).toHaveBeenCalledWith("Access-Control-Allow-Origin", "null");
+    expect(response.writeHead).toHaveBeenCalledWith(204);
+  });
+
+  it("recognizes ops-owned target ids only for tracked numeric tab ids", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      opsOwnedTabIds: Set<number>;
+      isOpsOwnedTargetId: (targetId: string) => boolean;
+    };
+    internal.opsOwnedTabIds.add(12);
+
+    expect(internal.isOpsOwnedTargetId("tab-12")).toBe(true);
+    expect(internal.isOpsOwnedTargetId("tab-")).toBe(false);
+    expect(internal.isOpsOwnedTargetId("tab-bad")).toBe(false);
+    expect(internal.isOpsOwnedTargetId("page-12")).toBe(false);
+  });
+
   it("rejects unknown upgrade paths", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -247,6 +331,20 @@ describe("RelayServer", () => {
     internal.server?.emit("upgrade", { url: "/unknown", headers: {}, socket: { remoteAddress: "127.0.0.1" } }, { destroy, write: vi.fn() }, Buffer.from(""));
     expect(destroy).toHaveBeenCalled();
     expect(started.url).toContain("ws://127.0.0.1:");
+  });
+
+  it("rejects upgrades when request metadata is missing", async () => {
+    server = new RelayServer();
+    await server.start(0);
+    const internal = server as unknown as { server?: { emit: (event: string, ...args: unknown[]) => void } };
+    const destroy = vi.fn();
+    internal.server?.emit(
+      "upgrade",
+      { url: undefined, headers: {}, socket: { remoteAddress: undefined } },
+      { destroy, write: vi.fn() },
+      Buffer.from("")
+    );
+    expect(destroy).toHaveBeenCalled();
   });
 
   it("rejects ops upgrades from non-loopback without origin", async () => {
@@ -320,6 +418,22 @@ describe("RelayServer", () => {
     expect(destroy).toHaveBeenCalled();
   });
 
+  it("allows chrome-extension origins on ops and canvas upgrades", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    await expect(upgradeRequest({
+      port: started.port,
+      path: "/ops",
+      origin: EXTENSION_ORIGIN
+    })).resolves.toBe(101);
+    await expect(upgradeRequest({
+      port: started.port,
+      path: "/canvas",
+      origin: EXTENSION_ORIGIN
+    })).resolves.toBe(101);
+  });
+
   it("returns canvas_unavailable when no extension is connected", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -335,6 +449,35 @@ describe("RelayServer", () => {
       error: { code: "canvas_unavailable" }
     });
     canvas.close();
+  });
+
+  it("returns canvas_unavailable when extension state is stale-closed", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 7 } }));
+    await waitForHandshakeAck(extension);
+
+    const internal = server as unknown as {
+      extensionSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+    };
+    internal.extensionSocket = { readyState: WebSocket.CLOSED, close: vi.fn() } as unknown as WebSocket;
+    internal.extensionHandshakeComplete = true;
+
+    const canvas = await connect(`${started.url}/canvas`);
+    canvas.send(JSON.stringify({
+      type: "canvas_hello",
+      version: "1"
+    }));
+
+    await expect(nextMessage(canvas)).resolves.toMatchObject({
+      type: "canvas_error",
+      error: { code: "canvas_unavailable" }
+    });
+
+    canvas.close();
+    extension.close();
   });
 
   it("forwards canvas hello/ack through the extension socket", async () => {
@@ -532,6 +675,82 @@ describe("RelayServer", () => {
     extension.close();
   });
 
+  it("sends canvas_client_disconnected when canvas socket errors", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    await connect(`${started.url}/canvas`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 30 } }));
+    await waitForHandshakeAck(extension);
+
+    const internal = server as unknown as { canvasClients: Map<string, WebSocket> };
+    const serverSocket = internal.canvasClients.values().next().value as WebSocket | undefined;
+    serverSocket?.emit("error", new Error("boom"));
+
+    const message = await nextMessage(extension);
+    expect(message.type).toBe("canvas_event");
+    expect(message.event).toBe("canvas_client_disconnected");
+
+    extension.close();
+  });
+
+  it("ignores canvas_hello_ack when no canvas clients are connected", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 31 } }));
+    await waitForHandshakeAck(extension);
+
+    extension.send(JSON.stringify({
+      type: "canvas_hello_ack",
+      version: "1",
+      clientId: "missing-client",
+      maxPayloadBytes: 1024,
+      capabilities: []
+    }));
+
+    expect(server.status().canvasConnected).toBe(false);
+    extension.close();
+  });
+
+  it("rejects canvas upgrades with invalid tokens and accepts valid tokens", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    server.setToken("secret");
+
+    const invalid = await upgradeRequest({ port: started.port, path: "/canvas?token=bad" });
+    const valid = await upgradeRequest({ port: started.port, path: "/canvas?token=secret" });
+
+    expect(invalid).toBe(401);
+    expect(valid).toBe(101);
+  });
+
+  it("rate limits canvas upgrades", async () => {
+    server = new RelayServer();
+    await server.start(0);
+    const internal = server as unknown as {
+      server?: { emit: (event: string, ...args: unknown[]) => void };
+      handshakeAttempts: Map<string, { count: number; resetAt: number }>;
+    };
+    internal.handshakeAttempts.set("/canvas:127.0.0.1", {
+      count: (RelayServer as unknown as { MAX_HANDSHAKE_ATTEMPTS: number }).MAX_HANDSHAKE_ATTEMPTS,
+      resetAt: Date.now() + 60_000
+    });
+    const write = vi.fn();
+    const destroy = vi.fn();
+    internal.server?.emit(
+      "upgrade",
+      { url: "/canvas", headers: {}, socket: { remoteAddress: "127.0.0.1" } },
+      { write, destroy },
+      Buffer.from("")
+    );
+    expect(write).toHaveBeenCalledWith("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+    expect(destroy).toHaveBeenCalled();
+  });
+
   it("rate limits ops upgrades", async () => {
     server = new RelayServer();
     await server.start(0);
@@ -539,7 +758,7 @@ describe("RelayServer", () => {
       server?: { emit: (event: string, ...args: unknown[]) => void };
       handshakeAttempts: Map<string, { count: number; resetAt: number }>;
     };
-    internal.handshakeAttempts.set("127.0.0.1", {
+    internal.handshakeAttempts.set("/ops:127.0.0.1", {
       count: (RelayServer as unknown as { MAX_HANDSHAKE_ATTEMPTS: number }).MAX_HANDSHAKE_ATTEMPTS,
       resetAt: Date.now() + 60_000
     });
@@ -553,6 +772,33 @@ describe("RelayServer", () => {
     );
     expect(write).toHaveBeenCalledWith("HTTP/1.1 429 Too Many Requests\r\n\r\n");
     expect(destroy).toHaveBeenCalled();
+  });
+
+  it("does not accumulate rate-limit debt across successful ops upgrades", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      const ops = await connect(`${started.url}/ops`);
+      ops.close();
+      await waitForClose(ops);
+    }
+  });
+
+  it("keeps /extension rate limits from spilling into /ops upgrades", async () => {
+    server = new RelayServer();
+    server.setToken("secret-token");
+    const started = await server.start(0);
+    const internal = server as unknown as {
+      handshakeAttempts: Map<string, { count: number; resetAt: number }>;
+    };
+    internal.handshakeAttempts.set("/extension:127.0.0.1", {
+      count: (RelayServer as unknown as { MAX_HANDSHAKE_ATTEMPTS: number }).MAX_HANDSHAKE_ATTEMPTS,
+      resetAt: Date.now() + 60_000
+    });
+
+    const status = await upgradeRequest({ port: started.port, path: "/ops?token=secret-token" });
+    expect(status).toBe(101);
   });
 
   it("blocks ops upgrades for non-extension origins", async () => {
@@ -649,6 +895,27 @@ describe("RelayServer", () => {
 
     extension.close();
     cdp.close();
+  });
+
+  it("clears extension state and closes cdp when the extension socket errors", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const cdp = await connect(`${started.url}/cdp`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 31 } }));
+    await waitForHandshakeAck(extension);
+
+    const internal = server as unknown as { extensionSocket: WebSocket | null };
+    const extensionClosed = waitForClose(extension);
+    const cdpClosed = waitForClose(cdp);
+    internal.extensionSocket?.emit("error", new Error("boom"));
+
+    await expect(extensionClosed).resolves.toBe(1011);
+    await expect(cdpClosed).resolves.toBe(1011);
+    expect(server.status().extensionConnected).toBe(false);
+    expect(server.status().extensionHandshakeComplete).toBe(false);
   });
 
   it("parses buffer messages and forwards results", async () => {
@@ -830,6 +1097,43 @@ describe("RelayServer", () => {
     extension.close();
   });
 
+  it("keeps manual-completion context for in-process annotation timeouts after a ready event", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 80 } }));
+    await waitForHandshakeAck(extension);
+
+    const requestPromise = server.requestAnnotation({
+      version: 1,
+      requestId: "req-direct-ready-timeout",
+      command: "start"
+    }, 5);
+
+    await nextMessage(extension);
+    extension.send(JSON.stringify({
+      type: "annotationEvent",
+      payload: {
+        version: 1,
+        requestId: "req-direct-ready-timeout",
+        event: "ready",
+        message: "Annotation session started."
+      }
+    }));
+
+    await expect(requestPromise).resolves.toMatchObject({
+      requestId: "req-direct-ready-timeout",
+      status: "error",
+      error: {
+        code: "timeout",
+        message: ANNOTATION_MANUAL_COMPLETION_TIMEOUT_MESSAGE
+      }
+    });
+
+    extension.close();
+  });
+
   it("rejects duplicate in-process annotation request ids", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -928,6 +1232,346 @@ describe("RelayServer", () => {
 
     annotation.close();
     extension.close();
+  });
+
+  it("handles store_agent_payload commands without requiring an extension handshake", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    server.setStoreAgentPayloadHandler(async (command) => ({
+      version: 1,
+      requestId: command.requestId,
+      status: "ok",
+      receipt: {
+        receiptId: "receipt-1",
+        deliveryState: "delivered",
+        storedFallback: false,
+        createdAt: "2026-03-15T00:00:00.000Z",
+        itemCount: 1,
+        byteLength: 42,
+        source: "popup_all",
+        label: "Popup payload"
+      }
+    }));
+
+    const annotation = await connect(`${started.url}/annotation`);
+    annotation.send(JSON.stringify({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "req-store",
+        command: "store_agent_payload",
+        source: "popup_all",
+        label: "Popup payload",
+        payload: {
+          url: "https://example.com",
+          timestamp: "2026-03-15T00:00:00.000Z",
+          screenshotMode: "none",
+          annotations: []
+        }
+      }
+    }));
+
+    const response = await nextMessage(annotation);
+    expect(response.type).toBe("annotationResponse");
+    expect(response.payload).toMatchObject({
+      requestId: "req-store",
+      status: "ok",
+      receipt: {
+        receiptId: "receipt-1",
+        deliveryState: "delivered"
+      }
+    });
+
+    annotation.close();
+  });
+
+  it("surfaces store_agent_payload handler failures to annotation clients", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    server.setStoreAgentPayloadHandler(async () => {
+      throw new Error("enqueue failed");
+    });
+
+    const annotation = await connect(`${started.url}/annotation`);
+    annotation.send(JSON.stringify({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "req-store-error",
+        command: "store_agent_payload",
+        source: "canvas_all",
+        label: "Canvas payload",
+        payload: {
+          url: "https://example.com",
+          timestamp: "2026-03-15T00:00:00.000Z",
+          screenshotMode: "none",
+          annotations: []
+        }
+      }
+    }));
+
+    const response = await nextMessage(annotation);
+    expect(response.type).toBe("annotationResponse");
+    expect(response.payload).toMatchObject({
+      requestId: "req-store-error",
+      status: "error",
+      error: {
+        code: "unknown",
+        message: "enqueue failed"
+      }
+    });
+
+    annotation.close();
+  });
+
+  it("covers config preflight and token helpers when origin and request url are missing", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      getCdpTokenFromRequestUrl: (value?: string) => string | null;
+      handleConfigPreflight: (origin: string | undefined, request: IncomingMessage, response: ServerResponse) => void;
+    };
+    const response = {
+      setHeader: vi.fn(),
+      writeHead: vi.fn(),
+      end: vi.fn()
+    } as unknown as ServerResponse;
+
+    internal.handleConfigPreflight(undefined, { headers: {} } as IncomingMessage, response);
+
+    expect(response.setHeader).not.toHaveBeenCalled();
+    expect(response.writeHead).toHaveBeenCalledWith(204);
+    expect(internal.getCdpTokenFromRequestUrl(undefined)).toBeNull();
+  });
+
+  it("rejects malformed store_agent_payload commands and normalizes non-Error inbox failures", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    server.setStoreAgentPayloadHandler(async () => {
+      throw "enqueue failed as string";
+    });
+
+    const annotation = await connect(`${started.url}/annotation`);
+    const validPayload = {
+      url: "https://example.com",
+      timestamp: "2026-03-15T00:00:00.000Z",
+      screenshotMode: "none",
+      annotations: []
+    };
+
+    const invalidCommands = [
+      {
+        requestId: "req-invalid-stored-payload",
+        command: "store_agent_payload",
+        source: "canvas_all",
+        label: "Canvas payload",
+        payload: {
+          url: 123,
+          timestamp: "2026-03-15T00:00:00.000Z",
+          screenshotMode: "none",
+          annotations: []
+        }
+      },
+      {
+        requestId: "req-invalid-stored-source",
+        command: "store_agent_payload",
+        source: "bad-source",
+        label: "Canvas payload",
+        payload: validPayload
+      },
+      {
+        requestId: "req-invalid-stored-label",
+        command: "store_agent_payload",
+        source: "canvas_all",
+        label: 42,
+        payload: validPayload
+      }
+    ];
+
+    for (const payload of invalidCommands) {
+      annotation.send(JSON.stringify({
+        type: "annotationCommand",
+        payload: {
+          version: 1,
+          ...payload
+        }
+      }));
+      const response = await nextMessage(annotation);
+      expect(response.payload).toMatchObject({
+        requestId: payload.requestId,
+        status: "error",
+        error: { code: "invalid_request" }
+      });
+    }
+
+    annotation.send(JSON.stringify({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "req-store-string-error",
+        command: "store_agent_payload",
+        source: "canvas_all",
+        label: "Canvas payload",
+        payload: validPayload
+      }
+    }));
+
+    const response = await nextMessage(annotation);
+    expect(response.payload).toMatchObject({
+      requestId: "req-store-string-error",
+      status: "error",
+      error: {
+        code: "unknown",
+        message: "Agent inbox enqueue failed."
+      }
+    });
+
+    annotation.close();
+  });
+
+  it("surfaces missing agent inbox handlers and annotation timeouts during direct command handling", async () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      annotationPending: Map<string, { createdAt: number; readySeen: boolean }>;
+      extensionSocket: { send: (payload: string) => void } | null;
+      hasReadyExtensionSocket: () => boolean;
+      handleStoreAgentPayload: (command: { requestId: string }) => Promise<void>;
+      handleAnnotationCommand: (message: Record<string, unknown>) => void;
+      sendAnnotationError: (requestId: string, code: string, message: string) => void;
+    };
+    const sendError = vi.spyOn(internal, "sendAnnotationError").mockImplementation(() => undefined);
+
+    await internal.handleStoreAgentPayload({ requestId: "req-store-missing" });
+    expect(sendError).toHaveBeenCalledWith("req-store-missing", "relay_unavailable", "Agent inbox unavailable.");
+
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(internal, "hasReadyExtensionSocket").mockReturnValue(true);
+      internal.extensionSocket = { send: vi.fn(), close: vi.fn() };
+
+      internal.handleAnnotationCommand({
+        type: "annotationCommand",
+        payload: {
+          version: 1,
+          requestId: "req-timeout",
+          command: "start"
+        }
+      });
+
+      expect(internal.annotationPending.has("req-timeout")).toBe(true);
+      await vi.advanceTimersByTimeAsync((RelayServer as unknown as { ANNOTATION_REQUEST_TIMEOUT_MS: number }).ANNOTATION_REQUEST_TIMEOUT_MS);
+      expect(sendError).toHaveBeenCalledWith("req-timeout", "timeout", "Annotation request timed out.");
+      expect(internal.annotationPending.has("req-timeout")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses the manual-completion timeout message after a ready event during direct command handling", async () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      annotationPending: Map<string, { createdAt: number; readySeen: boolean }>;
+      extensionSocket: { send: (payload: string) => void } | null;
+      hasReadyExtensionSocket: () => boolean;
+      handleAnnotationCommand: (message: Record<string, unknown>) => void;
+      forwardAnnotationEvent: (message: { type: "annotationEvent"; payload: unknown }) => void;
+      sendAnnotationError: (requestId: string, code: string, message: string) => void;
+    };
+    const sendError = vi.spyOn(internal, "sendAnnotationError").mockImplementation(() => undefined);
+
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(internal, "hasReadyExtensionSocket").mockReturnValue(true);
+      internal.extensionSocket = { send: vi.fn(), close: vi.fn() };
+
+      internal.handleAnnotationCommand({
+        type: "annotationCommand",
+        payload: {
+          version: 1,
+          requestId: "req-ready-timeout",
+          command: "start"
+        }
+      });
+
+      internal.forwardAnnotationEvent({
+        type: "annotationEvent",
+        payload: {
+          version: 1,
+          requestId: "req-ready-timeout",
+          event: "ready",
+          message: "Annotation session started."
+        }
+      });
+
+      await vi.advanceTimersByTimeAsync((RelayServer as unknown as { ANNOTATION_REQUEST_TIMEOUT_MS: number }).ANNOTATION_REQUEST_TIMEOUT_MS);
+      expect(sendError).toHaveBeenCalledWith(
+        "req-ready-timeout",
+        "timeout",
+        ANNOTATION_MANUAL_COMPLETION_TIMEOUT_MESSAGE
+      );
+      expect(internal.annotationPending.has("req-ready-timeout")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not emit annotation timeouts after a response settles the pending request", async () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      annotationPending: Map<string, { createdAt: number; readySeen: boolean }>;
+      annotationSocket: WebSocket | null;
+      extensionSocket: WebSocket | null;
+      hasReadyExtensionSocket: () => boolean;
+      handleAnnotationCommand: (message: Record<string, unknown>) => void;
+      forwardAnnotationResponse: (message: { type: "annotationResponse"; payload: unknown }) => void;
+      sendAnnotationError: (requestId: string, code: string, message: string) => void;
+      sendJson: (socket: unknown, payload: unknown) => void;
+    };
+    const sendJson = vi.spyOn(internal, "sendJson").mockImplementation(() => undefined);
+    const sendError = vi.spyOn(internal, "sendAnnotationError").mockImplementation(() => undefined);
+
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(internal, "hasReadyExtensionSocket").mockReturnValue(true);
+      internal.extensionSocket = { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+      internal.annotationSocket = { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+
+      internal.handleAnnotationCommand({
+        type: "annotationCommand",
+        payload: {
+          version: 1,
+          requestId: "req-settled",
+          command: "start"
+        }
+      });
+
+      expect(internal.annotationPending.has("req-settled")).toBe(true);
+
+      internal.forwardAnnotationResponse({
+        type: "annotationResponse",
+        payload: {
+          version: 1,
+          requestId: "req-settled",
+          status: "ok",
+          payload: {
+            url: "https://example.com",
+            timestamp: "2026-03-18T00:00:00.000Z",
+            screenshotMode: "none",
+            annotations: []
+          }
+        }
+      });
+
+      expect(internal.annotationPending.has("req-settled")).toBe(false);
+
+      await vi.advanceTimersByTimeAsync((RelayServer as unknown as { ANNOTATION_REQUEST_TIMEOUT_MS: number }).ANNOTATION_REQUEST_TIMEOUT_MS);
+
+      expect(sendJson).toHaveBeenCalledWith(internal.annotationSocket, expect.objectContaining({
+        type: "annotationResponse"
+      }));
+      expect(sendError).not.toHaveBeenCalledWith("req-settled", "timeout", "Annotation request timed out.");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns relay_unavailable for annotation commands without a handshake", async () => {
@@ -1059,6 +1703,7 @@ describe("RelayServer", () => {
     const helloAck = await nextMessage(ops);
     expect(helloAck.type).toBe("ops_hello_ack");
     expect(helloAck.clientId).toBe(clientId);
+    expect(server.status().opsConnected).toBe(true);
 
     ops.send(JSON.stringify({
       type: "ops_request",
@@ -1086,6 +1731,36 @@ describe("RelayServer", () => {
     extension.close();
   });
 
+  it("fails silent ops hello handshakes explicitly and clears relay readiness", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const ops = await connect(`${started.url}/ops`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 33 } }));
+    await waitForHandshakeAck(extension);
+
+    ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
+    const forwardedHello = await nextMessage(extension);
+    expect(forwardedHello.type).toBe("ops_hello");
+
+    const response = await nextMessageWithTimeout(ops, 3000);
+    expect(response).toMatchObject({
+      type: "ops_error",
+      requestId: "ops_hello",
+      error: {
+        code: "ops_unavailable",
+        message: "Extension did not acknowledge ops hello."
+      }
+    });
+    expect((response.error as { details?: { reason?: string } }).details?.reason).toBe("ops_hello_timeout");
+    expect(await waitForClose(ops)).toBe(1011);
+    expect(server.status().opsConnected).toBe(false);
+
+    extension.close();
+  });
+
   it("returns invalid_request for malformed ops payloads", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -1103,6 +1778,220 @@ describe("RelayServer", () => {
 
     ops.close();
     extension.close();
+  });
+
+  it("covers http authorization denials and canvas helper no-op branches", () => {
+    server = new RelayServer();
+    const response = {
+      writeHead: vi.fn(),
+      end: vi.fn(),
+      setHeader: vi.fn()
+    } as unknown as ServerResponse;
+    const internal = server as unknown as {
+      httpAttempts: Map<string, { count: number; resetAt: number }>;
+      authorizeHttpRequest: (origin: string | undefined, request: IncomingMessage, response: ServerResponse) => boolean;
+      canvasClients: Map<string, { send: (payload: string) => void }>;
+      extensionSocket: { send: (payload: string) => void } | null;
+      handleCanvasExtensionMessage: (message: Record<string, unknown>) => void;
+      notifyCanvasClientClosed: (clientId: string) => void;
+      sendCanvasError: (
+        clientId: string,
+        error: { code: string; message: string },
+        requestId?: string,
+        canvasSessionId?: string
+      ) => void;
+      sendJson: (socket: unknown, payload: unknown) => void;
+    };
+    const maxHttpAttempts = (RelayServer as unknown as { MAX_HTTP_ATTEMPTS: number }).MAX_HTTP_ATTEMPTS;
+    const sendJson = vi.spyOn(internal, "sendJson").mockImplementation(() => undefined);
+
+    internal.httpAttempts.set("127.0.0.1", {
+      count: maxHttpAttempts,
+      resetAt: Date.now() + 60_000
+    });
+    expect(internal.authorizeHttpRequest(undefined, {
+      socket: { remoteAddress: "127.0.0.1" }
+    } as IncomingMessage, response)).toBe(false);
+    expect(response.writeHead).toHaveBeenCalledWith(429, { "Content-Type": "application/json" });
+
+    vi.mocked(response.writeHead).mockClear();
+    vi.mocked(response.end).mockClear();
+    internal.httpAttempts.clear();
+    expect(internal.authorizeHttpRequest("https://evil.example", {
+      socket: { remoteAddress: "127.0.0.1" }
+    } as IncomingMessage, response)).toBe(false);
+    expect(response.writeHead).toHaveBeenCalledWith(403, { "Content-Type": "application/json" });
+
+    vi.mocked(response.writeHead).mockClear();
+    vi.mocked(response.end).mockClear();
+    expect(internal.authorizeHttpRequest(undefined, {
+      socket: { remoteAddress: "10.0.0.10" }
+    } as IncomingMessage, response)).toBe(false);
+    expect(response.writeHead).toHaveBeenCalledWith(403, { "Content-Type": "application/json" });
+
+    expect(internal.authorizeHttpRequest(EXTENSION_ORIGIN, {
+      socket: { remoteAddress: "10.0.0.10" }
+    } as IncomingMessage, response)).toBe(true);
+
+    internal.handleCanvasExtensionMessage({ type: "canvas_hello_ack" });
+    internal.handleCanvasExtensionMessage({ type: "canvas_response" });
+    internal.notifyCanvasClientClosed("missing-client");
+    internal.sendCanvasError("missing-client", { code: "invalid_request", message: "bad request" });
+    expect(sendJson).not.toHaveBeenCalled();
+
+    internal.extensionSocket = { send: vi.fn(), close: vi.fn() };
+    internal.canvasClients.set("canvas-client", { send: vi.fn(), close: vi.fn() });
+    internal.notifyCanvasClientClosed("canvas-client");
+    internal.sendCanvasError("canvas-client", { code: "invalid_request", message: "bad request" }, "req-canvas", "canvas-session");
+    internal.handleCanvasExtensionMessage({ type: "canvas_response", clientId: "canvas-client" });
+    expect(sendJson).toHaveBeenCalledTimes(3);
+  });
+
+  it("covers relay helper no-ops for closed sockets, missing clients, and malformed annotation payloads", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      extensionSocket: WebSocket | null;
+      annotationSocket: WebSocket | null;
+      cdpSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+      opsClients: Map<string, WebSocket>;
+      canvasClients: Map<string, WebSocket>;
+      notifyExtensionCdpClientClosed: () => void;
+      notifyOpsClientClosed: (clientId: string) => void;
+      sendOpsError: (clientId: string, error: { code: string; message: string; retryable: boolean }, requestId?: string, opsSessionId?: string) => void;
+      pruneClosedSockets: () => void;
+      handleAnnotationCommand: (message: Record<string, unknown>) => void;
+      handleAnnotationMessage: (data: WebSocket.RawData) => void;
+      handleOpsClientMessage: (clientId: string, data: WebSocket.RawData) => void;
+      handleCanvasClientMessage: (clientId: string, data: WebSocket.RawData) => void;
+      sendAnnotationError: (requestId: string, code: string, message: string) => void;
+      sendJson: (socket: unknown, payload: unknown) => void;
+    };
+    const sendJson = vi.spyOn(internal, "sendJson").mockImplementation(() => undefined);
+    const sendAnnotationError = vi.spyOn(internal, "sendAnnotationError").mockImplementation(() => undefined);
+
+    internal.notifyExtensionCdpClientClosed();
+    internal.notifyOpsClientClosed("missing-client");
+    internal.sendOpsError("missing-client", {
+      code: "invalid_request",
+      message: "bad request",
+      retryable: false
+    });
+    expect(sendJson).not.toHaveBeenCalled();
+
+    internal.extensionSocket = { readyState: WebSocket.CLOSED, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+    internal.annotationSocket = { readyState: WebSocket.CLOSING, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+    internal.cdpSocket = { readyState: WebSocket.CLOSED, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+    internal.opsClients.set("ops-open", { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+    internal.opsClients.set("ops-closed", { readyState: WebSocket.CLOSED, send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+    internal.canvasClients.set("canvas-closed", { readyState: WebSocket.CLOSING, send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+
+    internal.notifyExtensionCdpClientClosed();
+    internal.pruneClosedSockets();
+
+    expect(internal.cdpSocket).toBeNull();
+    expect(internal.annotationSocket).toBeNull();
+    expect(internal.opsClients.has("ops-open")).toBe(true);
+    expect(internal.opsClients.has("ops-closed")).toBe(false);
+    expect(internal.canvasClients.has("canvas-closed")).toBe(false);
+
+    internal.handleAnnotationCommand({ payload: null } as unknown as Record<string, unknown>);
+    internal.handleAnnotationMessage(JSON.stringify({
+      type: "annotationCommand",
+      payload: "bad-payload"
+    }) as unknown as WebSocket.RawData);
+    expect(sendAnnotationError).toHaveBeenCalledWith("unknown", "invalid_request", "Invalid annotation command payload.");
+
+    internal.extensionSocket = { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+    internal.extensionHandshakeComplete = true;
+    internal.opsClients.set("ops-client", { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+    internal.canvasClients.set("canvas-client", { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+    internal.handleOpsClientMessage("ops-client", JSON.stringify({
+      type: "ops_request",
+      requestId: "req-ops-session",
+      command: "session.status",
+      opsSessionId: "ops-session-1",
+      payload: {}
+    }) as unknown as WebSocket.RawData);
+    internal.handleCanvasClientMessage("canvas-client", JSON.stringify({
+      type: "canvas_request",
+      requestId: "req-canvas-session",
+      command: "canvas.status",
+      canvasSessionId: "canvas-session-1",
+      payload: {}
+    }) as unknown as WebSocket.RawData);
+    expect(sendJson.mock.calls.map(([, payload]) => payload)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "ops_request", opsSessionId: "ops-session-1" }),
+      expect.objectContaining({ type: "canvas_request", canvasSessionId: "canvas-session-1" })
+    ]));
+  });
+
+  it("preserves ops and canvas session ids on relay-unavailable errors", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      extensionSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+      opsClients: Map<string, WebSocket>;
+      canvasClients: Map<string, WebSocket>;
+      handleOpsClientMessage: (clientId: string, data: WebSocket.RawData) => void;
+      handleCanvasClientMessage: (clientId: string, data: WebSocket.RawData) => void;
+      sendJson: (socket: unknown, payload: unknown) => void;
+    };
+    const sendJson = vi.spyOn(internal, "sendJson").mockImplementation(() => undefined);
+
+    internal.extensionSocket = null;
+    internal.extensionHandshakeComplete = false;
+    internal.opsClients.set("ops-client", { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+    internal.canvasClients.set("canvas-client", { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+
+    internal.handleOpsClientMessage("ops-client", JSON.stringify({
+      type: "ops_request",
+      requestId: "req-ops-missing",
+      command: "session.status",
+      opsSessionId: "ops-session-missing",
+      payload: {}
+    }) as unknown as WebSocket.RawData);
+    internal.handleCanvasClientMessage("canvas-client", JSON.stringify({
+      type: "canvas_request",
+      requestId: "req-canvas-missing",
+      command: "canvas.status",
+      canvasSessionId: "canvas-session-missing",
+      payload: {}
+    }) as unknown as WebSocket.RawData);
+
+    expect(sendJson.mock.calls.map(([, payload]) => payload)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "ops_error",
+        requestId: "req-ops-missing",
+        opsSessionId: "ops-session-missing"
+      }),
+      expect.objectContaining({
+        type: "canvas_error",
+        requestId: "req-canvas-missing",
+        canvasSessionId: "canvas-session-missing"
+      })
+    ]));
+  });
+
+  it("forwards string-id relay responses back to the cdp client", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      cdpSocket: WebSocket | null;
+      handleExtensionMessage: (data: WebSocket.RawData) => void;
+      sendJson: (socket: unknown, payload: unknown) => void;
+    };
+    const sendJson = vi.spyOn(internal, "sendJson").mockImplementation(() => undefined);
+
+    internal.cdpSocket = { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+    internal.handleExtensionMessage(JSON.stringify({
+      id: "relay-response",
+      sessionId: "session-123"
+    }) as unknown as WebSocket.RawData);
+
+    expect(sendJson).toHaveBeenCalledWith(internal.cdpSocket, {
+      id: "relay-response",
+      sessionId: "session-123"
+    });
   });
 
   it("ignores non-object ops messages", async () => {
@@ -1253,6 +2142,60 @@ describe("RelayServer", () => {
     ops.close();
   });
 
+  it("returns ops_unavailable when extension state is stale-closed", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 32 } }));
+    await waitForHandshakeAck(extension);
+
+    const internal = server as unknown as {
+      extensionSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+    };
+    internal.extensionSocket = { readyState: WebSocket.CLOSED, close: vi.fn() } as unknown as WebSocket;
+    internal.extensionHandshakeComplete = true;
+
+    const ops = await connect(`${started.url}/ops`);
+    ops.send(JSON.stringify({
+      type: "ops_hello",
+      version: "1",
+      maxPayloadBytes: 1024
+    }));
+
+    const response = await nextMessage(ops);
+    expect(response.type).toBe("ops_error");
+    expect(response.error).toMatchObject({ code: "ops_unavailable" });
+
+    ops.close();
+    extension.close();
+  });
+
+  it("prunes stale extension, ops, and canvas sockets from relay status", async () => {
+    server = new RelayServer();
+    await server.start(0);
+    const internal = server as unknown as {
+      extensionSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+      extensionInfo: { tabId: number } | null;
+      opsClients: Map<string, WebSocket>;
+      canvasClients: Map<string, WebSocket>;
+    };
+
+    internal.extensionSocket = { readyState: WebSocket.CLOSED, close: vi.fn() } as unknown as WebSocket;
+    internal.extensionHandshakeComplete = true;
+    internal.extensionInfo = { tabId: 99 };
+    internal.opsClients.set("stale-ops", { readyState: WebSocket.CLOSING, close: vi.fn() } as unknown as WebSocket);
+    internal.canvasClients.set("stale-canvas", { readyState: WebSocket.CLOSED, close: vi.fn() } as unknown as WebSocket);
+
+    const status = server.status();
+    expect(status.extensionConnected).toBe(false);
+    expect(status.extensionHandshakeComplete).toBe(false);
+    expect(status.opsConnected).toBe(false);
+    expect(status.canvasConnected).toBe(false);
+    expect(status.health.reason).toBe("extension_disconnected");
+  });
+
   it("blocks cdp attach to ops-owned targets", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -1307,6 +2250,35 @@ describe("RelayServer", () => {
     extension.send(JSON.stringify({ id: 2, result: { sessionId: "s-attach" } }));
     const response = await nextMessage(cdp);
     expect(response.result).toEqual({ sessionId: "s-attach" });
+
+    cdp.close();
+    extension.close();
+  });
+
+  it("forwards cdp attach when targetId is not a tracked string tab id", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const cdp = await connect(`${started.url}/cdp`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 44 } }));
+    await waitForHandshakeAck(extension);
+
+    const forwardedPromise = nextMessage(extension);
+    cdp.send(JSON.stringify({ id: 3, method: "Target.attachToTarget", params: { targetId: 123 } }));
+    const forwarded = await forwardedPromise;
+    expect(forwarded).toMatchObject({
+      method: "forwardCDPCommand",
+      params: {
+        method: "Target.attachToTarget",
+        params: { targetId: 123 }
+      }
+    });
+
+    extension.send(JSON.stringify({ id: 3, result: { sessionId: "s-attach-numeric" } }));
+    const response = await nextMessage(cdp);
+    expect(response.result).toEqual({ sessionId: "s-attach-numeric" });
 
     cdp.close();
     extension.close();
@@ -1801,6 +2773,82 @@ describe("RelayServer", () => {
     extension2.close();
   });
 
+  it("allows a replacement CDP client when the previous socket is already closing", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const internal = server as unknown as { cdpSocket: WebSocket | null };
+    internal.cdpSocket = { readyState: WebSocket.CLOSING } as WebSocket;
+
+    const cdp = await connect(`${started.url}/cdp`);
+    expect(server.status().cdpConnected).toBe(true);
+
+    cdp.close();
+    await waitForClose(cdp);
+  });
+
+  it("releases the active CDP slot when the socket errors", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const cdp = await connect(`${started.url}/cdp`);
+    const internal = server as unknown as { cdpSocket: WebSocket | null };
+    expect(server.status().cdpConnected).toBe(true);
+
+    internal.cdpSocket?.emit("error", new Error("boom"));
+    expect(server.status().cdpConnected).toBe(false);
+
+    cdp.close();
+    await waitForClose(cdp);
+  });
+
+  it("closes errored CDP sockets when they are open or connecting", async () => {
+    server = new RelayServer();
+    await server.start(0);
+    const internal = server as unknown as {
+      cdpWss: { emit: (event: string, ...args: unknown[]) => void } | null;
+      extensionSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+      cdpSocket: WebSocket | null;
+    };
+
+    internal.extensionSocket = { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+    internal.extensionHandshakeComplete = true;
+
+    for (const readyState of [WebSocket.OPEN, WebSocket.CONNECTING]) {
+      const socket = Object.assign(new EventEmitter(), {
+        readyState,
+        send: vi.fn(),
+        close: vi.fn()
+      }) as unknown as WebSocket;
+      internal.cdpWss?.emit("connection", socket, {} as IncomingMessage);
+      socket.emit("error", new Error(`boom-${readyState}`));
+      expect(socket.close).toHaveBeenCalledWith(1011, "CDP client error");
+      expect(internal.cdpSocket).toBeNull();
+    }
+  });
+
+  it("does not close errored CDP sockets when they are already closed", async () => {
+    server = new RelayServer();
+    await server.start(0);
+    const internal = server as unknown as {
+      cdpWss: { emit: (event: string, ...args: unknown[]) => void } | null;
+      cdpSocket: WebSocket | null;
+    };
+
+    const socket = Object.assign(new EventEmitter(), {
+      readyState: WebSocket.CLOSED,
+      send: vi.fn(),
+      close: vi.fn()
+    }) as unknown as WebSocket;
+
+    internal.cdpWss?.emit("connection", socket, {} as IncomingMessage);
+    socket.emit("error", new Error("boom-closed"));
+
+    expect(socket.close).not.toHaveBeenCalled();
+    expect(internal.cdpSocket).toBeNull();
+  });
+
   it("closes CDP clients when extension disconnects", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -2253,6 +3301,23 @@ describe("RelayServer", () => {
       vi.doUnmock("http");
     });
 
+    it("warns when discovery startup fails with a non-Error value", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      const internal = server as unknown as {
+        startDiscoveryServer: () => Promise<void>;
+      };
+      const startDiscoveryServer = vi.spyOn(internal, "startDiscoveryServer").mockRejectedValue("boom-string");
+
+      await server.start(0);
+
+      const warn = warnSpy;
+      if (!warn) {
+        throw new Error("warnSpy missing");
+      }
+      expect(startDiscoveryServer).toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("boom-string"));
+    });
+
     it("skips discovery server when relay port matches discovery port", async () => {
       const port = await getAvailablePort();
       server = new RelayServer({ discoveryPort: port });
@@ -2498,6 +3563,44 @@ describe("RelayServer", () => {
       expect(response).toBe(403);
     });
 
+    it("allows chrome-extension origins on /cdp and /annotation", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      await expect(upgradeRequest({
+        port: started.port,
+        path: "/cdp",
+        origin: EXTENSION_ORIGIN
+      })).resolves.toBe(101);
+      await expect(upgradeRequest({
+        port: started.port,
+        path: "/annotation",
+        origin: EXTENSION_ORIGIN
+      })).resolves.toBe(101);
+    });
+
+    it("rejects protected upgrades when normalized origin is blocked but raw origin is missing", async () => {
+      server = new RelayServer();
+      await server.start(0);
+
+      const internal = server as unknown as {
+        server?: { emit: (event: string, ...args: unknown[]) => void };
+        normalizeOrigin: (origin: string | undefined) => string | undefined;
+      };
+      vi.spyOn(internal, "normalizeOrigin").mockReturnValue("https://evil.com");
+
+      for (const path of ["/cdp", "/annotation", "/ops", "/canvas"]) {
+        const socket = { write: vi.fn(), destroy: vi.fn() };
+        internal.server?.emit("upgrade", {
+          url: path,
+          headers: {},
+          socket: { remoteAddress: "127.0.0.1" }
+        }, socket, Buffer.from(""));
+        expect(socket.write).toHaveBeenCalledWith(expect.stringContaining("403"));
+        expect(socket.destroy).toHaveBeenCalled();
+      }
+    });
+
     it("rejects /cdp upgrades from non-loopback without origin", async () => {
       server = new RelayServer();
       await server.start(0);
@@ -2519,7 +3622,7 @@ describe("RelayServer", () => {
         server?: { emit: (event: string, ...args: unknown[]) => void };
         handshakeAttempts: Map<string, { count: number; resetAt: number }>;
       };
-      internal.handshakeAttempts.set("127.0.0.1", {
+      internal.handshakeAttempts.set("/cdp:127.0.0.1", {
         count: (RelayServer as unknown as { MAX_HANDSHAKE_ATTEMPTS: number }).MAX_HANDSHAKE_ATTEMPTS,
         resetAt: Date.now() + 60_000
       });
@@ -2553,7 +3656,7 @@ describe("RelayServer", () => {
         server?: { emit: (event: string, ...args: unknown[]) => void };
         handshakeAttempts: Map<string, { count: number; resetAt: number }>;
       };
-      internal.handshakeAttempts.set("127.0.0.1", {
+      internal.handshakeAttempts.set("/annotation:127.0.0.1", {
         count: (RelayServer as unknown as { MAX_HANDSHAKE_ATTEMPTS: number }).MAX_HANDSHAKE_ATTEMPTS,
         resetAt: Date.now() + 60_000
       });
@@ -2590,6 +3693,19 @@ describe("RelayServer", () => {
       });
 
       expect(response.statusCode).toBe(403);
+    });
+
+    it("rejects /extension upgrades when origin is missing", async () => {
+      server = new RelayServer();
+      await server.start(0);
+
+      const internal = server as unknown as { server?: { emit: (event: string, ...args: unknown[]) => void } };
+      const socket = { write: vi.fn(), destroy: vi.fn() };
+      const request = { url: "/extension", headers: {}, socket: { remoteAddress: undefined } };
+      internal.server?.emit("upgrade", request, socket, Buffer.from(""));
+
+      expect(socket.write).toHaveBeenCalledWith(expect.stringContaining("403"));
+      expect(socket.destroy).toHaveBeenCalled();
     });
 
     it("allows chrome-extension origins", async () => {
@@ -2653,6 +3769,31 @@ describe("RelayServer", () => {
       expect(response.statusCode).toBe(429);
     });
 
+    it("does not rate limit repeated successful extension reconnects", async () => {
+      server = new RelayServer();
+      server.setToken("secret-token");
+      const started = await server.start(0);
+
+      for (let i = 0; i < 7; i++) {
+        const ext = await connect(`${started.url}/extension`);
+        ext.send(JSON.stringify({
+          type: "handshake",
+          payload: { tabId: i + 1, pairingToken: "secret-token" }
+        }));
+        await waitForHandshakeAck(ext);
+        ext.close();
+        await waitForClose(ext);
+      }
+
+      const status = await upgradeRequest({
+        port: started.port,
+        path: "/extension",
+        origin: EXTENSION_ORIGIN
+      });
+
+      expect(status).toBe(101);
+    });
+
     it("enforces CDP command allowlist when set", async () => {
       server = new RelayServer();
       server.setCdpAllowlist(["Page.navigate", "Runtime.evaluate"]);
@@ -2692,6 +3833,262 @@ describe("RelayServer", () => {
 
       extension.close();
       cdp.close();
+    });
+
+  it("covers direct ops, canvas, and annotation helper branches for malformed payloads and missing client routing", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      extensionSocket: { send: (payload: string) => void } | null;
+      annotationSocket: { send: (payload: string) => void } | null;
+      extensionHandshakeComplete: boolean;
+      opsClients: Map<string, { send: (payload: string) => void }>;
+      canvasClients: Map<string, { send: (payload: string) => void }>;
+      handleOpsClientMessage: (clientId: string, data: WebSocket.RawData) => void;
+      handleCanvasClientMessage: (clientId: string, data: WebSocket.RawData) => void;
+      handleAnnotationMessage: (data: WebSocket.RawData) => void;
+      handleOpsExtensionMessage: (message: Record<string, unknown>) => void;
+      handleCanvasExtensionMessage: (message: Record<string, unknown>) => void;
+      forwardAnnotationResponse: (message: { type: "annotationResponse"; payload: unknown }) => void;
+      forwardAnnotationEvent: (message: { type: "annotationEvent"; payload: unknown }) => void;
+      sendAnnotationError: (requestId: string, code: string, message: string) => void;
+      sendJson: (socket: unknown, payload: unknown) => void;
+    };
+    const sendJson = vi.spyOn(internal, "sendJson").mockImplementation(() => undefined);
+    const sendAnnotationError = vi.spyOn(internal, "sendAnnotationError").mockImplementation(() => undefined);
+
+      internal.extensionSocket = { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+      internal.annotationSocket = { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
+      internal.extensionHandshakeComplete = true;
+      internal.opsClients.set("ops-client", { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+      internal.canvasClients.set("canvas-client", { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+
+      internal.handleOpsClientMessage("ops-client", Buffer.from("{"));
+      internal.handleCanvasClientMessage("canvas-client", Buffer.from("{"));
+      expect(sendJson).not.toHaveBeenCalled();
+
+      internal.handleOpsClientMessage("ops-client", JSON.stringify({
+        type: "ops_ping",
+        id: "ops-ping-string"
+      }) as unknown as WebSocket.RawData);
+      internal.handleCanvasClientMessage("canvas-client", JSON.stringify({
+        type: "canvas_ping",
+        id: "canvas-ping-string"
+      }) as unknown as WebSocket.RawData);
+      internal.handleOpsClientMessage("ops-client", Buffer.from(JSON.stringify({
+        type: "ops_ping",
+        id: "ops-ping"
+      })));
+      internal.handleCanvasClientMessage("canvas-client", Buffer.from(JSON.stringify({
+        type: "canvas_ping",
+        id: "canvas-ping"
+      })));
+      internal.handleOpsClientMessage("ops-client", Buffer.from(JSON.stringify({
+        type: "ops_ping",
+        id: 42
+      })));
+      internal.handleCanvasClientMessage("canvas-client", Buffer.from(JSON.stringify({
+        type: "canvas_ping",
+        id: 42
+      })));
+      internal.handleOpsExtensionMessage({
+        type: "ops_error",
+        clientId: "ops-client",
+        requestId: 42,
+        opsSessionId: 9,
+        error: { code: "invalid_request", message: "bad request" }
+      } as unknown as Record<string, unknown>);
+      internal.handleCanvasExtensionMessage({
+        type: "canvas_error",
+        clientId: "canvas-client",
+        requestId: 42,
+        canvasSessionId: 9,
+        error: { code: "invalid_request", message: "bad request" }
+      } as unknown as Record<string, unknown>);
+      internal.handleOpsExtensionMessage({
+        type: "ops_event",
+        clientId: "missing-client",
+        event: "ops_session_created",
+        payload: { tabId: "bad-id" }
+      });
+      internal.handleOpsExtensionMessage({
+        type: "ops_event",
+        clientId: "ops-client",
+        event: "ops_session_created",
+        payload: null
+      } as unknown as Record<string, unknown>);
+      internal.handleCanvasExtensionMessage({
+        type: "canvas_hello_ack",
+        clientId: "missing-client",
+        version: "1"
+      });
+      internal.handleAnnotationMessage(JSON.stringify({
+        type: "annotationCommand",
+        payload: {
+          version: 1,
+          requestId: "req-store-null",
+          command: "store_agent_payload",
+          payload: null
+        }
+      }) as unknown as WebSocket.RawData);
+      internal.forwardAnnotationResponse({
+        type: "annotationResponse",
+        payload: null
+      });
+      internal.forwardAnnotationEvent({
+        type: "annotationEvent",
+        payload: null
+      });
+
+      expect(sendJson.mock.calls.map(([, payload]) => payload)).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_ping",
+          id: "ops-ping-string",
+          clientId: "ops-client"
+        }),
+        expect.objectContaining({
+          type: "canvas_ping",
+          id: "canvas-ping-string",
+          clientId: "canvas-client"
+        }),
+        expect.objectContaining({
+          type: "ops_ping",
+          id: "ops-ping",
+          clientId: "ops-client"
+        }),
+        expect.objectContaining({
+          type: "canvas_ping",
+          id: "canvas-ping",
+          clientId: "canvas-client"
+        }),
+        expect.objectContaining({
+          type: "ops_error",
+          requestId: "unknown",
+          clientId: "ops-client"
+        }),
+        expect.objectContaining({
+          type: "ops_error",
+          requestId: "unknown",
+          clientId: "ops-client"
+        }),
+        expect.objectContaining({
+          type: "canvas_error",
+          requestId: "unknown",
+          clientId: "canvas-client"
+        }),
+        expect.objectContaining({
+          type: "canvas_error",
+          requestId: "unknown",
+          clientId: "canvas-client"
+        })
+      ]));
+      expect(sendAnnotationError).toHaveBeenCalledWith("req-store-null", "invalid_request", "Invalid annotation command payload.");
+      expect(sendAnnotationError).toHaveBeenCalledWith("unknown", "invalid_request", "Invalid annotation response payload.");
+    });
+
+    it("returns 404 when main and discovery requests have no url path", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      await server.start(0);
+
+      const response = {
+        setHeader: vi.fn(),
+        writeHead: vi.fn(),
+        end: vi.fn()
+      } as unknown as ServerResponse;
+      const discoveryResponse = {
+        setHeader: vi.fn(),
+        writeHead: vi.fn(),
+        end: vi.fn()
+      } as unknown as ServerResponse;
+      const internal = server as unknown as {
+        server: http.Server;
+        discoveryServer: http.Server | null;
+      };
+
+      internal.server.emit("request", {
+        url: undefined,
+        method: "GET",
+        headers: {},
+        socket: { remoteAddress: "127.0.0.1" }
+      } as IncomingMessage, response);
+      internal.discoveryServer?.emit("request", {
+        url: undefined,
+        method: "GET",
+        headers: {},
+        socket: { remoteAddress: "127.0.0.1" }
+      } as IncomingMessage, discoveryResponse);
+
+      expect(response.writeHead).toHaveBeenCalledWith(404);
+      expect(discoveryResponse.writeHead).toHaveBeenCalledWith(404);
+    });
+
+    it("ignores stale ops and canvas socket error callbacks after client replacement", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const opsClient = await connect(`${started.url}/ops`);
+      const canvasClient = await connect(`${started.url}/canvas`);
+
+      const internal = server as unknown as {
+        opsClients: Map<string, WebSocket>;
+        canvasClients: Map<string, WebSocket>;
+        notifyOpsClientClosed: (clientId: string) => void;
+        notifyCanvasClientClosed: (clientId: string) => void;
+      };
+      const notifyOpsClientClosed = vi.spyOn(internal, "notifyOpsClientClosed");
+      const notifyCanvasClientClosed = vi.spyOn(internal, "notifyCanvasClientClosed");
+      const [opsClientId, opsSocket] = [...internal.opsClients.entries()][0] ?? [];
+      const [canvasClientId, canvasSocket] = [...internal.canvasClients.entries()][0] ?? [];
+
+      if (!opsClientId || !opsSocket || !canvasClientId || !canvasSocket) {
+        throw new Error("Expected ops and canvas relay sockets");
+      }
+
+      internal.opsClients.set(opsClientId, { send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+      internal.canvasClients.set(canvasClientId, { send: vi.fn(), close: vi.fn() } as unknown as WebSocket);
+      opsSocket.emit("error", new Error("stale ops socket"));
+      canvasSocket.emit("error", new Error("stale canvas socket"));
+
+      expect(notifyOpsClientClosed).not.toHaveBeenCalled();
+      expect(notifyCanvasClientClosed).not.toHaveBeenCalled();
+
+      opsClient.close();
+      canvasClient.close();
+    });
+
+    it("covers config and status helpers before the relay is fully running", () => {
+      server = new RelayServer();
+      const response = {
+        setHeader: vi.fn(),
+        writeHead: vi.fn(),
+        end: vi.fn()
+      } as unknown as ServerResponse;
+      const internal = server as unknown as {
+        authorizeHttpRequest: (origin: string | undefined, request: IncomingMessage, response: ServerResponse) => boolean;
+        handleConfigRequest: (request: IncomingMessage, origin: string | undefined, response: ServerResponse) => void;
+        handleStatusRequest: (request: IncomingMessage, origin: string | undefined, response: ServerResponse) => void;
+      };
+      const request = {
+        headers: {},
+        socket: { remoteAddress: "127.0.0.1" }
+      } as unknown as IncomingMessage;
+
+      expect(internal.authorizeHttpRequest(undefined, {
+        headers: {},
+        socket: {}
+      } as IncomingMessage, response)).toBe(false);
+      expect(response.writeHead).toHaveBeenCalledWith(403, { "Content-Type": "application/json" });
+
+      vi.mocked(response.writeHead).mockClear();
+      vi.mocked(response.end).mockClear();
+      internal.handleConfigRequest(request, undefined, response);
+      expect(response.writeHead).toHaveBeenCalledWith(503, { "Content-Type": "application/json" });
+
+      vi.mocked(response.writeHead).mockClear();
+      vi.mocked(response.end).mockClear();
+      internal.handleStatusRequest(request, undefined, response);
+      const statusBody = JSON.parse(String(vi.mocked(response.end).mock.calls[0]?.[0] ?? "{}")) as Record<string, unknown>;
+      expect(statusBody.running).toBe(false);
+      expect(statusBody.port).toBeUndefined();
     });
   });
 });

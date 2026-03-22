@@ -2,6 +2,7 @@ import type { ParsedArgs } from "../args";
 import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
+import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 
 type ProductVideoCommandArgs = {
   productUrl?: string;
@@ -178,13 +179,14 @@ export async function runProductVideoCommand(args: ParsedArgs) {
     include_copy: parsed.includeCopy,
     output_dir: parsed.outputDir,
     ttl_hours: parsed.ttlHours,
+    timeoutMs,
     useCookies: parsed.useCookies,
     cookiePolicyOverride: parsed.cookiePolicyOverride
-  }, { timeoutMs });
+  });
 
   return {
     success: true,
-    message: "Product video asset workflow completed.",
+    message: buildWorkflowCompletionMessage("Product video asset workflow", data),
     data
   };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS, VALID_FLAGS } from "../src/cli/args";
 import { registerCommand } from "../src/cli/commands/registry";
-import { HELP_COMMAND_GROUPS, HELP_FLAG_GROUPS, HELP_TOOL_ENTRIES, getHelpText } from "../src/cli/help";
+import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_FLAG_GROUPS, HELP_TOOL_ENTRIES, getHelpText } from "../src/cli/help";
 
 function registerAllCommands(): void {
   for (const command of CLI_COMMANDS) {
@@ -21,6 +21,7 @@ describe("CLI help surface", () => {
       for (const command of group.commands) {
         expect(seen.has(command), `${command} should not repeat`).toBe(false);
         seen.add(command);
+        expect(COMMAND_HELP_DETAILS[command].usage.length).toBeGreaterThan(0);
       }
     }
 
@@ -64,11 +65,12 @@ describe("CLI help surface", () => {
 
     expect(output).toContain(`Command Inventory (all ${CLI_COMMANDS.length} commands):`);
     expect(output).toContain("Flag Inventory (all supported flags):");
-    expect(output).toContain("Tool Inventory (all 49 opendevbrowser_* tools):");
+    expect(output).toContain(`Tool Inventory (all ${HELP_TOOL_ENTRIES.length} opendevbrowser_* tools):`);
 
     for (const command of CLI_COMMANDS) {
       expect(output).toContain(command);
       expect(output).toContain(`Description for ${command}`);
+      expect(output).toContain(COMMAND_HELP_DETAILS[command].usage);
     }
 
     for (const flag of VALID_FLAGS) {
@@ -80,7 +82,11 @@ describe("CLI help surface", () => {
       expect(output).toContain(tool.description);
     }
 
+    expect(output).toContain("usage:");
+    expect(output).toContain("flags:");
+    expect(output).toContain("cli:");
     expect(output).toContain("docs/SURFACE_REFERENCE.md");
     expect(output).toContain("src/tools/index.ts");
+    expect(output).toContain("src/cli/help.ts");
   });
 });

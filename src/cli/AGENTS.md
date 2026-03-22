@@ -70,7 +70,7 @@ src/cli/
 | `automation` | macro-resolve | Provider macro planning utilities |
 | `canvas` | canvas | Design-canvas session/document/preview orchestration |
 | `providers` | research, shopping, product-video, artifacts | Provider-backed workflow commands |
-| `annotate` | annotate | Visual annotations |
+| `annotate` | annotate | Visual annotations plus shared `--stored` retrieval |
 | `power` | rpc | Internal daemon command passthrough (guarded, unsafe/power-user only) |
 | `export` | clone-page, clone-component | Page/component export |
 | `pages` | page, pages, page-close | Named page management |
@@ -90,6 +90,7 @@ src/cli/
 - **Proxy:** `remote-manager.ts` - Proxies tool calls through daemon
 - **Autostart:** `daemon-autostart.ts` - LaunchAgent/Task Scheduler
 - **Status:** `daemon-status.ts` - Hub status with metadata recovery
+- **Internal inbox hooks:** `daemon-commands.ts` exposes `agent.inbox.*` hub-only helpers that proxy the same core-local `AgentInbox` store used by plugin delivery
 
 ### Hub Mode
 - **Check:** `isHubEnabled()` from `../utils/hub-enabled`
@@ -129,7 +130,7 @@ src/cli/
   - `node scripts/docs-drift-check.mjs`
   - `node scripts/chrome-store-compliance-check.mjs`
 - Run strict live release gates:
-  - `node scripts/provider-live-matrix.mjs --release-gate`
-  - `node scripts/live-regression-matrix.mjs --release-gate`
+  - `node scripts/provider-direct-runs.mjs --release-gate`
+  - `node scripts/live-regression-direct.mjs --release-gate`
 - Follow `docs/RELEASE_RUNBOOK.md` and the current version-scoped release evidence doc (for this cycle: `docs/RELEASE_0.0.17_EVIDENCE.md`) for final sign-off.
 - Keep command/flag/channel inventories synchronized with `docs/CLI.md` and `docs/SURFACE_REFERENCE.md`.

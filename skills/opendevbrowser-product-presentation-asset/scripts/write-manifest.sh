@@ -10,7 +10,11 @@ VALUE="$1"
 OUTDIR="$2"
 mkdir -p "$OUTDIR"
 
-cmd=(opendevbrowser product-video run --output-dir "$OUTDIR" --output-format json)
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
+source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+
+cmd=("${ODB_CLI[@]}" product-video run --output-dir "$OUTDIR" --output-format json)
 if [[ "$VALUE" == http* ]]; then
   cmd+=(--product-url "$VALUE")
 else

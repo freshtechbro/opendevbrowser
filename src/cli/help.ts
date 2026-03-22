@@ -1,3 +1,4 @@
+import { TOOL_SURFACE_ENTRIES } from "../tools/surface";
 import type { CliCommand } from "./args";
 import { CLI_COMMANDS, VALID_FLAGS } from "./args";
 import { listCommands } from "./commands/registry";
@@ -10,10 +11,16 @@ interface CommandGroup {
   commands: readonly CliCommand[];
 }
 
+export interface CommandHelpDetail {
+  usage: string;
+  flags: readonly HelpFlag[];
+}
+
 interface FlagEntry {
   flag: HelpFlag;
   alias?: string;
   description: string;
+  example?: string;
 }
 
 interface FlagGroup {
@@ -22,20 +29,34 @@ interface FlagGroup {
   flags: readonly FlagEntry[];
 }
 
-interface ToolEntry {
-  name: string;
-  description: string;
-}
-
 interface ReferenceEntry {
   label: string;
   description: string;
 }
 
+interface DetailRow {
+  label: string;
+  value: string;
+}
+
+interface FormattableRow {
+  label: string;
+  description: string;
+  details?: readonly DetailRow[];
+}
+
 const LABEL_WIDTH = 42;
-const EXPECTED_TOOL_COUNT = 49;
+const DETAIL_LABEL_WIDTH = 9;
 const COMMAND_SET = new Set<string>(CLI_COMMANDS);
 const FLAG_SET = new Set<string>(VALID_FLAGS);
+const TOOL_COUNT = TOOL_SURFACE_ENTRIES.length;
+
+const commandHelp = (usage: string, ...flags: HelpFlag[]): CommandHelpDetail => ({
+  usage,
+  flags
+});
+
+const formatFlags = (flags: readonly HelpFlag[]): string => (flags.length > 0 ? flags.join(", ") : "none");
 
 export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = [
   {
@@ -55,12 +76,12 @@ export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = [
   },
   {
     title: "Provider Workflows",
-    summary: "Run research/shopping/media workflows and macro plans.",
+    summary: "Run research, shopping, media, and artifact workflows.",
     commands: ["research", "shopping", "product-video", "artifacts", "macro-resolve"]
   },
   {
     title: "Design Canvas",
-    summary: "Execute design-canvas session, document, overlay, and preview commands.",
+    summary: "Execute typed /canvas commands for session, document, preview, and code-sync flows.",
     commands: ["canvas"]
   },
   {
@@ -75,12 +96,12 @@ export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = [
   },
   {
     title: "Targets & Pages",
-    summary: "Manage tabs/targets and named pages.",
+    summary: "Manage tabs, targets, and named pages.",
     commands: ["targets-list", "target-use", "target-new", "target-close", "page", "pages", "page-close"]
   },
   {
     title: "DOM & Export",
-    summary: "Read DOM state and export page/component code.",
+    summary: "Read DOM state and export page or component code.",
     commands: ["dom-html", "dom-text", "dom-attr", "dom-value", "dom-visible", "dom-enabled", "dom-checked", "clone-page", "clone-component"]
   },
   {
@@ -90,22 +111,180 @@ export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = [
   },
   {
     title: "Power",
-    summary: "Unsafe internal command passthrough.",
+    summary: "Unsafe internal daemon passthrough.",
     commands: ["rpc"]
   }
 ];
 
+export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
+  install: commandHelp(
+    "npx opendevbrowser [--global|--local] [--with-config] [--full] [--skills-global|--skills-local|--no-skills] [--no-prompt] [--quiet]",
+    "--global",
+    "--local",
+    "--with-config",
+    "--full",
+    "--skills-global",
+    "--skills-local",
+    "--no-skills",
+    "--no-prompt",
+    "--quiet"
+  ),
+  update: commandHelp("npx opendevbrowser update [--global|--local]", "--global", "--local"),
+  uninstall: commandHelp("npx opendevbrowser uninstall [--global|--local] [--no-prompt]", "--global", "--local", "--no-prompt", "--quiet"),
+  help: commandHelp("npx opendevbrowser --help | npx opendevbrowser help", "--help"),
+  version: commandHelp("npx opendevbrowser --version | npx opendevbrowser version", "--version"),
+  serve: commandHelp("npx opendevbrowser serve [--port <port>] [--token <token>] [--stop]", "--port", "--token", "--stop"),
+  daemon: commandHelp("npx opendevbrowser daemon <install|uninstall|status>", "--output-format"),
+  native: commandHelp("npx opendevbrowser native <install|uninstall|status> [extension-id]", "--output-format"),
+  run: commandHelp(
+    "npx opendevbrowser run --script <path> [--profile <name>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>]",
+    "--script",
+    "--profile",
+    "--chrome-path",
+    "--start-url",
+    "--flag"
+  ),
+  launch: commandHelp(
+    "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>]",
+    "--headless",
+    "--profile",
+    "--persist-profile",
+    "--chrome-path",
+    "--start-url",
+    "--flag",
+    "--no-extension",
+    "--extension-only",
+    "--extension-legacy",
+    "--wait-for-extension",
+    "--wait-timeout-ms"
+  ),
+  connect: commandHelp(
+    "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy]",
+    "--ws-endpoint",
+    "--host",
+    "--cdp-port",
+    "--start-url",
+    "--extension-legacy"
+  ),
+  disconnect: commandHelp("npx opendevbrowser disconnect --session-id <id> [--close-browser]", "--session-id", "--close-browser"),
+  status: commandHelp("npx opendevbrowser status [--session-id <id> | --daemon] [--transport <relay|native>]", "--session-id", "--daemon", "--transport"),
+  research: commandHelp(
+    "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--mode <mode>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--cookie-policy-override <policy>]",
+    "--topic",
+    "--days",
+    "--from",
+    "--to",
+    "--source-selection",
+    "--sources",
+    "--include-engagement",
+    "--limit-per-source",
+    "--mode",
+    "--timeout-ms",
+    "--use-cookies",
+    "--cookie-policy-override",
+    "--cookie-policy"
+  ),
+  shopping: commandHelp(
+    "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--cookie-policy-override <policy>]",
+    "--query",
+    "--providers",
+    "--budget",
+    "--region",
+    "--sort",
+    "--mode",
+    "--timeout-ms",
+    "--use-cookies",
+    "--cookie-policy-override",
+    "--cookie-policy"
+  ),
+  "product-video": commandHelp(
+    "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots <bool>] [--include-all-images <bool>] [--include-copy <bool>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--cookie-policy-override <policy>] [--output-dir <path>]",
+    "--product-url",
+    "--product-name",
+    "--provider-hint",
+    "--include-screenshots",
+    "--include-all-images",
+    "--include-copy",
+    "--timeout-ms",
+    "--use-cookies",
+    "--cookie-policy-override",
+    "--cookie-policy",
+    "--output-dir"
+  ),
+  artifacts: commandHelp("npx opendevbrowser artifacts cleanup [--expired-only] [--output-dir <path>]", "--expired-only", "--output-dir"),
+  goto: commandHelp("npx opendevbrowser goto --session-id <id> --url <url> [--wait-until <state>] [--timeout-ms <ms>]", "--session-id", "--url", "--wait-until", "--timeout-ms"),
+  wait: commandHelp("npx opendevbrowser wait --session-id <id> [--ref <ref>] [--state <state>|--until <condition>] [--timeout-ms <ms>]", "--session-id", "--ref", "--state", "--until", "--timeout-ms"),
+  snapshot: commandHelp("npx opendevbrowser snapshot --session-id <id> [--mode <mode>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]", "--session-id", "--mode", "--max-chars", "--cursor", "--timeout-ms"),
+  click: commandHelp("npx opendevbrowser click --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  hover: commandHelp("npx opendevbrowser hover --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  press: commandHelp("npx opendevbrowser press --session-id <id> --key <key> [--ref <ref>]", "--session-id", "--key", "--ref"),
+  check: commandHelp("npx opendevbrowser check --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  uncheck: commandHelp("npx opendevbrowser uncheck --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  type: commandHelp("npx opendevbrowser type --session-id <id> --ref <ref> --text <text> [--clear] [--submit]", "--session-id", "--ref", "--text", "--clear", "--submit"),
+  select: commandHelp("npx opendevbrowser select --session-id <id> --ref <ref> --values <csv>", "--session-id", "--ref", "--values"),
+  scroll: commandHelp("npx opendevbrowser scroll --session-id <id> --dy <pixels> [--ref <ref>]", "--session-id", "--dy", "--ref"),
+  "scroll-into-view": commandHelp("npx opendevbrowser scroll-into-view --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  "targets-list": commandHelp("npx opendevbrowser targets-list --session-id <id> [--include-urls]", "--session-id", "--include-urls"),
+  "target-use": commandHelp("npx opendevbrowser target-use --session-id <id> --target-id <id>", "--session-id", "--target-id"),
+  "target-new": commandHelp("npx opendevbrowser target-new --session-id <id> [--url <url>]", "--session-id", "--url"),
+  "target-close": commandHelp("npx opendevbrowser target-close --session-id <id> --target-id <id>", "--session-id", "--target-id"),
+  page: commandHelp("npx opendevbrowser page --session-id <id> --name <page> [--url <url>]", "--session-id", "--name", "--url"),
+  pages: commandHelp("npx opendevbrowser pages --session-id <id>", "--session-id"),
+  "page-close": commandHelp("npx opendevbrowser page-close --session-id <id> --name <page>", "--session-id", "--name"),
+  "dom-html": commandHelp("npx opendevbrowser dom-html --session-id <id> [--ref <ref>] [--max-chars <n>]", "--session-id", "--ref", "--max-chars"),
+  "dom-text": commandHelp("npx opendevbrowser dom-text --session-id <id> [--ref <ref>] [--max-chars <n>]", "--session-id", "--ref", "--max-chars"),
+  "dom-attr": commandHelp("npx opendevbrowser dom-attr --session-id <id> --ref <ref> --attr <name>", "--session-id", "--ref", "--attr"),
+  "dom-value": commandHelp("npx opendevbrowser dom-value --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  "dom-visible": commandHelp("npx opendevbrowser dom-visible --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  "dom-enabled": commandHelp("npx opendevbrowser dom-enabled --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  "dom-checked": commandHelp("npx opendevbrowser dom-checked --session-id <id> --ref <ref>", "--session-id", "--ref"),
+  "clone-page": commandHelp("npx opendevbrowser clone-page --session-id <id> [--target-id <id>] [--path <file>]", "--session-id", "--target-id", "--path"),
+  "clone-component": commandHelp("npx opendevbrowser clone-component --session-id <id> --ref <ref> [--target-id <id>] [--path <file>]", "--session-id", "--ref", "--target-id", "--path"),
+  perf: commandHelp("npx opendevbrowser perf --session-id <id>", "--session-id"),
+  screenshot: commandHelp("npx opendevbrowser screenshot --session-id <id> [--path <file>] [--timeout-ms <ms>]", "--session-id", "--path", "--timeout-ms"),
+  "console-poll": commandHelp("npx opendevbrowser console-poll --session-id <id> [--since-seq <n>] [--max <n>]", "--session-id", "--since-seq", "--max"),
+  "network-poll": commandHelp("npx opendevbrowser network-poll --session-id <id> [--since-seq <n>] [--max <n>]", "--session-id", "--since-seq", "--max"),
+  "debug-trace-snapshot": commandHelp(
+    "npx opendevbrowser debug-trace-snapshot --session-id <id> [--since-console-seq <n>] [--since-network-seq <n>] [--since-exception-seq <n>] [--max <n>] [--request-id <id>]",
+    "--session-id",
+    "--since-console-seq",
+    "--since-network-seq",
+    "--since-exception-seq",
+    "--max",
+    "--request-id"
+  ),
+  "cookie-import": commandHelp("npx opendevbrowser cookie-import --session-id <id> (--cookies <json> | --cookies-file <path>) [--strict <bool>]", "--session-id", "--cookies", "--cookies-file", "--strict"),
+  "cookie-list": commandHelp("npx opendevbrowser cookie-list --session-id <id> [--url <url>]", "--session-id", "--url"),
+  "macro-resolve": commandHelp("npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute] [--timeout-ms <ms>]", "--expression", "--default-provider", "--include-catalog", "--execute", "--timeout-ms"),
+  annotate: commandHelp(
+    "npx opendevbrowser annotate --session-id <id> [--url <url>] [--transport <auto|direct|relay>] [--target-id <id>] [--tab-id <tab>] [--screenshot-mode <visible|full|none>] [--context <text>] [--debug] [--stored] [--include-screenshots <bool>] [--timeout-ms <ms>]",
+    "--session-id",
+    "--url",
+    "--transport",
+    "--target-id",
+    "--tab-id",
+    "--screenshot-mode",
+    "--context",
+    "--debug",
+    "--stored",
+    "--include-screenshots",
+    "--timeout-ms"
+  ),
+  canvas: commandHelp("npx opendevbrowser canvas --command <canvas.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]", "--command", "--params", "--params-file", "--timeout-ms"),
+  rpc: commandHelp("npx opendevbrowser rpc --unsafe-internal --name <daemon.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]", "--unsafe-internal", "--name", "--params", "--params-file", "--timeout-ms")
+};
+
 export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
   {
-    title: "Install/Global Flags",
-    summary: "Control installation scope and setup behavior.",
+    title: "Install / Global Flags",
+    summary: "Control install scope, prompting, and bundled skill setup.",
     flags: [
-      { flag: "--global", alias: "-g", description: "Install into ~/.config/opencode/opencode.json." },
-      { flag: "--local", alias: "-l", description: "Install into ./opencode.json for this project." },
+      { flag: "--global", alias: "-g", description: "Install into ~/.config/opencode/opencode.json.", example: "npx opendevbrowser --global --with-config" },
+      { flag: "--local", alias: "-l", description: "Install into ./opencode.json for this project.", example: "npx opendevbrowser --local --skills-local" },
       { flag: "--update", alias: "-u", description: "Alias for the update command." },
       { flag: "--uninstall", description: "Alias for the uninstall command." },
-      { flag: "--with-config", description: "Also create opendevbrowser.jsonc defaults." },
-      { flag: "--full", alias: "-f", description: "Install config and pre-extract extension assets." },
+      { flag: "--with-config", description: "Also create opendevbrowser.jsonc defaults.", example: "npx opendevbrowser --global --with-config" },
+      { flag: "--full", alias: "-f", description: "Install config and pre-extract extension assets.", example: "npx opendevbrowser --full" },
       { flag: "--no-prompt", description: "Run non-interactively using defaults." },
       { flag: "--no-interactive", description: "Alias of --no-prompt." },
       { flag: "--quiet", description: "Suppress non-error text output." },
@@ -115,94 +294,94 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
     ]
   },
   {
-    title: "Help/Output Flags",
-    summary: "Inspect help/version and control output transport.",
+    title: "Help / Output Flags",
+    summary: "Inspect help or version and control output transport.",
     flags: [
-      { flag: "--help", alias: "-h", description: "Show CLI help output." },
-      { flag: "--version", alias: "-v", description: "Show CLI version." },
-      { flag: "--output-format", description: "Output mode: text, json, stream-json." },
-      { flag: "--transport", description: "Transport selector for transport-aware commands. `status` uses relay/native; `annotate` uses auto/direct/relay." }
+      { flag: "--help", alias: "-h", description: "Show CLI help output.", example: "npx opendevbrowser --help" },
+      { flag: "--version", alias: "-v", description: "Show CLI version.", example: "npx opendevbrowser --version" },
+      { flag: "--output-format", description: "Output mode: text, json, or stream-json.", example: "opendevbrowser status --daemon --output-format json" },
+      { flag: "--transport", description: "Transport selector for transport-aware commands. `status` uses relay/native; `annotate` uses auto/direct/relay.", example: "opendevbrowser status --session-id s1 --transport native" }
     ]
   },
   {
-    title: "Daemon/Session/Launch Flags",
-    summary: "Control daemon binding, connect, and launch behavior.",
+    title: "Daemon / Session / Launch Flags",
+    summary: "Control daemon binding, browser connect, and launch behavior.",
     flags: [
-      { flag: "--port", description: "Daemon or relay port override." },
-      { flag: "--token", description: "Relay/daemon auth token override." },
-      { flag: "--stop", description: "Stop a running daemon." },
-      { flag: "--daemon", description: "Target daemon status mode where supported." },
-      { flag: "--script", description: "Path to a run-script JSON file." },
-      { flag: "--session-id", description: "Target an existing daemon session." },
-      { flag: "--close-browser", description: "Close managed browser on disconnect." },
-      { flag: "--ws-endpoint", description: "Connect using explicit CDP WebSocket endpoint." },
-      { flag: "--host", description: "CDP host for host/port connect mode." },
+      { flag: "--port", description: "Daemon or relay port override.", example: "opendevbrowser serve --port 8788" },
+      { flag: "--token", description: "Relay or daemon auth token override.", example: "opendevbrowser serve --token local-dev-token" },
+      { flag: "--stop", description: "Stop a running daemon.", example: "opendevbrowser serve --stop" },
+      { flag: "--daemon", description: "Target daemon status mode where supported.", example: "opendevbrowser status --daemon --output-format json" },
+      { flag: "--script", description: "Path to a run-script JSON file.", example: "opendevbrowser run --script ./workflow.json" },
+      { flag: "--session-id", description: "Target an existing browser or daemon session.", example: "opendevbrowser snapshot --session-id s1" },
+      { flag: "--close-browser", description: "Close the managed browser on disconnect." },
+      { flag: "--ws-endpoint", description: "Connect using an explicit CDP WebSocket endpoint.", example: "opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/..." },
+      { flag: "--host", description: "CDP host for host/port connect mode.", example: "opendevbrowser connect --host 127.0.0.1 --cdp-port 9222" },
       { flag: "--cdp-port", description: "CDP port for host/port connect mode." },
-      { flag: "--headless", description: "Launch managed browser in headless mode." },
+      { flag: "--headless", description: "Launch a managed browser in headless mode.", example: "opendevbrowser launch --no-extension --headless" },
       { flag: "--profile", description: "Use a named browser profile directory." },
-      { flag: "--persist-profile", description: "Keep generated profile directory after exit." },
-      { flag: "--chrome-path", description: "Use a specific Chrome/Chromium binary." },
+      { flag: "--persist-profile", description: "Keep the generated profile directory after exit." },
+      { flag: "--chrome-path", description: "Use a specific Chrome, Chromium, or CfT binary." },
       { flag: "--start-url", description: "Open this URL immediately after launch or connect." },
       { flag: "--flag", description: "Pass one or more extra Chrome CLI flags." },
       { flag: "--no-extension", description: "Force managed mode without extension relay." },
-      { flag: "--extension-only", description: "Fail unless extension relay is connected." },
-      { flag: "--extension-legacy", description: "Use legacy /cdp relay mode instead of /ops." },
+      { flag: "--extension-only", description: "Fail unless the extension relay is connected." },
+      { flag: "--extension-legacy", description: "Use the legacy /cdp relay mode instead of /ops." },
       { flag: "--wait-for-extension", description: "Wait for extension handshake before returning." },
       { flag: "--wait-timeout-ms", description: "Handshake wait timeout in milliseconds." }
     ]
   },
   {
-    title: "Navigation/Interaction/Diagnostics Flags",
-    summary: "Command-specific flags for page actions and diagnostics.",
+    title: "Navigation / Interaction / Diagnostics Flags",
+    summary: "Command-specific flags for page actions, reads, and diagnostics.",
     flags: [
-      { flag: "--url", description: "Target URL for navigation, connect, or workflow commands." },
-      { flag: "--wait-until", description: "Navigation wait strategy (load, domcontentloaded, etc.)." },
-      { flag: "--timeout-ms", description: "Operation timeout in milliseconds (for example goto, wait, screenshot, annotate, canvas, rpc, and macro-resolve)." },
-      { flag: "--ref", description: "Snapshot ref id for element-targeted commands." },
+      { flag: "--url", description: "Target URL for navigation, connect, or workflow commands.", example: "opendevbrowser goto --session-id s1 --url https://example.com" },
+      { flag: "--wait-until", description: "Navigation wait strategy such as load or domcontentloaded." },
+      { flag: "--timeout-ms", description: "Operation timeout in milliseconds.", example: "opendevbrowser canvas --timeout-ms 120000 --command canvas.session.open ..." },
+      { flag: "--ref", description: "Snapshot ref id for element-targeted commands.", example: "opendevbrowser click --session-id s1 --ref r12" },
       { flag: "--state", description: "Wait state selector for wait-style commands." },
       { flag: "--until", description: "Wait condition selector for wait-style commands." },
       { flag: "--mode", description: "Mode selector for commands that accept variants." },
       { flag: "--max-chars", description: "Maximum text characters to return for DOM reads." },
       { flag: "--cursor", description: "Cursor token for paginated list commands." },
       { flag: "--text", description: "Text payload for type and related commands." },
-      { flag: "--clear", description: "Clear existing input value before typing." },
-      { flag: "--submit", description: "Submit form/input after typing." },
+      { flag: "--clear", description: "Clear the existing input value before typing." },
+      { flag: "--submit", description: "Submit the form or input after typing." },
       { flag: "--values", description: "CSV values for select commands." },
       { flag: "--dy", description: "Vertical scroll delta for scroll commands." },
-      { flag: "--key", description: "Keyboard key for press command." },
-      { flag: "--attr", description: "DOM attribute name for dom-attr command." },
+      { flag: "--key", description: "Keyboard key for the press command." },
+      { flag: "--attr", description: "DOM attribute name for dom-attr." },
       { flag: "--name", description: "Named page identifier for page commands." },
-      { flag: "--target-id", description: "Browser target id for target commands." },
-      { flag: "--tab-id", description: "Browser tab id override for extension/annotation commands." },
+      { flag: "--target-id", description: "Browser target id for target commands.", example: "opendevbrowser target-use --session-id s1 --target-id page-2" },
+      { flag: "--tab-id", description: "Browser tab id override for extension and annotation commands." },
       { flag: "--include-urls", description: "Include page URLs in list output where supported." },
-      { flag: "--path", description: "Filesystem path for command output/artifacts." },
-      { flag: "--since-seq", description: "Poll from sequence id across diagnostics streams." },
-      { flag: "--max", description: "Maximum number of records/items to return." },
-      { flag: "--since-console-seq", description: "Console sequence cursor for debug trace snapshots." },
-      { flag: "--since-network-seq", description: "Network sequence cursor for debug trace snapshots." },
-      { flag: "--since-exception-seq", description: "Exception sequence cursor for debug trace snapshots." },
-      { flag: "--request-id", description: "Attach/lookup request id for correlateable output." },
-      { flag: "--cookies", description: "Inline cookie payload for cookie-import command." },
+      { flag: "--path", description: "Filesystem path for command output or artifacts.", example: "opendevbrowser screenshot --session-id s1 --path ./shot.png" },
+      { flag: "--since-seq", description: "Poll from a sequence id across diagnostics streams." },
+      { flag: "--max", description: "Maximum number of records or items to return." },
+      { flag: "--since-console-seq", description: "Console sequence cursor for debug-trace snapshots." },
+      { flag: "--since-network-seq", description: "Network sequence cursor for debug-trace snapshots." },
+      { flag: "--since-exception-seq", description: "Exception sequence cursor for debug-trace snapshots." },
+      { flag: "--request-id", description: "Attach or lookup a request id for correlated output." },
+      { flag: "--cookies", description: "Inline cookie payload for cookie-import." },
       { flag: "--cookies-file", description: "File path containing cookies for cookie-import." },
       { flag: "--strict", description: "Fail cookie import on invalid entries." },
       { flag: "--screenshot-mode", description: "Annotation screenshot mode: visible, full, or none." },
       { flag: "--debug", description: "Enable debug-level annotation capture extras." },
-      { flag: "--context", description: "Free-form annotation context for reviewers/agents." },
+      { flag: "--context", description: "Free-form annotation context for reviewers or agents." },
       { flag: "--stored", description: "Return the last stored annotation payload instead of starting a new capture." }
     ]
   },
   {
-    title: "Macro/Provider/Power Flags",
-    summary: "Workflow filters, provider selectors, and unsafe RPC options.",
+    title: "Macro / Provider / Power Flags",
+    summary: "Workflow filters, provider selectors, and unsafe RPC or /canvas options.",
     flags: [
-      { flag: "--expression", description: "Macro expression to resolve/execute." },
+      { flag: "--expression", description: "Macro expression to resolve or execute.", example: "opendevbrowser macro-resolve --expression '@web.search(\"openai\")'" },
       { flag: "--default-provider", description: "Provider fallback for shorthand macro expressions." },
-      { flag: "--include-catalog", description: "Include macro catalog metadata in response." },
-      { flag: "--execute", description: "Execute resolved macro action after planning (pair with --timeout-ms on slow runs)." },
-      { flag: "--command", description: "Canvas command name for the canvas CLI command." },
+      { flag: "--include-catalog", description: "Include macro catalog metadata in the response." },
+      { flag: "--command", description: "Canvas command name for the canvas CLI command.", example: "opendevbrowser canvas --command canvas.session.open --params '{...}'" },
+      { flag: "--execute", description: "Execute a resolved macro action after planning." },
       { flag: "--params", description: "Inline JSON params for canvas or rpc commands." },
-      { flag: "--params-file", description: "Path to JSON params file for canvas or rpc commands." },
-      { flag: "--unsafe-internal", description: "Required safety gate for rpc command." },
+      { flag: "--params-file", description: "Path to a JSON params file for canvas or rpc commands.", example: "opendevbrowser canvas --command canvas.plan.set --params-file ./plan.json" },
+      { flag: "--unsafe-internal", description: "Required safety gate for the rpc command." },
       { flag: "--topic", description: "Research topic input." },
       { flag: "--days", description: "Lookback window in days for research commands." },
       { flag: "--from", description: "Start date boundary for research commands." },
@@ -212,16 +391,19 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--include-engagement", description: "Include engagement metrics in research output." },
       { flag: "--limit-per-source", description: "Per-source result cap for research runs." },
       { flag: "--query", description: "Shopping query input." },
-      { flag: "--providers", description: "Comma-separated provider ids for shopping/artifacts." },
+      { flag: "--providers", description: "Comma-separated provider ids for shopping or artifact commands." },
       { flag: "--budget", description: "Budget filter for shopping workflows." },
-      { flag: "--region", description: "Region/country hint for provider selection." },
+      { flag: "--region", description: "Region or country hint for provider selection." },
       { flag: "--sort", description: "Sort mode for shopping results." },
-      { flag: "--product-url", description: "Target product URL for product-video/artifacts workflows." },
-      { flag: "--product-name", description: "Product name override for media workflows." },
+      { flag: "--product-url", description: "Target product URL for product-video workflows." },
+      { flag: "--product-name", description: "Product name override for product-video workflows." },
       { flag: "--provider-hint", description: "Provider hint override for product workflows." },
       { flag: "--include-screenshots", description: "Include screenshots in product presentation output, or prefer screenshots when fetching stored annotations." },
       { flag: "--include-all-images", description: "Include all discovered product images." },
       { flag: "--include-copy", description: "Include product marketing copy metadata." },
+      { flag: "--use-cookies", description: "Enable or disable provider cookie injection for workflow runs; a bare flag means true.", example: "opendevbrowser shopping run --query 'usb hub' --use-cookies" },
+      { flag: "--cookie-policy-override", description: "Per-run workflow cookie policy override: off, auto, or required.", example: "opendevbrowser research run --topic 'agent workflows' --cookie-policy-override required" },
+      { flag: "--cookie-policy", description: "Alias of --cookie-policy-override." },
       { flag: "--output-dir", description: "Directory where generated artifacts are written." },
       { flag: "--ttl-hours", description: "Artifact cache time-to-live in hours." },
       { flag: "--expired-only", description: "List only expired artifacts in artifacts commands." }
@@ -229,69 +411,28 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
   }
 ];
 
-export const HELP_TOOL_ENTRIES: readonly ToolEntry[] = [
-  { name: "opendevbrowser_launch", description: "Launch a managed browser session." },
-  { name: "opendevbrowser_connect", description: "Connect to an existing browser session." },
-  { name: "opendevbrowser_disconnect", description: "Disconnect a managed or connected session." },
-  { name: "opendevbrowser_status", description: "Inspect session and relay status." },
-  { name: "opendevbrowser_targets_list", description: "List available page targets/tabs." },
-  { name: "opendevbrowser_target_use", description: "Switch active target by id." },
-  { name: "opendevbrowser_target_new", description: "Create a new target/tab." },
-  { name: "opendevbrowser_target_close", description: "Close target/tab by id." },
-  { name: "opendevbrowser_page", description: "Open or focus a named page." },
-  { name: "opendevbrowser_list", description: "List named pages in the session." },
-  { name: "opendevbrowser_close", description: "Close a named page." },
-  { name: "opendevbrowser_goto", description: "Navigate to a URL." },
-  { name: "opendevbrowser_wait", description: "Wait for load/ref/state conditions." },
-  { name: "opendevbrowser_snapshot", description: "Capture AX-tree refs for actions." },
-  { name: "opendevbrowser_click", description: "Click an element by ref." },
-  { name: "opendevbrowser_hover", description: "Hover an element by ref." },
-  { name: "opendevbrowser_press", description: "Send a keyboard key." },
-  { name: "opendevbrowser_check", description: "Check checkbox/radio by ref." },
-  { name: "opendevbrowser_uncheck", description: "Uncheck checkbox/radio by ref." },
-  { name: "opendevbrowser_type", description: "Type text into an input by ref." },
-  { name: "opendevbrowser_select", description: "Set select values by ref." },
-  { name: "opendevbrowser_scroll", description: "Scroll page or element." },
-  { name: "opendevbrowser_scroll_into_view", description: "Scroll target element into view." },
-  { name: "opendevbrowser_dom_get_html", description: "Get HTML for page or ref." },
-  { name: "opendevbrowser_dom_get_text", description: "Get text for page or ref." },
-  { name: "opendevbrowser_get_attr", description: "Read a DOM attribute by ref." },
-  { name: "opendevbrowser_get_value", description: "Read form/control value by ref." },
-  { name: "opendevbrowser_is_visible", description: "Check ref visibility." },
-  { name: "opendevbrowser_is_enabled", description: "Check ref enabled state." },
-  { name: "opendevbrowser_is_checked", description: "Check ref checked state." },
-  { name: "opendevbrowser_run", description: "Execute multi-action automation scripts." },
-  { name: "opendevbrowser_prompting_guide", description: "Return best-practice prompting guidance." },
-  { name: "opendevbrowser_console_poll", description: "Poll redacted console events." },
-  { name: "opendevbrowser_network_poll", description: "Poll redacted network events." },
-  { name: "opendevbrowser_debug_trace_snapshot", description: "Capture page + console + network diagnostics." },
-  { name: "opendevbrowser_cookie_import", description: "Import validated cookies into session." },
-  { name: "opendevbrowser_cookie_list", description: "List cookies in session with optional URL filters." },
-  { name: "opendevbrowser_macro_resolve", description: "Resolve/execute provider macro expressions." },
-  { name: "opendevbrowser_research_run", description: "Run research workflow directly." },
-  { name: "opendevbrowser_shopping_run", description: "Run shopping workflow directly." },
-  { name: "opendevbrowser_product_video_run", description: "Run product-video asset workflow directly." },
-  { name: "opendevbrowser_canvas", description: "Execute a design-canvas command surface call." },
-  { name: "opendevbrowser_clone_page", description: "Export active page into React code." },
-  { name: "opendevbrowser_clone_component", description: "Export component by ref into React code." },
-  { name: "opendevbrowser_perf", description: "Collect browser performance metrics." },
-  { name: "opendevbrowser_screenshot", description: "Capture page screenshot." },
-  { name: "opendevbrowser_annotate", description: "Capture interactive annotations." },
-  { name: "opendevbrowser_skill_list", description: "List available skill packs." },
-  { name: "opendevbrowser_skill_load", description: "Load a specific skill pack." }
-];
+export const HELP_TOOL_ENTRIES = TOOL_SURFACE_ENTRIES;
 
 export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
-  { label: "docs/CLI.md", description: "Full command docs, flag matrix, and examples." },
-  { label: "docs/SURFACE_REFERENCE.md", description: "Canonical CLI/tool/channel inventory matrix." },
-  { label: "src/tools/index.ts", description: "Code-level tool registry (source of truth)." },
+  { label: "src/cli/args.ts", description: "Authoritative CLI command and flag inventory." },
+  { label: "src/cli/help.ts", description: "Human-facing CLI usage and primary-flag metadata." },
+  { label: "src/tools/index.ts", description: "Code-level tool registry." },
+  { label: "src/tools/surface.ts", description: "Human-facing tool metadata used by CLI help." },
+  { label: "docs/CLI.md", description: "Detailed CLI guide and release-gate runbooks." },
+  { label: "docs/SURFACE_REFERENCE.md", description: "Canonical CLI, tool, and relay channel inventory." },
   { label: "opendevbrowser --help", description: "Primary full help invocation for quick discovery." },
   { label: "opendevbrowser help", description: "Alias that prints the same full help inventory." }
 ];
 
-function formatRows(rows: readonly { label: string; description: string }[]): string {
+function formatRows(rows: readonly FormattableRow[]): string {
   return rows
-    .map((row) => `  ${row.label.padEnd(LABEL_WIDTH)} ${row.description}`)
+    .map((row) => {
+      const lines = [`  ${row.label.padEnd(LABEL_WIDTH)} ${row.description}`];
+      for (const detail of row.details ?? []) {
+        lines.push(`    ${detail.label.padEnd(DETAIL_LABEL_WIDTH)} ${detail.value}`);
+      }
+      return lines.join("\n");
+    })
     .join("\n");
 }
 
@@ -308,6 +449,7 @@ function assertCommandCoverage(commandDescriptions: Map<string, string>): void {
 
   for (const group of HELP_COMMAND_GROUPS) {
     for (const command of group.commands) {
+      const detail = COMMAND_HELP_DETAILS[command];
       if (!COMMAND_SET.has(command)) {
         throw new Error(`Help references unknown CLI command: ${command}`);
       }
@@ -316,6 +458,14 @@ function assertCommandCoverage(commandDescriptions: Map<string, string>): void {
       }
       if (seen.has(command)) {
         throw new Error(`Help command appears multiple times: ${command}`);
+      }
+      if (!detail || !detail.usage.trim()) {
+        throw new Error(`Missing command help metadata: ${command}`);
+      }
+      for (const flag of detail.flags) {
+        if (!FLAG_SET.has(flag)) {
+          throw new Error(`Command help metadata references unknown flag ${flag} for ${command}`);
+        }
       }
       seen.add(command);
     }
@@ -349,29 +499,43 @@ function assertFlagCoverage(): void {
 }
 
 function assertToolCoverage(): void {
-  if (HELP_TOOL_ENTRIES.length !== EXPECTED_TOOL_COUNT) {
-    throw new Error(`Help tool inventory must list ${EXPECTED_TOOL_COUNT} tools; got ${HELP_TOOL_ENTRIES.length}`);
-  }
-
   const seen = new Set<string>();
+
   for (const entry of HELP_TOOL_ENTRIES) {
-    if (seen.has(entry.name)) {
-      throw new Error(`Help tool appears multiple times: ${entry.name}`);
-    }
     if (!entry.name.startsWith("opendevbrowser_")) {
       throw new Error(`Invalid tool name in help inventory: ${entry.name}`);
     }
+    if (!entry.description.trim()) {
+      throw new Error(`Help tool is missing a description: ${entry.name}`);
+    }
+    if (seen.has(entry.name)) {
+      throw new Error(`Help tool appears multiple times: ${entry.name}`);
+    }
+    if (entry.cliEquivalent && !COMMAND_SET.has(entry.cliEquivalent)) {
+      throw new Error(`Tool metadata references unknown CLI command: ${entry.cliEquivalent}`);
+    }
     seen.add(entry.name);
+  }
+
+  if (HELP_TOOL_ENTRIES.length !== TOOL_COUNT) {
+    throw new Error(`Help tool inventory must list ${TOOL_COUNT} tools; got ${HELP_TOOL_ENTRIES.length}`);
   }
 }
 
 function formatCommandGroups(commandDescriptions: Map<string, string>): string {
   return HELP_COMMAND_GROUPS
     .map((group) => {
-      const rows = group.commands.map((command) => ({
-        label: command,
-        description: commandDescriptions.get(command) ?? "Missing command description."
-      }));
+      const rows: FormattableRow[] = group.commands.map((command) => {
+        const detail = COMMAND_HELP_DETAILS[command];
+        return {
+          label: command,
+          description: commandDescriptions.get(command) ?? "Missing command description.",
+          details: [
+            { label: "usage:", value: detail.usage },
+            { label: "flags:", value: formatFlags(detail.flags) }
+          ]
+        };
+      });
       return `${group.title}: ${group.summary}\n${formatRows(rows)}`;
     })
     .join("\n\n");
@@ -380,9 +544,10 @@ function formatCommandGroups(commandDescriptions: Map<string, string>): string {
 function formatFlagGroups(): string {
   return HELP_FLAG_GROUPS
     .map((group) => {
-      const rows = group.flags.map((entry) => ({
+      const rows: FormattableRow[] = group.flags.map((entry) => ({
         label: entry.alias ? `${entry.flag} (${entry.alias})` : entry.flag,
-        description: entry.description
+        description: entry.description,
+        details: entry.example ? [{ label: "example:", value: entry.example }] : []
       }));
       return `${group.title}: ${group.summary}\n${formatRows(rows)}`;
     })
@@ -392,7 +557,10 @@ function formatFlagGroups(): string {
 function formatToolEntries(): string {
   return formatRows(HELP_TOOL_ENTRIES.map((entry) => ({
     label: entry.name,
-    description: entry.description
+    description: entry.description,
+    details: entry.cliEquivalent
+      ? [{ label: "cli:", value: entry.cliEquivalent }]
+      : [{ label: "scope:", value: "tool-only" }]
   })));
 }
 
@@ -421,7 +589,7 @@ export function getHelpText(): string {
     "Flag Inventory (all supported flags):",
     formatFlagGroups(),
     "",
-    `Tool Inventory (all ${EXPECTED_TOOL_COUNT} opendevbrowser_* tools):`,
+    `Tool Inventory (all ${TOOL_COUNT} opendevbrowser_* tools):`,
     formatToolEntries(),
     "",
     "Reference Pointers:",

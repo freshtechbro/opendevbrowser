@@ -101,6 +101,14 @@ describe("parallelism governor", () => {
     expect(snapshot.pressure).toBe("critical");
     expect(snapshot.waitQueueDepth).toBe(0);
     expect(snapshot.waitQueueAgeMs).toBe(0);
+
+    const nonFiniteDepth = evaluateGovernor(policy, state, {
+      hostFreeMemPct: 80,
+      rssUsagePct: 10,
+      queueAgeMs: 0,
+      queueDepth: Number.NaN
+    });
+    expect(nonFiniteDepth.waitQueueDepth).toBe(0);
   });
 
   it("clamps static cap and reports rss usage with non-positive budgets", () => {

@@ -6,6 +6,8 @@ import net from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
+import { findLocalChromeBinary } from './chrome-binary.mjs';
+import { flushAndExit } from './flush-exit.mjs';
 import {
   buildProviderCoverageSummary,
   shoppingProvidersForMode,
@@ -38,6 +40,12 @@ const EXTENSION_LAUNCH_RECOVERY_RETRIES = Math.max(
 );
 const AUTH_GATED_SHOPPING_PROVIDERS = new Set(['shopping/costco', 'shopping/macys']);
 const HIGH_FRICTION_SHOPPING_PROVIDERS = new Set(['shopping/bestbuy']);
+const SHOPPING_PROVIDER_TIMEOUT_MS = new Map([
+  ['shopping/bestbuy', '120000'],
+  ['shopping/walmart', '120000'],
+  ['shopping/target', '120000'],
+  ['shopping/temu', '120000']
+]);
 const SOCIAL_POST_CASES = [
   { id: 'provider.social.x.post', expr: '@social.post("x", "me", "ship realworld test", true, true)' },
   { id: 'provider.social.instagram.post', expr: '@social.post("instagram", "me", "ship realworld test", true, true)' },
@@ -720,13 +728,7 @@ function collectShoppingExecution(result) {
 }
 
 function findChromePath() {
-  const candidates = [
-    process.env.CHROME_PATH,
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium'
-  ].filter(Boolean);
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+  return findLocalChromeBinary();
 }
 
 async function waitForHttp(port, pathSuffix, timeoutMs = 30000) {
@@ -1026,13 +1028,15 @@ async function runSocialBrowserProbes(pushStep, env) {
         }
 
         const gotoResult = goto ?? { status: 1, detail: 'goto probe did not execute' };
-        const debugResult = debug ?? { status: 1, json: null };
+        const debugResult = debug ?? { status: 1, json: null, detail: 'debug probe did not execute' };
         const blockerState = debugResult.json?.data?.meta?.blockerState;
         const blockerType = debugResult.json?.data?.meta?.blocker?.type ?? null;
-        const detail = gotoResult.status === 0 ? null : gotoResult.detail;
+        const gotoDetail = gotoResult.status === 0 ? null : gotoResult.detail;
+        const debugDetail = debugResult.status === 0 ? null : debugResult.detail;
+        const detail = gotoDetail ?? debugDetail;
         const extensionTimeoutRecovered = mode === 'extension'
           && gotoResult.status !== 0
-          && isTimeoutDetail(detail)
+          && isTimeoutDetail(gotoDetail)
           && debugResult.status === 0;
         const probeStatus = gotoResult.status === 0 && debugResult.status === 0
           ? 'pass'
@@ -1514,9 +1518,7 @@ async function main() {
         continue;
       }
       try {
-        const providerTimeoutMs = options.strictGate && HIGH_FRICTION_SHOPPING_PROVIDERS.has(provider)
-          ? '120000'
-          : '45000';
+        const providerTimeoutMs = SHOPPING_PROVIDER_TIMEOUT_MS.get(provider) ?? '45000';
         const cliTimeoutMs = options.strictGate && HIGH_FRICTION_SHOPPING_PROVIDERS.has(provider)
           ? 360000
           : 240000;
@@ -1664,9 +1666,13 @@ async function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error) => {
-    cleanupOwnedHeadlessResources();
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+  main()
+    .then(() => {
+      flushAndExit();
+    })
+    .catch((error) => {
+      cleanupOwnedHeadlessResources();
+      console.error(error instanceof Error ? error.message : String(error));
+      flushAndExit(process, 1);
+    });
 }

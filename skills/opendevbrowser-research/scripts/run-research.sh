@@ -12,7 +12,11 @@ MODE="${3:-context}"
 SOURCE_SELECTION="${4:-}"
 SOURCES="${5:-}"
 
-cmd=(opendevbrowser research run --topic "$TOPIC" --days "$DAYS" --mode "$MODE")
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
+source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+
+cmd=("${ODB_CLI[@]}" research run --topic "$TOPIC" --days "$DAYS" --mode "$MODE")
 if [[ -n "$SOURCE_SELECTION" ]]; then
   cmd+=(--source-selection "$SOURCE_SELECTION")
 fi

@@ -147,6 +147,61 @@ describe("parseArgs", () => {
     expect(artifacts.rawArgs).toEqual(["cleanup", "--expired-only", "--output-dir=/tmp/odb"]);
   });
 
+  it("accepts workflow cookie flags through top-level CLI parsing", () => {
+    const research = parseArgs([
+      "node",
+      "cli",
+      "research",
+      "run",
+      "--topic=agent workflows",
+      "--use-cookies=false",
+      "--cookie-policy=auto"
+    ]);
+    expect(research.command).toBe("research");
+    expect(research.rawArgs).toEqual([
+      "run",
+      "--topic=agent workflows",
+      "--use-cookies=false",
+      "--cookie-policy=auto"
+    ]);
+
+    const shopping = parseArgs([
+      "node",
+      "cli",
+      "shopping",
+      "run",
+      "--query=usb hub",
+      "--use-cookies",
+      "--cookie-policy-override=required"
+    ]);
+    expect(shopping.command).toBe("shopping");
+    expect(shopping.rawArgs).toEqual([
+      "run",
+      "--query=usb hub",
+      "--use-cookies",
+      "--cookie-policy-override=required"
+    ]);
+
+    const productVideo = parseArgs([
+      "node",
+      "cli",
+      "product-video",
+      "run",
+      "--product-url=https://example.com/p/1",
+      "--use-cookies=true",
+      "--cookie-policy",
+      "off"
+    ]);
+    expect(productVideo.command).toBe("product-video");
+    expect(productVideo.rawArgs).toEqual([
+      "run",
+      "--product-url=https://example.com/p/1",
+      "--use-cookies=true",
+      "--cookie-policy",
+      "off"
+    ]);
+  });
+
   it("accepts --extension-legacy for launch/connect command parsing", () => {
     const launchParsed = parseArgs(["node", "cli", "launch", "--extension-only", "--extension-legacy"]);
     expect(launchParsed.command).toBe("launch");

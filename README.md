@@ -43,12 +43,14 @@ Distribution split (current target state):
 | **Stable refs** | Elements identified by `backendNodeId`, not fragile selectors |
 | **Security by default** | CDP localhost-only, timing-safe auth, HTML sanitization |
 | **3 browser modes** | Managed, CDP connect, or extension relay for logged-in sessions |
+| **Chrome-family session reuse** | Managed and `cdpConnect` sessions bootstrap readable cookies from the discovered system Chrome-family profile; extension mode reuses the already logged-in tab |
 | **Ops + Canvas + CDP channels** | High-level multi-client `/ops`, dedicated `/canvas`, plus legacy `/cdp` compatibility |
 | **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
 | **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
-| **Design canvas + code sync** | Persist repo-native design documents, attach same-session observers, round-trip bound TSX files, and drive preview tabs with `canvas_html` or opted-in `bound_app_runtime` reconciliation |
+| **Design canvas + code sync** | Persist repo-native design documents, attach same-session observers, run framework-adapter-backed code sync across built-in React or HTML or custom-elements or Vue or Svelte lanes plus repo-local BYO plugins, author tokens in `canvas.html`, and drive preview tabs with `canvas_html` or opted-in `bound_app_runtime` reconciliation |
+| **Shared annotation inbox** | Popup/canvas `Send` actions deliver into the active chat when scope is safe and degrade cleanly to `annotate --stored` retrieval when it is not |
 | **Loop-closure diagnostics** | Console/network polling + unified debug trace snapshots for verification workflows |
-| **10 bundled skill directories** | Best practices plus login, forms, data extraction, research, shopping, and product asset workflows |
+| **11 bundled skill directories** | Best practices, design-agent guidance, login, forms, data extraction, research, shopping, and product asset workflows |
 | **49 tools** | Complete browser automation coverage, including the design-canvas command surface |
 | **97% test coverage** | Production-ready with strict TypeScript |
 
@@ -98,8 +100,12 @@ Live CLI inventory/help surface: `npx opendevbrowser --help` or `npx opendevbrow
 
 Use OpenCode only if you want plugin tools. CLI and extension workflows work without OpenCode.
 
-On first successful install, the CLI attempts to install daemon auto-start on supported platforms so the relay is available on login.
-You can remove it later with `npx opendevbrowser daemon uninstall`.
+On successful installs, the CLI reconciles daemon auto-start on supported platforms so the relay is available on login. Existing
+installs are rechecked and repaired when the per-user auto-start entry is missing, stale, or malformed. If the current CLI
+entrypoint lives under a transient temp-root path (for example a first-run `/tmp` or `/private/tmp` workspace), OpenDevBrowser
+refuses to persist that path as auto-start. Plugin install still succeeds, but you must rerun `opendevbrowser daemon install`
+from a stable install location, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, if you
+want login auto-start. You can remove it later with `opendevbrowser daemon uninstall`.
 
 During install, bundled skills are synced for **OpenCode, Codex, ClaudeCode, and AmpCLI**.
 Default `--skills-global` targets:
@@ -207,7 +213,7 @@ Run a local daemon for persistent sessions, then drive automation via CLI comman
 npx opendevbrowser serve
 
 # Install auto-start (recommended for resilience)
-npx opendevbrowser daemon install
+opendevbrowser daemon install
 
 # Stop/kill the daemon before restarting
 npx opendevbrowser serve --stop
@@ -224,6 +230,8 @@ npx opendevbrowser click --session-id <session-id> --ref r12
 
 `opendevbrowser serve` includes stale-daemon preflight cleanup by default, so orphan daemon processes are terminated automatically
 before startup while preserving the active daemon on the requested port.
+If you are running from a temporary onboarding workspace, rerun `opendevbrowser daemon install` from a stable install location
+before expecting auto-start to survive login.
 
 For single-shot scripts:
 
@@ -239,14 +247,15 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ### v0.0.17 (Latest)
 
-- **Design canvas runtime is now shipped end-to-end** across core, CLI, tool, relay, and extension surfaces, including `canvas.html`, overlay control, preview feedback, and repo-backed code sync.
+- **Design canvas runtime is now shipped end-to-end** across core, CLI, tool, relay, and extension surfaces, including `canvas.html`, overlay control, preview feedback, starter or inventory flows, Figma import, and repo-backed framework-adapter code sync.
+- **Canvas token authoring and adapter-plugin validation are now first-class**: the extension token panel edits collections, modes, aliases, and bindings, while `scripts/canvas-competitive-validation.mjs` captures grouped evidence for adapters, token round-trip, inbox delivery, surface parity, and optional live Figma smoke.
 - **Canvas surface governance and skill-pack coverage** now include current `/canvas` inventories, handshake/blocker templates, and feedback-evaluation artifacts.
 - **Release packaging/docs were refreshed for v0.0.17**, including current tarball examples, extension version sync, release evidence, and public/private cutover guidance.
 
 ### v0.0.16
 
 - **Release-gate hardening** with dedicated audit/compliance scripts (`audit-zombie-files`, `docs-drift-check`, `chrome-store-compliance-check`) and grouped release-gate tests.
-- **Live matrix robustness upgrades** across `live-regression-matrix` and `provider-live-matrix` (strict `--release-gate`, extension/CDP recovery paths, deterministic strict-mode semantics).
+- **Live direct-run release gates** across provider-by-provider and scenario-by-scenario scripts with explicit artifacts instead of broad matrix evidence.
 - **CLI/runtime reliability fixes** including launch RPC timeout derivation from wait hints, bounded macro execute timeouts, and stale extension `/cdp` attach retry handling.
 - **Version/distribution integrity checks** now enforce parity across `package.json`, `extension/manifest.json`, and `extension/package.json`.
 - **Dependency and docs refresh** for v0.0.16 release readiness, onboarding parity, and public/private distribution operations.
@@ -307,6 +316,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 OpenDevBrowser provides **49 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
+Terminal help now mirrors the live command and tool surface directly from `src/cli/help.ts` and `src/tools/surface.ts`: `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
 
 ### Session Management
 | Tool | Description |
@@ -402,11 +412,12 @@ Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): 
 
 ## Bundled Skills
 
-OpenDevBrowser includes **8 OpenDevBrowser-specific skill packs** plus shared `research` and `shopping` compatibility directories that are synced by the installer:
+OpenDevBrowser includes **9 OpenDevBrowser-specific skill packs** plus shared `research` and `shopping` compatibility directories that are synced by the installer:
 
 | Skill | Purpose |
 |-------|---------|
 | `opendevbrowser-best-practices` | Core prompting patterns and workflow guidance |
+| `opendevbrowser-design-agent` | Contract-first, research-backed frontend and `/canvas` design execution |
 | `opendevbrowser-continuity-ledger` | Long-running task state management |
 | `opendevbrowser-login-automation` | Authentication flow patterns |
 | `opendevbrowser-form-testing` | Form validation and submission workflows |
@@ -447,7 +458,7 @@ Extension relay relies on **flat CDP sessions (Chrome 125+)** and uses DebuggerS
 
 Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`.
 The connect command also accepts base relay WS URLs (`ws://127.0.0.1:<relayPort>` or `ws://localhost:<relayPort>`) and normalizes them to `/ops`.
-Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for design-canvas editor, session attach/lease flow, code-sync, preview, feedback, and overlay flows.
+Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for design-canvas editor, session attach/lease flow, code-sync, preview, public feedback pull streams, and overlay flows.
 Legacy relay `/cdp` remains available with explicit opt-in (`--extension-legacy`).
 When pairing is enabled, `/ops`, `/canvas`, and `/cdp` require a relay token (`?token=<relayToken>`). Tools and the CLI auto-fetch relay config and tokens.
 
@@ -456,7 +467,7 @@ When pairing is enabled, `/ops`, `/canvas`, and `/cdp` require a relay token (`?
 | Channel | What It Does | When to Use It |
 |---------|---------------|----------------|
 | **`/ops` (default)** | High-level automation protocol with session ownership, event streaming, and multi-client handling | Preferred extension relay path for modern workflows |
-| **`/canvas`** | Typed design-canvas protocol for session handshakes/attach, live editor sync, TSX code sync, preview tabs, feedback streams, and overlay selection | Use with `opendevbrowser_canvas` or `opendevbrowser canvas` during design-canvas workflows |
+| **`/canvas`** | Typed design-canvas protocol for session handshakes/attach, Figma document import, reusable inventory list/insert, built-in starter list/apply flows, framework-adapter-backed code sync, preview tabs, public feedback pull streams, and overlay selection | Use with `opendevbrowser_canvas` or `opendevbrowser canvas` during design-canvas workflows |
 | **`/cdp` (legacy)** | Low-level CDP relay path with compatibility-focused behavior | Opt-in compatibility mode (`--extension-legacy`) |
 | **Direct CDP connect** | Attach to Chrome started with `--remote-debugging-port` | Existing debug/browser setups without extension relay |
 
@@ -513,7 +524,7 @@ If the relay is unavailable, the background worker retries `/config` + `/pair` w
 - If `relayPort` is `0`, the relay is off.
 - `relayToken: false` disables relay/hub behavior entirely.
 - `relayToken: ""` (empty string) keeps relay enabled but disables pairing requirements.
-- Install auto-start with `npx opendevbrowser daemon install` so the relay is available on login.
+- Install auto-start with `opendevbrowser daemon install` from a stable install location so the relay is available on login.
 - Clear extension local data and retry if the token/port seem stuck.
 - If another process owns the port, change `relayPort` or stop it; `opencode` listening is expected.
 
@@ -783,7 +794,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
-├── skills/           # Bundled skill directories (10 total; 8 canonical OpenDevBrowser packs + 2 shared compatibility packs)
+├── skills/           # Bundled skill directories (11 total; 9 canonical OpenDevBrowser packs + 2 shared compatibility packs)
 ├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, CLI, extension, distribution plans
 ```
@@ -820,8 +831,8 @@ Uniform versioning is required (source of truth: `package.json`):
    - `node scripts/chrome-store-compliance-check.mjs`
    - `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
 8. Run strict live release gates:
-   - `node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-live-matrix.json`
-   - `node scripts/live-regression-matrix.mjs --release-gate`
+   - `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json`
+   - `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json`
 9. Run first-time global install dry run checklist from `docs/FIRST_RUN_ONBOARDING.md`.
 10. Run: `npm run extension:pack` (outputs `./opendevbrowser-extension.zip`)
 11. Run: `npm pack`

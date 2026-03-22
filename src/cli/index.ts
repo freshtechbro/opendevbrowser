@@ -14,7 +14,12 @@ import { runServe } from "./commands/serve";
 import { runDaemonCommand } from "./commands/daemon";
 import { runNativeCommand } from "./commands/native";
 import { runArtifactsCommand } from "./commands/artifacts";
-import { getAutostartStatus, installAutostart } from "./daemon-autostart";
+import { reconcileInstallAutostart } from "./install-autostart-reconciliation";
+import type { InstallAutostartReconciliationResult } from "./install-autostart-reconciliation";
+import {
+  createInstallAutostartOutputPayload,
+  formatAutostartReconciliationMessage
+} from "./install-autostart-output";
 import { runScriptCommand } from "./commands/run";
 import { runSessionLaunch } from "./commands/session/launch";
 import { runSessionConnect } from "./commands/session/connect";
@@ -63,7 +68,7 @@ import { runResearchCommand } from "./commands/research";
 import { runShoppingCommand } from "./commands/shopping";
 import { runProductVideoCommand } from "./commands/product-video";
 import { extractExtension } from "../extension-extractor";
-import { writeOutput } from "./output";
+import { flushOutputAndExit, writeOutput } from "./output";
 import type { InstallMode } from "./args";
 import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_USAGE } from "./errors";
 import type { CliError } from "./errors";
@@ -279,23 +284,7 @@ async function main(): Promise<void> {
         const result = mode === "global"
           ? installGlobal(args.withConfig)
           : installLocal(args.withConfig);
-
-        const maybeInstallAutostart = () => {
-          const status = getAutostartStatus();
-          if (!status.supported) {
-            return { status, installed: false, message: `Autostart not supported on ${status.platform}.` };
-          }
-          if (status.installed) {
-            return { status, installed: true, message: "Autostart already installed." };
-          }
-          try {
-            const result = installAutostart();
-            return { status: result, installed: result.installed, message: `Autostart installed (${result.platform}).` };
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            return { status, installed: false, message };
-          }
-        };
+        const autostart = result.success ? reconcileInstallAutostart(result) : undefined;
 
         if (args.outputFormat !== "text") {
           const payload: Record<string, unknown> = {
@@ -316,12 +305,8 @@ async function main(): Promise<void> {
             }
           }
 
-          if (result.success && !result.alreadyInstalled) {
-            const autostart = maybeInstallAutostart();
-            payload.autostart = autostart.status;
-            if (!autostart.installed) {
-              payload.autostartError = autostart.message;
-            }
+          if (autostart) {
+            Object.assign(payload, createInstallAutostartOutputPayload(autostart));
           }
 
           return { success: result.success, message: result.message, data: payload };
@@ -356,12 +341,14 @@ async function main(): Promise<void> {
           }
         }
 
-        if (result.success && !result.alreadyInstalled) {
-          const autostart = maybeInstallAutostart();
-          if (autostart.installed) {
-            log(autostart.message);
-          } else {
-            warn(`Autostart install skipped: ${autostart.message}`);
+        if (autostart) {
+          const autostartMessage = formatAutostartReconciliationMessage(autostart);
+          if (autostartMessage) {
+            if (autostart.autostartAction === "repair_failed") {
+              warn(autostartMessage);
+            } else {
+              log(autostartMessage);
+            }
           }
         }
 
@@ -692,17 +679,19 @@ async function main(): Promise<void> {
     if (exitCode === null) {
       return;
     }
-    process.exit(exitCode);
+    await flushOutputAndExit(exitCode);
+    return;
   } catch (error) {
     const format = outputFormat ?? detectOutputFormat(process.argv);
     const cliError = toCliError(error, parseSucceeded ? EXIT_EXECUTION : EXIT_USAGE);
     emitFatalError(cliError, format);
-    process.exit(cliError.exitCode);
+    await flushOutputAndExit(cliError.exitCode);
+    return;
   }
 }
 
-main().catch((error: unknown) => {
+main().catch(async (error: unknown) => {
   const cliError = toCliError(error, EXIT_EXECUTION);
   emitFatalError(cliError, detectOutputFormat(process.argv));
-  process.exit(cliError.exitCode);
+  await flushOutputAndExit(cliError.exitCode);
 });

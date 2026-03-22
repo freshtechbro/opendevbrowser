@@ -7,8 +7,12 @@ if [[ $# -lt 1 ]]; then
 fi
 
 VALUE="$1"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
+source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+
 if [[ "$VALUE" == http* ]]; then
-  opendevbrowser product-video run --product-url "$VALUE"
+  "${ODB_CLI[@]}" product-video run --product-url "$VALUE"
 else
-  opendevbrowser product-video run --product-name "$VALUE"
+  "${ODB_CLI[@]}" product-video run --product-name "$VALUE"
 fi

@@ -4,6 +4,9 @@ import { readFile } from "fs/promises";
 import type { BrowserManagerLike } from "../browser/manager-types";
 import type { OpenDevBrowserConfig } from "../config";
 import { createDefaultRuntime, type RuntimeDefaults, type RuntimeInit } from "./index";
+import { classifyBlockerSignal } from "./blocker";
+import { ProviderRuntimeError } from "./errors";
+import { toSnippet, extractStructuredContent } from "./web/extract";
 import type {
   BrowserFallbackMode,
   BrowserFallbackPort,
@@ -18,6 +21,10 @@ type RuntimeConfig = Pick<OpenDevBrowserConfig, "blockerDetectionThreshold" | "s
 type BrowserFallbackCookieConfig = {
   policy: ProviderCookiePolicy;
   source: ProviderCookieSourceConfig;
+};
+
+type BrowserFallbackTransportConfig = {
+  extensionWsEndpoint?: string;
 };
 
 type BrowserFallbackCookieDiagnostics = {
@@ -40,6 +47,12 @@ const DEFAULT_COOKIE_SOURCE: ProviderCookieSourceConfig = {
   type: "file",
   value: "~/.config/opencode/opendevbrowser.provider-cookies.json"
 };
+const DEFAULT_FALLBACK_NAVIGATION_TIMEOUT_MS = 45000;
+const DEFAULT_FALLBACK_SHOPPING_SETTLE_TIMEOUT_MS = 15000;
+const DEFAULT_FALLBACK_DEFAULT_SETTLE_TIMEOUT_MS = 5000;
+const DEFAULT_FALLBACK_SHOPPING_CAPTURE_DELAY_MS = 2000;
+const DEFAULT_FALLBACK_DEFAULT_CAPTURE_DELAY_MS = 500;
+const SHOPPING_FALLBACK_FLAGS = ["--disable-http2"];
 
 const toFallbackMode = (mode: unknown): BrowserFallbackMode => {
   return mode === "extension" ? "extension" : "managed_headed";
@@ -171,9 +184,112 @@ const fallbackFailure = (
   }
 });
 
+const resolveFallbackSettleTimeoutMs = (source: "social" | "shopping" | "web" | "community"): number => {
+  return source === "shopping"
+    ? DEFAULT_FALLBACK_SHOPPING_SETTLE_TIMEOUT_MS
+    : DEFAULT_FALLBACK_DEFAULT_SETTLE_TIMEOUT_MS;
+};
+
+const resolveFallbackCaptureDelayMs = (source: "social" | "shopping" | "web" | "community"): number => {
+  return source === "shopping"
+    ? DEFAULT_FALLBACK_SHOPPING_CAPTURE_DELAY_MS
+    : DEFAULT_FALLBACK_DEFAULT_CAPTURE_DELAY_MS;
+};
+
+const waitForFallbackPageToSettle = async (
+  manager: BrowserManagerLike,
+  sessionId: string,
+  source: "social" | "shopping" | "web" | "community",
+  timeoutMs?: number
+): Promise<void> => {
+  if (typeof manager.waitForLoad !== "function") return;
+  const networkIdleTimeoutMs = timeoutMs ?? resolveFallbackSettleTimeoutMs(source);
+  try {
+    await manager.waitForLoad(sessionId, "networkidle", networkIdleTimeoutMs);
+  } catch {
+    // Some sites never reach a clean networkidle state. Fall through to
+    // best-effort DOM capture instead of failing the entire recovery path.
+  }
+};
+
+const captureFallbackHtml = async (
+  manager: BrowserManagerLike,
+  sessionId: string,
+  source: "social" | "shopping" | "web" | "community",
+  captureDelayMs?: number
+): Promise<string> => {
+  return await manager.withPage(sessionId, null, async (page: unknown) => {
+    const candidate = page as {
+      waitForTimeout?: (ms: number) => Promise<void>;
+      content?: () => Promise<string>;
+    };
+    if (typeof candidate.waitForTimeout === "function") {
+      await candidate.waitForTimeout(captureDelayMs ?? resolveFallbackCaptureDelayMs(source));
+    }
+    if (typeof candidate.content !== "function") return "";
+    return await candidate.content();
+  });
+};
+
+const detectFallbackPageBlocker = (
+  html: string,
+  url: string
+) => {
+  const htmlLower = html.toLowerCase();
+  const urlLower = url.toLowerCase();
+  if (
+    /\/(login|signin|sign-in|auth)(?:[./?]|$)/i.test(urlLower)
+    || /<title[^>]*>[^<]*\b(log ?in|sign ?in|login|signin)\b/i.test(html)
+    || htmlLower.includes("please log in")
+    || htmlLower.includes("please sign in")
+  ) {
+    return {
+      type: "auth_required" as const,
+      reasonCode: "token_required" as const
+    };
+  }
+  if (
+    htmlLower.includes("security verification")
+    || htmlLower.includes("verify you're human")
+    || htmlLower.includes("verify that you're human")
+    || htmlLower.includes("checking your browser")
+    || (htmlLower.includes("challenge") && /function _0x[a-z0-9]+\(/i.test(html))
+  ) {
+    return {
+      type: "anti_bot_challenge" as const,
+      reasonCode: "challenge_detected" as const
+    };
+  }
+
+  const extracted = extractStructuredContent(html, url);
+  const message = toSnippet(
+    [
+      extracted.metadata.title,
+      extracted.metadata.description,
+      extracted.text
+    ].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join(" "),
+    800
+  );
+  const blocker = classifyBlockerSignal({
+    source: "runtime_fetch",
+    url,
+    finalUrl: url,
+    title: typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined,
+    message,
+    status: 200,
+    providerErrorCode: "unavailable",
+    retryable: true
+  });
+  if (!blocker || blocker.type === "unknown" || blocker.type === "env_limited") {
+    return null;
+  }
+  return blocker;
+};
+
 export const createBrowserFallbackPort = (
   manager: BrowserManagerLike | undefined,
-  cookieDefaults: Partial<BrowserFallbackCookieConfig> = {}
+  cookieDefaults: Partial<BrowserFallbackCookieConfig> = {},
+  transportDefaults: BrowserFallbackTransportConfig = {}
 ): BrowserFallbackPort | undefined => {
   if (!manager) return undefined;
   const defaults: BrowserFallbackCookieConfig = {
@@ -186,90 +302,194 @@ export const createBrowserFallbackPort = (
       if (!requestUrl) {
         return fallbackFailure("env_limited", "Browser fallback requires a URL.");
       }
-
-      let sessionId: string | null = null;
-      const policy = resolveEffectiveCookiePolicy(defaults, request);
-      const cookieDiagnostics = baseCookieDiagnostics(policy, defaults.source);
-      try {
-        const launched = await manager.launch({
-          // Force managed fallback so retrieval recovery is not coupled to extension relay state.
-          noExtension: true,
-          headless: false,
-          startUrl: "about:blank",
-          // Browser fallback sessions are transient and should not contend for persisted profile locks.
-          persistProfile: false
-        });
-        sessionId = launched.sessionId;
-
-        if (policy !== "off") {
-          const loaded = await readCookiesFromSource(defaults.source);
-          cookieDiagnostics.available = loaded.available;
-          cookieDiagnostics.loaded = loaded.cookies.length;
-          if (loaded.message) {
-            cookieDiagnostics.message = loaded.message;
-          }
-
-          if (loaded.cookies.length > 0) {
-            cookieDiagnostics.attempted = true;
-            const imported = await manager.cookieImport(sessionId, loaded.cookies, false);
-            cookieDiagnostics.injected = imported.imported;
-            cookieDiagnostics.rejected = imported.rejected.length;
-
-            const verified = await manager.cookieList(sessionId, [requestUrl]);
-            cookieDiagnostics.verifiedCount = verified.count;
-          }
-
-          if (policy === "required") {
-            const reasonMessage = cookieDiagnostics.message
-              ?? (
-                cookieDiagnostics.loaded === 0
-                  ? "Required provider cookies are missing."
-                  : cookieDiagnostics.injected === 0
-                    ? "Provider cookie injection imported 0 entries."
-                    : cookieDiagnostics.verifiedCount === 0
-                      ? "Provider cookies were not observable after injection."
-                      : undefined
-              );
-            if (reasonMessage) {
-              cookieDiagnostics.reasonCode = "auth_required";
-              cookieDiagnostics.message = reasonMessage;
-              return fallbackFailure("auth_required", reasonMessage, cookieDiagnostics);
-            }
-          }
-        }
-
-        await manager.goto(sessionId, requestUrl, "load", 45000);
-        const html = await manager.withPage(sessionId, null, async (page: unknown) => {
-          const candidate = page as { content?: () => Promise<string> };
-          if (typeof candidate.content !== "function") return "";
-          return await candidate.content();
-        });
-        const status = await manager.status(sessionId);
-
-        return {
-          ok: true,
-          reasonCode: request.reasonCode,
-          mode: toFallbackMode(status.mode),
-          output: {
-            html,
-            url: status.url ?? requestUrl
-          },
+      const fallbackDeadlineMs = typeof request.timeoutMs === "number" && Number.isFinite(request.timeoutMs) && request.timeoutMs > 0
+        ? Date.now() + request.timeoutMs
+        : null;
+      const createTimeoutError = (stage: string): ProviderRuntimeError => {
+        return new ProviderRuntimeError("timeout", `Browser fallback timed out after ${request.timeoutMs}ms`, {
+          provider: request.provider,
+          source: request.source,
+          retryable: true,
           details: {
-            provider: request.provider,
-            operation: request.operation,
-            cookieDiagnostics
+            stage,
+            ...(typeof request.timeoutMs === "number" ? { timeoutMs: request.timeoutMs } : {})
+          }
+        });
+      };
+      const ensureNotAborted = (stage: string): void => {
+        if (request.signal?.aborted) {
+          throw createTimeoutError(stage);
+        }
+      };
+      const clampStepTimeoutMs = (requestedMs: number, stage: string): number => {
+        ensureNotAborted(stage);
+        if (fallbackDeadlineMs === null) {
+          return requestedMs;
+        }
+        const remainingMs = Math.floor(fallbackDeadlineMs - Date.now());
+        if (remainingMs <= 0) {
+          throw createTimeoutError(stage);
+        }
+        return Math.max(1, Math.min(requestedMs, remainingMs));
+      };
+
+      const preferredModes = request.preferredModes?.length
+        ? [...new Set(request.preferredModes)]
+        : ["managed_headed"];
+      let lastFailure: BrowserFallbackResponse | null = null;
+
+      for (const preferredMode of preferredModes) {
+        let sessionId: string | null = null;
+        const policy = resolveEffectiveCookiePolicy(defaults, request);
+        const cookieDiagnostics = baseCookieDiagnostics(policy, defaults.source);
+        const abortListener = () => {
+          if (sessionId) {
+            void manager.disconnect(sessionId, true).catch(() => {
+              // Best effort abort cleanup for fallback sessions.
+            });
           }
         };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return fallbackFailure("env_limited", message, cookieDiagnostics);
-      } finally {
-        if (sessionId) {
-          await manager.disconnect(sessionId, true).catch(() => {
-            // Best effort cleanup for fallback sessions.
-          });
+        request.signal?.addEventListener("abort", abortListener, { once: true });
+        try {
+          ensureNotAborted("mode_start");
+          if (preferredMode === "extension") {
+            if (!transportDefaults.extensionWsEndpoint) {
+              lastFailure = fallbackFailure("env_limited", "Extension fallback requires a relay endpoint.", cookieDiagnostics);
+              continue;
+            }
+            const attached = await manager.connectRelay(transportDefaults.extensionWsEndpoint);
+            sessionId = attached.sessionId;
+          } else {
+            const launched = await manager.launch({
+              noExtension: true,
+              headless: false,
+              startUrl: "about:blank",
+              persistProfile: false,
+              ...(request.source === "shopping" ? { flags: SHOPPING_FALLBACK_FLAGS } : {})
+            });
+            sessionId = launched.sessionId;
+          }
+          ensureNotAborted("session_ready");
+
+          if (policy !== "off" && preferredMode !== "extension") {
+            const loaded = await readCookiesFromSource(defaults.source);
+            cookieDiagnostics.available = loaded.available;
+            cookieDiagnostics.loaded = loaded.cookies.length;
+            if (loaded.message) {
+              cookieDiagnostics.message = loaded.message;
+            }
+
+            if (loaded.cookies.length > 0) {
+              cookieDiagnostics.attempted = true;
+              const imported = await manager.cookieImport(sessionId, loaded.cookies, false);
+              cookieDiagnostics.injected = imported.imported;
+              cookieDiagnostics.rejected = imported.rejected.length;
+
+              const verified = await manager.cookieList(sessionId, [requestUrl]);
+              cookieDiagnostics.verifiedCount = verified.count;
+            }
+            ensureNotAborted("cookies_ready");
+
+            if (policy === "required") {
+              const reasonMessage = cookieDiagnostics.message
+                ?? (
+                  cookieDiagnostics.loaded === 0
+                    ? "Required provider cookies are missing."
+                    : cookieDiagnostics.injected === 0
+                      ? "Provider cookie injection imported 0 entries."
+                      : cookieDiagnostics.verifiedCount === 0
+                        ? "Provider cookies were not observable after injection."
+                        : undefined
+                );
+              if (reasonMessage) {
+                cookieDiagnostics.reasonCode = "auth_required";
+                cookieDiagnostics.message = reasonMessage;
+                lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics);
+                continue;
+              }
+            }
+          }
+
+          await manager.goto(
+            sessionId,
+            requestUrl,
+            "load",
+            clampStepTimeoutMs(DEFAULT_FALLBACK_NAVIGATION_TIMEOUT_MS, "goto")
+          );
+          await waitForFallbackPageToSettle(
+            manager,
+            sessionId,
+            request.source,
+            clampStepTimeoutMs(resolveFallbackSettleTimeoutMs(request.source), "settle")
+          );
+          if (policy !== "off" && preferredMode === "extension") {
+            const verified = await manager.cookieList(sessionId, [requestUrl]);
+            cookieDiagnostics.available = verified.count > 0;
+            cookieDiagnostics.verifiedCount = verified.count;
+            if (policy === "required" && verified.count === 0) {
+              const reasonMessage = "Provider cookies were not observable in the live extension session.";
+              cookieDiagnostics.reasonCode = "auth_required";
+              cookieDiagnostics.message = reasonMessage;
+              lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics);
+              continue;
+            }
+          }
+
+          const html = await captureFallbackHtml(
+            manager,
+            sessionId,
+            request.source,
+            clampStepTimeoutMs(resolveFallbackCaptureDelayMs(request.source), "capture")
+          );
+          const status = await manager.status(sessionId);
+          ensureNotAborted("status");
+          const resolvedUrl = status.url ?? requestUrl;
+          const blocker = detectFallbackPageBlocker(html, resolvedUrl);
+          if (blocker) {
+            const reasonCode = blocker.reasonCode ?? request.reasonCode;
+            cookieDiagnostics.reasonCode = reasonCode;
+            lastFailure = fallbackFailure(
+              reasonCode,
+              `Browser fallback reached ${blocker.type} page at ${resolvedUrl}.`,
+              cookieDiagnostics
+            );
+            continue;
+          }
+
+          return {
+            ok: true,
+            reasonCode: request.reasonCode,
+            mode: toFallbackMode(status.mode),
+            output: {
+              html,
+              url: resolvedUrl
+            },
+            details: {
+              provider: request.provider,
+              operation: request.operation,
+              cookieDiagnostics
+            }
+          };
+        } catch (error) {
+          if (request.signal?.aborted) {
+            throw createTimeoutError("abort");
+          }
+          if (error instanceof ProviderRuntimeError && error.code === "timeout") {
+            throw error;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          lastFailure = fallbackFailure("env_limited", message, cookieDiagnostics);
+        } finally {
+          request.signal?.removeEventListener("abort", abortListener);
+          if (sessionId) {
+            await manager.disconnect(sessionId, true).catch(() => {
+              // Best effort cleanup for fallback sessions.
+            });
+          }
         }
       }
+
+      return lastFailure ?? fallbackFailure("env_limited", "Browser fallback exhausted all preferred modes.");
     }
   };
 };

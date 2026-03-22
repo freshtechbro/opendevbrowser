@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { findLocalChromeBinary } from "./chrome-binary.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = path.join(ROOT, "extension/store-assets");
@@ -45,13 +46,9 @@ const writeSvgPng = (filename, width, height, content) => {
 };
 
 const chromeBinary = () => {
-  const candidates = [
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium"
-  ];
-  const match = candidates.find((candidate) => fs.existsSync(candidate));
+  const match = findLocalChromeBinary();
   if (!match) {
-    throw new Error("Chrome executable not found for popup screenshot generation.");
+    throw new Error("Chrome or Chrome for Testing executable not found for popup screenshot generation.");
   }
   return match;
 };

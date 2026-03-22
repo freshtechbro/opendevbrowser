@@ -3,6 +3,7 @@ import type { BrowserManagerLike } from "../browser/manager-types";
 import type { CanvasManagerLike } from "../browser/canvas-manager";
 import type { ScriptRunner } from "../browser/script-runner";
 import type { AnnotationManager } from "../browser/annotation-manager";
+import type { AgentInbox } from "../annotate/agent-inbox";
 import type {
   OpenDevBrowserConfig,
   ConfigStore,
@@ -29,6 +30,7 @@ export type OpenDevBrowserCore = {
   parallelismPolicy: ParallelismGovernorConfig;
   configStore: ConfigStore;
   manager: BrowserManagerLike;
+  agentInbox: AgentInbox;
   canvasManager: CanvasManagerLike;
   annotationManager: AnnotationManager;
   runner: ScriptRunner;

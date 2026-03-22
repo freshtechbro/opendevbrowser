@@ -2,7 +2,7 @@ import type { ParsedArgs } from "../args";
 import { createUsageError, EXIT_DISCONNECTED } from "../errors";
 import { fetchDaemonStatusFromMetadata } from "../daemon-status";
 import { runSessionStatus } from "./session/status";
-import { getNativeStatusSnapshot } from "./native";
+import { assessNativeStatus, getNativeStatusSnapshot } from "./native";
 
 type StatusArgs = {
   sessionId?: string;
@@ -44,28 +44,12 @@ export async function runStatus(args: ParsedArgs) {
 
   if (!daemon && args.transport === "native") {
     const nativeStatus = getNativeStatusSnapshot();
-    if (!nativeStatus.installed) {
-      return {
-        success: false,
-        message: "Native host not installed.",
-        data: nativeStatus,
-        exitCode: EXIT_DISCONNECTED
-      };
-    }
-    if (nativeStatus.mismatch && nativeStatus.extensionId && nativeStatus.expectedExtensionId) {
-      return {
-        success: false,
-        message: `Native host targets ${nativeStatus.extensionId}, but the current extension is ${nativeStatus.expectedExtensionId}.`,
-        data: nativeStatus,
-        exitCode: EXIT_DISCONNECTED
-      };
-    }
+    const assessment = assessNativeStatus(nativeStatus);
     return {
-      success: true,
-      message: nativeStatus.extensionId
-        ? `Native host installed for extension ${nativeStatus.extensionId}.`
-        : "Native host installed.",
-      data: nativeStatus
+      success: assessment.success,
+      message: assessment.message,
+      data: nativeStatus,
+      exitCode: assessment.exitCode ?? undefined
     };
   }
 
@@ -75,13 +59,9 @@ export async function runStatus(args: ParsedArgs) {
   }
 
   const nativeStatus = getNativeStatusSnapshot();
-  const nativeSummary = !nativeStatus.installed
-    ? "not installed"
-    : nativeStatus.mismatch && nativeStatus.extensionId && nativeStatus.expectedExtensionId
-      ? `mismatch (${nativeStatus.extensionId} != ${nativeStatus.expectedExtensionId})`
-      : `installed${nativeStatus.extensionId ? ` (${nativeStatus.extensionId})` : ""}`;
+  const nativeAssessment = assessNativeStatus(nativeStatus);
 
-  const baseMessage = [
+  const baseLines = [
     `Daemon OK (pid=${daemonStatus.pid})`,
     `Relay: port=${daemonStatus.relay.port ?? "n/a"} ext=${daemonStatus.relay.extensionConnected ? "on" : "off"} ` +
       `handshake=${daemonStatus.relay.extensionHandshakeComplete ? "on" : "off"} ` +
@@ -91,12 +71,16 @@ export async function runStatus(args: ParsedArgs) {
       `canvas=${daemonStatus.relay.canvasConnected ? "on" : "off"} ` +
       `pairing=${daemonStatus.relay.pairingRequired ? "on" : "off"} ` +
       `health=${daemonStatus.relay.health?.reason ?? "n/a"}`,
-    `Native: ${nativeSummary}`,
+    `Native: ${nativeAssessment.summary}`,
     daemonStatus.relay.lastHandshakeError
       ? `Relay last handshake error: ${daemonStatus.relay.lastHandshakeError.code} (${daemonStatus.relay.lastHandshakeError.message})`
       : "Relay last handshake error: none",
     "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, annotate=annotation channel, ops=ops clients, canvas=canvas clients, pairing=token required, health=relay status"
-  ].join("\n");
+  ];
+  if (!nativeAssessment.success) {
+    baseLines.splice(3, 0, `Native detail: ${nativeAssessment.message}`);
+  }
+  const baseMessage = baseLines.join("\n");
 
   const message = daemon || args.outputFormat !== "text"
     ? baseMessage

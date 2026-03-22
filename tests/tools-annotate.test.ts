@@ -257,6 +257,33 @@ describe("annotate tool", () => {
     }));
   });
 
+  it("does not require extension mode up front for stored annotation retrieval", async () => {
+    const deps = createDeps();
+    deps.manager.status.mockResolvedValue({ mode: "managed" });
+    deps.annotationManager.requestAnnotation.mockResolvedValue({
+      version: 1,
+      requestId: "req-stored-shared",
+      status: "ok",
+      payload: buildPayload({ screenshotMode: "none", screenshots: [] })
+    });
+
+    const { createAnnotateTool } = await import("../src/tools/annotate");
+    const tool = createAnnotateTool(deps as never);
+    const result = parse(await tool.execute({
+      sessionId: "s1",
+      stored: true,
+      includeScreenshots: false
+    } as never));
+
+    expect(result.ok).toBe(true);
+    expect(deps.manager.status).not.toHaveBeenCalled();
+    expect(deps.annotationManager.requestAnnotation).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "s1",
+      transport: "relay",
+      stored: true
+    }));
+  });
+
   it("returns an error when relay annotation is requested outside extension mode", async () => {
     const deps = createDeps();
     deps.manager.status.mockResolvedValue({ mode: "managed" });

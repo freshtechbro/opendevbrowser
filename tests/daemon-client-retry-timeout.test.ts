@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  fetchWithTimeout: vi.fn(),
+  fetchWithTimeoutContext: vi.fn(),
+  readResponseTextWithTimeout: vi.fn(),
+  readResponseJsonWithTimeout: vi.fn(),
   readDaemonMetadata: vi.fn(),
   writeDaemonMetadata: vi.fn(),
   getCacheRoot: vi.fn(() => "/tmp/odb-daemon-client"),
@@ -10,7 +12,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/cli/utils/http", () => ({
-  fetchWithTimeout: mocks.fetchWithTimeout
+  fetchWithTimeoutContext: mocks.fetchWithTimeoutContext,
+  readResponseTextWithTimeout: mocks.readResponseTextWithTimeout,
+  readResponseJsonWithTimeout: mocks.readResponseJsonWithTimeout
 }));
 
 vi.mock("../src/cli/daemon", () => ({
@@ -29,9 +33,18 @@ vi.mock("../src/cli/daemon-status", () => ({
 
 import { DaemonClient } from "../src/cli/daemon-client";
 
+const createTimedResponse = (response: Response, timeoutMs: number) => ({
+  response,
+  signal: new AbortController().signal,
+  timeoutMs,
+  dispose: vi.fn()
+});
+
 describe("daemon-client retry timeout propagation", () => {
   beforeEach(() => {
-    mocks.fetchWithTimeout.mockReset();
+    mocks.fetchWithTimeoutContext.mockReset();
+    mocks.readResponseTextWithTimeout.mockReset();
+    mocks.readResponseJsonWithTimeout.mockReset();
     mocks.readDaemonMetadata.mockReset();
     mocks.writeDaemonMetadata.mockReset();
     mocks.getCacheRoot.mockReset();
@@ -61,25 +74,33 @@ describe("daemon-client retry timeout propagation", () => {
         epoch: 5
       }
     });
+    mocks.fetchWithTimeoutContext.mockImplementation(async (_url, _init, timeoutMs) => ({
+      response: new Response(null, { status: 500 }),
+      signal: new AbortController().signal,
+      timeoutMs: typeof timeoutMs === "number" ? timeoutMs : 5000,
+      dispose: vi.fn()
+    }));
+    mocks.readResponseTextWithTimeout.mockImplementation(async (response: Response) => await response.text());
+    mocks.readResponseJsonWithTimeout.mockImplementation(async (response: Response) => await response.json());
   });
 
   it("preserves timeoutMs when retrying unauthorized requests", async () => {
-    mocks.fetchWithTimeout
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+    mocks.fetchWithTimeoutContext
+      .mockResolvedValueOnce(createTimedResponse(new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
         status: 401,
         headers: { "Content-Type": "application/json" }
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, data: { ok: true } }), {
+      }), 45_000))
+      .mockResolvedValueOnce(createTimedResponse(new Response(JSON.stringify({ ok: true, data: { ok: true } }), {
         status: 200,
         headers: { "Content-Type": "application/json" }
-      }));
+      }), 45_000));
 
     const client = new DaemonClient({ autoRenew: false, clientId: "client-1" });
     const result = await client.call<{ ok: boolean }>("session.status", {}, { timeoutMs: 45_000 });
 
     expect(result).toEqual({ ok: true });
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(2);
-    expect(mocks.fetchWithTimeout.mock.calls[0]?.[2]).toBe(45_000);
-    expect(mocks.fetchWithTimeout.mock.calls[1]?.[2]).toBe(45_000);
+    expect(mocks.fetchWithTimeoutContext).toHaveBeenCalledTimes(2);
+    expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[2]).toBe(45_000);
+    expect(mocks.fetchWithTimeoutContext.mock.calls[1]?.[2]).toBe(45_000);
   });
 });

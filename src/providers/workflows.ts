@@ -1,5 +1,7 @@
 import { createHash } from "crypto";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
+import { classifyBlockerSignal } from "./blocker";
+import { applyProviderIssueHint, readProviderIssueHintFromRecord, summarizePrimaryProviderIssue } from "./constraint";
 import { enrichResearchRecords, type ResearchRecord } from "./enrichment";
 import { renderResearch, renderShopping, type RenderMode, type ShoppingOffer } from "./renderer";
 import { filterByTimebox, resolveTimebox } from "./timebox";
@@ -12,7 +14,7 @@ import { createLogger, redactSensitive } from "../core/logging";
 import { normalizeProviderReasonCode } from "./errors";
 import { providerRequestHeaders } from "./shared/request-headers";
 import { canonicalizeUrl } from "./web/crawler";
-import { toSnippet } from "./web/extract";
+import { extractStructuredContent, extractText, toSnippet } from "./web/extract";
 import type {
   JsonValue,
   NormalizedRecord,
@@ -77,12 +79,13 @@ export interface ProductVideoRunInput {
   include_copy?: boolean;
   output_dir?: string;
   ttl_hours?: number;
+  timeoutMs?: number;
   useCookies?: boolean;
   cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
 export interface ProductVideoWorkflowOptions {
-  captureScreenshot?: (url: string) => Promise<Buffer | null>;
+  captureScreenshot?: (url: string, timeoutMs?: number) => Promise<Buffer | null>;
 }
 
 type ProviderSignal = "ok" | "anti_bot_challenge" | "rate_limited" | "transcript_unavailable";
@@ -316,6 +319,22 @@ const withExcludedProviders = (
   };
 };
 
+const withPrimaryConstraintMeta = (
+  meta: Record<string, unknown>,
+  failures: ProviderFailureEntry[]
+): Record<string, unknown> => {
+  const primaryIssue = summarizePrimaryProviderIssue(failures);
+  return primaryIssue
+    ? {
+      ...meta,
+      primary_constraint: primaryIssue,
+      primaryConstraint: primaryIssue,
+      primary_constraint_summary: primaryIssue.summary,
+      primaryConstraintSummary: primaryIssue.summary
+    }
+    : meta;
+};
+
 const withCookieOverrides = (
   options: ProviderRunOptions,
   input: { useCookies?: boolean; cookiePolicyOverride?: ProviderCookiePolicy }
@@ -501,12 +520,32 @@ export const workflowTestUtils = {
     redactRawCapture(record as Record<string, unknown>),
   toProviderSource: (providerId: string): ProviderSource | null => toProviderSource(providerId),
   resolveShoppingProviderIdForUrl: (url: string): string | null => resolveShoppingProviderIdForUrl(url),
-  fetchBinary: (url: string): Promise<Buffer | null> => fetchBinary(url),
+  hasTranscriptSuccess: (record: NormalizedRecord): boolean => hasTranscriptSuccess(record),
+  sanitizeFeatureList: (values: string[]): string[] => sanitizeFeatureList(values),
+  parsePriceFromContent: (content: string | undefined): { amount: number; currency: string } =>
+    parsePriceFromContent(content),
+  inferBrandFromUrl: (url: string | undefined): string | undefined => inferBrandFromUrl(url),
+  isLikelyOfferRecord: (record: NormalizedRecord): boolean => isLikelyOfferRecord(record),
+  needsProductMetadataRefresh: (record: NormalizedRecord, productUrl: string): boolean =>
+    needsProductMetadataRefresh(record, productUrl),
+  fetchBinary: (url: string, timeoutMs?: number): Promise<Buffer | null> => fetchBinary(url, timeoutMs),
   rankResearchRecords: (records: ResearchRecord[]): ResearchRecord[] => rankResearchRecords(records)
 };
 
 const RESEARCH_AUTO_SOURCES: ProviderSource[] = ["web", "community", "social"];
 const RESEARCH_ALL_SOURCES: ProviderSource[] = ["web", "community", "social", "shopping"];
+const PRODUCT_ASSET_FETCH_TIMEOUT_MS = 15_000;
+
+const resolveAuxiliaryFetchTimeoutMs = (timeoutMs?: number): number => {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return PRODUCT_ASSET_FETCH_TIMEOUT_MS;
+  }
+  return Math.max(1, Math.min(timeoutMs, PRODUCT_ASSET_FETCH_TIMEOUT_MS));
+};
+
+const buildAuxiliaryFetchSignal = (timeoutMs?: number): AbortSignal | undefined => {
+  return AbortSignal.timeout(resolveAuxiliaryFetchTimeoutMs(timeoutMs));
+};
 
 const resolveResearchSources = (input: ResearchRunInput): { sourceSelection: ProviderSelection; resolved: ProviderSource[] } => {
   if (input.sources && input.sources.length > 0) {
@@ -545,8 +584,7 @@ const dedupeResearchRecords = (records: ResearchRecord[]): ResearchRecord[] => {
       continue;
     }
 
-    const existing = deduped.get(key);
-    if (!existing) continue;
+    const existing = deduped.get(key)!;
     const existingScore = (existing.date_confidence.score * 2) + existing.confidence - existing.recency.age_hours * 0.001;
     const nextScore = (record.date_confidence.score * 2) + record.confidence - record.recency.age_hours * 0.001;
     if (nextScore > existingScore) {
@@ -576,6 +614,120 @@ const rankResearchRecords = (records: ResearchRecord[]): ResearchRecord[] => {
 
 const hash = (value: string): string => createHash("sha1").update(value).digest("hex").slice(0, 16);
 
+const LOOKS_LIKE_URL_RE = /^https?:\/\/\S+$/i;
+const PRICE_SCAN_RE = /([$€£])\s*([0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/g;
+const PRODUCT_COPY_CUTOFF_PATTERNS = [
+  /frequently asked questions/i,
+  /footer footnotes/i,
+  /which [a-z0-9 ]+ is right for you/i,
+  /compare all [a-z0-9 ]+ models/i,
+  /more ways to shop/i,
+  /privacy policy/i,
+  /terms of use/i
+] as const;
+const PRODUCT_FEATURE_NOISE_RE = /\b(?:frequently asked questions|footnote|carrier deals|connect to any carrier later|at&t|t-mobile|verizon|boost mobile|applecare|privacy policy|terms of use|returns?|refunds?|bill credits?|trade[- ]?in|required|monthly|\/mo\b|deductible|service fee|more ways to shop)\b/i;
+const PRODUCT_PRICE_NEGATIVE_CONTEXT_RE = /\b(?:save(?: up to)?|trade[- ]?in|bill credits?|credit|credits|off\b|monthly|per month|\/mo\b|deductible|service fee|activation fee)\b/i;
+const PRODUCT_PRICE_POSITIVE_CONTEXT_RE = /\b(?:starting at|starts at|starting from|from|connect to any carrier later|buy now|buy for|unlocked)\b/i;
+const KNOWN_BRAND_BY_HOST_SUFFIX: Record<string, string> = {
+  "aliexpress.com": "AliExpress",
+  "amazon.com": "Amazon",
+  "apple.com": "Apple",
+  "bestbuy.com": "Best Buy",
+  "costco.com": "Costco",
+  "ebay.com": "eBay",
+  "macys.com": "Macy's",
+  "newegg.com": "Newegg",
+  "target.com": "Target",
+  "temu.com": "Temu",
+  "walmart.com": "Walmart"
+};
+
+const normalizePlainText = (value: string | undefined): string => {
+  if (!value) return "";
+  return extractText(value).replace(/\s+/g, " ").trim();
+};
+
+const normalizeFeatureEntry = (value: string): string | null => {
+  const normalized = normalizePlainText(value);
+  if (normalized.length < 8 || normalized.length > 160) return null;
+  if (!/[a-z]/i.test(normalized)) return null;
+  if (PRODUCT_FEATURE_NOISE_RE.test(normalized)) return null;
+  if (/\$[0-9]/.test(normalized)) return null;
+  if (/\b(?:can i|will my|when i|what resources|learn more)\b/i.test(normalized)) return null;
+  return normalized;
+};
+
+const sanitizeFeatureList = (values: string[]): string[] => {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const cleaned = normalizeFeatureEntry(value);
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(cleaned);
+    if (normalized.length >= 12) break;
+  }
+  return normalized;
+};
+
+const trimProductCopy = (value: string): string => {
+  let trimmed = normalizePlainText(value);
+  if (!trimmed) return "";
+  let cutoff = trimmed.length;
+  for (const pattern of PRODUCT_COPY_CUTOFF_PATTERNS) {
+    const matchIndex = trimmed.search(pattern);
+    if (matchIndex >= 0) {
+      cutoff = Math.min(cutoff, matchIndex);
+    }
+  }
+  trimmed = trimmed.slice(0, cutoff).trim();
+  return trimmed.replace(/\bFootnote\b\s*[0-9†‡§∆◊※±]*/gi, " ").replace(/\s+/g, " ").trim();
+};
+
+const stripBrandSuffix = (title: string, brand: string | undefined): string => {
+  if (!brand) return title;
+  return title.replace(new RegExp(`\\s*[-|:]\\s*${brand.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}\\s*$`, "i"), "").trim();
+};
+
+const inferBrandFromUrl = (url: string | undefined): string | undefined => {
+  if (!url) return undefined;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    for (const [suffix, brand] of Object.entries(KNOWN_BRAND_BY_HOST_SUFFIX)) {
+      if (host === suffix || host.endsWith(`.${suffix}`)) {
+        return brand;
+      }
+    }
+    const profile = SHOPPING_PROVIDER_PROFILES.find((entry) => entry.domains.some((domain) => host === domain || host.endsWith(`.${domain}`)));
+    if (profile) return profile.displayName;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const extractBrandFromTitle = (title: string | undefined): string | undefined => {
+  if (!title) return undefined;
+  const cleaned = normalizePlainText(title);
+  const match = /(?:[-|:]\s*)([A-Z][A-Za-z0-9&+' -]{1,40})$/.exec(cleaned);
+  return match?.[1]?.trim() || undefined;
+};
+
+const parseMatchedPrice = (currencySymbol: string | undefined, rawAmount: string | undefined): {
+  amount: number;
+  currency: string;
+} | null => {
+  if (!currencySymbol || !rawAmount) return null;
+  const amount = Number(rawAmount.replace(/,/g, ""));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return {
+    amount,
+    currency: currencySymbol === "€" ? "EUR" : currencySymbol === "£" ? "GBP" : "USD"
+  };
+};
+
 const asNumber = (value: unknown): number => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
@@ -586,14 +738,43 @@ const asNumber = (value: unknown): number => {
 };
 
 const parsePriceFromContent = (content: string | undefined): { amount: number; currency: string } => {
-  if (!content) return { amount: 0, currency: "USD" };
-  const match = content.match(/([$€£])\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/);
-  if (!match) return { amount: 0, currency: "USD" };
-  const currency = match[1] === "€" ? "EUR" : match[1] === "£" ? "GBP" : "USD";
-  const amount = Number((match[2] ?? "0").replace(/,/g, ""));
+  const normalized = normalizePlainText(content);
+  if (!normalized) return { amount: 0, currency: "USD" };
+
+  const contextualMatches = [...normalized.matchAll(
+    /(?:connect to any carrier later|starting at|starts at|starting from|from|buy now for|buy for)\s*([$€£])\s*([0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/gi
+  )]
+    .map((match) => parseMatchedPrice(match[1], match[2]))
+    .filter((entry): entry is { amount: number; currency: string } => entry !== null)
+    .sort((left, right) => left.amount - right.amount);
+  if (contextualMatches.length > 0) {
+    return contextualMatches[0]!;
+  }
+
+  const candidates = [...normalized.matchAll(PRICE_SCAN_RE)]
+    .map((match) => {
+      const parsed = parseMatchedPrice(match[1], match[2]);
+      if (!parsed) return null;
+      const index = match.index as number;
+      const context = normalized.slice(Math.max(0, index - 48), Math.min(normalized.length, index + match[0].length + 48));
+      let score = 0;
+      if (PRODUCT_PRICE_NEGATIVE_CONTEXT_RE.test(context)) score -= 4;
+      if (PRODUCT_PRICE_POSITIVE_CONTEXT_RE.test(context)) score += 3;
+      if (parsed.amount < 10) score -= 3;
+      return {
+        ...parsed,
+        score,
+        index
+      };
+    })
+    .filter((entry): entry is { amount: number; currency: string; score: number; index: number } => entry !== null)
+    .sort((left, right) => right.score - left.score || left.amount - right.amount || left.index - right.index);
+  if (candidates.length === 0 || candidates[0]!.score < -1) {
+    return { amount: 0, currency: "USD" };
+  }
   return {
-    amount: Number.isFinite(amount) ? amount : 0,
-    currency
+    amount: candidates[0]!.amount,
+    currency: candidates[0]!.currency
   };
 };
 
@@ -761,23 +942,48 @@ const rankOffers = (
   }
 };
 
+const IMAGE_ASSET_RE = /\.(?:png|jpg|jpeg|webp|gif)(?:[?#].*)?$/i;
+
+const isHttpAssetUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 const extractImageUrls = (record: NormalizedRecord): string[] => {
+  const structured = Array.isArray(record.attributes.image_urls)
+    ? record.attributes.image_urls.filter((entry): entry is string => typeof entry === "string" && isHttpAssetUrl(entry))
+    : [];
   const links = Array.isArray(record.attributes.links)
     ? record.attributes.links.filter((entry): entry is string => typeof entry === "string")
     : [];
 
-  const imageLinks = links.filter((link) => /\.(?:png|jpg|jpeg|webp|gif)(?:[?#].*)?$/i.test(link));
+  const imageLinks = [
+    ...structured.map((entry) => entry.trim()),
+    ...links.filter((link) => IMAGE_ASSET_RE.test(link))
+  ];
   return [...new Set(imageLinks.map((link) => canonicalizeUrl(link)))].slice(0, 50);
 };
 
-const fetchBinary = async (url: string): Promise<Buffer | null> => {
+const mergeImageUrls = (record: NormalizedRecord, extra: string[] = []): string[] => {
+  return [...new Set([
+    ...extractImageUrls(record),
+    ...extra.map((link) => canonicalizeUrl(link))
+  ])].slice(0, 50);
+};
+
+const fetchBinary = async (url: string, timeoutMs?: number): Promise<Buffer | null> => {
   try {
     const response = await fetch(url, {
       headers: {
         accept: "image/*,*/*;q=0.8",
         ...providerRequestHeaders
       },
-      redirect: "follow"
+      redirect: "follow",
+      signal: buildAuxiliaryFetchSignal(timeoutMs)
     });
     if (!response.ok) return null;
     const bytes = await response.arrayBuffer();
@@ -787,14 +993,277 @@ const fetchBinary = async (url: string): Promise<Buffer | null> => {
   }
 };
 
-const deriveFeatureList = (content: string | undefined): string[] => {
-  if (!content) return [];
-  const candidates = content
-    .split(/[\n.]/)
-    .map((line) => line.trim())
-    .filter((line) => line.length >= 20)
-    .filter((line) => /[a-z]/i.test(line));
-  return [...new Set(candidates)].slice(0, 12);
+const deriveFeatureList = (record: NormalizedRecord, fallbackFeatures: string[] = []): string[] => {
+  const structured = Array.isArray(record.attributes.features)
+    ? record.attributes.features.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+  const structuredFeatures = sanitizeFeatureList(structured);
+  if (structuredFeatures.length > 0) {
+    return structuredFeatures;
+  }
+
+  const fallbackFeatureList = sanitizeFeatureList(fallbackFeatures);
+  if (fallbackFeatureList.length > 0) {
+    return fallbackFeatureList;
+  }
+
+  if (!record.content) return [];
+  const candidates = trimProductCopy(record.content)
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((line) => line.trim());
+  return sanitizeFeatureList(candidates);
+};
+
+const isLikelyOfferRecord = (record: NormalizedRecord): boolean => {
+  const retrievalPath = typeof record.attributes.retrievalPath === "string"
+    ? record.attributes.retrievalPath
+    : "";
+  if (retrievalPath === "shopping:search:index" || retrievalPath === "shopping:search:link") return false;
+  if (retrievalPath.startsWith("shopping:search:") && retrievalPath !== "shopping:search:result-card" && retrievalPath !== "shopping:search:url") {
+    return false;
+  }
+
+  if (!record.url) return true;
+
+  const canonicalUrl = canonicalizeUrl(record.url);
+  if (!/^https?:/i.test(canonicalUrl)) return false;
+  if (/\.(?:png|jpe?g|gif|webp|svg|ico|css|js)(?:$|\?)/i.test(canonicalUrl)) return false;
+  const title = normalizePlainText(record.title);
+  if (!title || LOOKS_LIKE_URL_RE.test(title) || title === canonicalUrl) return false;
+
+  const profile = SHOPPING_PROVIDER_PROFILES.find((entry) => entry.id === record.provider);
+  if (profile && profile.domains.length > 0 && retrievalPath.startsWith("shopping:search:")) {
+    try {
+      const host = new URL(canonicalUrl).hostname.toLowerCase();
+      const matchesProviderDomain = profile.domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+      if (!matchesProviderDomain) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+};
+
+const inferShoppingNoOfferFailure = (
+  providerId: string,
+  query: string,
+  records: NormalizedRecord[]
+): ProviderFailureEntry => {
+  const issuePriority = (issue: NonNullable<ReturnType<typeof readProviderIssueHintFromRecord>>): number => {
+    if (issue.reasonCode === "token_required" || issue.reasonCode === "auth_required") return 3;
+    if (issue.reasonCode === "challenge_detected") return 2;
+    if (issue.constraint?.kind === "render_required") return 1;
+    return 0;
+  };
+  let primaryRecordIssue:
+    | {
+      hint: NonNullable<ReturnType<typeof readProviderIssueHintFromRecord>>;
+      url?: string;
+      title?: string;
+      providerShell?: string;
+    }
+    | null = null;
+  for (const record of records) {
+    const hint = readProviderIssueHintFromRecord(record);
+    if (!hint) continue;
+    if (!primaryRecordIssue || issuePriority(hint) > issuePriority(primaryRecordIssue.hint)) {
+      primaryRecordIssue = {
+        hint,
+        ...(typeof record.url === "string" ? { url: canonicalizeUrl(record.url) } : {}),
+        ...(normalizePlainText(record.title) ? { title: normalizePlainText(record.title) } : {}),
+        ...(typeof record.attributes.providerShell === "string" && record.attributes.providerShell.trim().length > 0
+          ? { providerShell: record.attributes.providerShell.trim() }
+          : {})
+      };
+    }
+  }
+
+  if (primaryRecordIssue) {
+    const reasonCode = primaryRecordIssue.hint.reasonCode;
+    return {
+      provider: providerId,
+      source: "shopping",
+      error: {
+        code: reasonCode === "token_required" || reasonCode === "auth_required" ? "auth" : "unavailable",
+        message: reasonCode === "token_required" || reasonCode === "auth_required"
+          ? `Authentication required for provider results for query "${query}".`
+          : reasonCode === "challenge_detected"
+            ? `Detected anti-bot challenge while retrieving provider results for query "${query}".`
+            : `Provider requires browser-rendered results for query "${query}".`,
+        retryable: reasonCode === "env_limited",
+        reasonCode,
+        provider: providerId,
+        source: "shopping",
+        details: applyProviderIssueHint({
+          query,
+          recordsCount: records.length,
+          noOfferRecords: true,
+          ...(primaryRecordIssue.url ? { url: primaryRecordIssue.url } : {}),
+          ...(primaryRecordIssue.title ? { title: primaryRecordIssue.title } : {}),
+          ...(primaryRecordIssue.providerShell ? { providerShell: primaryRecordIssue.providerShell } : {})
+        }, primaryRecordIssue.hint)
+      }
+    };
+  }
+
+  const fallbackFailure: ProviderFailureEntry = {
+    provider: providerId,
+    source: "shopping",
+    error: {
+      code: "unavailable",
+      message: `Provider returned no usable shopping offers for query "${query}".`,
+      retryable: true,
+      reasonCode: "env_limited",
+      provider: providerId,
+      source: "shopping",
+      details: {
+        query,
+        recordsCount: records.length,
+        noOfferRecords: true,
+        reasonCode: "env_limited"
+      }
+    }
+  };
+
+  for (const record of records) {
+    const url = typeof record.url === "string" ? canonicalizeUrl(record.url) : undefined;
+    const title = normalizePlainText(record.title) || undefined;
+    const message = toSnippet(normalizePlainText(record.content), 800) || undefined;
+    const blocker = classifyBlockerSignal({
+      source: "runtime_fetch",
+      ...(url ? { url, finalUrl: url } : {}),
+      ...(title ? { title } : {}),
+      ...(message ? { message } : {}),
+      providerErrorCode: "unavailable",
+      retryable: true
+    });
+    if (!blocker || blocker.type === "unknown") continue;
+
+    const reasonCode = blocker.reasonCode ?? "env_limited";
+    return {
+      provider: providerId,
+      source: "shopping",
+      error: {
+        code: "unavailable",
+        message: `Provider returned no usable shopping offers for query "${query}".`,
+        retryable: blocker.retryable,
+        reasonCode,
+        provider: providerId,
+        source: "shopping",
+        details: {
+          query,
+          recordsCount: records.length,
+          noOfferRecords: true,
+          reasonCode,
+          blockerType: blocker.type,
+          blockerConfidence: blocker.confidence,
+          ...(url ? { url } : {}),
+          ...(title ? { title } : {})
+        }
+      }
+    };
+  }
+
+  return fallbackFailure;
+};
+
+const createEmptyShoppingResultFailure = (
+  providerId: string,
+  query: string,
+  records: NormalizedRecord[]
+): ProviderFailureEntry => inferShoppingNoOfferFailure(providerId, query, records);
+
+const hasStructuredShoppingPrice = (record: NormalizedRecord): boolean => {
+  const nested = record.attributes.shopping_offer;
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return false;
+  const price = (nested as Record<string, unknown>).price;
+  if (!price || typeof price !== "object" || Array.isArray(price)) return false;
+  return asNumber((price as Record<string, unknown>).amount) > 0;
+};
+
+const needsProductMetadataRefresh = (record: NormalizedRecord, productUrl: string): boolean => {
+  if (!/^https?:/i.test(productUrl)) return false;
+  const title = normalizePlainText(record.title);
+  const brand = typeof record.attributes.brand === "string" ? normalizePlainText(record.attributes.brand) : "";
+  return !title || title === canonicalizeUrl(productUrl) || LOOKS_LIKE_URL_RE.test(title) || !brand || brand === "unknown" || !hasStructuredShoppingPrice(record);
+};
+
+const refreshProductMetadata = async (
+  productUrl: string,
+  timeoutMs?: number
+): Promise<ReturnType<typeof extractStructuredContent>["metadata"] | null> => {
+  try {
+    const response = await fetch(productUrl, {
+      headers: {
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        ...providerRequestHeaders
+      },
+      redirect: "follow",
+      signal: buildAuxiliaryFetchSignal(timeoutMs)
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    return extractStructuredContent(html, response.url || productUrl).metadata;
+  } catch {
+    return null;
+  }
+};
+
+const resolveProductBrand = (
+  record: NormalizedRecord,
+  productUrl: string,
+  refreshedBrand: string | undefined
+): string => {
+  const nested = record.attributes.shopping_offer;
+  const nestedProvider = nested && typeof nested === "object" && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>).provider
+    : undefined;
+  const providerBrand = typeof nestedProvider === "string"
+    ? SHOPPING_PROVIDER_PROFILES.find((entry) => entry.id === nestedProvider)?.displayName
+    : undefined;
+  const candidates = [
+    refreshedBrand,
+    typeof record.attributes.brand === "string" ? record.attributes.brand : undefined,
+    typeof record.attributes.site_name === "string" ? record.attributes.site_name : undefined,
+    providerBrand && providerBrand !== "Others" ? providerBrand : undefined,
+    extractBrandFromTitle(record.title),
+    inferBrandFromUrl(productUrl)
+  ].map((entry) => normalizePlainText(entry)).filter(Boolean);
+  return candidates[0] || "unknown";
+};
+
+const resolveProductTitle = (
+  record: NormalizedRecord,
+  productUrl: string,
+  brand: string,
+  refreshedTitle: string | undefined
+): string => {
+  const nested = record.attributes.shopping_offer;
+  const nestedTitle = nested && typeof nested === "object" && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>).title
+    : undefined;
+  const candidates = [
+    refreshedTitle,
+    record.title,
+    typeof nestedTitle === "string" ? nestedTitle : undefined,
+    typeof record.attributes.description === "string" ? record.attributes.description.split(/(?<=[.!?])\s+/)[0] : undefined,
+    trimProductCopy(record.content ?? "").split(/(?<=[.!?])\s+/)[0]
+  ]
+    .map((entry) => stripBrandSuffix(normalizePlainText(entry), brand))
+    .filter((entry) => entry.length > 0 && !LOOKS_LIKE_URL_RE.test(entry) && entry !== canonicalizeUrl(productUrl));
+  return candidates[0] || productUrl;
+};
+
+const resolveProductCopy = (
+  record: NormalizedRecord,
+  refreshedDescription: string | undefined
+): string => {
+  const preferred = normalizePlainText(refreshedDescription)
+    || normalizePlainText(typeof record.attributes.description === "string" ? record.attributes.description : undefined);
+  if (preferred) {
+    return toSnippet(preferred, 8000);
+  }
+  return toSnippet(trimProductCopy(record.content ?? ""), 8000);
 };
 
 const resolveShoppingSourceForUrl = (url: string): ProviderSource => {
@@ -875,7 +1344,7 @@ export const runResearchWorkflow = async (
     }
     : timebox;
 
-  const meta = {
+  const meta = withPrimaryConstraintMeta({
     timebox: resolvedTimebox,
     selection: withExcludedProviders({
       source_selection: sourceSelection,
@@ -903,7 +1372,7 @@ export const runResearchWorkflow = async (
     },
     failures: mergedFailures,
     alerts: buildAlerts()
-  } as Record<string, unknown>;
+  } as Record<string, unknown>, mergedFailures);
 
   const rendered = renderResearch({
     mode: input.mode,
@@ -986,24 +1455,41 @@ export const runShoppingWorkflow = async (
     };
   }));
 
+  const runsWithOfferRecords = runs.map((run) => ({
+    ...run,
+    offerRecords: run.result.records.filter((record) => isLikelyOfferRecord(record))
+  }));
+
+  const extractedOffers = runsWithOfferRecords
+    .flatMap((run) => run.offerRecords)
+    .map((record) => extractShoppingOffer(record, now))
+    .filter((offer) => {
+      if (typeof input.budget !== "number") return true;
+      return offer.price.amount > 0 && offer.price.amount <= input.budget;
+    });
+
   const offers = rankOffers(
-    dedupeOffers(
-      runs
-        .flatMap((run) => run.result.records)
-        .map((record) => extractShoppingOffer(record, now))
-    ),
+    dedupeOffers(extractedOffers),
     input.sort ?? "best_deal"
   );
 
-  const failures = runs.flatMap((run) => run.result.failures);
-  const records = runs.flatMap((run) => run.result.records);
+  const failures = runsWithOfferRecords.flatMap((run) => {
+    if (run.result.failures.length > 0) {
+      return run.result.failures;
+    }
+    if (run.offerRecords.length > 0) {
+      return [];
+    }
+    return [createEmptyShoppingResultFailure(run.providerId, query, run.result.records)];
+  });
+  const records = runsWithOfferRecords.flatMap((run) => run.result.records);
   const reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
   const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(failures);
   const transcriptStrategyDetailDistribution = summarizeTranscriptStrategyDetailDistribution(records);
   const transcriptDurability = summarizeTranscriptDurability(records, failures);
   const cookieDiagnostics = summarizeCookieDiagnostics(failures, records);
   const antiBotPressure = summarizeAntiBotPressure(failures);
-  const meta = {
+  const meta = withPrimaryConstraintMeta({
     selection: {
       providers: effectiveProviderIds,
       ...(autoExcludedProviders.length > 0 ? { excluded_providers: autoExcludedProviders } : {})
@@ -1028,7 +1514,7 @@ export const runShoppingWorkflow = async (
     },
     failures,
     alerts: buildAlerts()
-  } as Record<string, unknown>;
+  } as Record<string, unknown>, failures);
 
   const rendered = renderShopping({
     mode: input.mode,
@@ -1072,9 +1558,19 @@ export const runProductVideoWorkflow = async (
   input: ProductVideoRunInput,
   options: ProductVideoWorkflowOptions = {}
 ): Promise<Record<string, unknown>> => {
+  const startedAtMs = Date.now();
   const includeScreenshots = input.include_screenshots ?? true;
   const includeAllImages = input.include_all_images ?? true;
   const includeCopy = input.include_copy ?? true;
+  const timeoutOptions = typeof input.timeoutMs === "number"
+    ? { timeoutMs: input.timeoutMs }
+    : {};
+  const remainingTimeoutMs = (): number | undefined => {
+    if (typeof input.timeoutMs !== "number" || !Number.isFinite(input.timeoutMs) || input.timeoutMs <= 0) {
+      return undefined;
+    }
+    return Math.max(1, input.timeoutMs - Math.max(0, Date.now() - startedAtMs));
+  };
 
   const candidateUrl = input.product_url?.trim();
   const candidateName = input.product_name?.trim();
@@ -1091,15 +1587,23 @@ export const runProductVideoWorkflow = async (
       query: candidateName,
       providers: providerHint ? [providerHint] : undefined,
       mode: "json",
+      ...timeoutOptions,
       useCookies: input.useCookies,
       cookiePolicyOverride: input.cookiePolicyOverride
     });
 
-    const offers = Array.isArray(shoppingResult.offers)
-      ? shoppingResult.offers as ShoppingOffer[]
-      : [];
+    const offers = shoppingResult.offers as ShoppingOffer[];
+    const resolutionSummary = (shoppingResult.meta as Record<string, unknown>).primaryConstraintSummary
+      ?? (shoppingResult.meta as Record<string, unknown>).primary_constraint_summary;
     if (offers.length === 0) {
-      throw new Error("Unable to resolve product URL from product_name");
+      throw new Error(
+        typeof resolutionSummary === "string"
+          ? resolutionSummary
+          : (
+            /* c8 ignore next -- no-offer shopping responses always carry a canonical summary */
+            "Unable to resolve product URL from product_name"
+          )
+      );
     }
     productUrl = offers[0]?.url;
     providerHint = offers[0]?.provider;
@@ -1124,29 +1628,49 @@ export const runProductVideoWorkflow = async (
     { url: productUrl },
     withCookieOverrides({
       source,
-      providerIds: shoppingProviderId ? [shoppingProviderId] : undefined
+      providerIds: shoppingProviderId ? [shoppingProviderId] : undefined,
+      ...timeoutOptions
     }, input)
   );
   trackProviderSignals(details);
 
   if (!details.ok || details.records.length === 0) {
-    const reason = details.error?.message ?? "Product details unavailable";
+    const reason = summarizePrimaryProviderIssue(details.failures)?.summary
+      ?? details.error?.message
+      ?? "Product details unavailable";
     throw new Error(reason);
   }
 
   const primary = details.records[0] as NormalizedRecord;
+  const refreshedMetadata = needsProductMetadataRefresh(primary, productUrl)
+    ? await refreshProductMetadata(productUrl, remainingTimeoutMs())
+    : null;
   const primaryOffer = extractShoppingOffer(primary, new Date());
 
-  const featureList = deriveFeatureList(primary.content);
-  const imageUrls = extractImageUrls(primary);
+  const resolvedBrand = resolveProductBrand(primary, productUrl, refreshedMetadata?.brand);
+  const resolvedTitle = resolveProductTitle(primary, productUrl, resolvedBrand, refreshedMetadata?.title);
+  const resolvedPrice = refreshedMetadata?.price && refreshedMetadata.price.amount > 0
+    ? {
+      amount: refreshedMetadata.price.amount,
+      currency: refreshedMetadata.price.currency,
+      retrieved_at: primaryOffer.price.retrieved_at
+    }
+    : {
+      amount: primaryOffer.price.amount,
+      currency: primaryOffer.price.currency,
+      retrieved_at: primaryOffer.price.retrieved_at
+    };
+  const featureList = deriveFeatureList(primary, refreshedMetadata?.features ?? []);
+  const imageUrls = mergeImageUrls(primary, refreshedMetadata?.imageUrls ?? []);
   const selectedImageUrls = includeAllImages ? imageUrls : imageUrls.slice(0, 1);
 
   const files: ArtifactFile[] = [];
   const imagePaths: string[] = [];
   for (let index = 0; index < selectedImageUrls.length; index += 1) {
     const imageUrl = selectedImageUrls[index];
+    /* c8 ignore next -- mergeImageUrls returns only non-empty strings */
     if (!imageUrl) continue;
-    const imageContent = await fetchBinary(imageUrl);
+    const imageContent = await fetchBinary(imageUrl, remainingTimeoutMs());
     if (!imageContent) continue;
     const extension = imageUrl.match(/\.(png|jpg|jpeg|webp|gif)(?:[?#].*)?$/i)?.[1]?.toLowerCase() ?? "jpg";
     const relativePath = `images/image-${String(index + 1).padStart(2, "0")}.${extension}`;
@@ -1156,13 +1680,16 @@ export const runProductVideoWorkflow = async (
 
   const screenshotPaths: string[] = [];
   if (includeScreenshots) {
-    const screenshotBuffer = options.captureScreenshot ? await options.captureScreenshot(productUrl) : null;
+    const screenshotBuffer = options.captureScreenshot
+      ? await options.captureScreenshot(productUrl, remainingTimeoutMs())
+      : null;
     if (screenshotBuffer) {
       const screenshotPath = "screenshots/screenshot-01.png";
       files.push({ path: screenshotPath, content: screenshotBuffer });
       screenshotPaths.push(screenshotPath);
     } else if (imagePaths[0]) {
       const firstImage = files.find((entry) => entry.path === imagePaths[0]);
+      /* c8 ignore next -- imagePaths entries are pushed from files immediately above */
       if (firstImage) {
         const fallbackPath = "screenshots/screenshot-01.png";
         files.push({ path: fallbackPath, content: firstImage.content });
@@ -1171,16 +1698,12 @@ export const runProductVideoWorkflow = async (
     }
   }
 
-  const copyText = includeCopy ? toSnippet(primary.content ?? "", 8000) : "";
-  const pricing = {
-    amount: primaryOffer.price.amount,
-    currency: primaryOffer.price.currency,
-    retrieved_at: primaryOffer.price.retrieved_at
-  };
+  const copyText = includeCopy ? resolveProductCopy(primary, refreshedMetadata?.description) : "";
+  const pricing = resolvedPrice;
 
   const productPayload = {
-    title: primary.title ?? primaryOffer.title,
-    brand: typeof primary.attributes.brand === "string" ? primary.attributes.brand : "unknown",
+    title: resolvedTitle,
+    brand: resolvedBrand,
     provider: providerHint ?? primary.provider,
     url: productUrl,
     features: featureList,

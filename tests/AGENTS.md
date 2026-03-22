@@ -63,5 +63,7 @@ Keep release audit test coverage green for:
 - `tests/docs-drift-check.test.ts`
 - `tests/chrome-store-compliance-check.test.ts`
 - `tests/provider-live-scenarios.test.ts`
-- `tests/provider-live-matrix-script.test.ts`
-- `tests/live-regression-release-gate.test.ts`
+- `tests/provider-direct-runs.test.ts`
+- `tests/live-regression-direct.test.ts`
+- `tests/canvas-live-workflow-script.test.ts`
+- `tests/annotate-live-probe-script.test.ts`

@@ -7,7 +7,7 @@ const z = tool.schema;
 
 export function createCanvasTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "Execute a typed design-canvas command such as canvas.session.open or canvas.document.patch.",
+    description: "Execute a typed design-canvas command such as canvas.session.open, canvas.feedback.next, or canvas.document.patch.",
     args: {
       command: z.string().min(1).describe("Canvas command name"),
       params: z.record(z.string(), z.unknown()).optional().describe("Canvas command payload")

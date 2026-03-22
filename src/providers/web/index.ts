@@ -141,18 +141,47 @@ export const createWebProvider = (options: WebProviderOptions = {}): ProviderAda
 
     const response = await fetchOne(options.fetcher, queryUrl);
     const extracted = extractStructuredContent(response.html, queryUrl);
+    const title = extracted.metadata.title ?? queryUrl;
+    const content = extracted.metadata.description ?? toSnippet(extracted.text);
     return [normalizeRecord(id, WEB_SOURCE, {
       url: queryUrl,
-      title: queryUrl,
-      content: toSnippet(extracted.text),
+      title,
+      content,
       confidence: 0.4,
       attributes: {
         status: response.status,
         links: extracted.links.length,
+        ...(extracted.metadata.description ? { description: extracted.metadata.description } : {}),
+        ...(extracted.metadata.brand ? { brand: extracted.metadata.brand } : {}),
+        ...(extracted.metadata.imageUrls.length > 0 ? { image_urls: extracted.metadata.imageUrls } : {}),
+        ...(extracted.metadata.features.length > 0 ? { features: extracted.metadata.features } : {}),
+        ...(extracted.metadata.price ? {
+          shopping_offer: {
+            provider: id,
+            product_id: "",
+            title,
+            url: queryUrl,
+            price: {
+              amount: extracted.metadata.price.amount,
+              currency: extracted.metadata.price.currency,
+              retrieved_at: new Date().toISOString()
+            },
+            shipping: {
+              amount: 0,
+              currency: extracted.metadata.price.currency,
+              notes: "unknown"
+            },
+            availability: "unknown",
+            rating: 0,
+            reviews_count: 0,
+            capture_timestamp: new Date().toISOString(),
+            metadata_source: extracted.metadata.price.source
+          }
+        } : {}),
         extractionQuality: toQualityFlags({
           url: queryUrl,
-          title: queryUrl,
-          content: extracted.text,
+          title,
+          content,
           linkCount: extracted.links.length
         })
       }
@@ -169,20 +198,51 @@ export const createWebProvider = (options: WebProviderOptions = {}): ProviderAda
 
     const response = await fetchOne(options.fetcher, input.url);
     const extracted = extractStructuredContent(response.html, input.url);
+    const title = extracted.metadata.title ?? input.url;
+    const content = extracted.metadata.description ?? extracted.text;
+    const retrievedAt = new Date().toISOString();
 
     return [normalizeRecord(id, WEB_SOURCE, {
       url: input.url,
-      title: input.url,
-      content: extracted.text,
+      title,
+      content,
       confidence: 0.6,
       attributes: {
         status: response.status,
         links: extracted.links,
         selectors: extracted.selectors,
+        ...(extracted.metadata.description ? { description: extracted.metadata.description } : {}),
+        ...(extracted.metadata.brand ? { brand: extracted.metadata.brand } : {}),
+        ...(extracted.metadata.siteName ? { site_name: extracted.metadata.siteName } : {}),
+        ...(extracted.metadata.imageUrls.length > 0 ? { image_urls: extracted.metadata.imageUrls } : {}),
+        ...(extracted.metadata.features.length > 0 ? { features: extracted.metadata.features } : {}),
+        ...(extracted.metadata.price ? {
+          shopping_offer: {
+            provider: id,
+            product_id: "",
+            title,
+            url: input.url,
+            price: {
+              amount: extracted.metadata.price.amount,
+              currency: extracted.metadata.price.currency,
+              retrieved_at: retrievedAt
+            },
+            shipping: {
+              amount: 0,
+              currency: extracted.metadata.price.currency,
+              notes: "unknown"
+            },
+            availability: "unknown",
+            rating: 0,
+            reviews_count: 0,
+            capture_timestamp: retrievedAt,
+            metadata_source: extracted.metadata.price.source
+          }
+        } : {}),
         extractionQuality: toQualityFlags({
           url: input.url,
-          title: input.url,
-          content: extracted.text,
+          title,
+          content,
           linkCount: extracted.links.length
         })
       }

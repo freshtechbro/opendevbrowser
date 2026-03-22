@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConfigStore, loadGlobalConfig, resolveConfig } from "../src/config";
+import { resolveFigmaAccessToken } from "../src/integrations/figma/auth";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -407,6 +408,57 @@ describe("resolveConfig", () => {
     expect(config.profile).toBe("custom");
     expect(config.relayPort).toBe(8787);
     expect(config.daemonPort).toBe(8788);
+  });
+
+  it("parses figma integration config", () => {
+    const config = resolveConfig({
+      integrations: {
+        figma: {
+          accessToken: "figma-config-token"
+        }
+      }
+    });
+
+    expect(config.integrations?.figma?.accessToken).toBe("figma-config-token");
+  });
+
+  it("parses canvas adapter plugin config overrides", () => {
+    const config = resolveConfig({
+      canvas: {
+        adapterPlugins: [
+          "./plugins/acme",
+          {
+            ref: "./plugins/disabled",
+            enabled: false,
+            capabilityOverrides: ["preview"]
+          }
+        ]
+      }
+    });
+
+    expect(config.canvas.adapterPlugins).toEqual([
+      "./plugins/acme",
+      {
+        ref: "./plugins/disabled",
+        enabled: false,
+        capabilityOverrides: ["preview"]
+      }
+    ]);
+  });
+
+  it("prefers FIGMA_ACCESS_TOKEN over config integrations", () => {
+    const config = resolveConfig({
+      integrations: {
+        figma: {
+          accessToken: "figma-config-token"
+        }
+      }
+    });
+    process.env.FIGMA_ACCESS_TOKEN = "figma-env-token";
+
+    expect(resolveFigmaAccessToken(config)).toBe("figma-env-token");
+
+    delete process.env.FIGMA_ACCESS_TOKEN;
   });
 
   it("delegates to loadGlobalConfig when undefined", () => {

@@ -49,10 +49,18 @@ import { createProductVideoRunTool } from "./product_video_run";
 import { createCanvasTool } from "./canvas";
 import { createSkillListTool } from "./skill_list";
 import { createSkillLoadTool } from "./skill_load";
+export type { ToolSurfaceEntry } from "./surface";
+export { TOOL_SURFACE_ENTRIES } from "./surface";
+
+const LOCAL_ONLY_TOOL_NAMES = new Set([
+  "opendevbrowser_prompting_guide",
+  "opendevbrowser_skill_list",
+  "opendevbrowser_skill_load"
+]);
 
 export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
-  const wrap = (definition: ToolDefinition): ToolDefinition => {
-    if (!deps.ensureHub) return definition;
+  const wrap = (name: string, definition: ToolDefinition): ToolDefinition => {
+    if (!deps.ensureHub || LOCAL_ONLY_TOOL_NAMES.has(name)) return definition;
     return {
       ...definition,
       execute: async (args, context) => {
@@ -67,54 +75,54 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   };
 
   return {
-    opendevbrowser_launch: wrap(createLaunchTool(deps)),
-    opendevbrowser_connect: wrap(createConnectTool(deps)),
-    opendevbrowser_disconnect: wrap(createDisconnectTool(deps)),
-    opendevbrowser_status: wrap(createStatusTool(deps)),
-    opendevbrowser_targets_list: wrap(createTargetsListTool(deps)),
-    opendevbrowser_target_use: wrap(createTargetUseTool(deps)),
-    opendevbrowser_target_new: wrap(createTargetNewTool(deps)),
-    opendevbrowser_target_close: wrap(createTargetCloseTool(deps)),
-    opendevbrowser_page: wrap(createPageTool(deps)),
-    opendevbrowser_list: wrap(createListTool(deps)),
-    opendevbrowser_close: wrap(createCloseTool(deps)),
-    opendevbrowser_goto: wrap(createGotoTool(deps)),
-    opendevbrowser_wait: wrap(createWaitTool(deps)),
-    opendevbrowser_snapshot: wrap(createSnapshotTool(deps)),
-    opendevbrowser_click: wrap(createClickTool(deps)),
-    opendevbrowser_hover: wrap(createHoverTool(deps)),
-    opendevbrowser_press: wrap(createPressTool(deps)),
-    opendevbrowser_check: wrap(createCheckTool(deps)),
-    opendevbrowser_uncheck: wrap(createUncheckTool(deps)),
-    opendevbrowser_type: wrap(createTypeTool(deps)),
-    opendevbrowser_select: wrap(createSelectTool(deps)),
-    opendevbrowser_scroll: wrap(createScrollTool(deps)),
-    opendevbrowser_scroll_into_view: wrap(createScrollIntoViewTool(deps)),
-    opendevbrowser_dom_get_html: wrap(createDomGetHtmlTool(deps)),
-    opendevbrowser_dom_get_text: wrap(createDomGetTextTool(deps)),
-    opendevbrowser_get_attr: wrap(createGetAttrTool(deps)),
-    opendevbrowser_get_value: wrap(createGetValueTool(deps)),
-    opendevbrowser_is_visible: wrap(createIsVisibleTool(deps)),
-    opendevbrowser_is_enabled: wrap(createIsEnabledTool(deps)),
-    opendevbrowser_is_checked: wrap(createIsCheckedTool(deps)),
-    opendevbrowser_run: wrap(createRunTool(deps)),
-    opendevbrowser_prompting_guide: wrap(createPromptingGuideTool(deps)),
-    opendevbrowser_console_poll: wrap(createConsolePollTool(deps)),
-    opendevbrowser_network_poll: wrap(createNetworkPollTool(deps)),
-    opendevbrowser_debug_trace_snapshot: wrap(createDebugTraceSnapshotTool(deps)),
-    opendevbrowser_cookie_import: wrap(createCookieImportTool(deps)),
-    opendevbrowser_cookie_list: wrap(createCookieListTool(deps)),
-    opendevbrowser_macro_resolve: wrap(createMacroResolveTool(deps)),
-    opendevbrowser_research_run: wrap(createResearchRunTool(deps)),
-    opendevbrowser_shopping_run: wrap(createShoppingRunTool(deps)),
-    opendevbrowser_product_video_run: wrap(createProductVideoRunTool(deps)),
-    opendevbrowser_canvas: wrap(createCanvasTool(deps)),
-    opendevbrowser_clone_page: wrap(createClonePageTool(deps)),
-    opendevbrowser_clone_component: wrap(createCloneComponentTool(deps)),
-    opendevbrowser_perf: wrap(createPerfTool(deps)),
-    opendevbrowser_screenshot: wrap(createScreenshotTool(deps)),
-    opendevbrowser_annotate: wrap(createAnnotateTool(deps)),
-    opendevbrowser_skill_list: wrap(createSkillListTool(deps)),
-    opendevbrowser_skill_load: wrap(createSkillLoadTool(deps))
+    opendevbrowser_launch: wrap("opendevbrowser_launch", createLaunchTool(deps)),
+    opendevbrowser_connect: wrap("opendevbrowser_connect", createConnectTool(deps)),
+    opendevbrowser_disconnect: wrap("opendevbrowser_disconnect", createDisconnectTool(deps)),
+    opendevbrowser_status: wrap("opendevbrowser_status", createStatusTool(deps)),
+    opendevbrowser_targets_list: wrap("opendevbrowser_targets_list", createTargetsListTool(deps)),
+    opendevbrowser_target_use: wrap("opendevbrowser_target_use", createTargetUseTool(deps)),
+    opendevbrowser_target_new: wrap("opendevbrowser_target_new", createTargetNewTool(deps)),
+    opendevbrowser_target_close: wrap("opendevbrowser_target_close", createTargetCloseTool(deps)),
+    opendevbrowser_page: wrap("opendevbrowser_page", createPageTool(deps)),
+    opendevbrowser_list: wrap("opendevbrowser_list", createListTool(deps)),
+    opendevbrowser_close: wrap("opendevbrowser_close", createCloseTool(deps)),
+    opendevbrowser_goto: wrap("opendevbrowser_goto", createGotoTool(deps)),
+    opendevbrowser_wait: wrap("opendevbrowser_wait", createWaitTool(deps)),
+    opendevbrowser_snapshot: wrap("opendevbrowser_snapshot", createSnapshotTool(deps)),
+    opendevbrowser_click: wrap("opendevbrowser_click", createClickTool(deps)),
+    opendevbrowser_hover: wrap("opendevbrowser_hover", createHoverTool(deps)),
+    opendevbrowser_press: wrap("opendevbrowser_press", createPressTool(deps)),
+    opendevbrowser_check: wrap("opendevbrowser_check", createCheckTool(deps)),
+    opendevbrowser_uncheck: wrap("opendevbrowser_uncheck", createUncheckTool(deps)),
+    opendevbrowser_type: wrap("opendevbrowser_type", createTypeTool(deps)),
+    opendevbrowser_select: wrap("opendevbrowser_select", createSelectTool(deps)),
+    opendevbrowser_scroll: wrap("opendevbrowser_scroll", createScrollTool(deps)),
+    opendevbrowser_scroll_into_view: wrap("opendevbrowser_scroll_into_view", createScrollIntoViewTool(deps)),
+    opendevbrowser_dom_get_html: wrap("opendevbrowser_dom_get_html", createDomGetHtmlTool(deps)),
+    opendevbrowser_dom_get_text: wrap("opendevbrowser_dom_get_text", createDomGetTextTool(deps)),
+    opendevbrowser_get_attr: wrap("opendevbrowser_get_attr", createGetAttrTool(deps)),
+    opendevbrowser_get_value: wrap("opendevbrowser_get_value", createGetValueTool(deps)),
+    opendevbrowser_is_visible: wrap("opendevbrowser_is_visible", createIsVisibleTool(deps)),
+    opendevbrowser_is_enabled: wrap("opendevbrowser_is_enabled", createIsEnabledTool(deps)),
+    opendevbrowser_is_checked: wrap("opendevbrowser_is_checked", createIsCheckedTool(deps)),
+    opendevbrowser_run: wrap("opendevbrowser_run", createRunTool(deps)),
+    opendevbrowser_prompting_guide: wrap("opendevbrowser_prompting_guide", createPromptingGuideTool(deps)),
+    opendevbrowser_console_poll: wrap("opendevbrowser_console_poll", createConsolePollTool(deps)),
+    opendevbrowser_network_poll: wrap("opendevbrowser_network_poll", createNetworkPollTool(deps)),
+    opendevbrowser_debug_trace_snapshot: wrap("opendevbrowser_debug_trace_snapshot", createDebugTraceSnapshotTool(deps)),
+    opendevbrowser_cookie_import: wrap("opendevbrowser_cookie_import", createCookieImportTool(deps)),
+    opendevbrowser_cookie_list: wrap("opendevbrowser_cookie_list", createCookieListTool(deps)),
+    opendevbrowser_macro_resolve: wrap("opendevbrowser_macro_resolve", createMacroResolveTool(deps)),
+    opendevbrowser_research_run: wrap("opendevbrowser_research_run", createResearchRunTool(deps)),
+    opendevbrowser_shopping_run: wrap("opendevbrowser_shopping_run", createShoppingRunTool(deps)),
+    opendevbrowser_product_video_run: wrap("opendevbrowser_product_video_run", createProductVideoRunTool(deps)),
+    opendevbrowser_canvas: wrap("opendevbrowser_canvas", createCanvasTool(deps)),
+    opendevbrowser_clone_page: wrap("opendevbrowser_clone_page", createClonePageTool(deps)),
+    opendevbrowser_clone_component: wrap("opendevbrowser_clone_component", createCloneComponentTool(deps)),
+    opendevbrowser_perf: wrap("opendevbrowser_perf", createPerfTool(deps)),
+    opendevbrowser_screenshot: wrap("opendevbrowser_screenshot", createScreenshotTool(deps)),
+    opendevbrowser_annotate: wrap("opendevbrowser_annotate", createAnnotateTool(deps)),
+    opendevbrowser_skill_list: wrap("opendevbrowser_skill_list", createSkillListTool(deps)),
+    opendevbrowser_skill_load: wrap("opendevbrowser_skill_load", createSkillLoadTool(deps))
   };
 }

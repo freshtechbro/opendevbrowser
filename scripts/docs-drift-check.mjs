@@ -22,13 +22,17 @@ function extractCountFromSource(pattern, source, label) {
 export function getSurfaceCounts() {
   const argsSource = read("src/cli/args.ts");
   const toolsSource = read("src/tools/index.ts");
+  const opsSource = read("extension/src/ops/ops-runtime.ts");
 
   const commandCount = extractCountFromSource(/export const CLI_COMMANDS = \[(.*?)\] as const;/s, argsSource, "CLI commands");
   const toolCount = [...toolsSource.matchAll(/\s(opendevbrowser_[a-z_]+):/g)].length;
+  const opsCommandNames = [...opsSource.matchAll(/case "([^"]+)":/g)].map((match) => match[1]);
 
   return {
     commandCount,
-    toolCount
+    toolCount,
+    opsCommandCount: opsCommandNames.length,
+    opsCommandNames
   };
 }
 
@@ -40,6 +44,18 @@ function parseDocCount(regex, source, label) {
   return Number.parseInt(match[1], 10);
 }
 
+function extractCommandNamesFromDocSection(source, startHeading, endHeading, label) {
+  const start = source.indexOf(startHeading);
+  if (start < 0) {
+    throw new Error(`Unable to locate ${label} start heading.`);
+  }
+  const end = source.indexOf(endHeading, start);
+  const section = source.slice(start, end >= 0 ? end : undefined);
+  const envelopeIndex = section.indexOf("Envelope contract:");
+  const commandSection = section.slice(0, envelopeIndex >= 0 ? envelopeIndex : undefined);
+  return [...commandSection.matchAll(/^- `([^`]+)`$/gm)].map((match) => match[1]);
+}
+
 export function runDocsDriftChecks() {
   const packageJson = JSON.parse(read("package.json"));
   const version = String(packageJson.version ?? "");
@@ -48,10 +64,22 @@ export function runDocsDriftChecks() {
   }
 
   const cliDoc = read("docs/CLI.md");
+  const docsReadme = read("docs/README.md");
   const onboardingDoc = read("docs/FIRST_RUN_ONBOARDING.md");
   const surfaceDoc = read("docs/SURFACE_REFERENCE.md");
+  const architectureDoc = read("docs/ARCHITECTURE.md");
+  const annotateDoc = read("docs/ANNOTATE.md");
+  const extensionDoc = read("docs/EXTENSION.md");
+  const troubleshootingDoc = read("docs/TROUBLESHOOTING.md");
+  const bestPracticesSkill = read("skills/opendevbrowser-best-practices/SKILL.md");
+  const commandChannelReference = read("skills/opendevbrowser-best-practices/artifacts/command-channel-reference.md");
+  const designSkill = read("skills/opendevbrowser-design-agent/SKILL.md");
+  const loginSkill = read("skills/opendevbrowser-login-automation/SKILL.md");
+  const formSkill = read("skills/opendevbrowser-form-testing/SKILL.md");
+  const researchSkill = read("skills/opendevbrowser-research/SKILL.md");
+  const shoppingSkill = read("skills/opendevbrowser-shopping/SKILL.md");
 
-  const { commandCount, toolCount } = getSurfaceCounts();
+  const { commandCount, toolCount, opsCommandCount, opsCommandNames } = getSurfaceCounts();
 
   const checks = [];
 
@@ -80,6 +108,28 @@ export function runDocsDriftChecks() {
     detail: `docs/SURFACE_REFERENCE.md tool count=${surfaceToolCount}, source=${toolCount}`
   });
 
+  const surfaceOpsCount = parseDocCount(/### `\/ops` command names \((\d+)\)/, surfaceDoc, "surface /ops count");
+  const surfaceOpsCommandNames = extractCommandNamesFromDocSection(
+    surfaceDoc,
+    "### `/ops` command names",
+    "### `/canvas` command names",
+    "surface /ops commands"
+  );
+  const sourceOpsSet = new Set(opsCommandNames);
+  const docOpsSet = new Set(surfaceOpsCommandNames);
+  const missingOpsCommands = opsCommandNames.filter((command) => !docOpsSet.has(command));
+  const extraOpsCommands = surfaceOpsCommandNames.filter((command) => !sourceOpsSet.has(command));
+  checks.push({
+    id: "doc.surface.ops_command_count_matches_source",
+    ok: surfaceOpsCount === opsCommandCount,
+    detail: `docs/SURFACE_REFERENCE.md /ops count=${surfaceOpsCount}, source=${opsCommandCount}`
+  });
+  checks.push({
+    id: "doc.surface.ops_command_listing_matches_source",
+    ok: surfaceOpsCommandNames.length === opsCommandCount && missingOpsCommands.length === 0 && extraOpsCommands.length === 0,
+    detail: `docs/SURFACE_REFERENCE.md /ops listed=${surfaceOpsCommandNames.length}, source=${opsCommandCount}, missing=${missingOpsCommands.join(",") || "none"}, extra=${extraOpsCommands.join(",") || "none"}`
+  });
+
   const cliCommandsCount = parseDocCount(/- Total commands: `([0-9]+)`\./, cliDoc, "CLI docs command count");
   const cliToolsCount = parseDocCount(/- Total tools: `([0-9]+)`/, cliDoc, "CLI docs tool count");
   checks.push({
@@ -91,6 +141,135 @@ export function runDocsDriftChecks() {
     id: "doc.cli.tool_count_matches_source",
     ok: cliToolsCount === toolCount,
     detail: `docs/CLI.md tool count=${cliToolsCount}, source=${toolCount}`
+  });
+
+  const cliOpsCount = parseDocCount(/- `\/ops` \(default extension channel\): .* all `([0-9]+)` command names\./, cliDoc, "CLI docs /ops count");
+  checks.push({
+    id: "doc.cli.ops_command_count_matches_source",
+    ok: cliOpsCount === opsCommandCount,
+    detail: `docs/CLI.md /ops count=${cliOpsCount}, source=${opsCommandCount}`
+  });
+
+  const architectureOpsCount = parseDocCount(/- `\/ops` command names: `([0-9]+)`/, architectureDoc, "architecture /ops count");
+  checks.push({
+    id: "doc.architecture.ops_command_count_matches_source",
+    ok: architectureOpsCount === opsCommandCount,
+    detail: `docs/ARCHITECTURE.md /ops count=${architectureOpsCount}, source=${opsCommandCount}`
+  });
+
+  checks.push({
+    id: "doc.surface.canvas_history_event_documented",
+    ok: surfaceDoc.includes("canvas_history_requested")
+      && surfaceDoc.includes("not be treated as a separate `/canvas` command"),
+    detail: "docs/SURFACE_REFERENCE.md must document canvas_history_requested as an internal event, not a public /canvas command."
+  });
+
+  checks.push({
+    id: "doc.surface.annotation_send_path_documented",
+    ok: surfaceDoc.includes("annotation:sendPayload")
+      && surfaceDoc.includes("store_agent_payload")
+      && surfaceDoc.includes("AgentInbox"),
+    detail: "docs/SURFACE_REFERENCE.md must document annotation:sendPayload -> store_agent_payload -> AgentInbox."
+  });
+
+  checks.push({
+    id: "doc.onboarding.session_reuse_matrix_documented",
+    ok: onboardingDoc.includes("Reuses the attached live tab or profile state.")
+      && onboardingDoc.includes("Attempts readable system Chrome-family cookie bootstrap before first navigation.")
+      && onboardingDoc.includes("explicit cookie add/override behavior"),
+    detail: "docs/FIRST_RUN_ONBOARDING.md must document extension reuse, managed/cdpConnect bootstrap, and cookie-import override behavior."
+  });
+
+  checks.push({
+    id: "doc.readme.mirrored_help_inputs_documented",
+    ok: docsReadme.includes("src/cli/help.ts")
+      && docsReadme.includes("src/tools/surface.ts")
+      && docsReadme.includes("skills/opendevbrowser-best-practices/SKILL.md"),
+    detail: "docs/README.md must reference mirrored help inputs and the canonical direct-run policy owner."
+  });
+
+  checks.push({
+    id: "doc.architecture.canvas_history_event_documented",
+    ok: architectureDoc.includes("canvas_history_requested")
+      && architectureDoc.includes("canvas.history.undo")
+      && architectureDoc.includes("canvas.history.redo"),
+    detail: "docs/ARCHITECTURE.md must document the canvas history event boundary and public undo/redo commands."
+  });
+
+  checks.push({
+    id: "doc.architecture.annotation_send_path_documented",
+    ok: architectureDoc.includes("annotation:sendPayload")
+      && architectureDoc.includes("store_agent_payload")
+      && architectureDoc.includes("AgentInbox"),
+    detail: "docs/ARCHITECTURE.md must document annotation:sendPayload -> store_agent_payload -> AgentInbox."
+  });
+
+  checks.push({
+    id: "doc.annotate.shared_inbox_delivery_documented",
+    ok: annotateDoc.includes("annotation:sendPayload")
+      && annotateDoc.includes("store_agent_payload")
+      && annotateDoc.includes("AgentInbox")
+      && annotateDoc.includes("Stored only; fetch with annotate --stored"),
+    detail: "docs/ANNOTATE.md must document the annotation send bridge, AgentInbox receipt path, and stored-only fallback."
+  });
+
+  checks.push({
+    id: "doc.extension.annotation_and_canvas_registration_documented",
+    ok: extensionDoc.includes("annotation:sendPayload")
+      && extensionDoc.includes("store_agent_payload")
+      && extensionDoc.includes("AgentInbox")
+      && extensionDoc.includes("targets.registerCanvas")
+      && extensionDoc.includes("targets.use"),
+    detail: "docs/EXTENSION.md must document annotation send bridging and canvas target registration."
+  });
+
+  checks.push({
+    id: "doc.troubleshooting.session_reuse_and_policy_pointer_documented",
+    ok: troubleshootingDoc.includes("canvas_history_requested")
+      && troubleshootingDoc.includes("AgentInbox")
+      && troubleshootingDoc.includes("Chrome-family cookie bootstrap")
+      && troubleshootingDoc.includes("skills/opendevbrowser-best-practices/SKILL.md"),
+    detail: "docs/TROUBLESHOOTING.md must document history event wording, AgentInbox send fallback, cookie bootstrap, and the canonical direct-run policy pointer."
+  });
+
+  checks.push({
+    id: "skill.best_practices.direct_run_policy_owner_documented",
+    ok: bestPracticesSkill.includes("canonical owner of direct-run release evidence policy"),
+    detail: "skills/opendevbrowser-best-practices/SKILL.md must own direct-run release evidence policy."
+  });
+
+  checks.push({
+    id: "skill.command_channel_reference.canvas_and_annotation_markers_documented",
+    ok: commandChannelReference.includes("canvas_history_requested")
+      && commandChannelReference.includes("annotation:sendPayload")
+      && commandChannelReference.includes("AgentInbox"),
+    detail: "command-channel-reference must document canvas history events and the annotation AgentInbox path."
+  });
+
+  checks.push({
+    id: "skill.design_agent.canvas_validation_markers_documented",
+    ok: designSkill.includes("canvas.history.undo")
+      && designSkill.includes("canvas.history.redo")
+      && designSkill.includes("canvas_history_requested")
+      && designSkill.includes("Delivered to agent")
+      && designSkill.includes("Stored only; fetch with annotate --stored"),
+    detail: "design-agent skill must document history control validation and annotation send receipts."
+  });
+
+  checks.push({
+    id: "skill.login_and_form_session_reuse_documented",
+    ok: loginSkill.includes("Chrome-family cookie bootstrap")
+      && loginSkill.toLowerCase().includes("direct-run release evidence policy")
+      && formSkill.includes("Chrome-family cookie bootstrap")
+      && formSkill.toLowerCase().includes("direct-run release evidence policy"),
+    detail: "login/form skills must document session reuse rules and the canonical direct-run policy pointer."
+  });
+
+  checks.push({
+    id: "skill.research_and_shopping_policy_pointers_documented",
+    ok: researchSkill.includes("canonical direct-run evidence policy")
+      && shoppingSkill.includes("canonical direct-run evidence policy"),
+    detail: "research/shopping skills must point to the canonical direct-run policy."
   });
 
   checks.push({
@@ -112,7 +291,8 @@ export function runDocsDriftChecks() {
     version,
     source: {
       commandCount,
-      toolCount
+      toolCount,
+      opsCommandCount
     },
     checks,
     failed

@@ -1,0 +1,35 @@
+{
+  "surfaceId": "surface-001",
+  "decision": "blocked",
+  "contractAligned": false,
+  "patternBoardReviewed": false,
+  "browserEvidence": [],
+  "requiredChecks": [
+    {
+      "id": "design-contract",
+      "status": "blocked",
+      "evidence": ""
+    },
+    {
+      "id": "real-surface-validation",
+      "status": "blocked",
+      "evidence": ""
+    },
+    {
+      "id": "responsive-behavior",
+      "status": "blocked",
+      "evidence": ""
+    },
+    {
+      "id": "accessibility-review",
+      "status": "blocked",
+      "evidence": ""
+    },
+    {
+      "id": "docs-and-agents-sync",
+      "status": "blocked",
+      "evidence": ""
+    }
+  ],
+  "followUps": []
+}

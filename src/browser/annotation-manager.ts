@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
 import { WebSocket } from "ws";
+import type { AgentInbox } from "../annotate/agent-inbox";
+import { getAnnotationTimeoutMessage } from "../annotate/timeout-messages";
 import type { OpenDevBrowserConfig } from "../config";
 import { resolveDirectAnnotateAssets, runDirectAnnotate } from "../annotate/direct-annotator";
 import type { RelayLike } from "../relay/relay-types";
@@ -34,11 +36,18 @@ export class AnnotationManager {
   private relay: RelayLike | undefined;
   private config: OpenDevBrowserConfig;
   private manager?: BrowserManagerLike;
+  private agentInbox?: AgentInbox;
 
-  constructor(relay: RelayLike | undefined, config: OpenDevBrowserConfig, manager?: BrowserManagerLike) {
+  constructor(
+    relay: RelayLike | undefined,
+    config: OpenDevBrowserConfig,
+    manager?: BrowserManagerLike,
+    agentInbox?: AgentInbox
+  ) {
     this.relay = relay;
     this.config = config;
     this.manager = manager;
+    this.agentInbox = agentInbox;
   }
 
   setRelay(relay: RelayLike | undefined): void {
@@ -47,6 +56,10 @@ export class AnnotationManager {
 
   setBrowserManager(manager?: BrowserManagerLike): void {
     this.manager = manager;
+  }
+
+  setAgentInbox(agentInbox?: AgentInbox): void {
+    this.agentInbox = agentInbox;
   }
 
   async requestAnnotation(options: AnnotationRequestOptions): Promise<AnnotationResponse> {
@@ -81,10 +94,20 @@ export class AnnotationManager {
   }
 
   private async requestStored(options: AnnotationRequestOptions): Promise<AnnotationResponse> {
+    const requestId = randomUUID();
+    const sharedPayload = this.agentInbox?.latestPayload();
+    if (sharedPayload) {
+      return {
+        version: 1,
+        requestId,
+        status: "ok",
+        payload: sharedPayload
+      };
+    }
     if (options.transport === "direct") {
       return {
         version: 1,
-        requestId: randomUUID(),
+        requestId,
         status: "error",
         error: { code: "invalid_request", message: "Stored annotations require relay transport." }
       };
@@ -178,6 +201,7 @@ export class AnnotationManager {
   ): Promise<AnnotationResponse> {
     const requestId = randomUUID();
     const timeoutMs = options.timeoutMs ?? 120_000;
+    let resolvedTabId = options.tabId;
 
     if (requireExtension && options.sessionId && this.manager) {
       try {
@@ -189,6 +213,9 @@ export class AnnotationManager {
             status: "error",
             error: { code: "invalid_request", message: "Relay annotations require extension mode." }
           };
+        }
+        if (commandName === "start" && typeof resolvedTabId !== "number") {
+          resolvedTabId = parseExtensionTabId(options.targetId) ?? parseExtensionTabId(status.activeTargetId);
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Annotation session unavailable.";
@@ -206,7 +233,7 @@ export class AnnotationManager {
       requestId,
       command: commandName,
       url: options.url,
-      tabId: options.tabId,
+      tabId: resolvedTabId,
       options: {
         screenshotMode: options.screenshotMode,
         debug: options.debug,
@@ -316,7 +343,7 @@ export class AnnotationManager {
           version: 1,
           requestId,
           status: "error",
-          error: { code: "timeout", message: "Annotation request timed out." }
+          error: { code: "timeout", message: getAnnotationTimeoutMessage(readySeen) }
         });
       }, timeoutMs);
     });
@@ -397,6 +424,14 @@ const sendCancel = (socket: WebSocket, requestId: string): void => {
     payload: command
   };
   socket.send(JSON.stringify(relayCommand));
+};
+
+const parseExtensionTabId = (targetId: string | null | undefined): number | undefined => {
+  if (!targetId?.startsWith("tab-")) {
+    return undefined;
+  }
+  const value = Number(targetId.slice(4));
+  return Number.isInteger(value) ? value : undefined;
 };
 
 const parseJson = (data: WebSocket.RawData): unknown => {

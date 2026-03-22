@@ -31,6 +31,9 @@ When canvas session/code-sync/projection behavior changes:
 - `docs/CLI.md`
 - `docs/SURFACE_REFERENCE.md`
 - `docs/ARCHITECTURE.md`
+- `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`
+- `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`
+- `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`
 - `docs/EXTENSION.md`
 - `docs/TROUBLESHOOTING.md`
 - relevant `AGENTS.md` files under `src/`, `src/browser/`, `src/canvas/`, and `extension/`
@@ -41,6 +44,15 @@ When extension behavior changes:
 - `docs/privacy.md` (if permissions/data-handling claims change)
 - `docs/EXTENSION_RELEASE_RUNBOOK.md`
 
+When annotation delivery or stored-payload behavior changes:
+- `docs/ANNOTATE.md`
+- `docs/CLI.md`
+- `docs/SURFACE_REFERENCE.md`
+- `docs/ARCHITECTURE.md`
+- `docs/EXTENSION.md`
+- `docs/TROUBLESHOOTING.md`
+- `docs/privacy.md`
+
 When release-gate automation changes:
 - `docs/RELEASE_RUNBOOK.md`
 - `docs/DISTRIBUTION_PLAN.md`
@@ -50,7 +62,7 @@ When release-gate automation changes:
   - `scripts/docs-drift-check.mjs`
   - `scripts/chrome-store-compliance-check.mjs`
 
-When mirrored website inputs change (`docs/`, `skills/`, `assets/`, `CHANGELOG.md`, `src/tools/index.ts`):
+When mirrored website inputs change (`docs/`, `skills/`, `assets/`, `CHANGELOG.md`, `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`):
 - dispatch private sync via `.github/workflows/dispatch-private-sync.yml`
 - validate private website generation/build:
   - `npm run sync:assets --prefix frontend`
@@ -63,6 +75,8 @@ When mirrored website inputs change (`docs/`, `skills/`, `assets/`, `CHANGELOG.m
 
 - Do not keep stale numeric claims when source has changed.
 - Do not document unsupported flags/commands.
+- Do not describe `canvas.starter.list` or `canvas.starter.apply` as unshipped once `PUBLIC_CANVAS_COMMANDS` includes them.
+- Do not describe `tsx-react-v1` as the shipped adapter lane; current docs must describe it as a legacy binding that migrates to `builtin:react-tsx-v2`.
 - Do not imply public-repo ownership of `frontend/`; website source is private.
 - Do not over-claim `bound_app_runtime`; `canvas_html` remains the default preview/export contract unless the binding opts in and runtime instrumentation exists.
 - Do not edit private generated frontend docs JSON by hand when the source is in `docs/`, `CHANGELOG.md`, or `skills/*/SKILL.md`.

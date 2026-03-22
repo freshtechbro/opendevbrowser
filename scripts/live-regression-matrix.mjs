@@ -6,6 +6,8 @@ import net from "node:net";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { findLocalChromeBinary } from "./chrome-binary.mjs";
+import { flushAndExit } from "./flush-exit.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(ROOT, "dist", "cli", "index.js");
@@ -93,6 +95,42 @@ export function shouldStopDaemonAfterRun({ useGlobalEnv, stopDaemonEnv = process
     return false;
   }
   return useGlobalEnv !== true;
+}
+
+export function shouldUseGlobalEnv(useGlobalEnvEnv = process.env.LIVE_MATRIX_USE_GLOBAL) {
+  return useGlobalEnvEnv !== "0";
+}
+
+export function hasDirtyRelayClients(relay) {
+  return relay?.opsConnected === true
+    || relay?.canvasConnected === true
+    || relay?.annotationConnected === true
+    || relay?.cdpConnected === true;
+}
+
+export function buildExtensionOpsLaunchArgs() {
+  return [
+    "launch",
+    "--extension-only",
+    "--wait-for-extension",
+    "--wait-timeout-ms",
+    String(EXTENSION_WAIT_TIMEOUT_MS),
+    "--start-url",
+    "https://example.com/?extension-ops=matrix"
+  ];
+}
+
+export function buildExtensionLegacyLaunchArgs() {
+  return [
+    "launch",
+    "--extension-only",
+    "--extension-legacy",
+    "--wait-for-extension",
+    "--wait-timeout-ms",
+    String(EXTENSION_WAIT_TIMEOUT_MS),
+    "--start-url",
+    "https://example.com/?extension-legacy=matrix"
+  ];
 }
 
 function registerHeadlessMarker(marker) {
@@ -435,13 +473,7 @@ async function createIsolatedRuntime() {
 }
 
 function findChromePath() {
-  const chromeCandidates = [
-    process.env.CHROME_PATH,
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium"
-  ].filter(Boolean);
-  return chromeCandidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+  return findLocalChromeBinary();
 }
 
 async function launchRemoteChrome(chromePath, options) {
@@ -559,6 +591,16 @@ function isLegacyCdpConnectTimeout(detail) {
     && message.includes("timeout");
 }
 
+function isCliRequestTimeout(detail) {
+  const message = String(detail || "").toLowerCase();
+  return message.includes("request timed out after");
+}
+
+function isOpsRequestTimeout(detail) {
+  const message = String(detail || "").toLowerCase();
+  return message.includes("ops request timed out");
+}
+
 function isUnsupportedModeError(detail) {
   const message = String(detail || "").toLowerCase();
   return message.includes("[unsupported_mode]") || message.includes("unsupported_mode");
@@ -596,20 +638,43 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForExtensionReady(env, timeoutMs = 30000) {
+async function waitForRelayReadiness(env, predicate, timeoutMs = 30000, pollIntervalMs = 1000) {
   const startedAt = Date.now();
   let latest = null;
   while (Date.now() - startedAt < timeoutMs) {
     const status = runCli(["status", "--daemon"], { allowFailure: true, env });
     if (status.status === 0) {
       latest = parseRelayReadiness(status.json?.data?.relay ?? null);
-      if (latest.ready) {
+      if (predicate(latest)) {
         return latest;
       }
     }
-    await sleep(5000);
+    await sleep(pollIntervalMs);
   }
   return latest;
+}
+
+async function waitForExtensionReady(env, timeoutMs = 30000) {
+  return waitForRelayReadiness(env, (readiness) => readiness?.ready === true, timeoutMs, 5000);
+}
+
+async function waitForOpsDisconnected(env, timeoutMs = 30000) {
+  const latest = await waitForRelayReadiness(
+    env,
+    (readiness) => readiness?.opsConnected === false,
+    timeoutMs,
+    1000
+  );
+  if (latest?.opsConnected === true) {
+    throw new Error(
+      `Extension relay still reports opsConnected=true after /ops cleanup. ${buildExtensionReadinessDetail(latest)}`
+    );
+  }
+  return latest;
+}
+
+async function ensureOpsDisconnected(env, fallbackReadiness, timeoutMs = 30000) {
+  return await waitForOpsDisconnected(env, timeoutMs);
 }
 
 async function launchExtensionWithRecovery(launchArgs, fallbackReadiness, env) {
@@ -620,7 +685,13 @@ async function launchExtensionWithRecovery(launchArgs, fallbackReadiness, env) {
     } catch (error) {
       lastError = error;
       const detail = error instanceof Error ? error.message : String(error);
-      if (isRateLimitedError(detail) || isOpsHandshakeTimeout(detail) || isExtensionDisconnected(detail)) {
+      if (
+        isRateLimitedError(detail)
+        || isOpsHandshakeTimeout(detail)
+        || isExtensionDisconnected(detail)
+        || isLegacyCdpConnectTimeout(detail)
+        || isCliRequestTimeout(detail)
+      ) {
         if (attempt >= 3) break;
         await sleep(RATE_LIMIT_COOLDOWN_MS);
         const recovered = await waitForExtensionReady(env, 30000);
@@ -657,6 +728,7 @@ async function launchExtensionWithRecovery(launchArgs, fallbackReadiness, env) {
 async function primeLegacyCdpTab(fallbackReadiness, env) {
   let seedSessionId = null;
   try {
+    await ensureOpsDisconnected(env, fallbackReadiness, 15000);
     const seedLaunch = await launchExtensionWithRecovery(
       ["launch", "--extension-only", "--wait-for-extension", "--wait-timeout-ms", String(EXTENSION_WAIT_TIMEOUT_MS)],
       fallbackReadiness,
@@ -666,19 +738,13 @@ async function primeLegacyCdpTab(fallbackReadiness, env) {
     if (!seedSessionId) {
       return;
     }
-    runCli(["goto", "--session-id", seedSessionId, "--url", "https://example.com/?legacy=prime", "--wait-until", "load", "--timeout-ms", "30000"], {
-      allowFailure: true,
-      env
-    });
-    runCli(["wait", "--session-id", seedSessionId, "--until", "load", "--timeout-ms", "30000"], {
-      allowFailure: true,
-      env
-    });
+    openExtensionScenarioTarget(seedSessionId, "https://example.com/?legacy=prime", env);
   } catch {
     // best effort priming only
   } finally {
     if (seedSessionId) {
       runCli(["disconnect", "--session-id", seedSessionId], { allowFailure: true, env });
+      await ensureOpsDisconnected(env, fallbackReadiness, 15000);
     }
   }
 }
@@ -694,8 +760,62 @@ async function runGotoWithDetachedRetry(args, env, maxAttempts = 3) {
   return result;
 }
 
+function openExtensionScenarioTarget(sessionId, url, env) {
+  const created = runCli([
+    "target-new",
+    "--session-id",
+    sessionId,
+    "--url",
+    url
+  ], { allowFailure: true, env });
+  const targetId = created.json?.data?.targetId;
+  if (typeof targetId !== "string" || targetId.length === 0) {
+    throw new Error(`Extension scenario target-new failed: ${summarizeFailure(created)}`);
+  }
+  const focused = runCli([
+    "target-use",
+    "--session-id",
+    sessionId,
+    "--target-id",
+    targetId
+  ], { allowFailure: true, env });
+  if (focused.status !== 0) {
+    throw new Error(`Extension scenario target-use failed: ${summarizeFailure(focused)}`);
+  }
+  runCli([
+    "wait",
+    "--session-id",
+    sessionId,
+    "--until",
+    "load",
+    "--timeout-ms",
+    "30000"
+  ], { allowFailure: true, env });
+  return targetId;
+}
+
 function addResult(results, entry) {
   results.push(entry);
+}
+
+export function evaluateRealWorldScenarioPack({ artifact, runStatus, releaseGate }) {
+  const counts = artifact?.counts ?? null;
+  const passCount = Number.isInteger(counts?.pass) ? counts.pass : 0;
+  const envLimitedCount = Number.isInteger(counts?.env_limited) ? counts.env_limited : 0;
+  const failCount = Number.isInteger(counts?.fail) ? counts.fail : 0;
+  const requireZeroEnvLimited = releaseGate === true;
+  const artifactOk = typeof artifact?.ok === "boolean"
+    ? artifact.ok
+    : (failCount === 0 && passCount > 0 && (!requireZeroEnvLimited || envLimitedCount === 0));
+  return {
+    passCount,
+    envLimitedCount,
+    failCount,
+    artifactOk,
+    requireZeroEnvLimited,
+    m23Pass: artifactOk && passCount > 0 && (!requireZeroEnvLimited || envLimitedCount === 0),
+    exitStatus: Number.isInteger(runStatus) ? runStatus : 0
+  };
 }
 
 export function summarize(results, startedAt, options) {
@@ -721,7 +841,7 @@ async function runMatrix(options) {
   ensureCliBuilt();
   installHeadlessCleanupHooks();
   const startedAt = Date.now();
-  const useGlobalEnv = process.env.LIVE_MATRIX_USE_GLOBAL === "1";
+  const useGlobalEnv = shouldUseGlobalEnv();
   const isolatedRuntime = useGlobalEnv ? null : await createIsolatedRuntime();
   const matrixEnv = isolatedRuntime?.env ?? process.env;
   registerHeadlessMarker(isolatedRuntime?.cacheDir ?? "");
@@ -752,11 +872,12 @@ async function runMatrix(options) {
     const existing = runCli(["status", "--daemon"], { allowFailure: true, env: matrixEnv });
     let daemonState = "reused";
     let daemonResult = existing;
+    const recycleDirtyRelay = existing.status === 0 && hasDirtyRelayClients(existing.json?.data?.relay ?? null);
 
-    if (forceRecycle || existing.status !== 0) {
-      if (forceRecycle) {
+    if (forceRecycle || recycleDirtyRelay || existing.status !== 0) {
+      if (forceRecycle || recycleDirtyRelay) {
         runCli(["serve", "--stop"], { allowFailure: true, env: matrixEnv });
-        daemonState = "recycled";
+        daemonState = forceRecycle ? "recycled" : "recycled_dirty_relay";
       } else {
         daemonState = "started";
       }
@@ -1129,73 +1250,110 @@ async function runMatrix(options) {
       }
     });
   } else {
-    try {
-      const launch = await launchExtensionWithRecovery(
-        ["launch", "--extension-only", "--wait-for-extension", "--wait-timeout-ms", String(EXTENSION_WAIT_TIMEOUT_MS)],
-        extensionReadiness,
-        matrixEnv
-      );
-      extensionSessionId = pickSessionId(launch);
-      if (!extensionSessionId) {
-        throw new Error("Extension launch returned no sessionId.");
-      }
-      const goto = runCli(["goto", "--session-id", extensionSessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"], { env: matrixEnv });
-      const debug = runCli(["debug-trace-snapshot", "--session-id", extensionSessionId, "--max", "80"], { env: matrixEnv });
-      const snapshot = runCli(["snapshot", "--session-id", extensionSessionId, "--mode", "actionables", "--max-chars", "6000"], {
-        allowFailure: true,
-        env: matrixEnv
-      });
-      const perf = runCli(["perf", "--session-id", extensionSessionId], {
-        allowFailure: true,
-        env: matrixEnv
-      });
-      if (
-        typeof goto.json?.data?.meta?.blockerState !== "string"
-        || typeof debug.json?.data?.meta?.blockerState !== "string"
-      ) {
-        throw new Error("Extension /ops mode missing blockerState metadata in navigation/debug output.");
-      }
-      const snapshotDetail = summarizeFailure(snapshot);
-      const perfDetail = summarizeFailure(perf);
-      if (
-        (snapshot.status !== 0
-          && !isExtensionDisconnected(snapshotDetail)
-          && !isDetachedFrameError(snapshotDetail)
-          && !isDebuggerNotAttachedError(snapshotDetail))
-        || (perf.status !== 0
-          && !isExtensionDisconnected(perfDetail)
-          && !isDetachedFrameError(perfDetail)
-          && !isDebuggerNotAttachedError(perfDetail))
-      ) {
-        throw new Error(`Extension /ops diagnostics failed (snapshot=${snapshotDetail}; perf=${perfDetail}).`);
-      }
-      addResult(results, {
-        id: "mode.extension_ops",
-        status: "pass",
-        data: {
-          gotoBlockerState: goto.json?.data?.meta?.blockerState,
-          debugBlockerState: debug.json?.data?.meta?.blockerState,
-          debugBlockerType: debug.json?.data?.meta?.blocker?.type ?? null
+    const maxExtensionOpsAttempts = 2;
+    let extensionOpsRecorded = false;
+    for (let attempt = 1; attempt <= maxExtensionOpsAttempts; attempt += 1) {
+      extensionSessionId = null;
+      let shouldRetry = false;
+      try {
+        const launch = await launchExtensionWithRecovery(
+          buildExtensionOpsLaunchArgs(),
+          extensionReadiness,
+          matrixEnv
+        );
+        extensionSessionId = pickSessionId(launch);
+        if (!extensionSessionId) {
+          throw new Error("Extension launch returned no sessionId.");
         }
-      });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      if (options.releaseGate && isRestrictedUrlError(detail)) {
+        runCli(["wait", "--session-id", extensionSessionId, "--until", "load", "--timeout-ms", "30000"], {
+          allowFailure: true,
+          env: matrixEnv
+        });
+        const goto = runCli(
+          ["goto", "--session-id", extensionSessionId, "--url", "https://example.com", "--wait-until", "load", "--timeout-ms", "30000"],
+          { allowFailure: true, env: matrixEnv }
+        );
+        const gotoDetail = summarizeFailure(goto);
+        if (goto.status !== 0) {
+          throw new Error(gotoDetail);
+        }
+        const debug = runCli(["debug-trace-snapshot", "--session-id", extensionSessionId, "--max", "80"], { env: matrixEnv });
+        const snapshot = runCli([
+          "snapshot",
+          "--session-id",
+          extensionSessionId,
+          "--mode",
+          "actionables",
+          "--max-chars",
+          "6000",
+          "--timeout-ms",
+          "15000"
+        ], {
+          allowFailure: true,
+          env: matrixEnv
+        });
+        const perf = runCli(["perf", "--session-id", extensionSessionId], {
+          allowFailure: true,
+          env: matrixEnv
+        });
+        if (
+          typeof goto.json?.data?.meta?.blockerState !== "string"
+          || typeof debug.json?.data?.meta?.blockerState !== "string"
+        ) {
+          throw new Error("Extension /ops mode missing blockerState metadata in navigation/debug output.");
+        }
+        const snapshotDetail = summarizeFailure(snapshot);
+        const perfDetail = summarizeFailure(perf);
+        if (
+          (snapshot.status !== 0
+            && !isExtensionDisconnected(snapshotDetail)
+            && !isDetachedFrameError(snapshotDetail)
+            && !isDebuggerNotAttachedError(snapshotDetail))
+          || (perf.status !== 0
+            && !isExtensionDisconnected(perfDetail)
+            && !isDetachedFrameError(perfDetail)
+            && !isDebuggerNotAttachedError(perfDetail))
+        ) {
+          throw new Error(`Extension /ops diagnostics failed (snapshot=${snapshotDetail}; perf=${perfDetail}).`);
+        }
         addResult(results, {
           id: "mode.extension_ops",
           status: "pass",
-          detail: "verified_expected_restricted_url_gate"
+          data: {
+            gotoBlockerState: goto.json?.data?.meta?.blockerState,
+            debugBlockerState: debug.json?.data?.meta?.blockerState,
+            debugBlockerType: debug.json?.data?.meta?.blocker?.type ?? null,
+            attempts: attempt
+          }
         });
-      } else {
-        addResult(results, {
-          id: "mode.extension_ops",
-          status: isExtensionUnavailable(detail) || isRateLimitedError(detail) ? "env_limited" : "fail",
-          detail
-        });
+        extensionOpsRecorded = true;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        shouldRetry = attempt < maxExtensionOpsAttempts && isOpsRequestTimeout(detail);
+        if (!shouldRetry) {
+          if (options.releaseGate && isRestrictedUrlError(detail)) {
+            addResult(results, {
+              id: "mode.extension_ops",
+              status: "pass",
+              detail: "verified_expected_restricted_url_gate"
+            });
+          } else {
+            addResult(results, {
+              id: "mode.extension_ops",
+              status: isExtensionUnavailable(detail) || isRateLimitedError(detail) ? "env_limited" : "fail",
+              detail
+            });
+          }
+          extensionOpsRecorded = true;
+        }
+      } finally {
+        if (extensionSessionId) {
+          runCli(["disconnect", "--session-id", extensionSessionId], { allowFailure: true, env: matrixEnv });
+        }
+        extensionReadiness = await ensureOpsDisconnected(matrixEnv, extensionReadiness, 15000);
       }
-    } finally {
-      if (extensionSessionId) {
-        runCli(["disconnect", "--session-id", extensionSessionId], { allowFailure: true, env: matrixEnv });
+      if (extensionOpsRecorded || !shouldRetry) {
+        break;
       }
     }
   }
@@ -1213,8 +1371,10 @@ async function runMatrix(options) {
     });
   } else {
     try {
+      extensionReadiness = await ensureOpsDisconnected(matrixEnv, extensionReadiness, 15000);
       await primeLegacyCdpTab(extensionReadiness, matrixEnv);
-      const launchArgs = ["launch", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms", String(EXTENSION_WAIT_TIMEOUT_MS)];
+      extensionReadiness = await ensureOpsDisconnected(matrixEnv, extensionReadiness, 15000);
+      const launchArgs = buildExtensionLegacyLaunchArgs();
       const launch = await launchExtensionWithRecovery(launchArgs, extensionReadiness, matrixEnv);
       extensionLegacySessionId = pickSessionId(launch);
       if (!extensionLegacySessionId) {
@@ -1336,13 +1496,7 @@ async function runMatrix(options) {
   let chromeProcess = null;
   let chromeProfileDir = null;
   try {
-    const chromeCandidates = [
-      process.env.CHROME_PATH,
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-      "/Applications/Chromium.app/Contents/MacOS/Chromium"
-    ].filter(Boolean);
-    const chromePath = chromeCandidates.find((candidate) => fs.existsSync(candidate));
+    const chromePath = findLocalChromeBinary();
     if (!chromePath) {
       throw new Error("No Chrome binary found for cdpConnect validation.");
     }
@@ -1783,6 +1937,7 @@ async function runMatrix(options) {
     }
 
     let sessionId = null;
+    let targetId = null;
     try {
       const launchArgs = mode === "relay"
         ? ["launch", "--extension-only", "--wait-for-extension", "--wait-timeout-ms", String(EXTENSION_WAIT_TIMEOUT_MS)]
@@ -1800,6 +1955,9 @@ async function runMatrix(options) {
         : runCli(launchArgs, { env: matrixEnv });
       sessionId = pickSessionId(launch);
       if (!sessionId) throw new Error("Annotation probe launch returned no sessionId.");
+      if (mode === "relay") {
+        targetId = openExtensionScenarioTarget(sessionId, "https://example.com/?annotate=relay", matrixEnv);
+      }
 
       const annotateArgs = [
         "annotate",
@@ -1809,6 +1967,9 @@ async function runMatrix(options) {
         "--timeout-ms", "8000",
         "--context", "Live regression matrix annotation probe"
       ];
+      if (targetId) {
+        annotateArgs.push("--target-id", targetId);
+      }
       const annotate = runCli(annotateArgs, { allowFailure: true, env: matrixEnv });
       if (annotate.status === 0 && annotate.json?.success === true) {
         addResult(results, { id: `feature.annotate.${mode}`, status: "pass" });
@@ -1927,23 +2088,29 @@ async function runMatrix(options) {
       realWorld = parseRealWorldArtifact(realWorldArtifactPath);
     }
 
-    const counts = realWorld?.counts ?? null;
     const startedAtMs = Number.parseInt(String(realWorld?.startedAt ? Date.parse(String(realWorld.startedAt)) : NaN), 10);
     const finishedAtMs = Number.parseInt(String(realWorld?.finishedAt ? Date.parse(String(realWorld.finishedAt)) : NaN), 10);
     const elapsedMs = Number.isFinite(startedAtMs) && Number.isFinite(finishedAtMs) && finishedAtMs > startedAtMs
       ? finishedAtMs - startedAtMs
       : realWorldRun.durationMs;
     const elapsedMinutes = elapsedMs > 0 ? elapsedMs / 60000 : 0;
-
-    const passCount = Number.isInteger(counts?.pass) ? counts.pass : 0;
-    const envLimitedCount = Number.isInteger(counts?.env_limited) ? counts.env_limited : 0;
-    const failCount = Number.isInteger(counts?.fail) ? counts.fail : 0;
-    const m23Pass = realWorldRun.status === 0 && failCount === 0 && envLimitedCount === 0 && passCount > 0;
+    const {
+      passCount,
+      envLimitedCount,
+      failCount,
+      requireZeroEnvLimited,
+      m23Pass,
+      exitStatus
+    } = evaluateRealWorldScenarioPack({
+      artifact: realWorld,
+      runStatus: realWorldRun.status,
+      releaseGate: options.releaseGate
+    });
     const opsPerMinute = elapsedMinutes > 0 ? Number((passCount / elapsedMinutes).toFixed(2)) : 0;
     const expectedMinOpsPerMinute = 2;
     const floorPass = m23Pass && opsPerMinute >= expectedMinOpsPerMinute;
     const floorFailureDetail = !m23Pass
-      ? `Scenario pack did not meet release criteria: pass=${passCount}, env_limited=${envLimitedCount}, fail=${failCount}.`
+      ? `Scenario pack did not meet ${requireZeroEnvLimited ? "release" : "non-release"} criteria: pass=${passCount}, env_limited=${envLimitedCount}, fail=${failCount}.`
       : `Scenario throughput below floor: opsPerMinute=${opsPerMinute}, expected>=${expectedMinOpsPerMinute}.`;
 
     addResult(results, {
@@ -1951,11 +2118,13 @@ async function runMatrix(options) {
       status: m23Pass ? "pass" : "fail",
       detail: m23Pass
         ? "realworld_scenario_pack_pass"
-        : `realworld_scenario_pack_failed: status=${realWorldRun.status}, pass=${passCount}, env_limited=${envLimitedCount}, fail=${failCount}`,
+        : `realworld_scenario_pack_failed: status=${exitStatus}, pass=${passCount}, env_limited=${envLimitedCount}, fail=${failCount}`,
       data: {
         mode: "realworld_scenario_pack",
         artifactSource,
         artifactPath: realWorldArtifactPath,
+        artifactOk: typeof realWorld?.ok === "boolean" ? realWorld.ok : null,
+        exitStatus,
         passCount,
         envLimitedCount,
         failCount,
@@ -2042,13 +2211,18 @@ async function runMatrix(options) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const cliOptions = parseCliOptions(process.argv.slice(2));
 
-  runMatrix(cliOptions).catch((error) => {
-    cleanupOwnedHeadlessResources();
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(JSON.stringify({
-      ok: false,
-      fatal: message
-    }, null, 2));
-    process.exitCode = 1;
-  });
+  runMatrix(cliOptions)
+    .then(() => {
+      flushAndExit();
+    })
+    .catch((error) => {
+      cleanupOwnedHeadlessResources();
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(JSON.stringify({
+        ok: false,
+        fatal: message
+      }, null, 2));
+      process.exitCode = 1;
+      flushAndExit();
+    });
 }

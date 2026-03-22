@@ -70,6 +70,8 @@ describe("workflow primitives", () => {
     const fallback = resolveTimebox({});
     expect(fallback).toMatchObject({ mode: "days", days: 30, applied: true });
     expect(isWithinTimebox(undefined, fallback)).toBe(false);
+    const justAfterFallbackTo = new Date(new Date(fallback.to).getTime() + 1).toISOString();
+    expect(isWithinTimebox(justAfterFallbackTo, fallback)).toBe(false);
   });
 
   it("enriches records with engagement, recency, and date confidence metadata", () => {

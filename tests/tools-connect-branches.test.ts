@@ -58,6 +58,20 @@ describe("connect tool branches", () => {
     expect(deps.manager.connect).not.toHaveBeenCalled();
   });
 
+  it("uses the legacy /cdp endpoint directly when extensionLegacy is enabled", async () => {
+    const deps = createDeps();
+    const tool = createConnectTool(deps as never);
+
+    const result = parse(await tool.execute({
+      wsEndpoint: "ws://127.0.0.1:8787/cdp",
+      extensionLegacy: true
+    } as never));
+
+    expect(result).toMatchObject({ ok: true });
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
+    expect(deps.manager.connect).not.toHaveBeenCalled();
+  });
+
   it("falls back to relay status endpoint when no explicit CDP target is provided", async () => {
     const deps = createDeps({
       opsUrl: "ws://127.0.0.1:8787/ops"

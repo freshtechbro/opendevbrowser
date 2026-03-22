@@ -1,3 +1,5 @@
+import { getRestrictionMessage } from "./url-restrictions.js";
+
 export class TabManager {
   async createTab(url?: string, active: boolean = true): Promise<chrome.tabs.Tab> {
     return await new Promise((resolve, reject) => {
@@ -72,16 +74,75 @@ export class TabManager {
     });
   }
 
-  async closeTab(tabId: number): Promise<void> {
+  async closeTab(tabId: number, timeoutMs = 2000): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      chrome.tabs.remove(tabId, () => {
-        const lastError = chrome.runtime.lastError;
-        if (lastError) {
-          reject(new Error(lastError.message));
+      let settled = false;
+      let pollId: number | null = null;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        if (pollId !== null) {
+          clearInterval(pollId);
+        }
+        chrome.tabs.onRemoved?.removeListener?.(removedListener);
+        if (error) {
+          reject(error);
           return;
         }
         resolve();
-      });
+      };
+      const removedListener = (removedTabId: number) => {
+        if (removedTabId === tabId) {
+          finish();
+        }
+      };
+      const checkClosed = () => {
+        void this.getTab(tabId)
+          .then((tab) => {
+            if (!tab) {
+              finish();
+            }
+          })
+          .catch(() => {
+            finish();
+          });
+      };
+      const timeoutId = setTimeout(() => {
+        void this.getTab(tabId)
+          .then((tab) => {
+            if (!tab) {
+              finish();
+              return;
+            }
+            finish(new Error("Tab close timed out"));
+          })
+          .catch(() => {
+            finish();
+          });
+      }, timeoutMs);
+
+      chrome.tabs.onRemoved?.addListener?.(removedListener);
+      pollId = setInterval(checkClosed, Math.min(250, Math.max(50, Math.floor(timeoutMs / 20))));
+      try {
+        chrome.tabs.remove(tabId, () => {
+          const lastError = chrome.runtime.lastError;
+          if (lastError) {
+            const message = lastError.message ?? "Tab close failed";
+            if (message.includes("No tab with id")) {
+              finish();
+              return;
+            }
+            finish(new Error(message));
+            return;
+          }
+          finish();
+        });
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error("Tab close failed"));
+        return;
+      }
+      checkClosed();
     });
   }
 
@@ -116,13 +177,24 @@ export class TabManager {
     return tab?.id ?? null;
   }
 
-  async getFirstHttpTabId(): Promise<number | null> {
+  async getFirstAttachableTab(excludeTabId?: number): Promise<chrome.tabs.Tab | null> {
     const tabs = await chrome.tabs.query({});
     const match = tabs.find((tab) => {
       if (typeof tab.id !== "number") return false;
-      if (!tab.url) return false;
-      return tab.url.startsWith("http://") || tab.url.startsWith("https://");
+      if (typeof excludeTabId === "number" && tab.id === excludeTabId) return false;
+      const rawUrl = tab.url ?? tab.pendingUrl;
+      if (!rawUrl) return false;
+      try {
+        return !getRestrictionMessage(new URL(rawUrl));
+      } catch {
+        return false;
+      }
     });
-    return match?.id ?? null;
+    return match ?? null;
+  }
+
+  async getFirstHttpTabId(excludeTabId?: number): Promise<number | null> {
+    const tab = await this.getFirstAttachableTab(excludeTabId);
+    return typeof tab?.id === "number" ? tab.id : null;
   }
 }

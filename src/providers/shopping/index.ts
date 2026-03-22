@@ -1,8 +1,10 @@
-import { ProviderRuntimeError, toProviderError } from "../errors";
+import { classifyBlockerSignal } from "../blocker";
+import { applyProviderIssueHint, classifyProviderIssue } from "../constraint";
+import { providerErrorCodeFromReasonCode, ProviderRuntimeError, toProviderError } from "../errors";
 import { normalizeRecord, normalizeRecords } from "../normalize";
 import { providerRequestHeaders } from "../shared/request-headers";
 import { canonicalizeUrl } from "../web/crawler";
-import { extractStructuredContent, toSnippet } from "../web/extract";
+import { extractStructuredContent, extractText, toSnippet } from "../web/extract";
 import type {
   JsonValue,
   NormalizedRecord,
@@ -18,6 +20,7 @@ import type {
 
 const SHOPPING_SOURCE = "shopping" as const;
 const DEFAULT_CURRENCY = "USD";
+const DEFAULT_RECOVERABLE_SHOPPING_FETCH_TIMEOUT_MS = 15_000;
 
 export type ShoppingProviderName =
   | "amazon"
@@ -85,6 +88,21 @@ interface ShoppingFetchRecord {
   status: number;
   url: string;
   html: string;
+}
+
+interface ShoppingSearchCandidate {
+  url: string;
+  title: string;
+  text: string;
+  brand?: string;
+  imageUrl?: string;
+  price?: {
+    amount: number;
+    currency: string;
+  };
+  rating?: number;
+  reviews?: number;
+  availability?: "in_stock" | "limited" | "out_of_stock" | "unknown";
 }
 
 export type ShoppingFetcher = (args: {
@@ -163,7 +181,7 @@ export const SHOPPING_PROVIDER_PROFILES: ShoppingProviderProfile[] = [
     tier: "tier1",
     extractionFocus: "Search results, PDP pricing/condition, fulfillment options",
     legalReview: createLegalReviewChecklist("shopping/bestbuy"),
-    searchPath: (query) => `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(query)}`
+    searchPath: (query) => `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(query)}&intl=nosplash`
   },
   {
     name: "ebay",
@@ -243,7 +261,7 @@ export const SHOPPING_PROVIDER_PROFILES: ShoppingProviderProfile[] = [
     tier: "tier2",
     extractionFocus: "JSON-LD Product/Offer, OpenGraph, common PDP selectors",
     legalReview: createLegalReviewChecklist("shopping/others"),
-    searchPath: (query) => `https://duckduckgo.com/?q=${encodeURIComponent(`${query} buy`)}`
+    searchPath: (query) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(`${query} buy`)}`
   }
 ];
 
@@ -263,6 +281,51 @@ const fallbackReasonCodeForError = (error: {
   // resolveBrowserFallback is only reached from the default fetcher's recoverable paths.
   // auth/rate_limited carry explicit reason codes above; the remaining cases are env-limited.
   return "env_limited";
+};
+
+const resolveRecoverableFetchTimeoutMs = (context?: ProviderContext): number | undefined => {
+  if (!context?.browserFallbackPort) return undefined;
+  if (typeof context.timeoutMs !== "number" || !Number.isFinite(context.timeoutMs) || context.timeoutMs <= 0) {
+    return DEFAULT_RECOVERABLE_SHOPPING_FETCH_TIMEOUT_MS;
+  }
+  return Math.max(1, Math.min(context.timeoutMs, DEFAULT_RECOVERABLE_SHOPPING_FETCH_TIMEOUT_MS));
+};
+
+const bindRecoverableFetchSignal = (
+  signal: AbortSignal | undefined,
+  timeoutMs?: number
+): { signal?: AbortSignal; didTimeout: () => boolean; dispose: () => void } => {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return {
+      signal,
+      didTimeout: () => false,
+      dispose: () => undefined
+    };
+  }
+
+  let timedOut = false;
+  const controller = new AbortController();
+  const abortFromParent = () => {
+    controller.abort(signal?.reason);
+  };
+  if (signal?.aborted) {
+    abortFromParent();
+  } else {
+    signal?.addEventListener("abort", abortFromParent, { once: true });
+  }
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort("timeout");
+  }, timeoutMs);
+
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    dispose: () => {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", abortFromParent);
+    }
+  };
 };
 
 const readFallbackString = (output: Record<string, JsonValue> | undefined, key: "html" | "url"): string | undefined => {
@@ -291,12 +354,18 @@ const resolveBrowserFallback = async (args: {
     source: SHOPPING_SOURCE,
     operation: args.operation,
     reasonCode,
+    // Shopping browser recovery should prefer managed headed first now that
+    // managed sessions can reuse the user's Chrome cookies directly. This
+    // avoids leaning on legacy extension /cdp attach for JS-heavy search pages.
+    preferredModes: ["managed_headed", "extension"],
     trace: args.context?.trace ?? {
       requestId: `shopping-fallback-${Date.now()}`,
       provider: args.provider,
       ts: new Date().toISOString()
     },
     url: args.url,
+    timeoutMs: args.context?.timeoutMs,
+    signal: args.context?.signal,
     details: {
       errorCode: normalized.code,
       message: normalized.message,
@@ -306,6 +375,28 @@ const resolveBrowserFallback = async (args: {
     ...(args.context?.cookiePolicyOverride ? { cookiePolicyOverride: args.context.cookiePolicyOverride } : {})
   });
   if (!fallback.ok) {
+    if (fallback.reasonCode !== "env_limited") {
+      throw new ProviderRuntimeError(
+        fallback.reasonCode === "token_required" || fallback.reasonCode === "auth_required"
+          ? "auth"
+          : fallback.reasonCode === "rate_limited"
+            ? "rate_limited"
+            : "unavailable",
+        typeof fallback.details?.message === "string"
+          ? fallback.details.message
+          : `Browser fallback failed for ${args.url}`,
+        {
+          provider: args.provider,
+          source: SHOPPING_SOURCE,
+          retryable: fallback.reasonCode === "rate_limited",
+          reasonCode: fallback.reasonCode,
+          details: {
+            url: args.url,
+            ...(fallback.details ?? {})
+          }
+        }
+      );
+    }
     return null;
   }
 
@@ -353,6 +444,94 @@ export const validateShoppingLegalReviewChecklist = (
 
 const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operation, context }) => {
   const providerId = provider;
+  const profile = getShoppingProviderProfile(providerId) ?? SHOPPING_PROVIDER_PROFILES.at(-1)!;
+  const buildSurfaceIssueError = (
+    responseUrl: string,
+    issue: ReturnType<typeof classifyProviderIssue>,
+    details: Record<string, JsonValue>
+  ): ProviderRuntimeError => {
+    /* c8 ignore next -- browser-assistance classification always returns a reasonCode when issue is present */
+    const reasonCode = issue?.reasonCode ?? "env_limited";
+    const message = reasonCode === "token_required"
+      ? `Authentication required for ${responseUrl}`
+      : reasonCode === "challenge_detected"
+        ? `Detected anti-bot challenge while retrieving ${responseUrl}`
+        : `Browser assistance required for ${responseUrl}`;
+    return new ProviderRuntimeError(
+      providerErrorCodeFromReasonCode(reasonCode),
+      message,
+      {
+        provider: providerId,
+        source: SHOPPING_SOURCE,
+        retryable: reasonCode === "env_limited",
+        reasonCode,
+        details: applyProviderIssueHint(details, issue)
+      }
+    );
+  };
+  const detectFetchedPageError = (
+    responseUrl: string,
+    status: number,
+    html: string
+  ): ProviderRuntimeError | null => {
+    const extracted = extractStructuredContent(html, responseUrl);
+    const message = toSnippet(
+      [
+        extracted.metadata.title,
+        extracted.metadata.description,
+        extracted.text
+      ].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join(" "),
+      800
+    );
+    const blocker = classifyBlockerSignal({
+      source: "runtime_fetch",
+      url: responseUrl,
+      finalUrl: responseUrl,
+      title: typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined,
+      message,
+      status,
+      providerErrorCode: "unavailable",
+      retryable: true
+    });
+    if (blocker && blocker.type !== "unknown" && blocker.type !== "env_limited") {
+      return new ProviderRuntimeError("unavailable", `Detected ${blocker.type} while retrieving ${responseUrl}`, {
+        provider: providerId,
+        source: SHOPPING_SOURCE,
+        retryable: blocker.retryable,
+        reasonCode: blocker.reasonCode ?? "env_limited",
+        details: {
+          status,
+          url: responseUrl,
+          blockerType: blocker.type,
+          blockerConfidence: blocker.confidence,
+          ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
+          reasonCode: blocker.reasonCode ?? "env_limited"
+        }
+      });
+    }
+
+    const requirement = requiresBrowserAssistance(profile, responseUrl, html);
+    if (!requirement) return null;
+
+    const issue = classifyProviderIssue({
+      url: responseUrl,
+      title: requirement.title,
+      message: requirement.message,
+      providerShell: requirement.reason,
+      browserRequired: true,
+      status,
+      providerErrorCode: "unavailable",
+      retryable: true
+    });
+    return buildSurfaceIssueError(responseUrl, issue, {
+      status,
+      url: responseUrl,
+      browserRequired: true,
+      providerShell: requirement.reason,
+      ...(requirement.title ? { title: requirement.title } : {}),
+      ...(requirement.message ? { message: requirement.message } : {})
+    });
+  };
   const resolveFallbackOrThrow = async (error: ProviderRuntimeError): Promise<ShoppingFetchRecord> => {
     const fallback = await resolveBrowserFallback({
       error,
@@ -361,14 +540,21 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
       operation,
       context
     });
-    if (fallback) return fallback;
+    if (fallback) {
+      const fallbackError = detectFetchedPageError(fallback.url, fallback.status, fallback.html);
+      if (fallbackError) {
+        throw fallbackError;
+      }
+      return fallback;
+    }
     throw error;
   };
 
   let response: Response;
+  const rawFetchSignal = bindRecoverableFetchSignal(signal, resolveRecoverableFetchTimeoutMs(context));
   try {
     response = await fetch(url, {
-      signal,
+      signal: rawFetchSignal.signal,
       headers: {
         accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         ...providerRequestHeaders
@@ -376,13 +562,27 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
       redirect: "follow"
     });
   } catch (error) {
-    const runtimeError = new ProviderRuntimeError("network", `Failed to retrieve ${url}`, {
-      provider: providerId,
-      source: SHOPPING_SOURCE,
-      retryable: true,
-      cause: error
-    });
+    const runtimeError = new ProviderRuntimeError(
+      rawFetchSignal.didTimeout() ? "timeout" : "network",
+      rawFetchSignal.didTimeout() ? `Timed out retrieving ${url}` : `Failed to retrieve ${url}`,
+      {
+        provider: providerId,
+        source: SHOPPING_SOURCE,
+        retryable: true,
+        cause: error,
+        ...(rawFetchSignal.didTimeout()
+          ? {
+            details: {
+              url,
+              stage: `${operation}:raw_fetch_timeout`
+            }
+          }
+          : {})
+      }
+    );
     return resolveFallbackOrThrow(runtimeError);
+  } finally {
+    rawFetchSignal.dispose();
   }
 
   if (response.status === 401 || response.status === 403) {
@@ -414,17 +614,39 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
     return resolveFallbackOrThrow(runtimeError);
   }
 
+  const html = await response.text();
+  const responseUrl = response.url || url;
+  const fetchedPageError = detectFetchedPageError(responseUrl, response.status, html);
+  if (fetchedPageError) {
+    return await resolveFallbackOrThrow(fetchedPageError);
+  }
+
   return {
     status: response.status,
-    url: response.url || url,
-    html: await response.text()
+    url: responseUrl,
+    html
   };
 };
 
-const PRICE_RE = /([$€£])\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/;
+const PRICE_SYMBOL_RE = /([$€£])\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/;
+const PRICE_CODE_RE = /\b(USD|CAD|EUR|GBP)\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/i;
 const RATING_RE = /([0-5](?:\.[0-9])?)\s*(?:out of 5|\/5)/i;
 const REVIEWS_RE = /([0-9][0-9,]*)\s*(?:ratings|reviews)/i;
-
+const ANCHOR_RE = /<a\b([^>]*?)href\s*=\s*(?:(["'])(.*?)\2|([^\s>]+))([^>]*)>([\s\S]*?)<\/a>/gi;
+const NEWEGG_CARD_RE = /<div class="item-cell"[\s\S]*?(?=<div class="item-cell"|$)/gi;
+const GENERIC_NOISE_TITLE_RE = /^(quick view|previous page|next page|home|compare|\([0-9][0-9,]*\))$/i;
+const GENERIC_NOISE_URL_RE = /(?:\/(?:p\/pl|s(?:earch)?|signin|login|orders|cart|promotions|clearance|brandstore)\b|#IsFeedbackTab\b|\/Product\/RSS\b|[?&](?:page|k|d|n)=)/i;
+const DEFAULT_PRODUCT_URL_HINT_RE = /(?:\/dp\/|\/gp\/product\/|\/p\/[a-z0-9-]+|\/product(?:s)?\/|\/item(?:[/?-]|$)|\/sku\/)/i;
+const PROVIDER_PRODUCT_URL_HINT_RE: Partial<Record<ShoppingProviderName, RegExp>> = {
+  walmart: /\/ip(?:\/|$)/i,
+  bestbuy: /\/site\/[^?#]*\/\d+\.p(?:[?#]|$)/i,
+  ebay: /\/itm(?:\/|$)/i,
+  costco: /(?:\/|\.)(?:product|warehouse)\.[^?#]+\.html(?:[?#]|$)|[?&](?:prodid|itemnumber)=/i,
+  macys: /\/shop\/product\/|[?&]id=\d+/i,
+  aliexpress: /\/(?:item|i)\/[^?#]+/i,
+  temu: /\/(?:goods\.html|g-[^/?#]+\.html)(?:[?#]|$)/i,
+  others: /(?:\/ip(?:\/|$)|\/itm(?:\/|$)|\/product(?:s)?\/|\/sku\/|\/site\/[^?#]*\/\d+\.p(?:[?#]|$)|(?:\/|\.)(?:product|warehouse)\.[^?#]+\.html(?:[?#]|$))/i
+};
 const isHttpUrl = (value: string): boolean => {
   try {
     const protocol = new URL(value).protocol;
@@ -434,15 +656,76 @@ const isHttpUrl = (value: string): boolean => {
   }
 };
 
+const readAttribute = (tag: string, name: string): string | undefined => {
+  const quoted = new RegExp(`${name}\\s*=\\s*(["'])(.*?)\\1`, "i").exec(tag);
+  if (quoted?.[2]) return extractText(quoted[2]);
+  const unquoted = new RegExp(`${name}\\s*=\\s*([^\\s>]+)`, "i").exec(tag);
+  if (unquoted?.[1]) return extractText(unquoted[1]);
+  return undefined;
+};
+
+const readAnchorHref = (match: RegExpMatchArray): string | undefined => {
+  const quotedHref = match[3];
+  if (quotedHref) return quotedHref;
+  return match[4];
+};
+
+const readAnchorTag = (match: RegExpMatchArray): string => {
+  return `<a${match[1] ? ` ${match[1]}` : ""}${match[5] ? ` ${match[5]}` : ""}>`;
+};
+
+const readAnchorInnerHtml = (match: RegExpMatchArray): string => {
+  return match[6] as string;
+};
+
+const hasClassToken = (value: string | undefined, token: string): boolean => {
+  if (!value) return false;
+  return new RegExp(`(?:^|\\s)${token}(?:\\s|$)`, "i").test(value);
+};
+
+const findAnchorByClass = (
+  html: string,
+  token: string
+): { href: string; innerHtml: string; tag: string } | null => {
+  for (const match of html.matchAll(ANCHOR_RE)) {
+    const href = readAnchorHref(match);
+    if (!href) continue;
+    const tag = readAnchorTag(match);
+    if (!hasClassToken(readAttribute(tag, "class"), token)) continue;
+    return {
+      href,
+      innerHtml: readAnchorInnerHtml(match),
+      tag
+    };
+  }
+  return null;
+};
+
+const normalizePriceText = (text: string): string => {
+  return text
+    .replace(/([$€£])\s+/g, "$1")
+    .replace(/\b(USD|CAD|EUR|GBP)\s+/gi, (_match, code: string) => `${code.toUpperCase()} `)
+    .replace(/(\d)\s*([.,])\s*(\d{2})/g, "$1$2$3");
+};
+
 const parsePrice = (text: string): { amount: number; currency: string } => {
-  const match = text.match(PRICE_RE);
-  if (!match) {
+  const normalized = normalizePriceText(text);
+  const codeMatch = normalized.match(PRICE_CODE_RE);
+  if (codeMatch) {
+    const amount = Number(codeMatch[2]!.replace(/,/g, ""));
+    return {
+      amount: Number.isFinite(amount) ? amount : 0,
+      currency: codeMatch[1]!.toUpperCase()
+    };
+  }
+
+  const symbolMatch = normalized.match(PRICE_SYMBOL_RE);
+  if (!symbolMatch) {
     return { amount: 0, currency: DEFAULT_CURRENCY };
   }
 
-  const currencySymbol = match[1];
-  const raw = match[2]!.replace(/,/g, "");
-  const amount = Number(raw);
+  const currencySymbol = symbolMatch[1];
+  const amount = Number(symbolMatch[2]!.replace(/,/g, ""));
   const currency = currencySymbol === "€"
     ? "EUR"
     : currencySymbol === "£"
@@ -472,7 +755,7 @@ const parseAvailability = (text: string): "in_stock" | "limited" | "out_of_stock
   const lower = text.toLowerCase();
   if (/out of stock|sold out|unavailable/.test(lower)) return "out_of_stock";
   if (/limited|few left|only \d+ left/.test(lower)) return "limited";
-  if (/in stock|available now|ships/.test(lower)) return "in_stock";
+  if (/in stock|available now|ships|add to cart|free shipping/.test(lower)) return "in_stock";
   return "unknown";
 };
 
@@ -489,18 +772,381 @@ const dedupeLinks = (links: string[], limit: number): string[] => {
   return normalized.sort((left, right) => left.localeCompare(right));
 };
 
+const stripPriceScaffold = (title: string): string => {
+  return normalizePriceText(title)
+    .replace(/(?:USD|CAD|EUR|GBP)\s*(?=[0-9])/gi, " ")
+    .replace(/\b(?:USD|CAD|EUR|GBP|list|price|now|sale|deal|from)\b/gi, " ")
+    .replace(/[$€£]/g, " ")
+    .replace(/[0-9]+(?:[.,][0-9]+)*/g, " ")
+    .replace(/[():/.,-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const isPriceOnlyTitle = (title: string): boolean => {
+  const stripped = stripPriceScaffold(title);
+  return stripped.length < 8 || !/[a-z]{4,}/i.test(stripped);
+};
+
+const TRACKING_DESTINATION_PARAM_KEYS = [
+  "uddg",
+  "rd",
+  "url",
+  "u",
+  "dest",
+  "destination",
+  "redirect",
+  "redirect_url",
+  "target",
+  "to"
+] as const;
+
+const decodeTrackingDestination = (value: string): string | null => {
+  let current = value.trim();
+  if (!current) return null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) break;
+      current = decoded;
+    } catch {
+      break;
+    }
+  }
+  return current;
+};
+
+const decodeHrefValue = (value: string): string => {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&#x2f;/gi, "/")
+    .replace(/&#47;/gi, "/");
+};
+
+const requiresBrowserAssistance = (
+  profile: ShoppingProviderProfile,
+  responseUrl: string,
+  html: string
+): { reason: string; title?: string; message?: string } | null => {
+  const extracted = extractStructuredContent(html, responseUrl);
+  const title = typeof extracted.metadata.title === "string" ? extracted.metadata.title.trim() : "";
+  const text = extracted.text.trim();
+  const titleLower = title.toLowerCase();
+  const textLower = text.toLowerCase();
+
+  if (profile.name === "bestbuy") {
+    const hasInternationalGate = titleLower.includes("best buy international")
+      || textLower.includes("best buy international")
+      || textLower.includes("select your country")
+      || textLower.includes("choose a country");
+    if (hasInternationalGate) {
+      return {
+        reason: "bestbuy_international_gate",
+        ...(title ? { title } : {}),
+        ...(text ? { message: toSnippet(text, 400) } : {})
+      };
+    }
+  }
+
+  if (profile.name === "target") {
+    const isShellPage = /:\s*target$/i.test(title)
+      && textLower.includes("skip to main content")
+      && textLower.includes("skip to footer");
+    const isNextProductGridShell = /:\s*target$/i.test(title)
+      && (html.includes("WEB-search-product-grid-default") || html.includes("__TGT_DATA__"))
+      && !/href=(["'])[^"']*\/p\/[^"']+\1/i.test(html);
+    if (isShellPage || isNextProductGridShell) {
+      return {
+        reason: "target_shell_page",
+        ...(title ? { title } : {}),
+        message: toSnippet(text, 400)
+      };
+    }
+  }
+
+  if (profile.name === "temu") {
+    const htmlLower = html.toLowerCase();
+    const hasChallengeShell = /static(?:-\d+)?\.kwcdn\.com/i.test(html)
+      && (html.includes("/upload-static/assets/chl/js/") || textLower.includes("challenge"));
+    const hasObfuscatedChallengeShell = htmlLower.includes("challenge")
+      && html.length < 12000
+      && /function _0x[a-f0-9]+\(/i.test(html);
+    if (hasChallengeShell || hasObfuscatedChallengeShell) {
+      return {
+        reason: "temu_challenge_shell",
+        ...(title ? { title } : {}),
+        message: "Temu returned a challenge shell that requires a live browser session."
+      };
+    }
+    if (text.length === 0) {
+      return {
+        reason: "temu_empty_shell",
+        ...(title ? { title } : {}),
+        message: "Temu returned an empty shell page."
+      };
+    }
+  }
+
+  if (profile.name === "others" && textLower.includes("redirected to the non-javascript site")) {
+    return {
+      reason: "duckduckgo_non_js_redirect",
+      ...(title ? { title } : {}),
+      message: toSnippet(text, 400)
+    };
+  }
+
+  return null;
+};
+
+const unwrapTrackingUrl = (url: string, profile: ShoppingProviderProfile): string => {
+  const normalizedUrl = decodeHrefValue(url);
+  try {
+    const parsed = new URL(normalizedUrl);
+    for (const key of TRACKING_DESTINATION_PARAM_KEYS) {
+      const rawValue = parsed.searchParams.get(key);
+      if (!rawValue) continue;
+      const decoded = decodeTrackingDestination(rawValue);
+      if (!decoded) continue;
+      const candidate = canonicalizeUrl(decoded);
+      if (isKnownProviderDomain(candidate, profile) && !GENERIC_NOISE_URL_RE.test(candidate) && hasProductUrlHint(candidate, profile)) {
+        return candidate;
+      }
+    }
+  } catch {
+    // ignore malformed tracking wrappers and continue with string-based recovery
+  }
+
+  const schemeIndex = normalizedUrl.indexOf("://");
+  const searchFrom = schemeIndex >= 0 ? schemeIndex + 3 : 0;
+  const nestedSchemes = [
+    normalizedUrl.indexOf("https://", searchFrom),
+    normalizedUrl.indexOf("http://", searchFrom)
+  ].filter((index) => index >= 0).sort((left, right) => left - right);
+  const nestedIndex = nestedSchemes[0];
+  if (typeof nestedIndex === "number" && nestedIndex >= 0) {
+    const candidate = canonicalizeUrl(normalizedUrl.slice(nestedIndex));
+    if (isKnownProviderDomain(candidate, profile) && !GENERIC_NOISE_URL_RE.test(candidate) && hasProductUrlHint(candidate, profile)) {
+      return candidate;
+    }
+  }
+
+  return normalizedUrl;
+};
+
+const normalizeCandidateUrl = (href: string, baseUrl: string, profile: ShoppingProviderProfile): string | null => {
+  try {
+    const resolved = canonicalizeUrl(new URL(decodeHrefValue(href), baseUrl).toString());
+    return unwrapTrackingUrl(resolved, profile);
+  } catch {
+    return null;
+  }
+};
+
+const isKnownProviderDomain = (url: string, profile: ShoppingProviderProfile): boolean => {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return profile.domains.length === 0 || profile.domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
+};
+
+const hasProductUrlHint = (url: string, profile: ShoppingProviderProfile): boolean => {
+  const providerHint = PROVIDER_PRODUCT_URL_HINT_RE[profile.name];
+  return providerHint?.test(url) === true || DEFAULT_PRODUCT_URL_HINT_RE.test(url);
+};
+
+const isLikelyProductUrl = (url: string, profile: ShoppingProviderProfile): boolean => {
+  if (!isHttpUrl(url)) return false;
+  if (!isKnownProviderDomain(url, profile)) return false;
+  if (/\.(?:png|jpe?g|gif|webp|svg|ico|css|js)(?:$|\?)/i.test(url)) return false;
+  if (GENERIC_NOISE_URL_RE.test(url)) return false;
+  return hasProductUrlHint(url, profile);
+};
+
+const candidateUrlKey = (url: string): string => {
+  const parsed = new URL(url);
+  parsed.hash = "";
+  parsed.search = "";
+  parsed.pathname = parsed.pathname.replace(/\/ref=[^/]+$/i, "");
+  const amazonDpMatch = parsed.pathname.match(/^(\/[^/]+\/(?:dp|gp\/product)\/[A-Z0-9]+)/i);
+  if (amazonDpMatch?.[1]) {
+    parsed.pathname = amazonDpMatch[1];
+  }
+  return canonicalizeUrl(parsed.toString());
+};
+
+const scoreCandidate = (candidate: ShoppingSearchCandidate): number => {
+  let score = Math.min(candidate.title.length, 180) / 180;
+  if (candidate.brand) score += 1;
+  if (candidate.price && candidate.price.amount > 0) score += 2;
+  if (candidate.rating && candidate.rating > 0) score += 1;
+  if (candidate.reviews && candidate.reviews > 0) score += 1;
+  if (candidate.availability === "in_stock" || candidate.availability === "limited") score += 0.5;
+  if (isPriceOnlyTitle(candidate.title)) score -= 5;
+  return score;
+};
+
+const dedupeCandidates = (candidates: ShoppingSearchCandidate[], limit: number): ShoppingSearchCandidate[] => {
+  const deduped = new Map<string, ShoppingSearchCandidate>();
+  for (const candidate of candidates) {
+    const key = candidateUrlKey(candidate.url);
+    const existing = deduped.get(key);
+    if (!existing || scoreCandidate(candidate) > scoreCandidate(existing)) {
+      deduped.set(key, candidate);
+    }
+    if (deduped.size >= limit) break;
+  }
+  return [...deduped.values()];
+};
+
+const extractNeweggSearchCandidates = (
+  html: string,
+  baseUrl: string,
+  profile: ShoppingProviderProfile,
+  limit: number
+): ShoppingSearchCandidate[] => {
+  const candidates: ShoppingSearchCandidate[] = [];
+  for (const match of html.matchAll(NEWEGG_CARD_RE)) {
+    const cardHtml = match[0];
+    const titleAnchor = findAnchorByClass(cardHtml, "item-title");
+    if (!titleAnchor?.href) continue;
+    const url = normalizeCandidateUrl(titleAnchor.href, baseUrl, profile);
+    if (!url || !isLikelyProductUrl(url, profile)) continue;
+
+    const title = extractText(titleAnchor.innerHtml)
+      || readAttribute(titleAnchor.tag, "aria-label")
+      || readAttribute(titleAnchor.tag, "title");
+    if (!title || GENERIC_NOISE_TITLE_RE.test(title)) continue;
+
+    const priceFragment = /<li\b[^>]*class=["'][^"']*price-current[^"']*["'][^>]*>([\s\S]*?)<\/li>/i.exec(cardHtml)?.[1] ?? "";
+    const ratingFragment = /aria-label=["']rated ([0-9.]+) out of 5["']/i.exec(cardHtml)?.[1]
+      ?? /title=["']Rating \+ ([0-9.]+)["']/i.exec(cardHtml)?.[1];
+    const reviewsFragment = /<span\b[^>]*class=["'][^"']*item-rating-num[^"']*["'][^>]*>\(([0-9][0-9,]*)/i.exec(cardHtml)?.[1];
+    const brandAnchor = findAnchorByClass(cardHtml, "item-brand");
+    const imageAnchor = findAnchorByClass(cardHtml, "item-img");
+    const brand = /<li>\s*<strong>\s*Brand:\s*<\/strong>\s*([^<]+)/i.exec(cardHtml)?.[1]
+      ?? readAttribute(cardHtml, "data-brand")
+      ?? (brandAnchor ? /<img\b[^>]*(?:alt|title)=(["'])(.*?)\1/i.exec(brandAnchor.innerHtml)?.[2] : undefined);
+    const imageUrl = imageAnchor ? /<img\b[^>]*src=(["'])(.*?)\1/i.exec(imageAnchor.innerHtml)?.[2] : undefined;
+    const text = toSnippet(extractText(cardHtml), 2000);
+    const price = parsePrice(priceFragment || text);
+    const rating = ratingFragment ? Number(ratingFragment) : parseRating(text);
+    const reviews = reviewsFragment ? Number(reviewsFragment.replace(/,/g, "")) : parseReviews(text);
+    const availability = parseAvailability(text);
+
+    candidates.push({
+      url,
+      title,
+      text,
+      ...(brand ? { brand: extractText(brand) } : {}),
+      ...(imageUrl ? { imageUrl: normalizeCandidateUrl(imageUrl, baseUrl, profile) ?? imageUrl } : {}),
+      ...(price.amount > 0 ? { price } : {}),
+      ...(Number.isFinite(rating) && rating > 0 ? { rating } : {}),
+      ...(Number.isFinite(reviews) && reviews > 0 ? { reviews } : {}),
+      availability
+    });
+    if (candidates.length >= limit) break;
+  }
+  return dedupeCandidates(candidates, limit);
+};
+
+const extractGenericSearchCandidates = (
+  html: string,
+  baseUrl: string,
+  profile: ShoppingProviderProfile,
+  limit: number
+): ShoppingSearchCandidate[] => {
+  const candidates: ShoppingSearchCandidate[] = [];
+  for (const match of html.matchAll(ANCHOR_RE)) {
+    const href = readAnchorHref(match);
+    if (!href) continue;
+    const url = normalizeCandidateUrl(href, baseUrl, profile);
+    if (!url || !isLikelyProductUrl(url, profile)) continue;
+
+    const anchorTag = readAnchorTag(match);
+    const inner = readAnchorInnerHtml(match);
+    const title = extractText(inner)
+      || readAttribute(anchorTag, "aria-label")
+      || readAttribute(anchorTag, "title");
+    if (!title || title.length < 20 || GENERIC_NOISE_TITLE_RE.test(title) || isPriceOnlyTitle(title)) continue;
+
+    const matchIndex = match.index as number;
+    const start = Math.max(0, matchIndex - 400);
+    const end = Math.min(html.length, matchIndex + inner.length + 1800);
+    const context = toSnippet(extractText(html.slice(start, end)), 1800);
+    const price = parsePrice(context);
+    const rating = parseRating(context);
+    const reviews = parseReviews(context);
+    const imageUrl = /<img\b[^>]*src=(["'])(.*?)\1/i.exec(inner)?.[2];
+    const availability = parseAvailability(context);
+
+    candidates.push({
+      url,
+      title,
+      text: context,
+      ...(imageUrl ? { imageUrl: normalizeCandidateUrl(imageUrl, baseUrl, profile) ?? imageUrl } : {}),
+      ...(price.amount > 0 ? { price } : {}),
+      ...(rating > 0 ? { rating } : {}),
+      ...(reviews > 0 ? { reviews } : {}),
+      availability
+    });
+    if (candidates.length >= limit) break;
+  }
+  return dedupeCandidates(candidates, limit);
+};
+
+const extractSearchCandidates = (
+  html: string,
+  baseUrl: string,
+  profile: ShoppingProviderProfile,
+  limit: number
+): ShoppingSearchCandidate[] => {
+  if (profile.name === "newegg") {
+    const newegg = extractNeweggSearchCandidates(html, baseUrl, profile, limit);
+    if (newegg.length > 0) return newegg;
+  }
+  return extractGenericSearchCandidates(html, baseUrl, profile, limit);
+};
+
+const compactImageUrls = (values: Array<string | undefined>): string[] => {
+  const seen = new Set<string>();
+  const compacted: string[] = [];
+  for (const value of values) {
+    const candidate = typeof value === "string" ? value.trim() : "";
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    compacted.push(candidate);
+  }
+  return compacted;
+};
+
 const deriveOfferAttributes = (args: {
   profile: ShoppingProviderProfile;
   url: string;
   title: string;
   text: string;
   rank: number;
+  brand?: string;
+  imageUrl?: string;
+  imageUrls?: string[];
+  price?: {
+    amount: number;
+    currency: string;
+  };
+  rating?: number;
+  reviews?: number;
+  availability?: "in_stock" | "limited" | "out_of_stock" | "unknown";
 }): Record<string, JsonValue> => {
   const nowIso = new Date().toISOString();
-  const price = parsePrice(args.text);
-  const rating = parseRating(args.text);
-  const reviews = parseReviews(args.text);
-  const availability = parseAvailability(args.text);
+  const price = args.price ?? parsePrice(args.text);
+  const rating = args.rating ?? parseRating(args.text);
+  const reviews = args.reviews ?? parseReviews(args.text);
+  const availability = args.availability ?? parseAvailability(args.text);
+  const imageUrls = compactImageUrls([
+    ...(Array.isArray(args.imageUrls) ? args.imageUrls : []),
+    args.imageUrl
+  ]);
 
   return {
     shopping_offer: {
@@ -523,6 +1169,8 @@ const deriveOfferAttributes = (args: {
       reviews_count: reviews,
       capture_timestamp: nowIso
     },
+    ...(args.brand ? { brand: args.brand } : {}),
+    ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
     extractionQuality: {
       hasUrl: args.url.length > 0,
       hasTitle: args.title.length > 0,
@@ -612,8 +1260,72 @@ const createDefaultSearch = (
   const extracted = extractStructuredContent(fetched.html, fetched.url);
 
   const limit = Math.max(1, Math.min(input.limit ?? 10, 20));
-  const links = dedupeLinks(extracted.links, limit);
+  const links = dedupeLinks(
+    extracted.links.filter((link) => isLikelyProductUrl(canonicalizeUrl(link), profile)),
+    limit
+  );
   const content = toSnippet(extracted.text, 2000);
+  const candidates = extractSearchCandidates(fetched.html, fetched.url, profile, limit);
+  const pageIssue = candidates.length === 0
+    ? classifyProviderIssue({
+      url: fetched.url,
+      title: typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined,
+      message: content,
+      status: fetched.status,
+      providerErrorCode: "unavailable",
+      retryable: true
+    })
+    : null;
+
+  if (candidates.length > 0) {
+    return candidates.map((candidate, index) => ({
+      url: candidate.url,
+      title: candidate.title,
+      content: candidate.text,
+      confidence: Math.max(0.55, 0.88 - index * 0.04),
+      attributes: {
+        ...deriveOfferAttributes({
+          profile,
+          url: candidate.url,
+          title: candidate.title,
+          text: candidate.text,
+          rank: index + 1,
+          ...(candidate.brand ? { brand: candidate.brand } : {}),
+          ...(candidate.imageUrl ? { imageUrl: candidate.imageUrl } : {}),
+          ...(candidate.price ? { price: candidate.price } : {}),
+          ...(candidate.rating ? { rating: candidate.rating } : {}),
+          ...(candidate.reviews ? { reviews: candidate.reviews } : {}),
+          ...(candidate.availability ? { availability: candidate.availability } : {})
+        }),
+        rank: index + 1,
+        retrievalPath: "shopping:search:result-card"
+      }
+    }));
+  }
+
+  if (pageIssue && (pageIssue.reasonCode !== "env_limited" || pageIssue.constraint)) {
+    const reasonCode = pageIssue.reasonCode;
+    throw new ProviderRuntimeError(
+      providerErrorCodeFromReasonCode(reasonCode),
+      reasonCode === "token_required"
+        ? `Authentication required for ${fetched.url}`
+        : reasonCode === "challenge_detected"
+          ? `Detected anti-bot challenge while retrieving ${fetched.url}`
+          : `Browser assistance required for ${fetched.url}`,
+      {
+        provider: providerId,
+        source: SHOPPING_SOURCE,
+        retryable: reasonCode === "env_limited",
+        reasonCode,
+        details: applyProviderIssueHint({
+          status: fetched.status,
+          url: fetched.url,
+          ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
+          ...(content ? { message: content } : {})
+        }, pageIssue)
+      }
+    );
+  }
 
   const rows: ShoppingSearchRecord[] = [
     {
@@ -631,32 +1343,15 @@ const createDefaultSearch = (
         }),
         status: fetched.status,
         links,
-        retrievalPath: isHttpUrl(query) ? "shopping:search:url" : "shopping:search:index"
+        retrievalPath: isHttpUrl(query) ? "shopping:search:url" : "shopping:search:index",
+        ...(pageIssue ? { reasonCode: pageIssue.reasonCode } : {}),
+        ...(pageIssue?.blockerType ? { blockerType: pageIssue.blockerType } : {}),
+        ...(pageIssue?.constraint ? { constraint: pageIssue.constraint } : {})
       }
     }
   ];
 
-  links.forEach((link, index) => {
-    rows.push({
-      url: link,
-      title: link,
-      content: index === 0 ? content : undefined,
-      confidence: Math.max(0.45, 0.72 - index * 0.03),
-      attributes: {
-        ...deriveOfferAttributes({
-          profile,
-          url: link,
-          title: link,
-          text: extracted.text,
-          rank: index + 1
-        }),
-        rank: index + 1,
-        retrievalPath: "shopping:search:link"
-      }
-    });
-  });
-
-  return rows.slice(0, limit + 1);
+  return rows.slice(0, 1);
 };
 
 const createDefaultFetch = (
@@ -684,7 +1379,15 @@ const createDefaultFetch = (
         url: fetched.url,
         title,
         text: extracted.text,
-        rank: 1
+        rank: 1,
+        ...(extracted.metadata.brand ? { brand: extracted.metadata.brand } : {}),
+        ...(extracted.metadata.imageUrls.length > 0 ? { imageUrls: extracted.metadata.imageUrls } : {}),
+        ...(extracted.metadata.price ? {
+          price: {
+            amount: extracted.metadata.price.amount,
+            currency: extracted.metadata.price.currency
+          }
+        } : {})
       }),
       status: fetched.status,
       links: dedupeLinks(extracted.links, 30),

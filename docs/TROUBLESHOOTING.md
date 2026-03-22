@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Status: active  
-Last updated: 2026-03-13
+Last updated: 2026-03-20
 
 ## Hub daemon status
 
@@ -22,16 +22,118 @@ The daemon port/token are persisted in `opendevbrowser.jsonc` as `daemonPort`/`d
 `npx opendevbrowser status --daemon` includes a legend for:
 - `extensionConnected` – popup websocket connected
 - `extensionHandshakeComplete` – extension handshake finished
-- `opsConnected` – any `/ops` client attached (expected **false** until a relay client launches/connects)
+- `opsConnected` – any `/ops` client attached (presence only; not a guarantee that the current extension target is ops-owned)
 - `canvasConnected` – any `/canvas` client attached (expected **false** unless design-canvas preview or overlay flows are active)
 - `cdpConnected` – any `/cdp` client attached (legacy path, expected **false** unless `--extension-legacy` is used)
 - `annotationConnected` – annotation websocket attached (expected **false** unless annotate relay transport is active)
-- `pairingRequired` – relay token required for `/ops`, `/canvas`, and `/cdp`
-- `health.reason` – relay health summary (`ok`, `no_extension`, `extension_no_handshake`, etc.)
+- `pairingRequired` – relay token required for `/ops`, `/canvas`, `/annotation`, and `/cdp`
+- `health.reason` – relay health summary (`ok`, `extension_disconnected`, `handshake_incomplete`, etc.)
 
 If `opsConnected` stays `false` after extension-mode `launch`/`connect`, restart the daemon and reconnect the extension.
 If `canvasConnected` stays `false` during `opendevbrowser canvas` preview/overlay work, confirm the extension is connected and retry the canvas command after `status --daemon`.
 `cdpConnected` remaining `false` is normal for default `/ops` sessions.
+
+### Canvas inventory vs starter commands
+
+Built-in design kits still ship through the inventory surface, and starter commands now compose those same inventory and token paths instead of using a second store.
+
+- Use `npx opendevbrowser canvas --command canvas.inventory.list --params '{"canvasSessionId":"<canvas-session-id>"}' --output-format json` to confirm the merged inventory surface.
+- Document-promoted items and built-in kit catalog entries can both be inserted with `canvas.inventory.insert`.
+- Use `npx opendevbrowser canvas --command canvas.starter.list --params '{"canvasSessionId":"<canvas-session-id>"}' --output-format json` to inspect the eight shipped built-in starters and their kit linkage.
+- Use `canvas.starter.apply` when you want OpenDevBrowser to seed a starter shell, merge starter tokens, and install required kit inventory into the live document. If the requested framework or adapter is unsupported, the command still succeeds with `degraded=true` and a typed reason such as `framework_unavailable:<id>`.
+
+### Canvas history and extension-stage annotation
+
+- `canvas.history.undo` and `canvas.history.redo` require both an accepted generation plan and the active `leaseId`.
+- Before the first accepted-plan mutation, both commands return `reason=history_empty`; this is expected.
+- If history suddenly clears after an out-of-band mutation, inspect canvas feedback for `history_invalidated`; the recorded stack was reset because the document revision drifted outside the stored preimage.
+- Extension design-tab history clicks emit the internal `canvas_history_requested` event, but operator-facing recovery still happens through public `canvas.history.undo` and `canvas.history.redo`.
+- Freeform region annotation is only available inside the extension-hosted `canvas.html` stage. Existing page overlays still use `canvas.overlay.*` selection instead of remote freeform capture.
+
+### Canvas framework adapters and local plugins
+
+`canvas.code.status` is the quickest adapter audit surface. It now reports:
+
+- `frameworkAdapterId`, `frameworkId`, and `sourceFamily`
+- `declaredCapabilities`, `grantedCapabilities`, and `capabilityDenials`
+- deterministic `reasonCode` values such as `framework_migrated`, `manifest_migrated`, `plugin_not_found`, and `plugin_load_failed`
+
+Quick checks:
+
+- React TSX, static HTML, custom elements, Vue SFC, and Svelte SFC are the built-in framework lanes currently covered by named fixtures.
+- Legacy `tsx-react-v1` manifests and bindings migrate at load time to `builtin:react-tsx-v2`.
+- Repo-local BYO plugins are discovered from workspace `package.json`, `.opendevbrowser/canvas/adapters.json`, and explicit local config declarations only.
+- Package declarations that resolve outside the active worktree are rejected with `trust_denied`.
+- Broken plugin entrypoints or malformed manifests surface deterministic load errors instead of silently disappearing.
+
+## Annotation send fallback and shared inbox
+
+Popup, canvas, and in-page annotation `Send` actions now attempt shared inbox delivery through `/annotation` before they fall back to local storage.
+The extension background owns the `annotation:sendPayload` bridge, posts `store_agent_payload`, and the relay resolves the shared path through `AgentInbox` before falling back to local storage.
+
+Quick checks:
+
+1. If the UI says `Delivered to agent`, the payload was scoped to the active chat session for the current worktree.
+2. If the UI says `Stored only; fetch with annotate --stored`, retrieve it explicitly:
+   - `npx opendevbrowser annotate --session-id <session-id> --stored`
+3. If `--stored` returns the sanitized payload without screenshots, add `--include-screenshots` only when you want to prefer the extension-local in-memory fallback copy.
+4. Shared inbox files live under `.opendevbrowser/annotate/`; inspect `agent-inbox.jsonl` only for local debugging, not as a public API contract.
+
+Common reasons for stored-only receipts:
+
+- `no_active_scope` — no current chat scope was registered for the worktree.
+- `ambiguous_scope` — more than one active chat scope exists for the same worktree.
+- Relay enqueue failed — the extension could still keep the payload available via the local stored fallback path.
+
+## Popup annotation start failures
+
+If the extension popup says `Annotation UI did not load in the page. Reload the tab and retry.`:
+
+1. Focus the intended http(s) tab once. The popup now prefers the active web tab and otherwise falls back to the last annotatable web tab it observed, not `canvas.html` or another extension page.
+   It also restores that last annotatable web tab after an MV3 service-worker restart, so a fresh popup open does not have to guess from unrelated recent tabs.
+2. Reload the target page and retry `Annotate`.
+3. If you rebuilt the unpacked extension locally, reload the extension in Chrome before retrying so the current background and annotation content-script bundles are active.
+
+If relay `annotate --transport relay` still reaches a normal timeout on that same tab, the annotation UI loaded and is waiting for selection; the popup error then points to stale extension code or popup-time tab resolution rather than a broken page-side annotation runtime.
+
+## Temp-profile unpacked extension harnesses appear inert
+
+If you launch a separate browser process with flags such as `--disable-extensions-except` and `--load-extension`, but the unpacked extension never appears:
+
+1. Do not trust the result if the browser binary is Google Chrome stable.
+2. Chrome stable can log `--disable-extensions-except is not allowed in Google Chrome, ignoring.` and silently skip the isolated unpacked-extension harness.
+3. Use Chromium or Chrome for Testing for isolated extension automation, or reload the already-installed unpacked extension in your real Chrome profile and reconnect it to the relay.
+
+This only affects startup-flag-driven temp-profile harnesses. It does not change the supported real-profile unpacked-extension flow described elsewhere in the docs.
+
+## Canvas design-tab stale-runtime failures
+
+If live `/canvas` design-tab commands fail with:
+
+`[restricted_url] Cannot access contents of url "chrome-extension://.../canvas.html". Extension manifest must request permission to access this host.`
+
+then Chrome is still serving stale unpacked-extension runtime code.
+
+1. Run `npm run extension:build` if you have not rebuilt since the latest source changes.
+2. Reload the unpacked extension in Chrome from `chrome://extensions`.
+3. Reconnect the extension to the relay, then retry the `/canvas` command sequence.
+
+If the same command succeeds after reload, treat the earlier `restricted_url` result as stale-runtime drift, not as a source regression in the current repo.
+
+## Legacy `/cdp` attach blocked by `/ops`
+
+If `launch --extension-legacy` or another legacy relay `/cdp` flow fails with:
+
+`cdp_attach_blocked: target is owned by an ops session`
+
+then the relay is already serving that extension target through `/ops`.
+
+1. Disconnect the active `/ops` browser session, or restart the daemon if the old lease is stale.
+2. Use `npx opendevbrowser status --daemon --output-format json` as a quick hint only:
+   `opsConnected=false` is sufficient, but `opsConnected=true` can still be compatible when the attached `/ops` client owns a different target.
+3. Retry the legacy `/cdp` command. If it still returns `cdp_attach_blocked`, the requested extension target is still owned by `/ops`; disconnect that session or recycle the daemon and retry.
+
+This is expected exclusivity between the concurrent `/ops` channel and the compatibility-only legacy `/cdp` channel; it is not a daemon crash condition anymore.
 
 ## First-run daemon collisions in shared environments
 
@@ -51,6 +153,18 @@ npx opendevbrowser status --daemon --output-format json
 ```
 
 Without isolation, existing daemon metadata can cause session/token/port collisions and misleading `Unknown sessionId` errors.
+
+## Managed or CDP session is missing expected login cookies
+
+If a headed or headless managed session, or a direct `cdpConnect` session, does not appear logged in:
+
+1. Check what the session actually has:
+   `npx opendevbrowser cookie-list --session-id <session-id> --output-format json`
+2. Remember the mode boundary:
+   - `extension` mode reuses the cookies already present in the live tab or profile you attached to.
+   - `managed` and direct `cdpConnect` sessions attempt automatic Chrome-family cookie bootstrap from the discovered system profile before first navigation.
+3. If the target site has no cookie in the source Chrome-family profile, nothing will be imported. This commonly explains site-by-site mismatches more often than a runtime regression.
+4. Use `cookie-import` only when you intentionally need to add or override cookies after session creation; it is the explicit additive lane, not the automatic bootstrap path.
 
 ## Provider anti-bot and transcript failures
 
@@ -234,20 +348,25 @@ Use this sequence to validate extension-only mode end-to-end:
 
 For broad regression checks, run:
 - `npm run build`
-- `node scripts/live-regression-matrix.mjs`
-- `node scripts/provider-live-matrix.mjs --smoke`
-- `node scripts/provider-live-matrix.mjs`
+- `node scripts/live-regression-direct.mjs`
+- `node scripts/provider-direct-runs.mjs --smoke`
+- `node scripts/provider-direct-runs.mjs`
 - `node scripts/cli-smoke-test.mjs`
 - `node scripts/chrome-store-compliance-check.mjs`
 - `node scripts/docs-drift-check.mjs`
 - `node scripts/audit-zombie-files.mjs`
 
-`provider-live-matrix` full mode now probes browser social flows across `managed`, `extension`, and `cdpConnect`; keep the extension connected before running.
+`provider-direct-runs` executes direct provider-by-provider cases for web, community, social, and shopping without nesting a separate live-regression pack or relying on synthetic matrix artifacts.
 By default it skips auth-gated provider cases, high-friction provider cases, and social post probes (research-first mode). Add `--include-auth-gated`, `--include-high-friction`, or `--include-social-posts` when you intentionally want those checks.
+The direct provider harness now keeps generic timeout outcomes as real `fail` rows instead of collapsing them into `env_limited`; only explicit capability/auth/challenge boundaries should remain `env_limited`.
+`live-regression-direct` executes explicit child runs for CLI smoke, `/canvas` on managed headless/headed + extension + CDP, and `annotate` relay/direct probes. Keep the daemon healthy and the extension connected before running extension or CDP scenarios.
+The direct harness now uses temporary managed profiles for managed `/canvas` surfaces and the direct annotate probe, and it waits for `/ops` ownership to clear before the legacy `/cdp` step. In strict release mode, manual annotation timeouts remain explicit `skipped` boundaries rather than runtime failures.
 
 For release hardening, use strict gate mode:
-- `node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-live-matrix.json`
-- `node scripts/live-regression-matrix.mjs --release-gate`
+- `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json`
+- `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json`
+
+The canonical direct-run release evidence policy lives in `skills/opendevbrowser-best-practices/SKILL.md`; keep matrix wrappers debug-only.
 
 ## Chrome version too old
 

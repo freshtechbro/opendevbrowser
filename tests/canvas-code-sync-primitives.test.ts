@@ -8,13 +8,24 @@ import { buildManifestLookup, locatorKey } from "../src/canvas/code-sync/graph";
 import { finalizeCodeSyncManifest, writeCodeSyncSource } from "../src/canvas/code-sync/write";
 import {
   DEFAULT_CODE_SYNC_OWNERSHIP,
+  inferBuiltInFrameworkAdapterIdFromPath,
+  inferCodeSyncSourceFamilyFromPath,
   isCodeSyncProjectionMode,
   isCodeSyncState,
+  normalizeCodeSyncRootLocator,
   normalizeCodeSyncBindingMetadata,
+  normalizeCodeSyncCapabilityGrant,
   normalizeCodeSyncOwnership,
+  normalizeFrameworkAdapterIdentity,
   type CodeSyncManifest,
   type CodeSyncSourceLocator
 } from "../src/canvas/code-sync/types";
+
+function reactExportLocator(exportName: string, selector?: string) {
+  return selector
+    ? { kind: "react-export" as const, exportName, selector }
+    : { kind: "react-export" as const, exportName };
+}
 
 function buildLocator(overrides: Partial<CodeSyncSourceLocator> = {}): CodeSyncSourceLocator {
   return {
@@ -29,12 +40,27 @@ function buildLocator(overrides: Partial<CodeSyncSourceLocator> = {}): CodeSyncS
 }
 
 function buildManifest(overrides: Partial<CodeSyncManifest> = {}): CodeSyncManifest {
+  const metadata = normalizeCodeSyncBindingMetadata({
+    adapter: "tsx-react-v1",
+    repoPath: "src/app.tsx",
+    exportName: "App",
+    syncMode: "manual",
+    ownership: {}
+  });
   return {
+    manifestVersion: metadata.manifestVersion,
     bindingId: "binding_code",
     documentId: "dc_sync",
-    repoPath: "src/app.tsx",
-    adapter: "tsx-react-v1",
-    rootLocator: { exportName: "App" },
+    repoPath: metadata.repoPath,
+    adapter: metadata.adapter,
+    frameworkAdapterId: metadata.frameworkAdapterId,
+    frameworkId: metadata.frameworkId,
+    sourceFamily: metadata.sourceFamily,
+    adapterKind: metadata.adapterKind,
+    adapterVersion: metadata.adapterVersion,
+    pluginId: metadata.pluginId,
+    libraryAdapterIds: [...metadata.libraryAdapterIds],
+    rootLocator: metadata.rootLocator,
     sourceHash: "hash_123",
     documentRevision: 3,
     nodeMappings: [{
@@ -43,6 +69,7 @@ function buildManifest(overrides: Partial<CodeSyncManifest> = {}): CodeSyncManif
     }],
     lastImportedAt: "2026-03-12T00:00:00.000Z",
     lastPushedAt: "2026-03-12T01:00:00.000Z",
+    reasonCode: metadata.reasonCode,
     ...overrides
   };
 }
@@ -102,6 +129,102 @@ describe("canvas code-sync primitive helpers", () => {
     });
   });
 
+  it("infers built-in framework lanes and plugin identities from repo paths", () => {
+    expect(inferBuiltInFrameworkAdapterIdFromPath("src/App.vue")).toBe("builtin:vue-sfc-v1");
+    expect(inferBuiltInFrameworkAdapterIdFromPath("src/App.svelte")).toBe("builtin:svelte-sfc-v1");
+    expect(inferBuiltInFrameworkAdapterIdFromPath("public/index.html")).toBe("builtin:html-static-v1");
+    expect(inferBuiltInFrameworkAdapterIdFromPath("public/index.htm")).toBe("builtin:html-static-v1");
+    expect(inferCodeSyncSourceFamilyFromPath("src/routes/+page.svelte")).toBe("svelte-sfc");
+
+    expect(normalizeFrameworkAdapterIdentity({
+      adapter: "acme/astro-v1",
+      repoPath: "src/App.vue"
+    })).toMatchObject({
+      adapter: "acme/astro-v1",
+      frameworkAdapterId: "acme/astro-v1",
+      frameworkId: "vue",
+      sourceFamily: "vue-sfc",
+      adapterKind: "plugin",
+      pluginId: "acme"
+    });
+
+    expect(normalizeFrameworkAdapterIdentity({
+      adapter: null,
+      frameworkAdapterId: "builtin:custom-elements-v1",
+      repoPath: "src/app.js"
+    })).toMatchObject({
+      adapter: "builtin:custom-elements-v1",
+      frameworkAdapterId: "builtin:custom-elements-v1",
+      frameworkId: "custom-elements",
+      sourceFamily: "custom-elements",
+      adapterKind: "custom-elements"
+    });
+  });
+
+  it("keeps selector-aware root locators across react and vue bindings", () => {
+    expect(normalizeCodeSyncRootLocator({
+      kind: "react-export",
+      exportName: "Hero",
+      selector: "#root"
+    }, {
+      sourceFamily: "react-tsx"
+    })).toEqual({
+      kind: "react-export",
+      exportName: "Hero",
+      selector: "#root"
+    });
+
+    expect(normalizeCodeSyncBindingMetadata({
+      adapter: "builtin:vue-sfc-v1",
+      repoPath: "src/App.vue",
+      selector: "#app",
+      syncMode: "manual",
+      ownership: {}
+    }).rootLocator).toEqual({
+      kind: "vue-template",
+      selector: "#app"
+    });
+  });
+
+  it("normalizes builtin and plugin adapter identities when the adapter field is omitted", () => {
+    expect(normalizeFrameworkAdapterIdentity({
+      adapter: "builtin:custom-elements-v1",
+      repoPath: "src/app.js"
+    })).toMatchObject({
+      adapter: "builtin:custom-elements-v1",
+      frameworkAdapterId: "builtin:custom-elements-v1",
+      frameworkId: "custom-elements",
+      sourceFamily: "custom-elements",
+      adapterKind: "custom-elements"
+    });
+
+    expect(normalizeFrameworkAdapterIdentity({
+      adapter: null,
+      frameworkAdapterId: "acme/svelte-kit",
+      repoPath: "src/routes/+page.svelte"
+    })).toMatchObject({
+      adapter: "acme/svelte-kit",
+      frameworkAdapterId: "acme/svelte-kit",
+      frameworkId: "svelte",
+      sourceFamily: "svelte-sfc",
+      adapterKind: "plugin",
+      pluginId: "acme"
+    });
+
+    expect(normalizeFrameworkAdapterIdentity({
+      adapter: null,
+      frameworkAdapterId: "acme/html-static",
+      repoPath: "public/index.html"
+    })).toMatchObject({
+      adapter: "acme/html-static",
+      frameworkAdapterId: "acme/html-static",
+      frameworkId: "html",
+      sourceFamily: "html-static",
+      adapterKind: "plugin",
+      pluginId: "acme"
+    });
+  });
+
   it("normalizes valid binding metadata and defaults optional fields", () => {
     expect(normalizeCodeSyncBindingMetadata({
       adapter: "tsx-react-v1",
@@ -115,7 +238,13 @@ describe("canvas code-sync primitive helpers", () => {
       projection: "bound_app_runtime"
     })).toEqual({
       adapter: "tsx-react-v1",
+      frameworkAdapterId: "builtin:react-tsx-v2",
+      frameworkId: "react",
+      sourceFamily: "react-tsx",
+      adapterKind: "tsx-react",
+      adapterVersion: 2,
       repoPath: "src/components/App.tsx",
+      rootLocator: reactExportLocator("App"),
       exportName: "App",
       selector: undefined,
       syncMode: "watch",
@@ -127,10 +256,22 @@ describe("canvas code-sync primitive helpers", () => {
         behavior: "shared",
         data: "code"
       },
-      route: " /preview ",
-      verificationTarget: " #app ",
-      runtimeRootSelector: " #root ",
-      projection: "bound_app_runtime"
+      route: "/preview",
+      verificationTarget: "#app",
+      runtimeRootSelector: "#root",
+      projection: "bound_app_runtime",
+      manifestVersion: 2,
+      libraryAdapterIds: [],
+      pluginId: undefined,
+      declaredCapabilities: ["preview", "inventory_extract", "code_pull", "code_push", "token_roundtrip"],
+      grantedCapabilities: [
+        { capability: "preview", granted: true },
+        { capability: "inventory_extract", granted: true },
+        { capability: "code_pull", granted: true },
+        { capability: "code_push", granted: true },
+        { capability: "token_roundtrip", granted: true }
+      ],
+      reasonCode: "framework_migrated"
     });
 
     expect(normalizeCodeSyncBindingMetadata({
@@ -143,15 +284,20 @@ describe("canvas code-sync primitive helpers", () => {
     }).projection).toBe("canvas_html");
   });
 
-  it("rejects invalid binding metadata payloads", () => {
+  it("rejects invalid binding metadata payloads and normalizes legacy adapter inputs", () => {
     expect(() => normalizeCodeSyncBindingMetadata(null)).toThrow("Invalid code sync binding metadata.");
-    expect(() => normalizeCodeSyncBindingMetadata({
+    expect(normalizeCodeSyncBindingMetadata({
       adapter: "unknown-adapter",
       repoPath: "src/app.tsx",
       exportName: "App",
       syncMode: "manual",
       ownership: {}
-    })).toThrow("Unsupported code sync adapter: unknown-adapter");
+    })).toMatchObject({
+      adapter: "unknown-adapter",
+      frameworkAdapterId: "builtin:react-tsx-v2",
+      frameworkId: "react",
+      sourceFamily: "react-tsx"
+    });
     expect(() => normalizeCodeSyncBindingMetadata({
       adapter: "tsx-react-v1",
       repoPath: "   ",
@@ -173,13 +319,17 @@ describe("canvas code-sync primitive helpers", () => {
       ownership: {}
     })).toThrow("codeSync.exportName or codeSync.selector is required.");
 
-    expect(() => normalizeCodeSyncBindingMetadata({
+    expect(normalizeCodeSyncBindingMetadata({
       adapter: 123,
       repoPath: "src/app.tsx",
       exportName: "App",
       syncMode: "manual",
       ownership: {}
-    })).toThrow("Unsupported code sync adapter: unknown");
+    })).toMatchObject({
+      adapter: "builtin:react-tsx-v2",
+      frameworkAdapterId: "builtin:react-tsx-v2",
+      frameworkId: "react"
+    });
 
     expect(() => normalizeCodeSyncBindingMetadata({
       adapter: "tsx-react-v1",
@@ -198,16 +348,48 @@ describe("canvas code-sync primitive helpers", () => {
     })).toThrow("Unsupported code sync mode: unknown");
   });
 
+  it("normalizes non-react root locators and capability grants", () => {
+    expect(normalizeRootLocator(undefined, "vue-sfc")).toEqual({ kind: "vue-template" });
+    expect(normalizeRootLocator({
+      selector: " #app "
+    }, "svelte-sfc")).toEqual({ kind: "svelte-markup", selector: "#app" });
+    expect(normalizeRootLocator({
+      selector: " #preview "
+    }, "html-static")).toEqual({ kind: "dom-selector", selector: "#preview" });
+
+    expect(normalizeCodeSyncCapabilityGrant(null)).toBeNull();
+    expect(normalizeCodeSyncCapabilityGrant({
+      capability: "preview",
+      granted: false,
+      reasonCode: "capability_denied",
+      details: { source: "workspace-policy" }
+    })).toEqual({
+      capability: "preview",
+      granted: false,
+      reasonCode: "capability_denied",
+      details: { source: "workspace-policy" }
+    });
+    expect(normalizeCodeSyncCapabilityGrant({
+      capability: "code_pull",
+      granted: true,
+      reasonCode: "not-real",
+      details: "skip"
+    })).toEqual({
+      capability: "code_pull",
+      granted: true
+    });
+  });
+
   it("normalizes root locators and parses valid manifests", () => {
-    expect(normalizeRootLocator()).toEqual({ exportName: undefined, selector: undefined });
+    expect(normalizeRootLocator(undefined, "html-static")).toEqual({ kind: "document-root" });
     expect(normalizeRootLocator({
       exportName: "  ",
       selector: " #root "
-    })).toEqual({ exportName: undefined, selector: " #root " });
+    }, "react-tsx")).toEqual({ kind: "dom-selector", selector: "#root" });
 
     const parsed = parseCodeSyncManifest({
       ...buildManifest(),
-      rootLocator: { exportName: "App", selector: "  " },
+      rootLocator: { kind: "react-export", exportName: "App", selector: "  " },
       nodeMappings: [
         {
           nodeId: "node_root",
@@ -220,9 +402,22 @@ describe("canvas code-sync primitive helpers", () => {
       ]
     });
 
-    expect(parsed.rootLocator).toEqual({ exportName: "App", selector: undefined });
+    expect(parsed.rootLocator).toEqual(reactExportLocator("App"));
     expect(parsed.nodeMappings).toHaveLength(1);
     expect(parsed.nodeMappings[0]?.locator.sourceSpan.end.column).toBe(10);
+
+    expect(parseCodeSyncManifest({
+      ...buildManifest({
+        manifestVersion: 1,
+        adapter: "tsx-react-v1"
+      }),
+      rootLocator: { exportName: "App" }
+    } as unknown as CodeSyncManifest)).toMatchObject({
+      manifestVersion: 1,
+      frameworkAdapterId: "builtin:react-tsx-v2",
+      sourceFamily: "react-tsx",
+      reasonCode: "manifest_migrated"
+    });
   });
 
   it("rejects invalid manifest payloads and malformed locators", () => {
@@ -244,10 +439,11 @@ describe("canvas code-sync primitive helpers", () => {
     expect(parseCodeSyncManifest({
       ...buildManifest(),
       rootLocator: "not-an-object",
+      exportName: "App",
       lastImportedAt: 123,
       lastPushedAt: "2026-03-12T02:00:00.000Z"
-    })).toMatchObject({
-      rootLocator: { exportName: undefined, selector: undefined },
+    } as unknown as CodeSyncManifest & { exportName: string })).toMatchObject({
+      rootLocator: reactExportLocator("App"),
       lastImportedAt: undefined,
       lastPushedAt: "2026-03-12T02:00:00.000Z"
     });
@@ -313,6 +509,75 @@ describe("canvas code-sync primitive helpers", () => {
 
     expect(normalized.nodeMappings).toHaveLength(1);
     expect(normalized.nodeMappings[0]?.nodeId).toBe("node_root");
+  });
+
+  it("normalizes legacy manifest adapter arrays and plugin metadata fallbacks", () => {
+    const normalized = normalizeCodeSyncManifest({
+      ...buildManifest({
+        adapter: "acme/astro-v1",
+        frameworkAdapterId: "" as unknown as CodeSyncManifest["frameworkAdapterId"],
+        frameworkId: "" as unknown as CodeSyncManifest["frameworkId"],
+        sourceFamily: "" as unknown as CodeSyncManifest["sourceFamily"],
+        adapterKind: "" as unknown as CodeSyncManifest["adapterKind"],
+        adapterVersion: Number.NaN as unknown as CodeSyncManifest["adapterVersion"],
+        repoPath: "src/routes/App.vue",
+        pluginId: "   " as unknown as CodeSyncManifest["pluginId"],
+        libraryAdapterIds: undefined as unknown as CodeSyncManifest["libraryAdapterIds"],
+        rootLocator: null as unknown as CodeSyncManifest["rootLocator"]
+      }),
+      libraryAdapters: ["", " adapter.one ", "adapter.one", 42, "adapter.two"]
+    } as unknown as CodeSyncManifest & { libraryAdapters: unknown[] });
+
+    expect(normalized.frameworkAdapterId).toBe("acme/astro-v1");
+    expect(normalized.frameworkId).toBe("vue");
+    expect(normalized.sourceFamily).toBe("vue-sfc");
+    expect(normalized.adapterKind).toBe("plugin");
+    expect(normalized.pluginId).toBe("acme");
+    expect(normalized.libraryAdapterIds).toEqual(["adapter.one", "adapter.two"]);
+    expect(normalized.rootLocator).toEqual({ kind: "vue-template" });
+  });
+
+  it("normalizes manifest identity and selector fallbacks when optional metadata is blank or invalid", () => {
+    const normalized = normalizeCodeSyncManifest(buildManifest({
+      adapter: "   " as unknown as CodeSyncManifest["adapter"],
+      frameworkAdapterId: "   " as unknown as CodeSyncManifest["frameworkAdapterId"],
+      frameworkId: "   " as unknown as CodeSyncManifest["frameworkId"],
+      sourceFamily: "   " as unknown as CodeSyncManifest["sourceFamily"],
+      adapterKind: "   " as unknown as CodeSyncManifest["adapterKind"],
+      adapterVersion: Number.NaN as unknown as CodeSyncManifest["adapterVersion"],
+      repoPath: "src/App.svelte",
+      manifestVersion: Number.NaN as unknown as CodeSyncManifest["manifestVersion"],
+      rootLocator: {
+        kind: "dom-selector",
+        selector: " #app "
+      } as unknown as CodeSyncManifest["rootLocator"],
+      reasonCode: "   " as unknown as CodeSyncManifest["reasonCode"]
+    }));
+
+    expect(normalized).toMatchObject({
+      manifestVersion: 2,
+      adapter: "builtin:svelte-sfc-v1",
+      frameworkAdapterId: "builtin:svelte-sfc-v1",
+      frameworkId: "svelte",
+      sourceFamily: "svelte-sfc",
+      adapterKind: "svelte-sfc",
+      adapterVersion: 1,
+      reasonCode: "none",
+      rootLocator: {
+        kind: "svelte-markup",
+        selector: "#app"
+      }
+    });
+  });
+
+  it("routes blank or invalid manifest repoPath values through the required repoPath guard", () => {
+    expect(() => normalizeCodeSyncManifest(buildManifest({
+      repoPath: "   " as unknown as CodeSyncManifest["repoPath"]
+    }))).toThrow("codeSync.repoPath is required.");
+
+    expect(() => normalizeCodeSyncManifest(buildManifest({
+      repoPath: null as unknown as CodeSyncManifest["repoPath"]
+    }))).toThrow("codeSync.repoPath is required.");
   });
 
   it("writes source files atomically and finalizes manifest timestamps with fallback preservation", async () => {

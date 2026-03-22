@@ -59,6 +59,10 @@ const TARGET_SCOPED_COMMANDS = new Set<string>([
   "dom.isVisible",
   "dom.isEnabled",
   "dom.isChecked",
+  "canvas.overlay.mount",
+  "canvas.overlay.unmount",
+  "canvas.overlay.select",
+  "canvas.overlay.sync",
   "canvas.applyRuntimePreviewBridge",
   "export.clonePage",
   "export.cloneComponent",
@@ -103,6 +107,25 @@ export class OpsRuntime {
     chrome.tabs.onUpdated.addListener(this.handleTabUpdated);
     chrome.debugger.onEvent.addListener(this.handleDebuggerEvent);
     chrome.debugger.onDetach.addListener(this.handleDebuggerDetach);
+  }
+
+  async registerCanvasTargetForSession(
+    opsSessionId: string,
+    targetId: string
+  ): Promise<{ targetId: string; url?: string; title?: string; adopted?: boolean } | null> {
+    const session = this.sessions.get(opsSessionId);
+    if (!session) {
+      return null;
+    }
+    return await this.registerCanvasTarget(session, targetId);
+  }
+
+  unregisterCanvasTargetForSession(opsSessionId: string, targetId: string): boolean {
+    const session = this.sessions.get(opsSessionId);
+    if (!session || targetId === session.targetId) {
+      return false;
+    }
+    return this.sessions.removeTarget(session.id, targetId) !== null;
   }
 
   handleMessage(message: OpsEnvelope): void {
@@ -379,6 +402,18 @@ export class OpsRuntime {
       case "dom.isChecked":
         await this.withSession(message, clientId, (session) => this.handleDomIsChecked(message, session));
         return;
+      case "canvas.overlay.mount":
+        await this.withSession(message, clientId, (session) => this.handleCanvasOverlayMount(message, session));
+        return;
+      case "canvas.overlay.unmount":
+        await this.withSession(message, clientId, (session) => this.handleCanvasOverlayUnmount(message, session));
+        return;
+      case "canvas.overlay.select":
+        await this.withSession(message, clientId, (session) => this.handleCanvasOverlaySelect(message, session));
+        return;
+      case "canvas.overlay.sync":
+        await this.withSession(message, clientId, (session) => this.handleCanvasOverlaySync(message, session));
+        return;
       case "canvas.applyRuntimePreviewBridge":
         await this.withSession(message, clientId, (session) => this.handleCanvasRuntimePreviewBridge(message, session));
         return;
@@ -409,6 +444,12 @@ export class OpsRuntime {
     const payload = isRecord(message.payload) ? message.payload : {};
     const parallelismPolicy = parseParallelismPolicy(payload.parallelismPolicy);
     const startUrl = typeof payload.startUrl === "string" ? payload.startUrl : undefined;
+    const requestedSessionId = typeof payload.sessionId === "string" && payload.sessionId.trim().length > 0
+      ? payload.sessionId.trim()
+      : undefined;
+    const requestedTabId = typeof payload.tabId === "number" && Number.isInteger(payload.tabId)
+      ? payload.tabId
+      : undefined;
     if (startUrl) {
       try {
         const restriction = getRestrictionMessage(new URL(startUrl));
@@ -421,11 +462,28 @@ export class OpsRuntime {
         return;
       }
     }
-    const activeTab = startUrl
+    let activeTab = startUrl
       ? await this.tabs.createTab(startUrl, true)
-      : await this.tabs.getActiveTab();
+      : typeof requestedTabId === "number"
+        ? await this.tabs.getTab(requestedTabId)
+        : await this.tabs.getActiveTab();
+
+    if (!startUrl && typeof requestedTabId !== "number") {
+      const currentRawUrl = activeTab?.url ?? activeTab?.pendingUrl ?? "";
+      const needsFallback = !activeTab
+        || typeof activeTab.id !== "number"
+        || currentRawUrl.length === 0
+        || isRestrictedUrl(currentRawUrl).restricted;
+      if (needsFallback) {
+        activeTab = await this.tabs.getFirstAttachableTab(typeof activeTab?.id === "number" ? activeTab.id : undefined) ?? activeTab;
+      }
+    }
 
     if (!activeTab || typeof activeTab.id !== "number") {
+      if (typeof requestedTabId === "number") {
+        this.sendError(message, buildError("invalid_request", `Unknown tabId: ${requestedTabId}`, false));
+        return;
+      }
       this.sendError(message, buildError("ops_unavailable", "No active tab to attach.", true));
       return;
     }
@@ -464,7 +522,7 @@ export class OpsRuntime {
       title: resolvedTab.title ?? undefined
     }, {
       parallelismPolicy
-    });
+    }, requestedSessionId);
 
     await this.enableSessionDomains(session);
 
@@ -495,12 +553,16 @@ export class OpsRuntime {
   private async handleSessionStatus(message: OpsRequest, clientId: string): Promise<void> {
     const session = this.getSessionForMessage(message, clientId);
     if (!session) return;
-    const tab = await this.tabs.getTab(session.tabId);
+    const activeTarget = (session.activeTargetId ? session.targets.get(session.activeTargetId) : null)
+      ?? session.targets.get(session.targetId)
+      ?? null;
+    const tab = await this.tabs.getTab(activeTarget?.tabId ?? session.tabId);
+    const synthetic = activeTarget ? session.syntheticTargets.get(activeTarget.targetId) : undefined;
     this.sendResponse(message, {
       mode: "extension",
       activeTargetId: session.activeTargetId || null,
-      url: tab?.url ?? undefined,
-      title: tab?.title ?? undefined,
+      url: resolveReportedTargetUrl(activeTarget, tab?.url, synthetic),
+      title: resolveReportedTargetTitle(activeTarget, tab?.title, synthetic),
       leaseId: session.leaseId,
       state: session.state
     });
@@ -529,11 +591,19 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Unknown targetId", false));
       return;
     }
-    session.activeTargetId = targetId;
     const target = session.targets.get(targetId) ?? null;
     if (target) {
       await this.tabs.activateTab(target.tabId).catch(() => undefined);
+      try {
+        await this.cdp.attach(target.tabId);
+        await this.enableTargetDomains(target.tabId);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Debugger attach failed";
+        this.sendError(message, buildError("cdp_attach_failed", detail, false));
+        return;
+      }
     }
+    session.activeTargetId = targetId;
     const tab = target ? await this.tabs.getTab(target.tabId) : null;
     const synthetic = target ? session.syntheticTargets.get(target.targetId) : undefined;
     this.sendResponse(message, {
@@ -550,34 +620,59 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Missing targetId", false));
       return;
     }
+    try {
+      this.sendResponse(message, await this.registerCanvasTarget(session, targetId));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Canvas target registration failed";
+      if (detail === "Canvas targetId must be tab-<id>.") {
+        this.sendError(message, buildError("invalid_request", detail, false));
+        return;
+      }
+      if (detail === "Unknown targetId") {
+        this.sendError(message, buildError("invalid_request", detail, false));
+        return;
+      }
+      if (detail === "Only the extension canvas tab can be registered.") {
+        this.sendError(message, buildError("restricted_url", detail, false));
+        return;
+      }
+      logError("ops.register_canvas_target", error, {
+        code: "canvas_target_attach_failed",
+        extra: { targetId }
+      });
+      this.sendError(message, buildError("execution_failed", detail, false));
+      return;
+    }
+  }
+
+  private async registerCanvasTarget(
+    session: OpsSession,
+    targetId: string
+  ): Promise<{ targetId: string; url?: string; title?: string; adopted?: boolean }> {
     const tabId = parseTabTargetId(targetId);
     if (tabId === null) {
-      this.sendError(message, buildError("invalid_request", "Canvas targetId must be tab-<id>.", false));
-      return;
+      throw new Error("Canvas targetId must be tab-<id>.");
     }
     let tab = await this.tabs.getTab(tabId);
     if (!tab) {
-      this.sendError(message, buildError("invalid_request", "Unknown targetId", false));
-      return;
+      throw new Error("Unknown targetId");
     }
     await this.tabs.waitForTabComplete(tabId, 5000).catch(() => undefined);
     tab = await this.tabs.getTab(tabId) ?? tab;
     if (!this.isAllowedCanvasTargetUrl(tab.url)) {
-      this.sendError(message, buildError("restricted_url", "Only the extension canvas tab can be registered.", false));
-      return;
+      throw new Error("Only the extension canvas tab can be registered.");
     }
     const existing = session.targets.get(targetId);
     if (existing) {
       existing.url = tab.url ?? existing.url;
       existing.title = tab.title ?? existing.title;
       session.activeTargetId = targetId;
-      this.sendResponse(message, {
+      return {
         targetId,
         url: existing.url,
         title: existing.title,
         adopted: false
-      });
-      return;
+      };
     }
     try {
       await this.cdp.attach(tabId);
@@ -590,12 +685,12 @@ export class OpsRuntime {
     }
     const target = this.sessions.addTarget(session.id, tabId, { url: tab.url ?? undefined, title: tab.title ?? undefined });
     session.activeTargetId = target.targetId;
-    this.sendResponse(message, {
+    return {
       targetId: target.targetId,
       url: target.url,
       title: target.title,
       adopted: true
-    });
+    };
   }
 
   private async handleTargetsNew(message: OpsRequest, session: OpsSession): Promise<void> {
@@ -632,7 +727,7 @@ export class OpsRuntime {
       return;
     }
     this.sessions.removeTarget(session.id, targetId);
-    await this.closeTabBestEffort(target.tabId);
+    void this.closeTabBestEffort(target.tabId);
     if (target.targetId === session.targetId || session.targets.size === 0) {
       this.sendResponse(message, { ok: true });
       this.scheduleSessionCleanup(session.id, "ops_session_closed");
@@ -704,7 +799,7 @@ export class OpsRuntime {
     const target = session.targets.get(targetId);
     if (target) {
       this.sessions.removeTarget(session.id, targetId);
-      await this.closeTabBestEffort(target.tabId);
+      void this.closeTabBestEffort(target.tabId);
       if (target.targetId === session.targetId || session.targets.size === 0) {
         this.sendResponse(message, { ok: true });
         this.scheduleSessionCleanup(session.id, "ops_session_closed");
@@ -721,11 +816,14 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Missing url", false));
       return;
     }
+    const syntheticHtml = decodeHtmlDataUrl(url);
     try {
-      const restriction = getRestrictionMessage(new URL(url));
-      if (restriction) {
-        this.sendError(message, buildError("restricted_url", restriction, false));
-        return;
+      if (syntheticHtml === null) {
+        const restriction = getRestrictionMessage(new URL(url));
+        if (restriction) {
+          this.sendError(message, buildError("restricted_url", restriction, false));
+          return;
+        }
       }
     } catch {
       this.sendError(message, buildError("invalid_request", "Invalid url", false));
@@ -737,7 +835,6 @@ export class OpsRuntime {
     if (!target) return;
     await this.tabs.activateTab(target.tabId).catch(() => undefined);
     const targetRecord = session.targets.get(target.targetId);
-    const syntheticHtml = decodeHtmlDataUrl(url);
     if (syntheticHtml !== null) {
       const result = await executeInTab(target.tabId, replaceDocumentWithHtmlScript, [{ html: syntheticHtml }]);
       session.refStore.clearTarget(target.targetId);
@@ -1111,6 +1208,100 @@ export class OpsRuntime {
       () => this.dom.isChecked(target.tabId, selector)
     );
     this.sendResponse(message, { value: checked });
+  }
+
+  private async handleCanvasOverlayMount(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const mountId = typeof payload.mountId === "string" && payload.mountId.trim().length > 0
+      ? payload.mountId.trim()
+      : `mount_${createId()}`;
+    const title = typeof payload.title === "string" && payload.title.trim().length > 0
+      ? payload.title.trim()
+      : "OpenDevBrowser Canvas";
+    const prototypeId = typeof payload.prototypeId === "string" && payload.prototypeId.trim().length > 0
+      ? payload.prototypeId.trim()
+      : "prototype";
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    const selection = parseCanvasOverlaySelection(payload.selection, target.targetId);
+    const result = await this.dom.mountCanvasOverlay(target.tabId, {
+      mountId,
+      title,
+      prototypeId,
+      selection
+    });
+    this.sendResponse(message, {
+      mountId,
+      targetId: target.targetId,
+      previewState: "background",
+      overlayState: result.overlayState ?? "mounted",
+      capabilities: { selection: true, guides: true }
+    });
+  }
+
+  private async handleCanvasOverlayUnmount(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const mountId = typeof payload.mountId === "string" ? payload.mountId.trim() : "";
+    if (!mountId) {
+      this.sendError(message, buildError("invalid_request", "Missing mountId", false));
+      return;
+    }
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    await this.dom.unmountCanvasOverlay(target.tabId, mountId);
+    this.sendResponse(message, {
+      ok: true,
+      mountId,
+      targetId: target.targetId,
+      overlayState: "idle"
+    });
+  }
+
+  private async handleCanvasOverlaySelect(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const mountId = typeof payload.mountId === "string" ? payload.mountId.trim() : "";
+    const nodeId = typeof payload.nodeId === "string" && payload.nodeId.trim().length > 0
+      ? payload.nodeId.trim()
+      : null;
+    const selectionHint = isRecord(payload.selectionHint) ? payload.selectionHint : {};
+    if (!mountId || (!nodeId && Object.keys(selectionHint).length === 0)) {
+      this.sendError(message, buildError("invalid_request", "Missing mountId or selection target", false));
+      return;
+    }
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    const selection = await this.dom.selectCanvasOverlay(target.tabId, { nodeId, selectionHint });
+    this.sendResponse(message, {
+      mountId,
+      targetId: target.targetId,
+      selection
+    });
+  }
+
+  private async handleCanvasOverlaySync(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const mountId = typeof payload.mountId === "string" ? payload.mountId.trim() : "";
+    if (!mountId) {
+      this.sendError(message, buildError("invalid_request", "Missing mountId", false));
+      return;
+    }
+    const title = typeof payload.title === "string" && payload.title.trim().length > 0
+      ? payload.title.trim()
+      : "OpenDevBrowser Canvas";
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    const selection = parseCanvasOverlaySelection(payload.selection, target.targetId);
+    const result = await this.dom.syncCanvasOverlay(target.tabId, {
+      mountId,
+      title,
+      selection
+    });
+    this.sendResponse(message, {
+      ok: true,
+      mountId,
+      targetId: target.targetId,
+      overlayState: result.overlayState ?? "mounted"
+    });
   }
 
   private async handleCanvasRuntimePreviewBridge(message: OpsRequest, session: OpsSession): Promise<void> {
@@ -1771,11 +1962,26 @@ export class OpsRuntime {
     }
   }
 
-  private handleDebuggerDetachForTab(tabId: number): void {
+  private async handleDebuggerDetachForTab(tabId: number): Promise<void> {
     const session = this.sessions.getByTabId(tabId);
     if (!session) return;
     if (tabId === session.tabId) {
       // Root tab detach can be transient during child-target shutdown; tab removal handler owns root teardown.
+      return;
+    }
+    const targetId = this.sessions.getTargetIdByTabId(session.id, tabId);
+    const target = targetId ? session.targets.get(targetId) ?? null : null;
+    const liveTab = await this.tabs.getTab(tabId);
+    if (target && this.isAllowedCanvasTargetUrl(target.url ?? liveTab?.url)) {
+      if (liveTab && targetId) {
+        session.targets.set(targetId, {
+          ...target,
+          url: liveTab.url ?? target.url,
+          title: liveTab.title ?? target.title
+        });
+      }
+      // Design tabs can detach transiently while the extension page stays open; retain the target so `/ops`
+      // can reattach it later via `targets.use`.
       return;
     }
     this.handleClosedTarget(tabId, "ops_session_closed");
@@ -2244,6 +2450,22 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 };
 
+const parseCanvasOverlaySelection = (
+  value: unknown,
+  targetId: string
+): { pageId: string | null; nodeId: string | null; targetId: string | null; updatedAt?: string } => {
+  const record = isRecord(value) ? value : {};
+  const updatedAt = typeof record.updatedAt === "string" && record.updatedAt.trim().length > 0
+    ? record.updatedAt
+    : undefined;
+  return {
+    pageId: typeof record.pageId === "string" && record.pageId.trim().length > 0 ? record.pageId : null,
+    nodeId: typeof record.nodeId === "string" && record.nodeId.trim().length > 0 ? record.nodeId : null,
+    targetId: typeof record.targetId === "string" && record.targetId.trim().length > 0 ? record.targetId : targetId,
+    ...(updatedAt ? { updatedAt } : {})
+  };
+};
+
 const parseCursor = (cursor?: string): number => {
   if (!cursor) return 0;
   const value = Number(cursor);
@@ -2512,6 +2734,9 @@ const resolveReportedTargetUrl = (
   if (typeof target?.url === "string" && isHtmlDataUrl(target.url)) {
     return target.url;
   }
+  if (typeof target?.url === "string" && isCanvasExtensionUrl(target.url)) {
+    return target.url;
+  }
   return liveUrl ?? target?.url;
 };
 
@@ -2526,11 +2751,23 @@ const resolveReportedTargetTitle = (
   if (typeof target?.url === "string" && isHtmlDataUrl(target.url) && typeof target.title === "string" && target.title.length > 0) {
     return target.title;
   }
+  if (typeof target?.url === "string" && isCanvasExtensionUrl(target.url) && typeof target.title === "string" && target.title.length > 0) {
+    return target.title;
+  }
   return liveTitle ?? target?.title;
 };
 
 const isHtmlDataUrl = (url: string): boolean => {
   return url.startsWith("data:text/html");
+};
+
+const isCanvasExtensionUrl = (url: string): boolean => {
+  try {
+    const canvasUrl = chrome.runtime.getURL("canvas.html");
+    return url === canvasUrl || url.startsWith(`${canvasUrl}#`) || url.startsWith(`${canvasUrl}?`);
+  } catch {
+    return false;
+  }
 };
 
 const decodeHtmlDataUrl = (url: string): string | null => {

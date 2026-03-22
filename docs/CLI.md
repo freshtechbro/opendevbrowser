@@ -2,12 +2,13 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-13
+Last updated: 2026-03-20
 
 OpenDevBrowser exposes 49 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
-Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); use continuity guidance only for long-running handoff/compaction.
+Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff/compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
+Human-facing help metadata lives in `src/cli/help.ts`; human-facing tool metadata lives in `src/tools/surface.ts`. Runtime inventory authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
 
 Dependency inventory: `docs/DEPENDENCIES.md`
 First-run pre-release onboarding: `docs/FIRST_RUN_ONBOARDING.md`
@@ -18,7 +19,12 @@ Parity and skill-pack gates:
 npm run test -- tests/cli-help-parity.test.ts
 npm run test -- tests/parity-matrix.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-design-agent/scripts/design-workflow.sh research-harvest
+./skills/opendevbrowser-design-agent/scripts/design-workflow.sh release-gate
 ```
+
+Treat those checks as contract and documentation guards. Live release proof comes from the direct-run harnesses documented later in this guide and in `docs/RELEASE_RUNBOOK.md`.
 
 ## Installation
 
@@ -132,12 +138,12 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 - Total tools: `49` (`opendevbrowser_*`).
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
-- CLI-only surface (no tool equivalent): `artifacts`, `rpc`.
+- CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
 ### Relay channel surface
 
-- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `38` command names.
-- `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `26` command names and envelope contracts.
+- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `44` command names.
+- `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `35` command names and envelope contracts.
 - `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
 
 ---
@@ -178,8 +184,13 @@ npx opendevbrowser --skills-local
 npx opendevbrowser --no-skills
 ```
 
-On first successful install, the CLI attempts to install daemon auto-start on supported platforms (macOS/Windows) so the relay is
-available on login. You can remove it later with `npx opendevbrowser daemon uninstall`.
+On successful installs, the CLI reconciles daemon auto-start on supported platforms (macOS/Windows) so the relay is available on
+login. Existing installs are rechecked and repaired when the per-user auto-start entry is missing or stale on macOS and Windows,
+and when the macOS LaunchAgent is malformed. If the current CLI entrypoint lives under a transient temp-root path (for example a
+first-run `/tmp` or `/private/tmp` `npx` workspace), OpenDevBrowser refuses to persist that path as auto-start. Plugin install
+still succeeds, but auto-start repair warns and you must rerun `opendevbrowser daemon install` from a stable install location, or
+`npx --no-install opendevbrowser daemon install` from a persistent local package install. You can remove auto-start later with
+`opendevbrowser daemon uninstall`.
 
 ### Update
 
@@ -220,11 +231,11 @@ npx opendevbrowser -v
 ```
 
 `--help` and `help` print the same complete, agent-oriented inventory:
-- All CLI commands (56) grouped by function, each with one-line descriptions.
-- All supported CLI flags, grouped by install/session/navigation/workflow usage.
-- All `opendevbrowser_*` tools (49), each with one-line descriptions.
+- All CLI commands (56) grouped by function, each with a one-line description, usage snippet, and primary flags.
+- All supported CLI flags, grouped by install/session/navigation/workflow usage, with representative examples on high-value shared flags.
+- All `opendevbrowser_*` tools (49), each with a one-line description and CLI equivalent or tool-only scope.
 - Macro and design-canvas timeout guidance via `--timeout-ms`.
-- Canonical inventory pointers: `docs/SURFACE_REFERENCE.md`, `src/tools/index.ts`, and this CLI guide.
+- Canonical inventory pointers: `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`, `docs/SURFACE_REFERENCE.md`, and this CLI guide.
 
 Operational help parity check:
 
@@ -277,32 +288,44 @@ npx opendevbrowser serve --stop
 
 ### Daemon auto-start
 
-Install or remove OS-level auto-start for the daemon. This uses a stable, absolute CLI entrypoint (no PATH reliance), and returns
-machine-readable output with `--output-format json`.
+Install or remove OS-level auto-start for the daemon. This persists an absolute `node + cli + serve` entrypoint (no PATH
+reliance) only when the current CLI path is stable. Temporary `npx` caches and temp onboarding workdirs are rejected instead of
+being written to LaunchAgent or Task Scheduler state, and all commands return machine-readable output with `--output-format json`.
 
 ```bash
-npx opendevbrowser daemon install
-npx opendevbrowser daemon uninstall
-npx opendevbrowser daemon status
+opendevbrowser daemon install
+opendevbrowser daemon uninstall
+opendevbrowser daemon status
+
+# Persistent local package install alternative
+npx --no-install opendevbrowser daemon install
 ```
 
 Behavior:
-- macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute CLI entrypoint.
-- Windows: per-user Task Scheduler logon task targeting an absolute CLI entrypoint.
-- `daemon status` reports `{ installed, running, status? }` and does not throw a usage error when missing.
-- `daemon status` returns exit code `10` when the daemon is not running.
+- macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute `node + cli + serve` entrypoint.
+- Windows: per-user Task Scheduler logon task targeting an absolute `node + cli + serve` entrypoint; status inspects the persisted scheduled-task action from Task Scheduler XML instead of task presence alone.
+- `daemon status --output-format json` keeps top-level `installed` and `running`, adds nested `autostart` on supported platforms, and includes `status` only when the daemon is running.
+- `autostart` is the canonical detail object and includes `health`, `needsRepair`, `reason`, `command`, and `expectedCommand`.
+- `autostart.reason` can be `transient_cli_path` when an existing LaunchAgent or Task Scheduler action points at a temp-root CLI path that should be repaired.
+- when the current invocation is transient, a stable persisted auto-start entry can still report `health="healthy"`; `expectedCommand` is omitted instead of advertising the transient current path as the repair target.
+- `daemon status` returns exit code `0` when the daemon is reachable even if auto-start is missing, stale, or malformed, and `10` when the daemon is not running.
+- Successful plugin installs surface auto-start reconciliation through `autostartAction`; `autostartError` is included only when repair fails.
+- If install-time reconciliation is running from a transient temp-root CLI path, it refuses to write auto-start and reports `autostartAction="repair_failed"` with guidance to rerun `opendevbrowser daemon install` from a stable install location.
 
 Exit codes align with the CLI:
 - `0`: success
 - `1`: usage error
-- `2`: execution error (permissions, missing binary, OS service failure)
+- `2`: execution error (permissions, missing binary, OS service failure, unsupported `daemon install|uninstall`, or unexpected status evaluation failure)
 - `10`: disconnected/not running (status only)
 
 #### Auto-start install + manual fallback
 
 ```bash
 # Install auto-start (recommended)
-npx opendevbrowser daemon install
+opendevbrowser daemon install
+
+# Or, from a persistent local package install
+npx --no-install opendevbrowser daemon install
 
 # If auto-start fails, start manually
 npx opendevbrowser serve
@@ -310,6 +333,9 @@ npx opendevbrowser serve
 # Stop/kill before restarting
 npx opendevbrowser serve --stop
 ```
+
+If you are running from a first-run temp workspace or transient `npx` cache, rerun `opendevbrowser daemon install` from a stable
+install location before expecting login auto-start to persist.
 
 ### Native messaging host
 
@@ -358,6 +384,7 @@ Flags:
 - `--mode` (`compact|json|md|context|path`)
 - `--include-engagement`
 - `--limit-per-source`
+- `--timeout-ms`
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
@@ -379,6 +406,7 @@ Flags:
 - `--region`
 - `--sort` (`best_deal|lowest_price|highest_rating|fastest_shipping`)
 - `--mode` (`compact|json|md|context|path`)
+- `--timeout-ms`
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
@@ -399,6 +427,7 @@ Flags:
 - `--include-screenshots` (`true|false`; bare flag means `true`)
 - `--include-all-images` (`true|false`; bare flag means `true`)
 - `--include-copy` (`true|false`; bare flag means `true`)
+- `--timeout-ms`
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
@@ -415,6 +444,7 @@ Wrapper behavior:
 - `auto` attempts injection when cookies are available and continues when cookies are missing/unusable.
 - `required` fails fast with `reasonCode=auth_required` when cookie loading/injection/verification cannot establish a session.
 - Cookie diagnostics are exposed in workflow metrics under `meta.metrics.cookie_diagnostics` and `meta.metrics.cookieDiagnostics`.
+- Shopping providers that return zero usable offer records now emit `meta.failures[*].error.reasonCode=env_limited` instead of silently counting as success.
 
 ### Artifact lifecycle cleanup
 
@@ -459,6 +489,8 @@ Supported `run` launch flags:
 - `--chrome-path`
 - `--start-url`
 - `--flag` (repeatable)
+
+`--chrome-path` accepts Google Chrome, Chromium, or a Playwright-installed Chrome for Testing binary when you need a deterministic automation browser.
 
 Script format:
 
@@ -506,6 +538,8 @@ Default behavior:
 - Extension headless is unsupported. `launch --headless` must be paired with `--no-extension`; extension-intent headless requests fail with `unsupported_mode`.
 - When hub mode is enabled, there is no local relay fallback. If the hub is unavailable, commands fail with guidance.
 - Extension relay requires Chrome 125+ (flat CDP sessions).
+- Managed and `cdpConnect` sessions automatically try to bootstrap readable cookies from the discovered system Chrome-family profile before first navigation. Extension mode reuses the already logged-in tab or profile instead of importing cookies.
+- For isolated automation harnesses that rely on browser startup flags such as `--disable-extensions-except`, prefer Chromium or Chrome for Testing. Google Chrome stable may ignore those flags.
 
 Interactive vs non-interactive:
 - Interactive CLI (TTY): you will be prompted to connect the extension, then explicitly choose Managed or CDPConnect if you want to proceed.
@@ -523,10 +557,10 @@ Interactive vs non-interactive:
 | `extensionConnected` | Extension websocket connected | `false` means popup isn’t connected to relay. |
 | `extensionHandshakeComplete` | Extension handshake done | `false` means reconnect/repair from popup. |
 | `annotationConnected` | Active `/annotation` client attached | Expected `false` unless annotate relay transport is active. |
-| `opsConnected` | Active `/ops` client attached | `false` means no ops client is connected. |
+| `opsConnected` | Active `/ops` client attached | Presence-only signal; it does not prove the current extension target is owned by `/ops`. |
 | `canvasConnected` | Active `/canvas` client attached | Expected `false` unless a design-canvas session is using relay preview/overlay features. |
 | `cdpConnected` | Active `/cdp` client attached | Expected `false` until a legacy `/cdp` session connects. |
-| `pairingRequired` | Relay token required | When `true`, `/ops`, `/canvas`, and `/cdp` require a token (auto-fetched). |
+| `pairingRequired` | Relay token required | When `true`, `/ops`, `/canvas`, `/annotation`, and `/cdp` require a token (auto-fetched). |
 
 ### Connect
 
@@ -541,6 +575,7 @@ the CLI will normalize to `/ops` and route through the extension relay (`extensi
 Use `--extension-legacy` if you need the legacy `/cdp` relay path.
 When routing through the relay, the CLI automatically fetches relay config and the pairing token (if required) and authenticates
 the `/ops` or `/cdp` connection. Direct relay websocket connections without a token are rejected when pairing is enabled.
+Direct `cdpConnect` sessions use the same automatic Chrome-family cookie bootstrap path as managed launches.
 
 ### Relay binding queue
 
@@ -557,6 +592,7 @@ Relay behavior note: extension uses a single extension websocket, while the rela
 - `session-per-worker` remains the safest baseline for simple operational isolation, but in-session multi-target parallelism is supported on `/ops`, managed, and `cdpConnect`.
 - Use explicit `--target-id` routing for concurrent flows; treat `target-use` as ergonomic fallback only.
 - Use `/ops` as the default concurrent relay channel. Use `--extension-legacy` (`/cdp`) only for compatibility-specific paths.
+- Legacy `/cdp` does not coexist with an active `/ops` lease. If launch fails with `cdp_attach_blocked`, disconnect the `/ops` session and retry `--extension-legacy`.
 - Legacy `/cdp` stays sequential (`effectiveParallelCap=1`) by design.
 - For managed parallel launches with persisted profiles, use unique profile directories per session (or disable persistence) to avoid ProcessSingleton/SingletonLock collisions.
 - Parity divergences are registry-bound in `docs/PARITY_DECLARED_DIVERGENCES.md`.
@@ -594,6 +630,7 @@ npx opendevbrowser cookie-import \
 Notes:
 - Provide exactly one cookies source: `--cookies` or `--cookies-file`.
 - `--strict` defaults to `true`.
+- Managed and `cdpConnect` sessions already attempt Chrome-family cookie bootstrap on session creation; use `cookie-import` when you need to add or override cookies explicitly.
 - Supported across `managed`, default extension `/ops`, extension legacy `/cdp`, and direct `cdpConnect` sessions.
 
 ### Cookie list
@@ -816,6 +853,7 @@ Canonical examples:
 Use `canvas` to call the typed `canvas.*` surface through the daemon. The normal sequence is:
 `canvas.session.open` -> inspect the handshake -> `canvas.plan.set` -> `canvas.document.patch` (including `governance.update` blocks) -> `canvas.preview.render` or `canvas.feedback.poll`.
 Additional same-session clients use `canvas.session.attach` with `attachMode=observer` or `attachMode=lease_reclaim`.
+Unless `params.repoRoot` is provided explicitly, the CLI injects the caller cwd as the canvas session repo root. Relative `canvas.document.save`, `canvas.document.export`, and `canvas.code.*` paths resolve against that session root even when the daemon is launchd-owned or started from another working directory.
 
 ```bash
 # Open a canvas session bound to an existing browser session
@@ -837,8 +875,8 @@ npx opendevbrowser canvas --command canvas.document.save \
   --output-format json
 ```
 
-`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, required generation-plan fields, runtime budgets, and warning classes. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. `canvas.document.save` and `canvas.document.export` return `policy_violation` until all `requiredBeforeSave` governance blocks are present. In extension mode, `canvas.tab.open` opens an extension-hosted `canvas.html` infinite-canvas editor that persists full page state in `IndexedDB`, converges same-origin tabs through `BroadcastChannel`, and forwards editor-originated patch requests through `/canvas`; `canvas.feedback.poll` and `canvas.feedback.subscribe` support target/category filtering and structured preflight blockers. The initial `canvas.feedback.subscribe` payload is public on all surfaces, and the CLI now exposes a live `stream-json` bridge by repeatedly polling after the returned cursor until timeout. The tool wrapper still returns the initial payload only.
-`canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` add TSX-first code sync on top of the same session. Bound source manifests are stored under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`; preview targets default to projected `canvas_html` and only attempt `bound_app_runtime` reconciliation when the binding opts in and runtime bridge preflight succeeds.
+`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, required generation-plan fields, runtime budgets, and warning classes. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. `canvas.document.save` and `canvas.document.export` return `policy_violation` until all `requiredBeforeSave` governance blocks are present. `canvas.document.import` now imports Figma file URLs, node URLs, or raw file-key inputs into the same lease-governed document surface; it resolves auth from `FIGMA_ACCESS_TOKEN` first and `integrations.figma.accessToken` second, caches image and SVG receipts under `.opendevbrowser/canvas/assets/figma/<fileKey>/`, records provenance in `document.meta.imports[]`, and degrades `variables/local` failures with typed feedback (`scope_denied`, `plan_limited`, `account_limited`, or `variables_unavailable`) instead of opaque fatal errors. `canvas.history.undo` and `canvas.history.redo` are now public lease-governed mutations; they are unavailable before the first accepted-plan edit, require the active lease holder, and invalidate deterministically when document revision drift makes the recorded stack stale. In extension mode, `canvas.tab.open` opens an extension-hosted `canvas.html` infinite-canvas editor that persists full page state in `IndexedDB`, converges same-origin tabs through `BroadcastChannel`, forwards editor-originated patch requests through `/canvas`, exposes pages/layers/properties/history controls plus keyboard shortcuts, and keeps freeform region annotation scoped to the extension-hosted stage. `canvas.feedback.poll` remains the snapshot query for cursor-based audits, while `canvas.feedback.subscribe`, `canvas.feedback.next`, and `canvas.feedback.unsubscribe` now expose the public pull-stream contract. In `stream-json` mode, the CLI emits `initialItems`, then loops on `canvas.feedback.next` until `feedback.complete` or CLI timeout, and finally best-effort calls `canvas.feedback.unsubscribe`. `canvas.inventory.list` now returns the merged reusable inventory surface: document-backed promoted items plus the shipped built-in kit catalog entries. `canvas.inventory.insert` materializes either kind of inventory template back onto the stage as a governed mutation. `canvas.starter.list` exposes the eight shipped built-in starters, and `canvas.starter.apply` now seeds a generation plan when needed, merges built-in kit token collections, installs required kit inventory entries into the live document, and inserts a starter shell with semantic fallback when the requested framework or adapter is unavailable. For starter application, prefer `libraryAdapterId` when selecting or reading the resolved built-in kit adapter; the legacy `adapterId` field remains as a backward-compatible alias and is distinct from code-sync `frameworkAdapterId`. The public `/canvas` surface is now `35` commands. The tool wrapper stays thin and uses the same public `opendevbrowser_canvas` commands through repeated calls.
+`canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` add framework-adapter-backed code sync on top of the same session. Built-in lanes currently ship for `builtin:react-tsx-v2`, `builtin:html-static-v1`, `builtin:custom-elements-v1`, `builtin:vue-sfc-v1`, and `builtin:svelte-sfc-v1`; legacy `tsx-react-v1` bindings and manifests migrate on load to `builtin:react-tsx-v2` instead of failing ambiguously. Bound source manifests are stored under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`; preview targets default to projected `canvas_html` and only attempt `bound_app_runtime` reconciliation when the binding opts in and runtime bridge preflight succeeds. `canvas.code.status` returns `frameworkAdapterId`, `frameworkId`, `sourceFamily`, declared/granted capabilities, explicit denial entries, and deterministic `reasonCode` values such as `framework_migrated`, `manifest_migrated`, `plugin_not_found`, and `plugin_load_failed`. Repo-local BYO adapter plugins are discovered from workspace `package.json`, `.opendevbrowser/canvas/adapters.json`, and explicit local config declarations only; declaration-level `capabilityOverrides` narrow plugin capabilities rather than widening them. See `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md` for the plugin manifest and trust model, and `node scripts/canvas-competitive-validation.mjs --out <report.json>` for the grouped canvas validator.
 
 ### RPC (power-user, internal)
 
@@ -952,7 +990,8 @@ npx opendevbrowser scroll-into-view --session-id <session-id> --ref r12
 ## Annotation (direct + relay)
 
 Annotations are available through both the CLI command and the `opendevbrowser_annotate` tool. The default transport (`auto`)
-uses direct CDP when possible and falls back to relay in extension sessions. See `docs/ANNOTATE.md` for setup and details.
+uses direct CDP when possible and falls back to relay in extension sessions. `annotate --stored` resolves the shared repo-local
+agent inbox first, then the extension-local stored payload fallback. See `docs/ANNOTATE.md` for setup and details.
 
 ```bash
 npx opendevbrowser annotate --session-id <session-id>
@@ -970,7 +1009,7 @@ npx opendevbrowser annotate --session-id <session-id> --url https://example.com 
 # Return the last stored annotation payload
 npx opendevbrowser annotate --session-id <session-id> --stored
 
-# Prefer the in-memory stored payload with screenshots when still available
+# Prefer the extension-local in-memory stored payload with screenshots when still available
 npx opendevbrowser annotate --session-id <session-id> --stored --include-screenshots
 ```
 
@@ -1294,72 +1333,80 @@ node scripts/cli-smoke-test.mjs
 The script uses temporary config/cache directories and exercises all CLI commands, including the new interaction and DOM state checks.
 Validate extension mode separately with `launch` + `disconnect` while the extension is connected.
 
-## Live regression matrix
+## Direct live regression harness
 
-Run the full real-world matrix (managed + extension `/ops` + extension-legacy `/cdp` + `cdpConnect` + macro/research + annotate probes):
+Run the direct scenario pack instead of the old broad matrix:
 
 ```bash
 npm run build
-node scripts/live-regression-matrix.mjs
+node scripts/live-regression-direct.mjs
+```
+
+What it runs:
+- `scripts/cli-smoke-test.mjs`
+- `scripts/canvas-live-workflow.mjs --surface managed-headless`
+- `scripts/canvas-live-workflow.mjs --surface managed-headed`
+- `scripts/canvas-live-workflow.mjs --surface extension`
+- `scripts/canvas-live-workflow.mjs --surface cdp`
+- `scripts/annotate-live-probe.mjs --transport relay`
+- `scripts/annotate-live-probe.mjs --transport direct`
+
+Strict release gate mode:
+
+```bash
+node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json
+```
+
+Behavior:
+- Runs each scenario as an explicit child script with its own artifact instead of a nested matrix.
+- Prints per-step progress so long runs do not idle silently.
+- Fails on any direct scenario failure in `--release-gate` mode.
+- Records `infra.daemon_status` as an initial preflight snapshot before child scenarios run. If a later child script repairs native messaging state, rerun `opendevbrowser status --daemon --output-format json` after the pack for final daemon/native truth.
+- Uses temporary managed profiles for the managed canvas surfaces and the direct annotate probe so persisted-profile locks do not contaminate release runs.
+- Waits for `/ops` ownership to drain before the legacy `/cdp` scenario so extension-backed CDP attach does not race a prior extension canvas run.
+- Treats manual annotation timeout boundaries as `skipped` in `--release-gate` mode instead of misreporting them as runtime failures.
+- Requires a healthy daemon and a connected extension before running extension or CDP scenarios.
+
+## Direct provider runs
+
+Run provider-by-provider live checks:
+
+```bash
+npm run build
+node scripts/provider-direct-runs.mjs --out /tmp/odb-provider-direct-runs.json
 ```
 
 Strict release gate mode:
 
 ```bash
-node scripts/live-regression-matrix.mjs --release-gate
+npm run build
+node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json
 ```
 
-Behavior:
-- Exits non-zero only for product regressions.
-- In `--release-gate` mode, exits non-zero on any `env_limited`, `expected_timeout`, or `fail` outcome.
-- Emits explicit extension readiness preflight diagnostics (`infra.extension.ready`) before extension-mode cases.
-- Classifies upstream reachability failures (for example social/community dependencies) as `env_limited`.
-- Classifies unattended annotation timeouts as `expected_timeout`.
-- Captures mode-specific blocker evidence (`goto`/`wait` + `debug-trace-snapshot`) for managed, extension, and cdpConnect comparisons.
-- Emits a JSON summary with per-step status for reproducible CI/manual verification.
-
-## Provider live matrix harness
-
-Run the provider-depth live harness promoted from the `/tmp` validation script:
+Smoke mode:
 
 ```bash
 npm run build
-node scripts/provider-live-matrix.mjs --out /tmp/odb-provider-live-matrix.json
+node scripts/provider-direct-runs.mjs --smoke --out /tmp/odb-provider-direct-runs-smoke.json
 ```
 
-Strict release gate mode (forces auth-gated + high-friction + social-post scenarios and rejects non-pass statuses):
-
-```bash
-npm run build
-node scripts/provider-live-matrix.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-live-matrix.json
-```
-
-CI-safe smoke mode (reduced cases, deterministic gating checks, no long workflow probes by default):
-
-```bash
-npm run build
-node scripts/provider-live-matrix.mjs --smoke --out /tmp/odb-provider-live-matrix-smoke.json
-```
-
-Key checks included in full mode:
-- Social issue probes: search/fetch coverage across platforms plus extension `/ops` timeout/retry behavior on YouTube/Instagram.
-- Shopping issue probes: cross-provider query coverage with explicit timeout budget support.
-- Browser issue probes: real-world navigation on YouTube/Instagram/Facebook across `managed`, `extension`, and `cdpConnect` with blocker metadata.
-- Research-first defaults: auth-gated provider scenarios (`facebook`, `linkedin`, `shopping/costco`, `shopping/macys`), high-friction provider scenarios (`shopping/bestbuy`), and social post probes are skipped unless explicitly enabled.
+What it covers:
+- Web/default direct search and fetch probes.
+- Community/default direct search probes.
+- Social/search and shopping/provider probes through the same direct CLI entrypoints used in real runs.
+- Generic timeout outcomes stay visible as `fail`; `env_limited` is reserved for explicit environment/capability boundaries such as auth walls, browser-required shells, or challenge pages.
+- Social platform search probes for every registered platform in `src/providers/social/index.ts`.
+- Shopping provider runs for every registered shopping provider in `src/providers/shopping/index.ts`.
+- Optional social post probes for explicitly requested write-path validation.
 
 Key options:
-- `--use-global-env` reuse existing OPENCODE config/cache instead of isolated temp dirs.
-- `--skip-live-regression`, `--skip-browser-probes`, `--skip-workflows` for focused diagnostics.
-- `--include-live-regression`, `--include-browser-probes`, `--include-workflows` to re-enable those probes in `--smoke`.
-- `--include-auth-gated` enables auth-dependent provider scenarios (deferred by default).
-- `--include-high-friction` enables high-friction providers (deferred by default).
-- `--include-social-posts` enables social post scenarios (deferred by default).
-- `--release-gate` enforces strict release semantics:
-  - enables auth-gated + high-friction + social-post scenarios,
-  - fails on any non-`pass` status,
-  - emits provider coverage summary (`infra.provider_scenario_coverage`) and fails when scenario coverage does not include all registered providers.
+- `--include-auth-gated` includes auth-dependent provider scenarios.
+- `--include-high-friction` includes high-friction shopping providers.
+- `--include-social-posts` includes social post scenarios.
+- `--use-global-env` is kept as a compatibility flag; direct runs already use the current environment.
+- `--release-gate` enables auth-gated + high-friction + social-post cases and fails on any non-`pass` status.
 
-Run parity and skill-asset gates as part of release checks:
+Run contract parity and skill-asset gates as part of release checks:
 
 ```bash
 npm run test -- tests/parity-matrix.test.ts
@@ -1367,22 +1414,10 @@ npm run test -- tests/providers-performance-gate.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ```
 
+These commands are release guards, not the live release-proof lane. Use the direct-run harness commands above for release evidence.
+
 Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.17_EVIDENCE.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
-
-### Latest validation (2026-03-01)
-
-- `npm run version:check` ✅
-- `npm run lint` ✅
-- `npm run typecheck` ✅
-- `npm run build` ✅
-- `npm run test` ✅
-- `npm run test:release-gate` ✅ (groups 1-5)
-- `node scripts/audit-zombie-files.mjs` ✅
-- `node scripts/docs-drift-check.mjs` ✅
-- `node scripts/chrome-store-compliance-check.mjs` ✅
-- Strict live regression gate (`node scripts/live-regression-matrix.mjs --release-gate`) ✅
-- Operator rollout, rollback triggers, and triage checklist are documented in `docs/TROUBLESHOOTING.md`.
 
 ---
 
@@ -1390,7 +1425,7 @@ Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
 Use this to validate the Chrome extension + relay without starting OpenCode.
 
-1. Ensure the daemon is running: `npx opendevbrowser serve` (manual). `npx opendevbrowser daemon install` configures auto-start for future logins but does not start it immediately.
+1. Ensure the daemon is running: `npx opendevbrowser serve` (manual). `opendevbrowser daemon install` configures auto-start on supported platforms from a stable install location; for this manual test, use `npx opendevbrowser serve` as the explicit start command for the current session.
 2. Build and load the extension: `npm run extension:build`, then Chrome → `chrome://extensions` → Developer mode → Load unpacked → `extension/`.
 3. Open a normal `http(s)` tab (not `chrome://` or extension pages).
 4. Open the extension popup, confirm Auto-connect + Auto-pair are ON, click Connect.

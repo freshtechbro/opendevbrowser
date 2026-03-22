@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resolveConfig } from "../src/config";
 import { AnnotationManager } from "../src/browser/annotation-manager";
+import { ANNOTATION_MANUAL_COMPLETION_TIMEOUT_MESSAGE } from "../src/annotate/timeout-messages";
 import { resolveRelayEndpoint } from "../src/relay/relay-endpoints";
 import { resolveDirectAnnotateAssets, runDirectAnnotate } from "../src/annotate/direct-annotator";
 
@@ -76,6 +77,17 @@ describe("AnnotationManager", () => {
     expect(result.error?.code).toBe("relay_unavailable");
   });
 
+  it("keeps direct failures in auto mode when relay fallback is unavailable", async () => {
+    const config = resolveConfig({ relayPort: 8787 });
+    const manager = new AnnotationManager(undefined, config);
+
+    const result = await manager.requestAnnotation({ sessionId: "session-auto" });
+
+    expect(result.status).toBe("error");
+    expect(result.error?.code).toBe("direct_unavailable");
+    expect(socketState.lastSocket).toBeNull();
+  });
+
   it("uses relay annotation url when set", async () => {
     vi.mocked(resolveRelayEndpoint).mockResolvedValue({
       connectEndpoint: "ws://127.0.0.1:8787/annotation",
@@ -140,7 +152,7 @@ describe("AnnotationManager", () => {
         error: { code: "cancelled", message: "Annotation cancelled." }
       })
     };
-    const browser = { status: vi.fn().mockResolvedValue({ mode: "extension" }) };
+    const browser = { status: vi.fn().mockResolvedValue({ mode: "extension", activeTargetId: "tab-41" }) };
     const manager = new AnnotationManager(relay as never, config, browser as never);
 
     const result = await manager.requestAnnotation({ sessionId: "s1", transport: "relay" });
@@ -149,11 +161,84 @@ describe("AnnotationManager", () => {
     expect(relay.requestAnnotation).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "start",
-        requestId: expect.any(String)
+        requestId: expect.any(String),
+        tabId: 41
       }),
       120000
     );
     expect(socketState.lastSocket).toBeNull();
+  });
+
+  it("derives relay tab ids from explicit extension target ids", async () => {
+    const config = resolveConfig({ relayPort: 8787 });
+    const relay = {
+      requestAnnotation: vi.fn().mockResolvedValue({
+        version: 1,
+        requestId: "req-target-tab",
+        status: "cancelled",
+        error: { code: "cancelled", message: "Annotation cancelled." }
+      })
+    };
+    const browser = { status: vi.fn().mockResolvedValue({ mode: "extension", activeTargetId: null }) };
+    const manager = new AnnotationManager(relay as never, config, browser as never);
+
+    await manager.requestAnnotation({ sessionId: "s1", transport: "relay", targetId: "tab-77" });
+
+    expect(relay.requestAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "start",
+        tabId: 77
+      }),
+      120000
+    );
+  });
+
+  it("falls back from malformed extension target ids to the active session target", async () => {
+    const config = resolveConfig({ relayPort: 8787 });
+    const relay = {
+      requestAnnotation: vi.fn().mockResolvedValue({
+        version: 1,
+        requestId: "req-target-fallback",
+        status: "cancelled",
+        error: { code: "cancelled", message: "Annotation cancelled." }
+      })
+    };
+    const browser = { status: vi.fn().mockResolvedValue({ mode: "extension", activeTargetId: "tab-84" }) };
+    const manager = new AnnotationManager(relay as never, config, browser as never);
+
+    await manager.requestAnnotation({ sessionId: "s1", transport: "relay", targetId: "tab-bad" });
+
+    expect(relay.requestAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "start",
+        tabId: 84
+      }),
+      120000
+    );
+  });
+
+  it("preserves explicit relay tab ids without overriding them from session targets", async () => {
+    const config = resolveConfig({ relayPort: 8787 });
+    const relay = {
+      requestAnnotation: vi.fn().mockResolvedValue({
+        version: 1,
+        requestId: "req-tab-explicit",
+        status: "cancelled",
+        error: { code: "cancelled", message: "Annotation cancelled." }
+      })
+    };
+    const browser = { status: vi.fn().mockResolvedValue({ mode: "extension", activeTargetId: "tab-84" }) };
+    const manager = new AnnotationManager(relay as never, config, browser as never);
+
+    await manager.requestAnnotation({ sessionId: "s1", transport: "relay", tabId: 9 });
+
+    expect(relay.requestAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "start",
+        tabId: 9
+      }),
+      120000
+    );
   });
 
   it("returns ok responses from the annotation channel", async () => {
@@ -365,6 +450,39 @@ describe("AnnotationManager", () => {
     expect(result.error?.code).toBe("timeout");
     const cancelMessage = socket?.sent.find((entry) => entry.includes("\"command\":\"cancel\""));
     expect(cancelMessage).toBeTruthy();
+  });
+
+  it("keeps manual-completion context when timeout follows a ready event", async () => {
+    vi.mocked(resolveRelayEndpoint).mockResolvedValue({
+      connectEndpoint: "ws://127.0.0.1:8787/annotation",
+      reportedEndpoint: "ws://127.0.0.1:8787/annotation",
+      relayPort: 8787,
+      pairingRequired: false
+    });
+
+    const config = resolveConfig({ relayPort: 8787 });
+    const manager = new AnnotationManager(undefined, config);
+    vi.useFakeTimers();
+
+    const requestPromise = manager.requestAnnotation({ timeoutMs: 10 });
+    await nextTick();
+    const socket = socketState.lastSocket;
+    socket?.open();
+    await nextTick();
+
+    const sent = socket?.sent[0] ?? "";
+    const command = JSON.parse(sent) as { payload?: { requestId?: string } };
+    const requestId = command.payload?.requestId ?? "req-ready";
+    socket?.emit("message", JSON.stringify({
+      type: "annotationEvent",
+      payload: { version: 1, requestId, event: "ready", message: "Annotation session started." }
+    }));
+
+    await vi.advanceTimersByTimeAsync(11);
+    const result = await requestPromise;
+    expect(result.status).toBe("error");
+    expect(result.error?.code).toBe("timeout");
+    expect(result.error?.message).toBe(ANNOTATION_MANUAL_COMPLETION_TIMEOUT_MESSAGE);
   });
 
   it("returns relay_unavailable when the socket closes unexpectedly", async () => {
@@ -950,6 +1068,26 @@ describe("AnnotationManager", () => {
     });
   });
 
+  it("returns shared inbox payloads before relay fallback for stored requests", async () => {
+    const config = resolveConfig({ relayPort: 8787 });
+    const agentInbox = {
+      latestPayload: vi.fn(() => ({
+        url: "https://shared.example.com",
+        timestamp: "2026-03-15T00:00:00.000Z",
+        screenshotMode: "none",
+        annotations: []
+      }))
+    };
+    const manager = new AnnotationManager(undefined, config, undefined, agentInbox as never);
+
+    const result = await manager.requestAnnotation({ sessionId: "s1", stored: true, includeScreenshots: true });
+
+    expect(result.status).toBe("ok");
+    expect(result.payload?.url).toBe("https://shared.example.com");
+    expect(resolveRelayEndpoint).not.toHaveBeenCalled();
+    expect(socketState.lastSocket).toBeNull();
+  });
+
   it("returns direct_failed in auto mode when session is not extension", async () => {
     vi.mocked(resolveDirectAnnotateAssets).mockReturnValue({ assets: { scriptPath: "/tmp/script.js", stylePath: "/tmp/style.css" } });
     vi.mocked(runDirectAnnotate).mockResolvedValue({
@@ -1046,6 +1184,59 @@ describe("AnnotationManager", () => {
     const result = await requestPromise;
     expect(result.status).toBe("ok");
     expect(result.payload?.url).toBe("https://example.com/fallback");
+  });
+
+  it("falls back to relay in auto mode when direct annotate is unavailable in extension mode", async () => {
+    vi.mocked(resolveDirectAnnotateAssets).mockReturnValue({ error: "missing" });
+    vi.mocked(resolveRelayEndpoint).mockResolvedValue({
+      connectEndpoint: "ws://127.0.0.1:8787/annotation",
+      reportedEndpoint: "ws://127.0.0.1:8787/annotation",
+      relayPort: 8787,
+      pairingRequired: false
+    });
+
+    const relay = { getAnnotationUrl: () => "ws://127.0.0.1:8787/annotation" };
+    const config = resolveConfig({ relayPort: 0 });
+    const manager = new AnnotationManager(relay, config, { status: vi.fn().mockResolvedValue({ mode: "extension" }) } as never);
+    const requestPromise = manager.requestAnnotation({ sessionId: "s1", screenshotMode: "none" });
+
+    let socket = socketState.lastSocket;
+    for (let attempt = 0; attempt < 5 && !socket; attempt += 1) {
+      await nextTick();
+      socket = socketState.lastSocket;
+    }
+    expect(socket).toBeTruthy();
+    socket?.open();
+    await nextTick();
+
+    let sent = socket?.sent[0] ?? "";
+    for (let attempt = 0; attempt < 5 && !sent; attempt += 1) {
+      await nextTick();
+      sent = socket?.sent[0] ?? "";
+    }
+    expect(sent).toBeTruthy();
+    const command = JSON.parse(sent) as { payload?: { requestId?: string } };
+    const requestId = command.payload?.requestId ?? "req";
+
+    socket?.emit("message", JSON.stringify({
+      type: "annotationResponse",
+      payload: {
+        version: 1,
+        requestId,
+        status: "ok",
+        payload: {
+          url: "https://example.com/direct-unavailable-fallback",
+          timestamp: "2026-01-31T00:00:00Z",
+          screenshotMode: "none",
+          annotations: []
+        }
+      }
+    }));
+
+    const result = await requestPromise;
+    expect(result.status).toBe("ok");
+    expect(result.payload?.url).toBe("https://example.com/direct-unavailable-fallback");
+    expect(runDirectAnnotate).not.toHaveBeenCalled();
   });
 
   it("returns invalid_request when relay transport is used outside extension", async () => {

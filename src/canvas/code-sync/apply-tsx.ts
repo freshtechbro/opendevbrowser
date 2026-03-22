@@ -30,6 +30,8 @@ type ApplyCanvasToTsxOptions = {
   manifest: CodeSyncManifest;
   sourceText: string;
   resolutionPolicy?: CodeSyncResolutionPolicy;
+  emitTokenRefs?: (node: CanvasNode) => Record<string, string>;
+  themeAttributes?: Record<string, string>;
 };
 
 const CODE_SYNC_MARKER_ATTRIBUTES = new Set(["data-node-id", "data-binding-id"]);
@@ -72,10 +74,36 @@ function isCodeSyncMarkerJsxAttribute(rawAttribute: string): boolean {
   return /^\s*data-(?:node|binding)-id\b/.test(rawAttribute);
 }
 
-function emitAttributes(node: CanvasNode, bindingId: string): string[] {
+function projectStyle(
+  node: CanvasNode,
+  emitTokenRefs?: (node: CanvasNode) => Record<string, string>
+): Record<string, unknown> {
+  const style = isRecord(node.style) ? { ...node.style } : {};
+  if (emitTokenRefs) {
+    for (const [property, value] of Object.entries(emitTokenRefs(node))) {
+      style[property] = value;
+    }
+  }
+  return style;
+}
+
+function emitAttributes(
+  node: CanvasNode,
+  bindingId: string,
+  options: {
+    emitTokenRefs?: (node: CanvasNode) => Record<string, string>;
+    themeAttributes?: Record<string, string>;
+    isRoot: boolean;
+  }
+): string[] {
   const attributes = isRecord(node.props.attributes) ? { ...node.props.attributes } : {};
   const className = typeof node.props.className === "string" ? node.props.className : null;
   const metadata = isRecord(node.metadata.codeSync) ? node.metadata.codeSync : {};
+  const themeAttributes = options.isRoot ? (options.themeAttributes ?? {}) : {};
+  const reservedAttributes = new Set<string>([
+    ...CODE_SYNC_MARKER_ATTRIBUTES,
+    ...Object.keys(themeAttributes)
+  ]);
   const preserved = Array.isArray(metadata.preservedAttributes)
     ? metadata.preservedAttributes.filter((entry): entry is string =>
       typeof entry === "string" &&
@@ -87,12 +115,15 @@ function emitAttributes(node: CanvasNode, bindingId: string): string[] {
   if (className) {
     parts.push(`className=${escapeJsxText(className)}`);
   }
-  const style = stringifyStyle(node.style);
+  const style = stringifyStyle(projectStyle(node, options.emitTokenRefs));
   if (style) {
     parts.push(`style=${style}`);
   }
+  for (const [key, value] of Object.entries(themeAttributes)) {
+    parts.push(`${key}=${escapeJsxText(value)}`);
+  }
   for (const [key, value] of Object.entries(attributes)) {
-    if (typeof value === "string" && !isCodeSyncMarkerAttribute(key)) {
+    if (typeof value === "string" && !reservedAttributes.has(key.trim())) {
       parts.push(`${key}=${escapeJsxText(value)}`);
     }
   }
@@ -108,7 +139,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function emitNode(document: CanvasDocument, nodeId: string, bindingId: string, order: string[]): string {
+function emitNode(
+  document: CanvasDocument,
+  nodeId: string,
+  bindingId: string,
+  order: string[],
+  options: {
+    emitTokenRefs?: (node: CanvasNode) => Record<string, string>;
+    themeAttributes?: Record<string, string>;
+    isRoot: boolean;
+  }
+): string {
   const node = findNode(document, nodeId);
   order.push(node.id);
   const metadata = isRecord(node.metadata.codeSync) ? node.metadata.codeSync : {};
@@ -119,11 +160,15 @@ function emitNode(document: CanvasDocument, nodeId: string, bindingId: string, o
   if (node.kind === "text") {
     return `{${escapeJsxText(typeof node.props.text === "string" ? node.props.text : node.name)}}`;
   }
-  const attributes = emitAttributes(node, bindingId);
+  const attributes = emitAttributes(node, bindingId, options);
   if (node.childIds.length === 0) {
     return `<${tagName} ${attributes.join(" ")} />`;
   }
-  const children = node.childIds.map((childId) => emitNode(document, childId, bindingId, order)).join("");
+  const children = node.childIds.map((childId) => emitNode(document, childId, bindingId, order, {
+    emitTokenRefs: options.emitTokenRefs,
+    themeAttributes: options.themeAttributes,
+    isRoot: false
+  })).join("");
   return `<${tagName} ${attributes.join(" ")}>${children}</${tagName}>`;
 }
 
@@ -164,7 +209,11 @@ export function applyCanvasToTsx(options: ApplyCanvasToTsxOptions): ApplyCanvasT
   const emissionOrder: string[] = [];
   let jsx: string;
   try {
-    jsx = emitNode(options.document, options.binding.nodeId, options.binding.id, emissionOrder);
+    jsx = emitNode(options.document, options.binding.nodeId, options.binding.id, emissionOrder, {
+      emitTokenRefs: options.emitTokenRefs,
+      themeAttributes: options.themeAttributes,
+      isRoot: true
+    });
   } catch (error) {
     return {
       ok: false,

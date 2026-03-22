@@ -27,7 +27,7 @@ export function createAnnotateTool(deps: ToolDeps): ToolDefinition {
     async execute(args) {
       try {
         const transport = args.stored ? "relay" : (args.transport ?? "auto");
-        if (transport === "relay") {
+        if (transport === "relay" && !args.stored) {
           const status = await deps.manager.status(args.sessionId);
           if (status.mode !== "extension") {
             return failure("Annotations require extension mode (relay).", "annotate_requires_extension");

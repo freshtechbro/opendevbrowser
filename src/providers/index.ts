@@ -4,6 +4,7 @@ import {
   providerErrorCodeFromReasonCode,
   toProviderError
 } from "./errors";
+import { applyProviderIssueHint, classifyProviderIssue } from "./constraint";
 import { createExecutionMetadata, normalizeFailure, normalizeSuccess, createTraceContext } from "./normalize";
 import { selectProviders } from "./policy";
 import { ProviderRegistry } from "./registry";
@@ -347,7 +348,12 @@ const fetchRuntimeDocument = async (args: {
   }
 
   const resolvedUrl = canonicalizeUrl(response.url || args.url);
-  const html = await response.text();
+  const html = await readResponseTextWithAbort(response, {
+    signal: args.signal,
+    provider: args.provider,
+    source: args.source,
+    url: args.url
+  });
   const extracted = extractStructuredContent(html, resolvedUrl);
   return {
     url: resolvedUrl,
@@ -356,6 +362,61 @@ const fetchRuntimeDocument = async (args: {
     text: extracted.text,
     links: extracted.links
   };
+};
+
+const readResponseTextWithAbort = async (
+  response: Response,
+  args: {
+    signal?: AbortSignal;
+    provider: string;
+    source: RuntimeFetchSource;
+    url: string;
+  }
+): Promise<string> => {
+  if (!args.signal) {
+    return response.text();
+  }
+
+  const timeoutError = (cause?: unknown) => new ProviderRuntimeError("timeout", `Timed out retrieving ${args.url}`, {
+    provider: args.provider,
+    source: args.source,
+    retryable: true,
+    ...(cause !== undefined ? { cause } : {})
+  });
+
+  if (args.signal.aborted) {
+    try {
+      void response.body?.cancel?.();
+    } catch {
+      // Best effort only.
+    }
+    throw timeoutError(args.signal.reason);
+  }
+
+  let removeAbortListener: (() => void) | undefined;
+  const abortPromise = new Promise<string>((_, reject) => {
+    const onAbort = () => {
+      try {
+        void response.body?.cancel?.();
+      } catch {
+        // Best effort only.
+      }
+      reject(timeoutError(args.signal?.reason));
+    };
+    args.signal?.addEventListener("abort", onAbort, { once: true });
+    removeAbortListener = () => args.signal?.removeEventListener("abort", onAbort);
+  });
+
+  try {
+    return await Promise.race([response.text(), abortPromise]);
+  } catch (error) {
+    if (args.signal.aborted) {
+      throw timeoutError(error);
+    }
+    throw error;
+  } finally {
+    removeAbortListener?.();
+  }
 };
 
 const fetchRuntimeDocumentWithFallback = async (args: {
@@ -1691,12 +1752,45 @@ const withDefaultSocialPlatformOptions = (
         context,
         browserFallbackPort
       });
+      const extracted = extractStructuredContent(document.html, document.url);
+      const pageMessage = toSnippet(stripUrls(extracted.text), 1600);
+      const issue = classifyProviderIssue({
+        url: document.url,
+        title: typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined,
+        message: pageMessage,
+        status: document.status,
+        providerErrorCode: "unavailable",
+        retryable: true
+      });
+      if (issue && (issue.reasonCode !== "env_limited" || issue.constraint)) {
+        const reasonCode = issue.reasonCode;
+        throw new ProviderRuntimeError(
+          providerErrorCodeFromReasonCode(reasonCode),
+          reasonCode === "token_required"
+            ? `Authentication required for ${document.url}`
+            : reasonCode === "challenge_detected"
+              ? `Detected anti-bot challenge while retrieving ${document.url}`
+              : `Browser assistance required for ${document.url}`,
+          {
+            provider: providerId,
+            source: "social",
+            retryable: reasonCode === "env_limited",
+            reasonCode,
+            details: applyProviderIssueHint({
+              status: document.status,
+              url: document.url,
+              ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
+              ...(pageMessage ? { message: pageMessage } : {})
+            }, issue)
+          }
+        );
+      }
       const links = dedupeLinks(document.links, document.url, 20);
 
       return [{
         url: document.url,
         title: isHttpUrl(query) ? document.url : `${platform} search: ${query}`,
-        content: toSnippet(stripUrls(document.text), 1600),
+        content: pageMessage,
         confidence: isHttpUrl(query) ? 0.72 : 0.58,
         attributes: {
           platform,

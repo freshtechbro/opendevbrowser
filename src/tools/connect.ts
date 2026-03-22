@@ -55,11 +55,12 @@ export function createConnectTool(deps: ToolDeps): ToolDefinition {
           : extensionLegacy
             ? normalizedLegacyEndpoint ?? normalizedOpsEndpoint
             : normalizedOpsEndpoint;
+        const preferredRelayEndpoint = relayEndpoint ?? (!hasExplicitCdp ? relayUrl : null);
         let result;
-        if (relayEndpoint || (!hasExplicitCdp && relayUrl)) {
+        if (preferredRelayEndpoint) {
           result = startUrl
-            ? await deps.manager.connectRelay(relayEndpoint ?? relayUrl ?? "", { startUrl })
-            : await deps.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
+            ? await deps.manager.connectRelay(preferredRelayEndpoint, { startUrl })
+            : await deps.manager.connectRelay(preferredRelayEndpoint);
         } else {
           if (!hasExplicitCdp) {
             return failure("Extension relay not available. Connect the extension or pass wsEndpoint/host/port.", "extension_not_connected");

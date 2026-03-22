@@ -1,10 +1,10 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
-import { parseOptionalStringFlag } from "../../utils/parse";
+import { parseNumberFlag, parseOptionalStringFlag } from "../../utils/parse";
 
-function parseSnapshotArgs(rawArgs: string[]): { sessionId?: string; mode?: string; maxChars?: number; cursor?: string } {
-  const parsed: { sessionId?: string; mode?: string; maxChars?: number; cursor?: string } = {};
+function parseSnapshotArgs(rawArgs: string[]): { sessionId?: string; mode?: string; maxChars?: number; cursor?: string; timeoutMs?: number } {
+  const parsed: { sessionId?: string; mode?: string; maxChars?: number; cursor?: string; timeoutMs?: number } = {};
   for (let i = 0; i < rawArgs.length; i += 1) {
     const arg = rawArgs[i];
     if (arg === "--session-id") {
@@ -51,20 +51,35 @@ function parseSnapshotArgs(rawArgs: string[]): { sessionId?: string; mode?: stri
       parsed.cursor = arg.split("=", 2)[1];
       continue;
     }
+    if (arg === "--timeout-ms") {
+      const value = rawArgs[i + 1];
+      if (!value) throw createUsageError("Missing value for --timeout-ms");
+      parsed.timeoutMs = parseNumberFlag(value, "--timeout-ms", { min: 1 });
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("--timeout-ms=")) {
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --timeout-ms");
+      parsed.timeoutMs = parseNumberFlag(value, "--timeout-ms", { min: 1 });
+    }
   }
   return parsed;
 }
 
 export async function runSnapshot(args: ParsedArgs) {
-  const { sessionId, mode, maxChars, cursor } = parseSnapshotArgs(args.rawArgs);
+  const { sessionId, mode, maxChars, cursor, timeoutMs } = parseSnapshotArgs(args.rawArgs);
   const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
-  const result = await callDaemon("nav.snapshot", {
+  const payload = {
     sessionId,
     mode,
     maxChars,
     cursor,
     ...(typeof targetId === "string" ? { targetId } : {})
-  });
+  };
+  const result = timeoutMs
+    ? await callDaemon("nav.snapshot", payload, { timeoutMs })
+    : await callDaemon("nav.snapshot", payload);
   return { success: true, message: "Snapshot captured.", data: result };
 }

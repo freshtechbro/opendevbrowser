@@ -38,6 +38,20 @@ export function resolveCanvasCodeSyncManifestPath(
   return join(worktree, ".opendevbrowser", "canvas", "code-sync", documentId, `${bindingId}.json`);
 }
 
+export function resolveCanvasFigmaAssetDir(worktree: string, fileKey: string): string {
+  return join(worktree, ".opendevbrowser", "canvas", "assets", "figma", fileKey);
+}
+
+export function resolveCanvasFigmaAssetPath(
+  worktree: string,
+  fileKey: string,
+  assetId: string,
+  extension: string
+): string {
+  const normalizedExtension = extension.startsWith(".") ? extension : `.${extension}`;
+  return join(resolveCanvasFigmaAssetDir(worktree, fileKey), `${assetId}${normalizedExtension}`);
+}
+
 export async function saveCanvasDocument(worktree: string, document: CanvasDocument, repoPath?: string | null): Promise<string> {
   const resolvedPath = resolveCanvasRepoPath(worktree, document.documentId, repoPath);
   await mkdir(dirname(resolvedPath), { recursive: true });

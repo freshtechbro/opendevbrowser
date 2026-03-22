@@ -1,8 +1,15 @@
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentInbox } from "../src/annotate/agent-inbox";
 import type { OpenDevBrowserConfig } from "../src/config";
 import type { OpenDevBrowserCore } from "../src/core";
 import { handleDaemonCommand } from "../src/cli/daemon-commands";
 import { bindRelay, clearBinding, clearSessionLeases, getBindingState, registerSessionLease, releaseRelay, waitForBinding } from "../src/cli/daemon-state";
+import * as macroExecuteModule from "../src/macros/execute";
+import * as providerRuntimeFactoryModule from "../src/providers/runtime-factory";
+import * as workflowModule from "../src/providers/workflows";
 
 type RelayStatus = {
   running: boolean;
@@ -57,9 +64,11 @@ const makeCore = (overrides: {
     annotationConnected: false,
     opsConnected: false,
     pairingRequired: false,
-    instanceId: "relay-test",
+  instanceId: "relay-test",
     ...overrides.relayStatus
   };
+  const inboxRoot = mkdtempSync(join(tmpdir(), "odb-daemon-agent-inbox-"));
+  tempRoots.push(inboxRoot);
 
   const manager = {
     status: vi.fn(),
@@ -97,14 +106,18 @@ const makeCore = (overrides: {
   const annotationManager = {
     requestAnnotation: vi.fn()
   };
+  const agentInbox = new AgentInbox(inboxRoot);
 
   return {
     manager,
     relay,
+    agentInbox,
     annotationManager,
     config: makeConfig(overrides.config)
   } as unknown as OpenDevBrowserCore;
 };
+
+const tempRoots: string[] = [];
 
 describe("daemon-commands integration", () => {
   beforeEach(() => {
@@ -126,6 +139,12 @@ describe("daemon-commands integration", () => {
     clearBinding();
     clearSessionLeases();
     vi.restoreAllMocks();
+    while (tempRoots.length > 0) {
+      const root = tempRoots.pop();
+      if (root) {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
   });
 
   it("allows implicit lease for owner and rejects mismatched lease/client", async () => {
@@ -334,6 +353,83 @@ describe("daemon-commands integration", () => {
     });
   });
 
+  it("supports internal agent inbox commands against the shared store", async () => {
+    const core = makeCore();
+    const payload = {
+      url: "https://example.com",
+      title: "Example",
+      timestamp: "2026-03-15T00:00:00.000Z",
+      screenshotMode: "visible" as const,
+      screenshots: [{ id: "shot-1", mimeType: "image/png", path: "/tmp/example.png" }],
+      annotations: [{ id: "note-1", selector: "#hero", text: "Hero copy" }]
+    };
+
+    const receipt = await handleDaemonCommand(core, {
+      name: "agent.inbox.enqueue",
+      params: {
+        payload,
+        source: "popup_all",
+        label: "Popup annotation payload",
+        chatScopeKey: "session-1"
+      }
+    });
+
+    expect(receipt).toMatchObject({
+      deliveryState: "delivered",
+      chatScopeKey: "session-1",
+      storedFallback: false,
+      source: "popup_all",
+      label: "Popup annotation payload"
+    });
+
+    const peek = await handleDaemonCommand(core, {
+      name: "agent.inbox.peek",
+      params: { chatScopeKey: "session-1" }
+    });
+
+    expect(peek).toMatchObject({
+      chatScopeKey: "session-1",
+      entries: [
+        expect.objectContaining({
+          chatScopeKey: "session-1",
+          deliveryState: "delivered",
+          payloadSansScreenshots: expect.objectContaining({
+            screenshotMode: "none"
+          })
+        })
+      ]
+    });
+
+    const consume = await handleDaemonCommand(core, {
+      name: "agent.inbox.consume",
+      params: { chatScopeKey: "session-1" }
+    });
+
+    expect(consume).toMatchObject({
+      chatScopeKey: "session-1",
+      receiptIds: [expect.any(String)],
+      entries: [
+        expect.objectContaining({
+          deliveryState: "consumed",
+          receipt: expect.objectContaining({
+            deliveryState: "consumed",
+            storedFallback: false
+          })
+        })
+      ]
+    });
+
+    const ack = await handleDaemonCommand(core, {
+      name: "agent.inbox.ack",
+      params: { receiptIds: (consume as { receiptIds: string[] }).receiptIds }
+    });
+
+    expect(ack).toEqual({
+      ok: true,
+      receiptIds: (consume as { receiptIds: string[] }).receiptIds
+    });
+  });
+
   it("allows extension disconnect for implicit lease owner and rejects mismatches", async () => {
     const core = makeCore();
     core.manager.status.mockResolvedValue({ mode: "extension", activeTargetId: null });
@@ -353,6 +449,20 @@ describe("daemon-commands integration", () => {
       name: "session.disconnect",
       params: { sessionId: "session-2", clientId: "client-2" }
     })).rejects.toThrow("RELAY_LEASE_INVALID");
+  });
+
+  it("treats lost ops status during disconnect as best-effort cleanup for the lease owner", async () => {
+    const core = makeCore();
+    core.manager.status.mockRejectedValue(new Error("Ops client not connected"));
+
+    registerSessionLease("session-ops", "lease-ops", "client-1");
+    const response = await handleDaemonCommand(core, {
+      name: "session.disconnect",
+      params: { sessionId: "session-ops", clientId: "client-1" }
+    });
+
+    expect(response).toEqual({ ok: true });
+    expect(core.manager.disconnect).not.toHaveBeenCalled();
   });
 
   it("includes hub + relay identifiers in relay.bind response", async () => {
@@ -739,10 +849,12 @@ describe("daemon-commands integration", () => {
     const core = makeCore();
     const manager = core.manager as unknown as {
       launch: ReturnType<typeof vi.fn>;
+      goto: ReturnType<typeof vi.fn>;
       screenshot: ReturnType<typeof vi.fn>;
       disconnect: ReturnType<typeof vi.fn>;
     };
     manager.launch = vi.fn(async () => ({ sessionId: "shot-session" }));
+    manager.goto = vi.fn(async () => ({ ok: true }));
     manager.screenshot = vi.fn(async () => ({ base64: Buffer.from("shot").toString("base64") }));
     manager.disconnect = vi.fn(async () => undefined);
 
@@ -758,10 +870,88 @@ describe("daemon-commands integration", () => {
     expect(manager.launch).toHaveBeenCalled();
     expect(manager.launch).toHaveBeenCalledWith(expect.objectContaining({
       headless: true,
-      startUrl: "https://example.com/product",
+      startUrl: "about:blank",
       persistProfile: false
     }));
+    expect(manager.goto).toHaveBeenCalledWith("shot-session", "https://example.com/product", "load", 30000);
     expect(manager.disconnect).toHaveBeenCalledWith("shot-session", true);
+  });
+
+  it("forwards product-video timeoutMs through the daemon router", async () => {
+    const core = makeCore();
+    const workflowSpy = vi.spyOn(workflowModule, "runProductVideoWorkflow").mockResolvedValue({
+      path: "/tmp/product-assets",
+      manifest: {},
+      product: {},
+      pricing: {},
+      screenshots: [],
+      images: [],
+      meta: {}
+    });
+
+    await handleDaemonCommand(core, {
+      name: "product.video.run",
+      params: {
+        product_name: "Timeout Product",
+        timeoutMs: 45000
+      }
+    });
+
+    expect(workflowSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        product_name: "Timeout Product",
+        timeoutMs: 45000
+      }),
+      expect.any(Object)
+    );
+  });
+
+  it("forwards macro timeoutMs into provider runtime budgets", async () => {
+    const core = makeCore();
+    const runtimeSpy = vi.spyOn(providerRuntimeFactoryModule, "createConfiguredProviderRuntime").mockReturnValue({} as never);
+    vi.spyOn(macroExecuteModule, "executeMacroResolution").mockResolvedValue({
+      records: [],
+      failures: [],
+      metrics: {
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        retries: 0,
+        latencyMs: 0
+      },
+      meta: {
+        ok: true,
+        partial: false,
+        sourceSelection: "community",
+        providerOrder: [],
+        trace: {}
+      }
+    } as never);
+
+    await handleDaemonCommand(core, {
+      name: "macro.resolve",
+      params: {
+        expression: "@community.search(\"openai\")",
+        execute: true,
+        timeoutMs: 45000
+      }
+    });
+
+    expect(runtimeSpy).toHaveBeenCalledWith(expect.objectContaining({
+      config: core.config,
+      manager: core.manager,
+      init: {
+        budgets: {
+          timeoutMs: {
+            search: 45000,
+            fetch: 45000,
+            crawl: 45000,
+            post: 45000
+          }
+        }
+      }
+    }));
   });
 
   it("rejects extension-mode headless launch with unsupported_mode", async () => {

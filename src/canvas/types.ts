@@ -21,7 +21,7 @@ export type CanvasPreflightState =
 
 export type CanvasPlanStatus = "missing" | "submitted" | "accepted";
 
-export type CanvasSessionMode = "low-fi-wireframe" | "high-fi-live-edit" | "dual-track";
+export type CanvasSessionMode = "low-fi-wireframe" | "high-fi-live-edit" | "dual-track" | "document-only";
 
 export type CanvasGovernanceBlockKey =
   | "intent"
@@ -75,6 +75,8 @@ export type CanvasFeedbackCategory =
   | "performance"
   | "asset"
   | "export"
+  | "import"
+  | "plugin"
   | "code-sync"
   | "parity";
 
@@ -112,6 +114,13 @@ export type CanvasValidationWarningCode =
 export type CanvasPreviewState = "focused" | "pinned" | "background" | "degraded";
 
 export type CanvasDegradeReason = "overflow" | "memory_pressure" | "queue_pressure" | "frozen" | "discarded";
+
+export type CanvasProjectionFallbackReason =
+  | "runtime_bridge_unavailable"
+  | "runtime_projection_unsupported"
+  | "runtime_projection_failed"
+  | "runtime_instrumentation_missing"
+  | "fallback_canvas_html";
 
 export type CanvasBlockerCode =
   | "plan_required"
@@ -171,6 +180,313 @@ export type CanvasAsset = {
   metadata?: Record<string, unknown>;
 };
 
+export type CanvasSourceFamily =
+  | "canvas_document"
+  | "framework_component"
+  | "design_import"
+  | "starter_template"
+  | "adapter_plugin"
+  | "unknown";
+
+export type CanvasInventoryOrigin =
+  | "document"
+  | "code_sync"
+  | "import"
+  | "starter"
+  | "plugin"
+  | "unknown";
+
+export type CanvasAdapterCapability =
+  | "import"
+  | "export"
+  | "preview"
+  | "code_sync"
+  | "inventory"
+  | "tokens"
+  | "starter_templates";
+
+export type CanvasAdapterRef = {
+  id: string;
+  label?: string | null;
+  version?: string | null;
+  packageName?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasFrameworkRef = {
+  id: string;
+  label?: string | null;
+  packageName?: string | null;
+  adapter?: CanvasAdapterRef | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasAdapterPluginRef = {
+  id: string;
+  label?: string | null;
+  version?: string | null;
+  packageName?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasComponentVariant = {
+  id: string;
+  name: string;
+  selector: CanvasVariantSelector;
+  description?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasComponentPropDescriptor = {
+  name: string;
+  type?: string | null;
+  required?: boolean;
+  defaultValue?: unknown;
+  description?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasComponentSlotDescriptor = {
+  name: string;
+  description?: string | null;
+  allowedKinds: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasComponentEventDescriptor = {
+  name: string;
+  description?: string | null;
+  payloadShape?: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasComponentContentContract = {
+  acceptsText: boolean;
+  acceptsRichText: boolean;
+  slotNames: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasComponentInventoryItem = {
+  id: string;
+  name: string;
+  componentName?: string | null;
+  description?: string | null;
+  sourceKind?: string | null;
+  sourceFamily: CanvasSourceFamily;
+  origin: CanvasInventoryOrigin;
+  framework?: CanvasFrameworkRef | null;
+  adapter?: CanvasAdapterRef | null;
+  plugin?: CanvasAdapterPluginRef | null;
+  variants: CanvasComponentVariant[];
+  props: CanvasComponentPropDescriptor[];
+  slots: CanvasComponentSlotDescriptor[];
+  events: CanvasComponentEventDescriptor[];
+  content: CanvasComponentContentContract;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenAlias = {
+  path: string;
+  targetPath: string;
+  modeId?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenBinding = {
+  path: string;
+  nodeId?: string | null;
+  bindingId?: string | null;
+  property?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenMode = {
+  id: string;
+  name: string;
+  value: unknown;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenItem = {
+  id: string;
+  path: string;
+  value: unknown;
+  type?: string | null;
+  description?: string | null;
+  modes: CanvasTokenMode[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenCollection = {
+  id: string;
+  name: string;
+  items: CanvasTokenItem[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenStore = {
+  values: Record<string, unknown>;
+  collections: CanvasTokenCollection[];
+  aliases: CanvasTokenAlias[];
+  bindings: CanvasTokenBinding[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasDocumentImportMode =
+  | "replace_current_page"
+  | "append_pages"
+  | "components_only";
+
+export type CanvasImportFailureCode =
+  | "missing_token"
+  | "scope_denied"
+  | "variables_unavailable"
+  | "plan_limited"
+  | "account_limited"
+  | "rate_limited"
+  | "node_not_found"
+  | "asset_fetch_failed"
+  | "framework_materializer_missing"
+  | "unsupported_figma_node";
+
+export type CanvasDocumentImportRequest = {
+  sourceUrl?: string | null;
+  fileKey?: string | null;
+  nodeIds?: string[];
+  mode?: CanvasDocumentImportMode;
+  frameworkId?: string | null;
+  frameworkAdapterId?: string | null;
+  includeVariables?: boolean;
+  depth?: number | null;
+  geometryPaths?: boolean;
+};
+
+export type CanvasImportAssetReceipt = {
+  assetId: string;
+  sourceType?: string | null;
+  repoPath?: string | null;
+  url?: string | null;
+  status?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasImportSource = {
+  id: string;
+  kind: string;
+  label?: string | null;
+  uri?: string | null;
+  sourceDialect?: string | null;
+  frameworkId?: string | null;
+  pluginId?: string | null;
+  adapterIds: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasImportProvenance = {
+  id: string;
+  source: CanvasImportSource;
+  importedAt?: string | null;
+  assetReceipts: CanvasImportAssetReceipt[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasDocumentImportResult = {
+  ok: true;
+  mode: CanvasDocumentImportMode;
+  documentRevision: number;
+  importedPageIds: string[];
+  importedNodeIds: string[];
+  importedInventoryItemIds: string[];
+  importedAssetIds: string[];
+  importedTokenCollectionIds: string[];
+  degradedFailureCodes: CanvasImportFailureCode[];
+  provenance: CanvasImportProvenance;
+  summary: CanvasSessionSummary;
+};
+
+export type CanvasStarterTemplate = {
+  id: string;
+  name: string;
+  description?: string | null;
+  tags: string[];
+  defaultFrameworkId: string;
+  compatibleFrameworkIds: string[];
+  kitIds: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasStarterApplication = {
+  template: CanvasStarterTemplate | null;
+  frameworkId?: string | null;
+  appliedAt?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasKitStarterHook = {
+  starterId: string;
+  priority?: number;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasKitCatalogEntry = {
+  id: string;
+  label: string;
+  description?: string | null;
+  defaultFrameworkId: string;
+  compatibleFrameworkIds: string[];
+  defaultLibraryAdapterIds: string[];
+  pluginHints: string[];
+  starterHooks: CanvasKitStarterHook[];
+  tokenCollections: CanvasTokenCollection[];
+  items: CanvasComponentInventoryItem[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasFrameworkCompatibility = {
+  frameworkId: string;
+  versions: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasLibraryCompatibility = {
+  libraryId: string;
+  categories: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasCapabilityGrant = {
+  capability: CanvasAdapterCapability;
+  granted: boolean;
+  reason?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasAdapterPluginDeclaration = {
+  id: string;
+  label?: string | null;
+  frameworks: CanvasFrameworkCompatibility[];
+  libraries: CanvasLibraryCompatibility[];
+  declaredCapabilities: CanvasAdapterCapability[];
+  grantedCapabilities: CanvasCapabilityGrant[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasAdapterErrorEnvelope = {
+  pluginId?: string | null;
+  code: string;
+  message: string;
+  details: Record<string, unknown>;
+};
+
+export type CanvasDocumentMeta = {
+  imports: CanvasImportProvenance[];
+  starter: CanvasStarterApplication | null;
+  adapterPlugins: CanvasAdapterPluginDeclaration[];
+  pluginErrors: CanvasAdapterErrorEnvelope[];
+  metadata: Record<string, unknown>;
+};
+
 export type CanvasNode = {
   id: string;
   kind: CanvasNodeKind;
@@ -217,17 +533,28 @@ export type CanvasDocument = {
   designGovernance: Record<CanvasGovernanceBlockKey, Record<string, unknown>>;
   pages: CanvasPage[];
   components: Array<Record<string, unknown>>;
-  componentInventory: Array<Record<string, unknown>>;
-  tokens: Record<string, unknown>;
+  componentInventory: CanvasComponentInventoryItem[];
+  tokens: CanvasTokenStore;
   assets: CanvasAsset[];
   viewports: Array<Record<string, unknown>>;
   themes: Array<Record<string, unknown>>;
   bindings: CanvasBinding[];
   prototypes: CanvasPrototype[];
-  meta: Record<string, unknown>;
+  meta: CanvasDocumentMeta;
 };
 
 export type CanvasGenerationPlan = Record<string, unknown>;
+
+export type CanvasHistoryDirection = "undo" | "redo";
+
+export type CanvasHistoryState = {
+  canUndo: boolean;
+  canRedo: boolean;
+  undoDepth: number;
+  redoDepth: number;
+  stale: boolean;
+  depthLimit: number;
+};
 
 export type CanvasPatch =
   | {
@@ -255,6 +582,29 @@ export type CanvasPatch =
     nodeId: string;
   }
   | {
+    op: "node.reparent";
+    nodeId: string;
+    parentId: string | null;
+    index?: number;
+  }
+  | {
+    op: "node.reorder";
+    nodeId: string;
+    index: number;
+  }
+  | {
+    op: "node.duplicate";
+    nodeId: string;
+    parentId?: string | null;
+    index?: number;
+    idMap?: Record<string, string>;
+  }
+  | {
+    op: "node.visibility.set";
+    nodeId: string;
+    hidden: boolean;
+  }
+  | {
     op: "variant.patch";
     nodeId: string;
     selector: CanvasVariantSelector;
@@ -264,6 +614,14 @@ export type CanvasPatch =
     op: "token.set";
     path: string;
     value: unknown;
+  }
+  | {
+    op: "tokens.merge";
+    tokens: Partial<CanvasTokenStore>;
+  }
+  | {
+    op: "tokens.replace";
+    tokens: CanvasTokenStore;
   }
   | {
     op: "governance.update";
@@ -287,6 +645,32 @@ export type CanvasPatch =
   | {
     op: "prototype.upsert";
     prototype: CanvasPrototype;
+  }
+  | {
+    op: "inventory.promote";
+    nodeId: string;
+    itemId?: string;
+    name?: string;
+    description?: string | null;
+    origin?: CanvasInventoryOrigin;
+    metadata?: Record<string, unknown>;
+  }
+  | {
+    op: "inventory.update";
+    itemId: string;
+    changes: Record<string, unknown>;
+  }
+  | {
+    op: "inventory.upsert";
+    item: CanvasComponentInventoryItem;
+  }
+  | {
+    op: "inventory.remove";
+    itemId: string;
+  }
+  | {
+    op: "starter.apply";
+    starter: CanvasStarterApplication | null;
   };
 
 export type CanvasFeedbackItem = {
@@ -303,6 +687,44 @@ export type CanvasFeedbackItem = {
   message: string;
   evidenceRefs: string[];
   details: Record<string, unknown>;
+};
+
+export type CanvasFeedbackCompleteReason =
+  | "session_closed"
+  | "lease_revoked"
+  | "subscription_replaced"
+  | "document_unloaded";
+
+export type CanvasFeedbackEvent =
+  | {
+    eventType: "feedback.item";
+    item: CanvasFeedbackItem;
+  }
+  | {
+    eventType: "feedback.heartbeat";
+    cursor: string | null;
+    ts: string;
+    activeTargetIds: string[];
+  }
+  | {
+    eventType: "feedback.complete";
+    cursor: string | null;
+    ts: string;
+    reason: CanvasFeedbackCompleteReason;
+  };
+
+export type CanvasFeedbackSubscribeResult = {
+  subscriptionId: string;
+  cursor: string | null;
+  heartbeatMs: number;
+  expiresAt: string | null;
+  initialItems: CanvasFeedbackItem[];
+  activeTargetIds: string[];
+};
+
+export type CanvasFeedbackUnsubscribeResult = {
+  ok: true;
+  subscriptionId: string;
 };
 
 export type CanvasValidationWarning = {
@@ -332,7 +754,7 @@ export type CanvasTargetState = {
   lastRenderedAt?: string;
   sourceUrl?: string | null;
   projection?: CodeSyncProjectionMode;
-  fallbackReason?: string | null;
+  fallbackReason?: CanvasProjectionFallbackReason | null;
   parityArtifact?: CanvasParityArtifact | null;
 };
 
@@ -355,7 +777,18 @@ export type CanvasSessionSummary = {
   documentRevision: number;
   libraryPolicy: CanvasLibraryPolicy;
   componentInventoryCount: number;
+  availableInventoryCount?: number;
+  catalogKitIds?: string[];
+  availableStarterCount?: number;
   componentSourceKinds: string[];
+  frameworkIds?: string[];
+  pluginIds?: string[];
+  inventoryOrigins?: CanvasInventoryOrigin[];
+  declaredCapabilities?: CanvasAdapterCapability[];
+  grantedCapabilities?: CanvasAdapterCapability[];
+  capabilityDenials?: CanvasCapabilityGrant[];
+  pluginErrors?: CanvasAdapterErrorEnvelope[];
+  importSources?: string[];
   iconRoles: CanvasIconRoles;
   targets: CanvasTargetState[];
   overlayMounts: Array<{ mountId: string; targetId: string; mountedAt: string }>;
@@ -369,7 +802,12 @@ export type CanvasSessionSummary = {
   driftState?: CodeSyncSessionStatus["driftState"];
   lastImportAt?: string;
   lastPushAt?: string;
+  starterId?: string | null;
+  starterName?: string | null;
+  starterFrameworkId?: string | null;
+  starterAppliedAt?: string | null;
   bindings?: CodeSyncBindingStatus[];
+  history?: CanvasHistoryState;
 };
 
 export type CanvasCommandContext = {

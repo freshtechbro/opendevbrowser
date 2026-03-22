@@ -5,6 +5,7 @@ import { hashCodeSyncValue } from "../src/canvas/code-sync/hash";
 import { importCodeSyncGraph } from "../src/canvas/code-sync/import";
 import {
   DEFAULT_CODE_SYNC_OWNERSHIP,
+  normalizeCodeSyncBindingMetadata,
   type CanvasCodeSyncBindingMetadata,
   type CodeSyncGraph,
   type CodeSyncManifest
@@ -37,14 +38,14 @@ function createNode(
 function createMetadata(
   overrides: Partial<CanvasCodeSyncBindingMetadata> = {}
 ): CanvasCodeSyncBindingMetadata {
-  return {
+  return normalizeCodeSyncBindingMetadata({
     adapter: "tsx-react-v1",
     repoPath: "src/example.tsx",
     exportName: "Example",
     syncMode: "manual",
     ownership: { ...DEFAULT_CODE_SYNC_OWNERSHIP },
     ...overrides
-  };
+  });
 }
 
 function createBinding(
@@ -125,6 +126,12 @@ function countOccurrences(source: string, needle: string): number {
   return source.split(needle).length - 1;
 }
 
+function reactExportLocator(exportName: string, selector?: string) {
+  return selector
+    ? { kind: "react-export" as const, exportName, selector }
+    : { kind: "react-export" as const, exportName };
+}
+
 describe("canvas code sync TSX adapter", () => {
   it("parses literal attributes, style variants, and unsupported fragments from function exports", () => {
     const metadata = createMetadata();
@@ -148,7 +155,7 @@ describe("canvas code sync TSX adapter", () => {
       metadata
     );
 
-    expect(parsed.rootLocator).toEqual({ exportName: "Example" });
+    expect(parsed.rootLocator).toEqual(reactExportLocator("Example"));
 
     const rootNode = parsed.graph.nodes[parsed.graph.rootKey];
     expect(rootNode).toMatchObject({
@@ -215,7 +222,7 @@ describe("canvas code sync TSX adapter", () => {
     );
 
     const rootNode = parsed.graph.nodes[parsed.graph.rootKey];
-    expect(parsed.rootLocator).toEqual({ exportName: "default" });
+    expect(parsed.rootLocator).toEqual(reactExportLocator("default"));
     expect(rootNode?.tagName).toBe("fragment");
     expect(rootNode?.childKeys).toHaveLength(1);
   });
@@ -287,7 +294,7 @@ describe("canvas code sync TSX adapter", () => {
 
     const rootNode = parsed.graph.nodes[parsed.graph.rootKey];
     expect(rootNode?.attributes.id).toBe("arrow-block-root");
-    expect(parsed.rootLocator).toEqual({ exportName: "Example" });
+    expect(parsed.rootLocator).toEqual(reactExportLocator("Example"));
   });
 
   it("falls back from non-JSX initializers and overload signatures before resolving function exports", () => {
@@ -314,8 +321,12 @@ describe("canvas code sync TSX adapter", () => {
       "export function Example() { return <div />; }",
       "src/example.tsx",
       "binding_code",
-      createMetadata({ exportName: undefined })
-    )).toThrow("tsx-react-v1 requires codeSync.exportName.");
+      {
+        ...createMetadata(),
+        exportName: undefined,
+        rootLocator: undefined as unknown as CanvasCodeSyncBindingMetadata["rootLocator"]
+      }
+    )).toThrow("codeSync.exportName or codeSync.selector is required.");
 
     expect(() => parseTsxCodeSyncBinding(
       "export function Example() { return <div>; }",

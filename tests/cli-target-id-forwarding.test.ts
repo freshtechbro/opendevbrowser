@@ -226,4 +226,25 @@ describe("CLI target-id forwarding", () => {
 
     expect(callDaemon).toHaveBeenCalledWith(method, payload);
   });
+
+  it("forwards snapshot timeout overrides to the daemon client", async () => {
+    await runSnapshot(makeArgs("snapshot", [
+      "--session-id", "s1",
+      "--mode", "actionables",
+      "--target-id", "tab-11",
+      "--timeout-ms", "15000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "nav.snapshot",
+      {
+        sessionId: "s1",
+        mode: "actionables",
+        maxChars: undefined,
+        cursor: undefined,
+        targetId: "tab-11"
+      },
+      { timeoutMs: 15000 }
+    );
+  });
 });

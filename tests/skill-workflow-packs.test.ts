@@ -1,5 +1,7 @@
-import { access } from "fs/promises";
+import { access, chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "fs/promises";
+import { spawnSync } from "child_process";
 import { join } from "path";
+import * as os from "os";
 import { describe, expect, it } from "vitest";
 import { SkillLoader } from "../src/skills/skill-loader";
 
@@ -7,6 +9,38 @@ const repoRoot = process.cwd();
 const bundledSkillsDir = join(repoRoot, "skills");
 
 const requiredFilesBySkill: Record<string, string[]> = {
+  "opendevbrowser-design-agent": [
+    "SKILL.md",
+    "artifacts/design-workflows.md",
+    "artifacts/design-contract-playbook.md",
+    "artifacts/frontend-evaluation-rubric.md",
+    "artifacts/external-pattern-synthesis.md",
+    "artifacts/component-pattern-index.md",
+    "artifacts/existing-surface-adaptation.md",
+    "artifacts/app-shell-and-state-wiring.md",
+    "artifacts/state-ownership-matrix.md",
+    "artifacts/async-search-state-ownership.md",
+    "artifacts/loading-and-feedback-surfaces.md",
+    "artifacts/theming-and-token-ownership.md",
+    "artifacts/isolated-preview-validation.md",
+    "artifacts/performance-audit-playbook.md",
+    "artifacts/scroll-reveal-surface-planning.md",
+    "artifacts/research-harvest-workflow.md",
+    "artifacts/design-release-gate.md",
+    "artifacts/opendevbrowser-ui-example-map.md",
+    "artifacts/implementation-anti-patterns.md",
+    "assets/templates/design-brief.v1.md",
+    "assets/templates/design-audit-report.v1.md",
+    "assets/templates/design-contract.v1.json",
+    "assets/templates/canvas-generation-plan.design.v1.json",
+    "assets/templates/design-review-checklist.json",
+    "assets/templates/real-surface-design-matrix.json",
+    "assets/templates/reference-pattern-board.v1.json",
+    "assets/templates/design-release-gate.v1.json",
+    "scripts/design-workflow.sh",
+    "scripts/extract-canvas-plan.sh",
+    "scripts/validate-skill-assets.sh"
+  ],
   "opendevbrowser-login-automation": [
     "SKILL.md",
     "artifacts/login-workflows.md",
@@ -84,12 +118,82 @@ const requiredFilesBySkill: Record<string, string[]> = {
 };
 
 describe("workflow skill packs", () => {
+  it("discovers bundled workflow skill packs without extra skill paths", async () => {
+    const tempEnvRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-pack-discovery-"));
+    const originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const originalAmpCliAliasHome = process.env.AMPCLI_HOME;
+    const originalAmpCliHome = process.env.AMP_CLI_HOME;
+    const originalAmpHome = process.env.AMP_HOME;
+
+    process.env.OPENCODE_CONFIG_DIR = join(tempEnvRoot, "config");
+    process.env.CODEX_HOME = join(tempEnvRoot, "codex-home");
+    process.env.CLAUDECODE_HOME = join(tempEnvRoot, "claudecode-home");
+    delete process.env.CLAUDE_HOME;
+    delete process.env.AMPCLI_HOME;
+    process.env.AMP_CLI_HOME = join(tempEnvRoot, "amp-home");
+    delete process.env.AMP_HOME;
+
+    try {
+      const loader = new SkillLoader(join(repoRoot, "non-existent-root"));
+      const names = (await loader.listSkills()).map((skill) => skill.name);
+
+      expect(names).toContain("opendevbrowser-login-automation");
+      expect(names).toContain("opendevbrowser-design-agent");
+      expect(names).toContain("opendevbrowser-form-testing");
+      expect(names).toContain("opendevbrowser-data-extraction");
+      expect(names).toContain("opendevbrowser-research");
+      expect(names).toContain("opendevbrowser-shopping");
+      expect(names).toContain("opendevbrowser-product-presentation-asset");
+    } finally {
+      if (originalConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = originalConfigDir;
+      }
+      if (originalCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = originalCodexHome;
+      }
+      if (originalClaudeCodeHome === undefined) {
+        delete process.env.CLAUDECODE_HOME;
+      } else {
+        process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
+      }
+      if (originalClaudeHome === undefined) {
+        delete process.env.CLAUDE_HOME;
+      } else {
+        process.env.CLAUDE_HOME = originalClaudeHome;
+      }
+      if (originalAmpCliAliasHome === undefined) {
+        delete process.env.AMPCLI_HOME;
+      } else {
+        process.env.AMPCLI_HOME = originalAmpCliAliasHome;
+      }
+      if (originalAmpCliHome === undefined) {
+        delete process.env.AMP_CLI_HOME;
+      } else {
+        process.env.AMP_CLI_HOME = originalAmpCliHome;
+      }
+      if (originalAmpHome === undefined) {
+        delete process.env.AMP_HOME;
+      } else {
+        process.env.AMP_HOME = originalAmpHome;
+      }
+      await rm(tempEnvRoot, { recursive: true, force: true });
+    }
+  });
+
   it("discovers workflow skill packs", async () => {
     const loader = new SkillLoader(join(repoRoot, "non-existent-root"), [bundledSkillsDir]);
     const skills = await loader.listSkills();
     const names = skills.map((skill) => skill.name);
 
     expect(names).toContain("opendevbrowser-login-automation");
+    expect(names).toContain("opendevbrowser-design-agent");
     expect(names).toContain("opendevbrowser-form-testing");
     expect(names).toContain("opendevbrowser-data-extraction");
     expect(names).toContain("opendevbrowser-research");
@@ -102,6 +206,94 @@ describe("workflow skill packs", () => {
       for (const relativePath of files) {
         await expect(access(join(bundledSkillsDir, skill, relativePath))).resolves.toBeUndefined();
       }
+    }
+  });
+
+  it("uses the shared CLI resolver for executable workflow wrappers", async () => {
+    const cliScriptPaths = [
+      "opendevbrowser-research/scripts/run-research.sh",
+      "opendevbrowser-research/scripts/render-output.sh",
+      "opendevbrowser-research/scripts/write-artifacts.sh",
+      "opendevbrowser-shopping/scripts/run-shopping.sh",
+      "opendevbrowser-shopping/scripts/normalize-offers.sh",
+      "opendevbrowser-shopping/scripts/run-deal-hunt.sh",
+      "opendevbrowser-product-presentation-asset/scripts/collect-product.sh",
+      "opendevbrowser-product-presentation-asset/scripts/capture-screenshots.sh",
+      "opendevbrowser-product-presentation-asset/scripts/download-images.sh",
+      "opendevbrowser-product-presentation-asset/scripts/write-manifest.sh"
+    ];
+
+    for (const relativePath of cliScriptPaths) {
+      const content = await readFile(join(bundledSkillsDir, relativePath), "utf8");
+      expect(content).toContain("resolve-odb-cli.sh");
+      expect(content).toContain("ODB_CLI");
+    }
+  });
+
+  it("uses the shared CLI resolver for router workflows across agent packs", async () => {
+    const routerScriptPaths = [
+      "opendevbrowser-best-practices/scripts/odb-workflow.sh",
+      "opendevbrowser-design-agent/scripts/design-workflow.sh"
+    ];
+
+    for (const relativePath of routerScriptPaths) {
+      const content = await readFile(join(bundledSkillsDir, relativePath), "utf8");
+      expect(content).toContain("resolve-odb-cli.sh");
+      expect(content).toContain("CLI_PREFIX");
+    }
+  });
+
+  it("resolves a repo-local CLI before PATH and npx for installed workflow copies", async () => {
+    if (process.platform === "win32") return;
+
+    const tempRoot = await mkdtemp(join(os.tmpdir(), "odb-cli-resolver-"));
+    const tempRepoRoot = join(tempRoot, "repo");
+    const tempSkillRoot = join(tempRoot, "installed-skill", "scripts");
+    const tempBinRoot = join(tempRoot, "bin");
+    const resolverPath = join(tempSkillRoot, "resolve-odb-cli.sh");
+    const cliEntry = join(tempRepoRoot, "dist", "cli", "index.js");
+    const nodeBinPath = join(tempBinRoot, "node");
+
+    try {
+      await mkdir(join(tempRepoRoot, "dist", "cli"), { recursive: true });
+      await mkdir(tempSkillRoot, { recursive: true });
+      await mkdir(tempBinRoot, { recursive: true });
+      await writeFile(join(tempRepoRoot, "package.json"), JSON.stringify({ name: "opendevbrowser" }));
+      await writeFile(cliEntry, "console.log('ok');\n");
+      await copyFile(
+        join(bundledSkillsDir, "opendevbrowser-best-practices", "scripts", "resolve-odb-cli.sh"),
+        resolverPath
+      );
+      await writeFile(nodeBinPath, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+      await chmod(nodeBinPath, 0o755);
+
+      const result = spawnSync(
+        "/bin/bash",
+        [
+          "-lc",
+          [
+            "source \"$1\"",
+            "printf '%s\\n' \"${ODB_CLI[@]}\""
+          ].join("\n"),
+          "bash",
+          resolverPath
+        ],
+        {
+          cwd: tempRepoRoot,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${tempBinRoot}:/usr/bin:/bin`
+          }
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      const parts = result.stdout.trim().split(/\r?\n/);
+      expect(parts).toEqual(["node", await realpath(cliEntry)]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
     }
   });
 });

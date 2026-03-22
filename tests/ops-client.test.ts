@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AddressInfo } from "net";
 import { OpsClient } from "../src/browser/ops-client";
@@ -218,19 +219,26 @@ describe("OpsClient", () => {
   });
 
   it("rejects when hello send fails", async () => {
-    const server = await createServer((_socket, _raw) => {
-      // no-op
+    const client = new OpsClient("ws://127.0.0.1:0", { pingIntervalMs: 100000 });
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      close: ReturnType<typeof vi.fn>;
+      send: ReturnType<typeof vi.fn>;
+    };
+    socket.readyState = WebSocket.OPEN;
+    socket.close = vi.fn(() => {
+      socket.readyState = WebSocket.CLOSED;
+      socket.emit("close");
     });
-
-    const client = new OpsClient(server.url, { pingIntervalMs: 100000 });
+    socket.send = vi.fn();
+    (client as unknown as { socket: unknown }).socket = socket;
     (client as unknown as { send: () => void }).send = () => {
       throw new Error("send-failed");
     };
 
     await expect(client.connect()).rejects.toThrow("send-failed");
 
-    client.disconnect();
-    await new Promise((resolve) => server.wss.close(() => resolve(null)));
+    await client.disconnect();
   });
 
   it("rejects when hello send throws non-errors", async () => {
@@ -307,6 +315,136 @@ describe("OpsClient", () => {
     expect(() => client.disconnect()).not.toThrow();
   });
 
+  it("waits for the websocket close before resolving disconnect", async () => {
+    const client = new OpsClient("ws://127.0.0.1:0");
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      close: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    socket.readyState = WebSocket.OPEN;
+    socket.close = vi.fn((_code?: number, _reason?: string) => {
+      setTimeout(() => socket.emit("close"), 0);
+    });
+    socket.terminate = vi.fn();
+    (client as unknown as { socket: unknown }).socket = socket;
+
+    await expect(client.disconnect()).resolves.toBeUndefined();
+    expect(socket.close).toHaveBeenCalledWith(1000, "Ops disconnect");
+    expect(socket.terminate).not.toHaveBeenCalled();
+  });
+
+  it("reuses an in-flight disconnect promise and ignores duplicate finalize signals", async () => {
+    const client = new OpsClient("ws://127.0.0.1:0");
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      close: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    socket.readyState = WebSocket.OPEN;
+    socket.close = vi.fn(() => {
+      setTimeout(() => {
+        socket.emit("error", new Error("late-close-error"));
+        socket.emit("close");
+      }, 0);
+    });
+    socket.terminate = vi.fn();
+    (client as unknown as { socket: unknown }).socket = socket;
+
+    const first = client.disconnect();
+    const second = client.disconnect();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+    expect(socket.close).toHaveBeenCalledTimes(1);
+    expect(socket.terminate).not.toHaveBeenCalled();
+  });
+
+  it("finalizes disconnect immediately when the socket is already closing", async () => {
+    const client = new OpsClient("ws://127.0.0.1:0");
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      close: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    socket.readyState = WebSocket.CLOSING;
+    socket.close = vi.fn();
+    socket.terminate = vi.fn();
+    (client as unknown as { socket: unknown }).socket = socket;
+
+    await expect(client.disconnect()).resolves.toBeUndefined();
+    expect(socket.close).not.toHaveBeenCalled();
+    expect(socket.terminate).not.toHaveBeenCalled();
+  });
+
+  it("finalizes disconnect when closing a connecting socket throws", async () => {
+    const client = new OpsClient("ws://127.0.0.1:0");
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      close: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    socket.readyState = WebSocket.CONNECTING;
+    socket.close = vi.fn(() => {
+      throw new Error("close failed");
+    });
+    socket.terminate = vi.fn();
+    (client as unknown as { socket: unknown }).socket = socket;
+
+    await expect(client.disconnect()).resolves.toBeUndefined();
+    expect(socket.close).toHaveBeenCalledWith(1000, "Ops disconnect");
+    expect(socket.terminate).not.toHaveBeenCalled();
+  });
+
+  it("terminates the socket when disconnect close never settles within the grace window", async () => {
+    vi.useFakeTimers();
+    const client = new OpsClient("ws://127.0.0.1:0");
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      close: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    socket.readyState = WebSocket.OPEN;
+    socket.close = vi.fn();
+    socket.terminate = vi.fn();
+    (client as unknown as { socket: unknown }).socket = socket;
+
+    try {
+      const pending = client.disconnect();
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(pending).resolves.toBeUndefined();
+      expect(socket.close).toHaveBeenCalledWith(1000, "Ops disconnect");
+      expect(socket.terminate).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still finalizes disconnect when terminate throws after the grace timeout", async () => {
+    vi.useFakeTimers();
+    const client = new OpsClient("ws://127.0.0.1:0");
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      close: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    socket.readyState = WebSocket.OPEN;
+    socket.close = vi.fn();
+    socket.terminate = vi.fn(() => {
+      throw new Error("terminate failed");
+    });
+    (client as unknown as { socket: unknown }).socket = socket;
+
+    try {
+      const pending = client.disconnect();
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(pending).resolves.toBeUndefined();
+      expect(socket.close).toHaveBeenCalledWith(1000, "Ops disconnect");
+      expect(socket.terminate).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("closeSocket no-ops when socket is missing", () => {
     const client = new OpsClient("ws://127.0.0.1:0");
     expect(() =>
@@ -377,23 +515,26 @@ describe("OpsClient", () => {
   });
 
   it("rejects when ping send fails", async () => {
-    const server = await createServer((socket, raw) => {
-      const message = JSON.parse(raw) as Record<string, unknown>;
-      if (message.type === "ops_hello") {
-        send(socket, { type: "ops_hello_ack", version: "1", clientId: "client-12", maxPayloadBytes: 1024, capabilities: [] });
-      }
+    const client = new OpsClient("ws://127.0.0.1:0", { pingIntervalMs: 100000, pingTimeoutMs: 50 });
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      close: ReturnType<typeof vi.fn>;
+      send: ReturnType<typeof vi.fn>;
+    };
+    socket.readyState = WebSocket.OPEN;
+    socket.close = vi.fn(() => {
+      socket.readyState = WebSocket.CLOSED;
+      socket.emit("close");
     });
-
-    const client = new OpsClient(server.url, { pingIntervalMs: 100000, pingTimeoutMs: 50 });
-    await client.connect();
+    socket.send = vi.fn();
+    (client as unknown as { socket: unknown }).socket = socket;
     (client as unknown as { send: () => void }).send = () => {
       throw new Error("send-failed");
     };
 
     await expect((client as unknown as { sendPing: () => Promise<void> }).sendPing()).rejects.toThrow("send-failed");
 
-    client.disconnect();
-    await new Promise((resolve) => server.wss.close(() => resolve(null)));
+    await client.disconnect();
   });
 
   it("rejects when ping send throws non-errors", async () => {
@@ -484,6 +625,17 @@ describe("OpsClient", () => {
         Buffer.from(JSON.stringify({ type: "ops_event", event: "ready" }))
       )
     ).not.toThrow();
+  });
+
+  it("ignores malformed ops events even when a handler is configured", () => {
+    const onEvent = vi.fn();
+    const client = new OpsClient("ws://127.0.0.1:0", { onEvent });
+
+    (client as unknown as { handleMessage: (data: Buffer) => void }).handleMessage(
+      Buffer.from(JSON.stringify({ type: "ops_event", event: 123 }))
+    );
+
+    expect(onEvent).not.toHaveBeenCalled();
   });
 
   it("ignores chunk completion without pending requests", () => {

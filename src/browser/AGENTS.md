@@ -10,10 +10,10 @@ Owns Playwright browser instances, session state, target (page/tab) management, 
 
 ```
 src/browser/
-├── annotation-manager.ts         # Annotation transport coordination
+├── annotation-manager.ts         # Annotation transport coordination + shared inbox stored retrieval
 ├── browser-manager.ts            # Main orchestrator - launch, connect, lifecycle
 ├── canvas-client.ts              # /canvas relay client
-├── canvas-code-sync-manager.ts   # TSX-first code sync status/pull/push/watch
+├── canvas-code-sync-manager.ts   # Framework-adapter-backed code sync status/pull/push/watch
 ├── canvas-manager.ts             # /canvas commands, preview sync, overlay orchestration
 ├── canvas-runtime-preview-bridge.ts # Opt-in bound-app runtime reconciliation
 ├── canvas-session-sync-manager.ts # Lease-holder / observer attach state
@@ -33,6 +33,7 @@ src/browser/
 - **Session composition:** Browser + Context + TargetManager + RefStore + Snapshotter + Trackers
 - **Profile management:** Persistent or ephemeral Chrome profiles
 - **Chrome resolution:** System Chrome → Chrome for Testing download
+- **Session cookie bootstrap:** managed and `cdpConnect` sessions import readable cookies from the discovered system Chrome-family profile before navigation; extension mode reuses the attached tab's existing cookies
 
 ### TargetManager
 - UUID-based target registry
@@ -47,14 +48,21 @@ src/browser/
 - Step-by-step execution via `executeStep()`
 
 ### CanvasManager
-- `/canvas` command router for session open/attach/status/close, document patch/save/export, preview render/refresh, overlay state, and feedback polling/subscription
+- `/canvas` command router for session open/attach/status/close, document load/import/patch/save/export, history undo/redo, inventory list/insert, starter list/apply, preview render/refresh, tab open/close, overlay state, feedback polling, and public feedback pull-stream commands
 - Owns session leases and design-tab target state
-- Delegates TSX-first bind/pull/push/resolve work to `CanvasCodeSyncManager`
+- Derives the design-tab session summary from normalized canvas documents, including additive framework/plugin/import/capability metadata plus built-in kit and starter availability metadata when present
+- Merges document-backed inventory with the built-in catalog for `canvas.inventory.list` and `canvas.inventory.insert`, and composes `canvas.starter.apply` from the same document-backed inventory/token paths instead of a second starter store
+- Delegates framework-adapter-backed bind/pull/push/resolve work to `CanvasCodeSyncManager`
 
 ### CanvasCodeSyncManager
 - Loads and saves document-scoped manifests through `src/canvas/repo-store.ts`
 - Watches bound source files and computes drift/conflict state
-- Supports `canvas.code.bind`, `unbind`, `pull`, `push`, `status`, and `resolve`
+- Supports `canvas.code.bind`, `unbind`, `pull`, `push`, `status`, and `resolve` across built-in React/HTML/custom-elements/Vue/Svelte lanes plus repo-local BYO adapter plugins
+
+### AnnotationManager
+- Owns direct-vs-relay annotate routing
+- Resolves `annotate --stored` through the shared repo-local agent inbox first and the extension-local fallback second
+- Keeps relay-only requirements explicit for extension-backed stored fetches
 
 ## Session Modes
 

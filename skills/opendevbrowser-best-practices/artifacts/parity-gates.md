@@ -30,7 +30,13 @@ npm run test -- tests/tools.test.ts tests/daemon-command.test.ts
 npm run test -- tests/providers-performance-gate.test.ts
 ```
 
+## Contract gates vs live release proof
+
+- `tests/parity-matrix.test.ts` is contract coverage for CLI/tool/runtime surface parity.
+- `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json` and `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json` are the live release-proof lane.
+- Treat grouped contract checks and direct-run release proof as complementary, not interchangeable.
+
 ## Release Requirement
 
 Ship only when parity tests pass and docs (`README.md`, `docs/CLI.md`, `docs/ARCHITECTURE.md`, `docs/SURFACE_REFERENCE.md`) reflect the same surface map.
-Use `docs/RELEASE_PARITY_CHECKLIST.md` as the release gate source of truth.
+Use `docs/RELEASE_RUNBOOK.md` and the current version-scoped release evidence ledger as the release gate source of truth.

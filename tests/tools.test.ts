@@ -133,7 +133,18 @@ const createDeps = () => {
 
   const baseConfig = resolveConfig({});
   const config = new ConfigStore({ ...baseConfig, relayToken: false });
-  const skills = { loadBestPractices: vi.fn().mockResolvedValue("guide") };
+  const skills = {
+    loadBestPractices: vi.fn().mockResolvedValue("guide"),
+    listSkills: vi.fn().mockResolvedValue([
+      {
+        name: "opendevbrowser-best-practices",
+        description: "Best practices",
+        version: "1.0.0",
+        path: "/tmp/opendevbrowser-best-practices/SKILL.md"
+      }
+    ]),
+    loadSkill: vi.fn().mockResolvedValue("# Skill")
+  };
   const getExtensionPath = vi.fn().mockReturnValue("/path/to/extension");
   const providerRuntime = createMockProviderRuntime();
 
@@ -223,6 +234,8 @@ describe("tools", () => {
       ["opendevbrowser_is_checked", { sessionId: "s1", ref: "r1" }, { ok: true }],
       ["opendevbrowser_run", { sessionId: "s1", steps: [] }, { ok: true }],
       ["opendevbrowser_prompting_guide", {}, { ok: true }],
+      ["opendevbrowser_skill_list", {}, { ok: true }],
+      ["opendevbrowser_skill_load", { name: "opendevbrowser-best-practices" }, { ok: true }],
       ["opendevbrowser_console_poll", { sessionId: "s1" }, { ok: true }],
       ["opendevbrowser_network_poll", { sessionId: "s1" }, { ok: true }],
       ["opendevbrowser_debug_trace_snapshot", { sessionId: "s1" }, { ok: true, meta: { blockerState: "clear" } }],
@@ -380,6 +393,18 @@ describe("tools", () => {
     expect(deps.manager.status).toHaveBeenCalled();
   });
 
+  it("does not wrap local skill tools with ensureHub", async () => {
+    const deps = createDeps();
+    const ensureHub = vi.fn().mockResolvedValue(undefined);
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, ensureHub } as never);
+
+    expect(parse(await tools.opendevbrowser_prompting_guide.execute({} as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_skill_list.execute({} as never))).toMatchObject({ ok: true });
+    expect(parse(await tools.opendevbrowser_skill_load.execute({ name: "opendevbrowser-best-practices" } as never))).toMatchObject({ ok: true });
+    expect(ensureHub).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid canvas command prefixes", async () => {
     const deps = createDeps();
     const { createTools } = await import("../src/tools");
@@ -440,6 +465,70 @@ describe("tools", () => {
         details: { auditId: "CANVAS-01" }
       }
     });
+  });
+
+  it("passes through the public canvas feedback pull-stream commands", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    deps.canvasManager.execute
+      .mockResolvedValueOnce({
+        subscriptionId: "canvas_sub_1",
+        cursor: "fb_1",
+        heartbeatMs: 15000,
+        expiresAt: null,
+        initialItems: [{ id: "fb_1", cursor: "fb_1", category: "render" }],
+        activeTargetIds: ["target_1"]
+      })
+      .mockResolvedValueOnce({
+        eventType: "feedback.item",
+        item: { id: "fb_2", cursor: "fb_2", category: "render" }
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        subscriptionId: "canvas_sub_1"
+      });
+
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.feedback.subscribe",
+      params: { canvasSessionId: "canvas_1", categories: ["render"] }
+    } as never))).toMatchObject({
+      ok: true,
+      subscriptionId: "canvas_sub_1",
+      initialItems: [{ id: "fb_1", cursor: "fb_1", category: "render" }]
+    });
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.feedback.next",
+      params: { canvasSessionId: "canvas_1", subscriptionId: "canvas_sub_1", timeoutMs: 5000 }
+    } as never))).toMatchObject({
+      ok: true,
+      eventType: "feedback.item",
+      item: { id: "fb_2", cursor: "fb_2", category: "render" }
+    });
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.feedback.unsubscribe",
+      params: { canvasSessionId: "canvas_1", subscriptionId: "canvas_sub_1" }
+    } as never))).toMatchObject({
+      ok: true,
+      subscriptionId: "canvas_sub_1"
+    });
+
+    expect(deps.canvasManager.execute).toHaveBeenNthCalledWith(
+      1,
+      "canvas.feedback.subscribe",
+      { canvasSessionId: "canvas_1", categories: ["render"] }
+    );
+    expect(deps.canvasManager.execute).toHaveBeenNthCalledWith(
+      2,
+      "canvas.feedback.next",
+      { canvasSessionId: "canvas_1", subscriptionId: "canvas_sub_1", timeoutMs: 5000 }
+    );
+    expect(deps.canvasManager.execute).toHaveBeenNthCalledWith(
+      3,
+      "canvas.feedback.unsubscribe",
+      { canvasSessionId: "canvas_1", subscriptionId: "canvas_sub_1" }
+    );
   });
 
   it("falls back to composed trace snapshot when manager capability is missing", async () => {
@@ -568,6 +657,39 @@ describe("tools", () => {
       blockerState: "active",
       blocker: { type: "auth_required" },
       blockerArtifacts: { hosts: ["x.com"] }
+    });
+  });
+
+  it("walks backward to the latest numeric network status in fallback debug traces", async () => {
+    const deps = createDeps();
+    delete (deps.manager as { debugTraceSnapshot?: unknown }).debugTraceSnapshot;
+    deps.manager.status.mockResolvedValue({
+      mode: "managed",
+      activeTargetId: "t1",
+      url: "https://x.com/i/flow/login",
+      title: "Log in to X"
+    });
+    deps.manager.networkPoll.mockReturnValue({
+      events: [
+        { status: 401, url: "https://x.com/i/flow/login" },
+        { status: "not-a-number", url: "https://x.com/trailing" }
+      ],
+      nextSeq: 2,
+      truncated: false
+    });
+
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    const result = parse(await tools.opendevbrowser_debug_trace_snapshot.execute({ sessionId: "s1" } as never));
+    expect(result.ok).toBe(true);
+    expect(result.meta).toMatchObject({
+      blockerState: "active",
+      blocker: {
+        evidence: {
+          status: 401
+        }
+      }
     });
   });
 

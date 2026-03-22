@@ -62,14 +62,14 @@ export class ScriptRunner {
           const ref = args.ref;
           const state = requireState(args.state);
           const timeoutMs = requireNumber(args.timeoutMs, 30000);
-          return withRetry("wait", () => this.manager.waitForRef(
+          return withRetry(() => this.manager.waitForRef(
             sessionId,
             ref,
             state,
             timeoutMs
           ));
         }
-        return withRetry("wait", () => this.manager.waitForLoad(
+        return withRetry(() => this.manager.waitForLoad(
           sessionId,
           requireWaitUntil(args.until),
           requireNumber(args.timeoutMs, 30000)
@@ -82,21 +82,21 @@ export class ScriptRunner {
           typeof args.cursor === "string" ? args.cursor : undefined
         );
       case "click":
-        return withRetry("click", () => this.manager.click(sessionId, requireString(args.ref, "ref")));
+        return withRetry(() => this.manager.click(sessionId, requireString(args.ref, "ref")));
       case "hover":
-        return withRetry("hover", () => this.manager.hover(sessionId, requireString(args.ref, "ref")));
+        return withRetry(() => this.manager.hover(sessionId, requireString(args.ref, "ref")));
       case "press":
-        return withRetry("press", () => this.manager.press(
+        return withRetry(() => this.manager.press(
           sessionId,
           requireString(args.key, "key"),
           typeof args.ref === "string" ? args.ref : undefined
         ));
       case "check":
-        return withRetry("check", () => this.manager.check(sessionId, requireString(args.ref, "ref")));
+        return withRetry(() => this.manager.check(sessionId, requireString(args.ref, "ref")));
       case "uncheck":
-        return withRetry("uncheck", () => this.manager.uncheck(sessionId, requireString(args.ref, "ref")));
+        return withRetry(() => this.manager.uncheck(sessionId, requireString(args.ref, "ref")));
       case "type":
-        return withRetry("type", () => this.manager.type(
+        return withRetry(() => this.manager.type(
           sessionId,
           requireString(args.ref, "ref"),
           requireString(args.text, "text"),
@@ -104,19 +104,19 @@ export class ScriptRunner {
           Boolean(args.submit)
         ));
       case "select":
-        return withRetry("select", () => this.manager.select(
+        return withRetry(() => this.manager.select(
           sessionId,
           requireString(args.ref, "ref"),
           requireStringArray(args.values, "values")
         ));
       case "scroll":
-        return withRetry("scroll", () => this.manager.scroll(
+        return withRetry(() => this.manager.scroll(
           sessionId,
           requireNumber(args.dy, 0),
           typeof args.ref === "string" ? args.ref : undefined
         ));
       case "scroll_into_view":
-        return withRetry("scroll_into_view", () => this.manager.scrollIntoView(
+        return withRetry(() => this.manager.scrollIntoView(
           sessionId,
           requireString(args.ref, "ref")
         ));
@@ -178,27 +178,11 @@ function requireState(value: unknown): "attached" | "visible" | "hidden" {
   return "attached";
 }
 
-const RETRY_ACTIONS = new Set([
-  "click",
-  "hover",
-  "press",
-  "check",
-  "uncheck",
-  "type",
-  "select",
-  "scroll",
-  "scroll_into_view",
-  "wait"
-]);
 const RETRY_MAX_ATTEMPTS = 2;
 const RETRY_BASE_DELAY_MS = 150;
 const RETRY_MAX_DELAY_MS = 1000;
 
-async function withRetry<T>(action: string, fn: () => Promise<T>): Promise<T> {
-  if (!RETRY_ACTIONS.has(action)) {
-    return fn();
-  }
-
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   let attempt = 0;
   let delay = RETRY_BASE_DELAY_MS;
   while (true) {

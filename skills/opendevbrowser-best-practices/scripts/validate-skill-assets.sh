@@ -33,6 +33,10 @@ const requiredPaths = [
   "scripts/validate-skill-assets.sh"
 ];
 
+const internalPaths = [
+  "scripts/resolve-odb-cli.sh"
+];
+
 const jsonTemplates = [
   "assets/templates/mode-flag-matrix.json",
   "assets/templates/ops-request-envelope.json",
@@ -48,13 +52,16 @@ const jsonTemplates = [
 const executableScripts = [
   "scripts/odb-workflow.sh",
   "scripts/run-robustness-audit.sh",
-  "scripts/validate-skill-assets.sh"
+  "scripts/validate-skill-assets.sh",
+  "scripts/resolve-odb-cli.sh"
 ];
 
 const skillDocMarkers = [
   "npx opendevbrowser --help",
   "npx opendevbrowser help",
-  "56 CLI commands, 49 tools, 38 `/ops` commands, 26 `/canvas` commands",
+  "56 CLI commands, 49 tools, 44 `/ops` commands, 35 `/canvas` commands",
+  "Treat `tests/parity-matrix.test.ts` as contract coverage only.",
+  "canonical owner of direct-run release evidence policy",
   "mutationPolicy.allowedBeforePlan",
   "canvas.code.bind",
   "canvas.code.resolve",
@@ -65,15 +72,18 @@ const skillDocMarkers = [
 const commandRefMarkers = [
   "CLI commands: `56`",
   "Plugin tools: `49`",
-  "`/ops` command names: `38`",
-  "`/canvas` command names: `26`",
+  "`/ops` command names: `44`",
+  "`/canvas` command names: `35`",
   "docs/SURFACE_REFERENCE.md",
   "npx opendevbrowser help",
   "canvas.session.open",
   "canvas.session.attach",
   "canvas.feedback.poll",
+  "canvas.feedback.next",
+  "canvas.feedback.unsubscribe",
   "canvas.code.bind",
   "canvas.code.resolve",
+  "canvas_history_requested",
   "canvas.tab.sync",
   "canvas.overlay.sync",
   "feedback.heartbeat",
@@ -83,6 +93,8 @@ const commandRefMarkers = [
   "code-sync",
   "parity",
   "plan_required",
+  "annotation:sendPayload",
+  "AgentInbox",
   "annotate --stored",
   "storage",
   "opencode",
@@ -93,7 +105,27 @@ const commandRefMarkers = [
 
 const workflowMarkers = [
   "canvas-preflight",
-  "canvas-feedback-eval"
+  "canvas-feedback-eval",
+  "release-direct-gates",
+  "resolve-odb-cli.sh",
+  "CLI_PREFIX"
+];
+
+const parityGatePath = "artifacts/parity-gates.md";
+const parityGateMarkers = [
+  "Contract gates vs live release proof",
+  "`tests/parity-matrix.test.ts` is contract coverage",
+  "node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json",
+  "node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json",
+  "docs/RELEASE_RUNBOOK.md"
+];
+
+const providerWorkflowPath = "artifacts/provider-workflows.md";
+const providerWorkflowMarkers = [
+  "## Release evidence lane",
+  "node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json",
+  "node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json",
+  "contract coverage, not live release proof"
 ];
 
 const canvasPlaybookMarkers = [
@@ -124,8 +156,8 @@ const surfaceAuditPath = "assets/templates/surface-audit-checklist.json";
 const surfaceAuditMarkers = [
   "\"cliCommands\": 56",
   "\"tools\": 49",
-  "\"opsCommands\": 38",
-  "\"canvasCommands\": 26",
+  "\"opsCommands\": 44",
+  "\"canvasCommands\": 35",
   "Canvas command names documented",
   "Canvas code-sync surface documented",
   "Annotation send/copy semantics documented"
@@ -139,6 +171,12 @@ const hasMarker = (content, marker) => content.includes(marker);
 for (const relPath of requiredPaths) {
   if (!fs.existsSync(path.join(skillRoot, relPath))) {
     failures.push(`Missing required asset: ${relPath}`);
+  }
+}
+
+for (const relPath of internalPaths) {
+  if (!fs.existsSync(path.join(skillRoot, relPath))) {
+    failures.push(`Missing internal helper: ${relPath}`);
   }
 }
 
@@ -189,6 +227,24 @@ if (fs.existsSync(path.join(skillRoot, workflowPath))) {
   for (const marker of workflowMarkers) {
     if (!hasMarker(workflow, marker)) {
       failures.push(`Workflow router missing marker: ${marker}`);
+    }
+  }
+}
+
+if (fs.existsSync(path.join(skillRoot, parityGatePath))) {
+  const parityGateDoc = readUtf8(parityGatePath);
+  for (const marker of parityGateMarkers) {
+    if (!hasMarker(parityGateDoc, marker)) {
+      failures.push(`Parity gates doc missing marker: ${marker}`);
+    }
+  }
+}
+
+if (fs.existsSync(path.join(skillRoot, providerWorkflowPath))) {
+  const providerWorkflowDoc = readUtf8(providerWorkflowPath);
+  for (const marker of providerWorkflowMarkers) {
+    if (!hasMarker(providerWorkflowDoc, marker)) {
+      failures.push(`Provider workflows doc missing marker: ${marker}`);
     }
   }
 }

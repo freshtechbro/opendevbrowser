@@ -37,7 +37,8 @@ describe("native host helpers", () => {
     if (!helpers) throw new Error("helpers not found");
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "odb-native-log-"));
     const logPath = path.join(dir, "log");
-    fs.writeFileSync(logPath, Buffer.alloc(5 * 1024 * 1024 + 1));
+    fs.closeSync(fs.openSync(logPath, "w"));
+    fs.truncateSync(logPath, 5 * 1024 * 1024 + 1);
     const rotated = (helpers.rotateLogIfNeeded as (p: string) => boolean)(logPath);
     expect(rotated).toBe(true);
     expect(fs.existsSync(`${logPath}.1`)).toBe(true);

@@ -67,4 +67,12 @@ describe("findChromeExecutable", () => {
     const result = await findChromeExecutable();
     expect(result).toBe(exePath);
   });
+
+  it("returns null on unsupported platforms without candidates", async () => {
+    Object.defineProperty(process, "platform", { value: "freebsd" });
+    process.env.PATH = "";
+
+    const result = await findChromeExecutable();
+    expect(result).toBeNull();
+  });
 });

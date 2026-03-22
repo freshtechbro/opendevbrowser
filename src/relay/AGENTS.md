@@ -34,7 +34,7 @@ src/relay/
 - `RelayCommand` / `RelayResponse` - CDP proxy
 - `OpsRequest` / `OpsResponse` - Ops protocol
 - `CanvasRequest` / `CanvasResponse` - Design-canvas protocol
-- `AnnotationRequest` / `AnnotationResponse` - Visual annotations
+- `AnnotationRequest` / `AnnotationResponse` - Visual annotations and shared inbox receipts (`start`, `cancel`, `fetch_stored`, `store_agent_payload`)
 
 ## Endpoints
 
@@ -86,6 +86,7 @@ When `hub.enabled: true` in config:
 - FIFO leases enforced
 - No local relay fallback
 - Remote relay cache via `RemoteRelay`
+- `/annotation` `store_agent_payload` is still handled through the same relay lane and proxies into the core-local `AgentInbox`
 
 ## Anti-Patterns
 

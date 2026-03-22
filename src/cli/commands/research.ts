@@ -2,6 +2,7 @@ import type { ParsedArgs } from "../args";
 import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
+import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 
 type ResearchCommandArgs = {
   topic?: string;
@@ -13,6 +14,7 @@ type ResearchCommandArgs = {
   mode?: "compact" | "json" | "md" | "context" | "path";
   includeEngagement?: boolean;
   limitPerSource?: number;
+  timeoutMs?: number;
   outputDir?: string;
   ttlHours?: number;
   useCookies?: boolean;
@@ -164,6 +166,16 @@ const parseResearchRunArgs = (rawArgs: string[]): ResearchCommandArgs => {
       continue;
     }
 
+    if (arg === "--timeout-ms") {
+      parsed.timeoutMs = parseNumberFlag(requireValue(rawArgs, index, "--timeout-ms"), "--timeout-ms", { min: 1 });
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--timeout-ms=")) {
+      parsed.timeoutMs = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--timeout-ms", { min: 1 });
+      continue;
+    }
+
     if (arg === "--output-dir") {
       parsed.outputDir = requireValue(rawArgs, index, "--output-dir");
       index += 1;
@@ -226,7 +238,7 @@ export async function runResearchCommand(args: ParsedArgs) {
     throw createUsageError("Missing --topic");
   }
 
-  const data = await callDaemon("research.run", {
+  const payload = {
     topic: parsed.topic,
     days: parsed.days,
     from: parsed.from,
@@ -236,15 +248,20 @@ export async function runResearchCommand(args: ParsedArgs) {
     mode: parsed.mode ?? "compact",
     includeEngagement: parsed.includeEngagement ?? false,
     limitPerSource: parsed.limitPerSource,
+    ...(typeof parsed.timeoutMs === "number" ? { timeoutMs: parsed.timeoutMs } : {}),
     outputDir: parsed.outputDir,
     ttlHours: parsed.ttlHours,
     useCookies: parsed.useCookies,
     cookiePolicyOverride: parsed.cookiePolicyOverride
-  });
+  };
+
+  const data = typeof parsed.timeoutMs === "number"
+    ? await callDaemon("research.run", payload, { timeoutMs: parsed.timeoutMs })
+    : await callDaemon("research.run", payload);
 
   return {
     success: true,
-    message: "Research workflow completed.",
+    message: buildWorkflowCompletionMessage("Research workflow", data),
     data
   };
 }

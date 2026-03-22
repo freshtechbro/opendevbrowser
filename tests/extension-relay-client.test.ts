@@ -6,6 +6,7 @@ class FakeWebSocket {
   static CONNECTING = 0;
   static CLOSED = 3;
   static instances: FakeWebSocket[] = [];
+  static autoOpen = true;
 
   readyState = FakeWebSocket.CONNECTING;
   sent: string[] = [];
@@ -13,10 +14,12 @@ class FakeWebSocket {
 
   constructor(public url: string) {
     FakeWebSocket.instances.push(this);
-    setTimeout(() => {
-      this.readyState = FakeWebSocket.OPEN;
-      this.emit("open");
-    }, 0);
+    if (FakeWebSocket.autoOpen) {
+      setTimeout(() => {
+        this.readyState = FakeWebSocket.OPEN;
+        this.emit("open");
+      }, 0);
+    }
   }
 
   addEventListener(type: string, listener: (event: { data?: string }) => void): void {
@@ -31,7 +34,7 @@ class FakeWebSocket {
 
   close(): void {
     this.readyState = FakeWebSocket.CLOSED;
-    this.emit("close");
+    this.emit("close", { code: 1000, reason: "" });
   }
 
   emit(type: string, event: { data?: string } = {}): void {
@@ -48,6 +51,7 @@ describe("RelayClient", () => {
 
   beforeEach(() => {
     FakeWebSocket.instances = [];
+    FakeWebSocket.autoOpen = true;
     vi.useFakeTimers();
     globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
   });
@@ -59,8 +63,9 @@ describe("RelayClient", () => {
 
   it("connects, sends handshake, and routes commands", async () => {
     const onCommand = vi.fn();
+    const onCdpControl = vi.fn();
     const onClose = vi.fn();
-    const client = new RelayClient("ws://relay", { onCommand, onClose });
+    const client = new RelayClient("ws://relay", { onCommand, onCdpControl, onClose });
 
     const handshake = { type: "handshake", payload: { tabId: 1 } };
     const connectPromise = client.connect(handshake);
@@ -77,6 +82,11 @@ describe("RelayClient", () => {
       data: JSON.stringify({ method: "forwardCDPCommand", id: 1, params: { method: "Runtime.enable" } })
     });
     expect(onCommand).toHaveBeenCalledTimes(1);
+
+    socket.emit("message", {
+      data: JSON.stringify({ type: "cdp_control", action: "client_closed" })
+    });
+    expect(onCdpControl).toHaveBeenCalledWith({ type: "cdp_control", action: "client_closed" });
 
     client.sendEvent({ method: "forwardCDPEvent", params: { method: "Page.loadEventFired", params: {} } });
     expect(socket.sent.some((item) => item.includes("forwardCDPEvent"))).toBe(true);
@@ -123,5 +133,32 @@ describe("RelayClient", () => {
     });
 
     await expect(pingPromise).resolves.toMatchObject({ reason: "ok" });
+  });
+
+  it("times out a stalled socket open and allows a later retry", async () => {
+    const client = new RelayClient("ws://relay", { onCommand: vi.fn(), onClose: vi.fn() });
+    const handshake = { type: "handshake", payload: { tabId: 1 } };
+
+    FakeWebSocket.autoOpen = false;
+    const stalledConnect = client.connect(handshake);
+    const stalledExpectation = expect(stalledConnect).rejects.toThrow("Relay socket open timed out");
+    await vi.advanceTimersByTimeAsync(3000);
+    await stalledExpectation;
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(FakeWebSocket.CLOSED);
+
+    FakeWebSocket.autoOpen = true;
+    const retryConnect = client.connect(handshake);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const retrySocket = FakeWebSocket.instances[1];
+    expect(retrySocket).toBeTruthy();
+    retrySocket.emit("message", {
+      data: JSON.stringify({ type: "handshakeAck", payload: { instanceId: "relay-2", relayPort: 8787, pairingRequired: false } })
+    });
+
+    await expect(retryConnect).resolves.toMatchObject({
+      payload: { instanceId: "relay-2", relayPort: 8787, pairingRequired: false }
+    });
   });
 });

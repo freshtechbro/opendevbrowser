@@ -38,7 +38,9 @@ export type CanvasNode = {
   rect: CanvasRect;
   props: Record<string, unknown>;
   style: Record<string, unknown>;
+  tokenRefs: Record<string, unknown>;
   bindingRefs: Record<string, unknown>;
+  variantPatches: Record<string, unknown>[];
   metadata: Record<string, unknown>;
 };
 
@@ -46,6 +48,7 @@ export type CanvasBinding = {
   id: string;
   nodeId: string;
   kind: string;
+  selector?: string;
   componentName?: string;
   metadata: Record<string, unknown>;
 };
@@ -57,6 +60,101 @@ export type CanvasAsset = {
   repoPath?: string | null;
   url?: string | null;
   mime?: string;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasComponentRef = {
+  id: string;
+  label?: string | null;
+  packageName?: string | null;
+  version?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasComponentInventoryItem = {
+  id: string;
+  name: string;
+  componentName?: string | null;
+  sourceKind?: string | null;
+  sourceFamily?: string;
+  origin?: string;
+  framework?: CanvasComponentRef | null;
+  adapter?: CanvasComponentRef | null;
+  plugin?: CanvasComponentRef | null;
+  variants: Record<string, unknown>[];
+  props: Record<string, unknown>[];
+  slots: Record<string, unknown>[];
+  events: Record<string, unknown>[];
+  content: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenAlias = {
+  path: string;
+  targetPath: string;
+  modeId?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenBinding = {
+  path: string;
+  nodeId?: string | null;
+  bindingId?: string | null;
+  property?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenMode = {
+  id: string;
+  name: string;
+  value: unknown;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenItem = {
+  id: string;
+  path: string;
+  value: unknown;
+  type?: string | null;
+  description?: string | null;
+  modes: CanvasTokenMode[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenCollection = {
+  id: string;
+  name: string;
+  items: CanvasTokenItem[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasTokenStore = {
+  values: Record<string, unknown>;
+  collections: CanvasTokenCollection[];
+  aliases: CanvasTokenAlias[];
+  bindings: CanvasTokenBinding[];
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasAdapterErrorEnvelope = {
+  pluginId?: string | null;
+  code: string;
+  message: string;
+  details: Record<string, unknown>;
+};
+
+export type CanvasCapabilityGrant = {
+  capability: string;
+  granted: boolean;
+  reason?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CanvasDocumentMeta = {
+  imports: Record<string, unknown>[];
+  starter: Record<string, unknown> | null;
+  adapterPlugins: Record<string, unknown>[];
+  pluginErrors: CanvasAdapterErrorEnvelope[];
   metadata: Record<string, unknown>;
 };
 
@@ -77,7 +175,9 @@ export type CanvasDocument = {
   pages: CanvasPage[];
   bindings: CanvasBinding[];
   assets: CanvasAsset[];
-  componentInventory: Array<Record<string, unknown>>;
+  componentInventory: CanvasComponentInventoryItem[];
+  tokens: CanvasTokenStore;
+  meta: CanvasDocumentMeta;
 };
 
 export type CanvasFeedbackItem = {
@@ -177,6 +277,17 @@ export type CanvasCodeSyncBindingStatusSummary = {
   unsupportedCount: number;
 };
 
+export type CanvasHistoryDirection = "undo" | "redo";
+
+export type CanvasHistoryState = {
+  canUndo: boolean;
+  canRedo: boolean;
+  undoDepth: number;
+  redoDepth: number;
+  stale: boolean;
+  depthLimit: number;
+};
+
 export type CanvasSessionSummary = {
   canvasSessionId?: string;
   mode?: string;
@@ -184,7 +295,18 @@ export type CanvasSessionSummary = {
   preflightState?: string;
   libraryPolicy?: Record<string, unknown>;
   componentInventoryCount?: number;
+  availableInventoryCount?: number;
+  catalogKitIds?: string[];
+  availableStarterCount?: number;
   componentSourceKinds?: string[];
+  frameworkIds?: string[];
+  pluginIds?: string[];
+  inventoryOrigins?: string[];
+  declaredCapabilities?: string[];
+  grantedCapabilities?: string[];
+  capabilityDenials?: CanvasCapabilityGrant[];
+  pluginErrors?: CanvasAdapterErrorEnvelope[];
+  importSources?: string[];
   attachedClients: CanvasAttachedClientSummary[];
   leaseHolderClientId: string | null;
   watchState?: CanvasCodeSyncWatchState;
@@ -194,7 +316,12 @@ export type CanvasSessionSummary = {
   driftState?: CanvasCodeSyncDriftState;
   lastImportAt?: string;
   lastPushAt?: string;
+  starterId?: string | null;
+  starterName?: string | null;
+  starterFrameworkId?: string | null;
+  starterAppliedAt?: string | null;
   bindings: CanvasCodeSyncBindingStatusSummary[];
+  history?: CanvasHistoryState;
   [key: string]: unknown;
 };
 
@@ -262,6 +389,11 @@ export type CanvasPagePortMessage =
     baseRevision: number;
     patches: unknown[];
     selection?: Partial<CanvasEditorSelection>;
+    viewport?: Partial<CanvasEditorViewport>;
+  }
+  | {
+    type: "canvas-page-history-request";
+    direction: CanvasHistoryDirection;
   }
   | {
     type: "canvas-page-action-response";
@@ -281,6 +413,16 @@ export type CanvasProjectionSummary = {
   fallbackReasons: CanvasCodeSyncFallbackReason[];
   conflictCount: number;
   watchConflict: boolean;
+};
+
+export type CanvasSelectedBindingIdentity = {
+  bindingId: string | null;
+  bindingKind: string | null;
+  componentName: string | null;
+  sourceKind: string | null;
+  framework: string | null;
+  adapter: string | null;
+  plugin: string | null;
 };
 
 const CODE_SYNC_STATES = new Set<CanvasCodeSyncState>([
@@ -322,7 +464,22 @@ export function normalizeCanvasSessionSummary(value: unknown): CanvasSessionSumm
     preflightState: optionalString(summary.preflightState) ?? undefined,
     libraryPolicy: isRecord(summary.libraryPolicy) ? summary.libraryPolicy : undefined,
     componentInventoryCount: optionalNumber(summary.componentInventoryCount) ?? undefined,
+    availableInventoryCount: optionalNumber(summary.availableInventoryCount) ?? undefined,
+    catalogKitIds: readStringArray(summary.catalogKitIds),
+    availableStarterCount: optionalNumber(summary.availableStarterCount) ?? undefined,
     componentSourceKinds: readStringArray(summary.componentSourceKinds),
+    frameworkIds: readStringArray(summary.frameworkIds),
+    pluginIds: readStringArray(summary.pluginIds),
+    inventoryOrigins: readStringArray(summary.inventoryOrigins),
+    declaredCapabilities: readStringArray(summary.declaredCapabilities),
+    grantedCapabilities: readStringArray(summary.grantedCapabilities),
+    capabilityDenials: Array.isArray(summary.capabilityDenials)
+      ? summary.capabilityDenials.flatMap((entry) => normalizeCapabilityGrant(entry))
+      : [],
+    pluginErrors: Array.isArray(summary.pluginErrors)
+      ? summary.pluginErrors.flatMap((entry) => normalizePluginError(entry))
+      : [],
+    importSources: readStringArray(summary.importSources),
     attachedClients: Array.isArray(summary.attachedClients)
       ? summary.attachedClients.flatMap((entry) => normalizeAttachedClient(entry))
       : [],
@@ -334,9 +491,14 @@ export function normalizeCanvasSessionSummary(value: unknown): CanvasSessionSumm
     driftState: isCodeSyncDriftState(summary.driftState) ? summary.driftState : undefined,
     lastImportAt: optionalString(summary.lastImportAt) ?? undefined,
     lastPushAt: optionalString(summary.lastPushAt) ?? undefined,
+    starterId: optionalString(summary.starterId),
+    starterName: optionalString(summary.starterName),
+    starterFrameworkId: optionalString(summary.starterFrameworkId),
+    starterAppliedAt: optionalString(summary.starterAppliedAt),
     bindings: Array.isArray(summary.bindings)
       ? summary.bindings.flatMap((entry) => normalizeCodeSyncBindingStatus(entry))
-      : []
+      : [],
+    history: normalizeHistoryState(summary.history)
   };
 }
 
@@ -391,6 +553,70 @@ export function summarizeCanvasProjectionState(
   };
 }
 
+export function summarizeCanvasHistoryState(summary: CanvasSessionSummary): string {
+  const history = summary.history;
+  if (!history) {
+    return "No history yet";
+  }
+  return [
+    `${history.undoDepth}/${history.depthLimit} undo`,
+    `${history.redoDepth} redo`,
+    history.stale ? "stale" : "ready"
+  ].join(" • ");
+}
+
+export function readLatestImportProvenance(
+  summary: CanvasSessionSummary,
+  document: CanvasDocument
+): string | null {
+  const latestImport = document.meta.imports.at(-1);
+  if (isRecord(latestImport)) {
+    const source = isRecord(latestImport.source) ? latestImport.source : null;
+    return [
+      optionalString(source?.label),
+      optionalString(source?.kind),
+      optionalString(source?.frameworkId)
+    ].filter((entry): entry is string => typeof entry === "string" && entry.length > 0).join(" • ");
+  }
+  return summary.importSources?.[0] ?? null;
+}
+
+export function readSelectedBindingIdentity(
+  document: CanvasDocument,
+  nodeId: string | null
+): CanvasSelectedBindingIdentity {
+  if (!nodeId) {
+    return {
+      bindingId: null,
+      bindingKind: null,
+      componentName: null,
+      sourceKind: null,
+      framework: null,
+      adapter: null,
+      plugin: null
+    };
+  }
+  const node = findNodeById(document, nodeId);
+  const bindingId = typeof node?.bindingRefs.primary === "string" ? node.bindingRefs.primary : null;
+  const binding = bindingId ? document.bindings.find((entry) => entry.id === bindingId) ?? null : null;
+  const bindingMetadata = isRecord(binding?.metadata) ? binding.metadata : {};
+  const inventoryItem = document.componentInventory.find((entry) => {
+    if (binding?.componentName && entry.componentName === binding.componentName) {
+      return true;
+    }
+    return entry.id === optionalString(bindingMetadata.inventoryItemId);
+  }) ?? null;
+  return {
+    bindingId,
+    bindingKind: binding?.kind ?? null,
+    componentName: binding?.componentName ?? inventoryItem?.componentName ?? inventoryItem?.name ?? null,
+    sourceKind: optionalString(bindingMetadata.sourceKind) ?? inventoryItem?.sourceKind ?? null,
+    framework: inventoryItem?.framework?.label ?? inventoryItem?.framework?.id ?? null,
+    adapter: inventoryItem?.adapter?.label ?? inventoryItem?.adapter?.id ?? null,
+    plugin: inventoryItem?.plugin?.label ?? inventoryItem?.plugin?.id ?? null
+  };
+}
+
 function normalizeAttachedClient(value: unknown): CanvasAttachedClientSummary[] {
   if (!isRecord(value)) {
     return [];
@@ -441,6 +667,53 @@ function normalizeCodeSyncBindingStatus(value: unknown): CanvasCodeSyncBindingSt
     conflictCount: optionalNumber(value.conflictCount) ?? 0,
     unsupportedCount: optionalNumber(value.unsupportedCount) ?? 0
   }];
+}
+
+function normalizeCapabilityGrant(value: unknown): CanvasCapabilityGrant[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+  const capability = optionalString(value.capability);
+  if (!capability) {
+    return [];
+  }
+  return [{
+    capability,
+    granted: value.granted === true,
+    reason: optionalString(value.reason),
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  }];
+}
+
+function normalizePluginError(value: unknown): CanvasAdapterErrorEnvelope[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+  const code = optionalString(value.code);
+  const message = optionalString(value.message);
+  if (!code || !message) {
+    return [];
+  }
+  return [{
+    pluginId: optionalString(value.pluginId),
+    code,
+    message,
+    details: isRecord(value.details) ? value.details : {}
+  }];
+}
+
+function normalizeHistoryState(value: unknown): CanvasHistoryState | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return {
+    canUndo: value.canUndo === true,
+    canRedo: value.canRedo === true,
+    undoDepth: optionalNumber(value.undoDepth) ?? 0,
+    redoDepth: optionalNumber(value.redoDepth) ?? 0,
+    stale: value.stale === true,
+    depthLimit: optionalNumber(value.depthLimit) ?? 100
+  };
 }
 
 function normalizeParityArtifact(value: unknown): CanvasRuntimeParityArtifact | null {
@@ -514,6 +787,16 @@ function optionalString(value: unknown): string | null {
 
 function optionalNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function findNodeById(document: CanvasDocument, nodeId: string): CanvasNode | null {
+  for (const page of document.pages) {
+    const node = page.nodes.find((entry) => entry.id === nodeId);
+    if (node) {
+      return node;
+    }
+  }
+  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

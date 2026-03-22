@@ -9,6 +9,8 @@ on:
       - skills/**
       - assets/**
       - CHANGELOG.md
+      - src/cli/help.ts
+      - src/tools/surface.ts
       - src/tools/index.ts
   workflow_dispatch:
     inputs:

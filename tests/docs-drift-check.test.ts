@@ -6,6 +6,7 @@ describe("docs-drift-check", () => {
     const counts = getSurfaceCounts();
     expect(counts.commandCount).toBeGreaterThan(0);
     expect(counts.toolCount).toBeGreaterThan(0);
+    expect(counts.opsCommandCount).toBeGreaterThan(0);
   });
 
   it("passes docs drift checks", () => {

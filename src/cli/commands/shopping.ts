@@ -2,6 +2,7 @@ import type { ParsedArgs } from "../args";
 import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
+import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 
 type ShoppingCommandArgs = {
   query?: string;
@@ -220,7 +221,7 @@ export async function runShoppingCommand(args: ParsedArgs) {
 
   return {
     success: true,
-    message: "Shopping workflow completed.",
+    message: buildWorkflowCompletionMessage("Shopping workflow", data),
     data
   };
 }

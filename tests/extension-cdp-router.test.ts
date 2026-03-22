@@ -23,6 +23,40 @@ describe("CDPRouter", () => {
     expect(chrome.debugger.detach).toHaveBeenCalled();
   });
 
+  it("keeps only the latest root tab attached", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 1, url: "https://example.com/one", title: "One", groupId: 1, status: "complete", active: true },
+        { id: 2, url: "https://example.com/two", title: "Two", groupId: 1, status: "complete", active: false }
+      ]
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(1);
+    await router.attach(2);
+
+    expect(router.getPrimaryTabId()).toBe(2);
+    expect(router.getAttachedTabIds()).toEqual([2]);
+    expect(chrome.debugger.detach).toHaveBeenCalledWith({ targetId: "target-1" }, expect.any(Function));
+
+    await router.handleCommand({
+      id: 901,
+      method: "forwardCDPCommand",
+      params: { method: "Target.getTargets", params: {} }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 901,
+      result: { targetInfos: [expect.objectContaining({ targetId: "tab-2", url: "https://example.com/two" })] }
+    });
+  });
+
   it("retries attach when the tab id is stale", async () => {
     const mock = createChromeMock();
     globalThis.chrome = mock.chrome;
@@ -113,7 +147,7 @@ describe("CDPRouter", () => {
     mock.setActiveTab({ id: 100, url: "https://fresh.example", title: "Fresh", groupId: 1, status: "complete" });
 
     vi.mocked(chrome.debugger.attach).mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
-      if (debuggee.tabId === 99) {
+      if (debuggee.targetId === "target-99" || debuggee.tabId === 99) {
         mock.setRuntimeError("No tab with given id 99");
         callback();
         mock.setRuntimeError(null);
@@ -125,7 +159,7 @@ describe("CDPRouter", () => {
     let staleSendTriggered = false;
     vi.mocked(chrome.debugger.sendCommand).mockImplementation(
       (debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
-        if (!staleSendTriggered && debuggee.tabId === 99 && method === "Runtime.enable") {
+        if (!staleSendTriggered && (debuggee.targetId === "target-99" || debuggee.tabId === 99) && method === "Runtime.enable") {
           staleSendTriggered = true;
           mock.setRuntimeError("No tab with given id 99");
           callback(undefined);
@@ -143,9 +177,54 @@ describe("CDPRouter", () => {
     });
 
     expect(onResponse).toHaveBeenCalledWith({ id: 9001, result: { ok: true } });
-    expect(chrome.debugger.attach).toHaveBeenCalledWith({ tabId: 100 }, "1.3", expect.any(Function));
+    expect(chrome.debugger.attach).toHaveBeenCalledWith({ targetId: "target-100" }, "1.3", expect.any(Function));
     expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
-      { tabId: 100 },
+      { targetId: "target-100" },
+      "Runtime.enable",
+      {},
+      expect.any(Function)
+    );
+  });
+
+  it("reattaches a pruned root tab when direct commands report debugger detached", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 99, url: "https://example.com/first", title: "First", groupId: 1, status: "complete", active: true },
+        { id: 100, url: "https://example.com/second", title: "Second", groupId: 1, status: "complete", active: false }
+      ]
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    await router.attach(99);
+    await router.attach(100);
+
+    let staleSendTriggered = false;
+    vi.mocked(chrome.debugger.sendCommand).mockImplementation(
+      (debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
+        if (
+          !staleSendTriggered
+          && (debuggee.targetId === "target-99" || debuggee.tabId === 99)
+          && method === "Runtime.enable"
+        ) {
+          staleSendTriggered = true;
+          mock.setRuntimeError("Debugger is not attached to the tab with id: 99.");
+          callback(undefined);
+          mock.setRuntimeError(null);
+          return;
+        }
+        callback({ ok: true });
+      }
+    );
+
+    const result = await router.sendCommand({ tabId: 99 }, "Runtime.enable", {});
+
+    expect(result).toEqual({ ok: true });
+    expect(chrome.debugger.attach).toHaveBeenCalledWith({ targetId: "target-99" }, "1.3", expect.any(Function));
+    expect(router.getPrimaryTabId()).toBe(99);
+    expect(router.getAttachedTabIds()).toEqual([99]);
+    expect(vi.mocked(chrome.debugger.sendCommand)).toHaveBeenLastCalledWith(
+      { targetId: "target-99" },
       "Runtime.enable",
       {},
       expect.any(Function)
@@ -179,7 +258,26 @@ describe("CDPRouter", () => {
       method: "forwardCDPCommand",
       params: { method: "Runtime.enable", params: {}, sessionId }
     });
-    expect(onResponse).toHaveBeenCalledWith({ id: 2, result: { ok: true }, sessionId });
+    expect(onResponse).toHaveBeenCalledWith({ id: 2, result: {}, sessionId });
+    const executionContextCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Runtime.executionContextCreated");
+    expect(executionContextCall?.[0]).toEqual({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Runtime.executionContextCreated",
+        params: {
+          context: expect.objectContaining({
+            id: 1,
+            origin: "",
+            auxData: expect.objectContaining({
+              frameId: "tab-7",
+              isDefault: true,
+              type: "default"
+            })
+          })
+        },
+        sessionId
+      }
+    });
 
     mock.emitDebuggerEvent({ tabId: 7 }, "Runtime.consoleAPICalled", { type: "log" });
     const forwardedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Runtime.consoleAPICalled");
@@ -190,6 +288,180 @@ describe("CDPRouter", () => {
 
     mock.emitDebuggerDetach({ tabId: 7 });
     expect(onDetach).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps synthetic root bootstrap commands local even when a real debugger target id exists", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 31,
+        url: "https://example.com/root",
+        title: "Root",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    vi.mocked(chrome.debugger.getTargets).mockImplementation((callback: (targets: chrome.debugger.TargetInfo[]) => void) => {
+      callback([
+        {
+          id: "actual-root-target",
+          tabId: 31,
+          type: "page",
+          title: "Root",
+          url: "https://example.com/root",
+          attached: false
+        }
+      ]);
+    });
+    vi.mocked(chrome.debugger.sendCommand).mockImplementation(
+      (debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+        void params;
+        callback({ ok: true });
+      }
+    );
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(31);
+
+    await router.handleCommand({
+      id: 920,
+      method: "forwardCDPCommand",
+      params: { method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } }
+    });
+
+    const attachedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Target.attachedToTarget");
+    const syntheticSessionId = attachedCall?.[0]?.params?.params?.sessionId as string;
+    expect(syntheticSessionId).toEqual(expect.any(String));
+
+    await router.handleCommand({
+      id: 921,
+      method: "forwardCDPCommand",
+      params: { method: "Runtime.enable", params: {}, sessionId: syntheticSessionId }
+    });
+
+    expect(chrome.debugger.sendCommand).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "Runtime.enable",
+      expect.anything(),
+      expect.anything()
+    );
+    expect(onResponse).toHaveBeenCalledWith({ id: 921, result: {}, sessionId: syntheticSessionId });
+    expect(onEvent).toHaveBeenCalledWith({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Runtime.executionContextCreated",
+        params: {
+          context: expect.objectContaining({
+            id: 1,
+            origin: "https://example.com",
+            auxData: expect.objectContaining({
+              frameId: "tab-31",
+              isDefault: true,
+              type: "default"
+            })
+          })
+        },
+        sessionId: syntheticSessionId
+      }
+    });
+  });
+
+  it("applies session-scoped auto-attach for synthetic browser sessions against the real debugger target id", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 41,
+        url: "https://example.com/root",
+        title: "Root",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    vi.mocked(chrome.debugger.getTargets).mockImplementation((callback: (targets: chrome.debugger.TargetInfo[]) => void) => {
+      callback([
+        {
+          id: "actual-root-target",
+          tabId: 41,
+          type: "page",
+          title: "Root",
+          url: "https://example.com/root",
+          attached: false
+        }
+      ]);
+    });
+    vi.mocked(chrome.debugger.sendCommand).mockImplementation(
+      (debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+        if (method === "Target.setAutoAttach") {
+          callback({ ok: true });
+          return;
+        }
+        if (method === "Runtime.enable") {
+          expect(debuggee).toEqual({ tabId: 41 });
+          callback({ ok: true });
+          return;
+        }
+        void params;
+        callback({ ok: true });
+      }
+    );
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(41);
+
+    await router.handleCommand({
+      id: 922,
+      method: "forwardCDPCommand",
+      params: { method: "Target.attachToBrowserTarget", params: {} }
+    });
+
+    const browserAttachResponse = onResponse.mock.calls.find((call) => call[0]?.id === 922);
+    const syntheticSessionId = browserAttachResponse?.[0]?.result?.sessionId as string;
+    expect(syntheticSessionId).toEqual(expect.any(String));
+
+    await router.handleCommand({
+      id: 923,
+      method: "forwardCDPCommand",
+      params: {
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true, flatten: true },
+        sessionId: syntheticSessionId
+      }
+    });
+
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      { tabId: 41 },
+      "Target.setAutoAttach",
+      { autoAttach: true, waitForDebuggerOnStart: false, flatten: true },
+      expect.any(Function)
+    );
+    expect(onResponse).toHaveBeenCalledWith({ id: 923, result: {}, sessionId: syntheticSessionId });
+
+    onEvent.mockClear();
+
+    await router.handleCommand({
+      id: 924,
+      method: "forwardCDPCommand",
+      params: { method: "Runtime.enable", params: {}, sessionId: syntheticSessionId }
+    });
+
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      { tabId: 41 },
+      "Runtime.enable",
+      {},
+      expect.any(Function)
+    );
+    expect(onResponse).toHaveBeenCalledWith({ id: 924, result: { ok: true }, sessionId: syntheticSessionId });
+    expect(onEvent).not.toHaveBeenCalled();
   });
 
   it("responds to Browser.getVersion without debugger call", async () => {
@@ -250,7 +522,7 @@ describe("CDPRouter", () => {
     });
   });
 
-  it("responds to Target.attachToBrowserTarget with root session id", async () => {
+  it("responds to Target.attachToBrowserTarget with a distinct browser session id", async () => {
     const mock = createChromeMock();
     globalThis.chrome = mock.chrome;
 
@@ -270,7 +542,66 @@ describe("CDPRouter", () => {
 
     expect(onResponse).toHaveBeenCalledWith({
       id: 11,
-      result: { sessionId: expect.stringMatching(/^pw-tab-/) }
+      result: { sessionId: expect.stringMatching(/^pw-browser-/) }
+    });
+  });
+
+  it("keeps browser-session and root-page session ids distinct during Playwright attach flow", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 16,
+        url: "https://example.com/attach-flow",
+        title: "Attach Flow",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(16);
+
+    await router.handleCommand({
+      id: 1601,
+      method: "forwardCDPCommand",
+      params: { method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } }
+    });
+
+    const rootAttachedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Target.attachedToTarget");
+    const rootSessionId = rootAttachedCall?.[0]?.params?.params?.sessionId as string;
+    expect(rootSessionId).toEqual(expect.stringMatching(/^pw-tab-/));
+
+    onResponse.mockClear();
+
+    await router.handleCommand({
+      id: 1602,
+      method: "forwardCDPCommand",
+      params: { method: "Target.attachToBrowserTarget", params: {} }
+    });
+
+    const browserAttach = onResponse.mock.calls.find((call) => call[0]?.id === 1602)?.[0];
+    const browserSessionId = browserAttach?.result?.sessionId as string;
+    expect(browserSessionId).toEqual(expect.stringMatching(/^pw-browser-/));
+    expect(browserSessionId).not.toBe(rootSessionId);
+
+    await router.handleCommand({
+      id: 1603,
+      method: "forwardCDPCommand",
+      params: {
+        method: "Target.attachToTarget",
+        params: { targetId: "tab-16", flatten: true },
+        sessionId: browserSessionId
+      }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 1603,
+      result: { sessionId: rootSessionId },
+      sessionId: browserSessionId
     });
   });
 
@@ -294,6 +625,116 @@ describe("CDPRouter", () => {
 
     expect(onResponse).toHaveBeenCalledWith({
       id: 12,
+      result: { sessionId: expect.stringMatching(/^pw-tab-/) }
+    });
+    expect(chrome.debugger.sendCommand).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "Target.attachToTarget",
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it("uses the root frame id for page target identity when Page.getFrameTree is available", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 21,
+        url: "https://example.com/outer",
+        title: "Example",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    vi.mocked(chrome.debugger.sendCommand).mockImplementation(
+      (debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
+        void debuggee;
+        if (method === "Page.getFrameTree") {
+          callback({
+            frameTree: {
+              frame: {
+                id: "frame-21",
+                url: "https://example.com/frame"
+              }
+            }
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          callback({ sessionId: "child-session-21" });
+          return;
+        }
+        callback({ ok: true });
+      }
+    );
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(21);
+
+    expect(chrome.debugger.sendCommand).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "Page.getFrameTree",
+      expect.anything(),
+      expect.anything()
+    );
+
+    await router.handleCommand({
+      id: 120,
+      method: "forwardCDPCommand",
+      params: { method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } }
+    });
+
+    const attachedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Target.attachedToTarget");
+    expect(attachedCall?.[0]).toEqual({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Target.attachedToTarget",
+        params: {
+          sessionId: expect.any(String),
+          targetInfo: expect.objectContaining({
+            targetId: "frame-21",
+            type: "page",
+            title: "Example",
+            url: "https://example.com/frame"
+          }),
+          waitingForDebugger: false
+        }
+      }
+    });
+
+    await router.handleCommand({
+      id: 121,
+      method: "forwardCDPCommand",
+      params: { method: "Target.getTargets", params: {} }
+    });
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 121,
+      result: { targetInfos: [expect.objectContaining({ targetId: "frame-21", url: "https://example.com/frame" })] }
+    });
+
+    await router.handleCommand({
+      id: 122,
+      method: "forwardCDPCommand",
+      params: { method: "Target.getTargetInfo", params: { targetId: "frame-21" } }
+    });
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 122,
+      result: { targetInfo: expect.objectContaining({ targetId: "frame-21", browserContextId: expect.any(String) }) }
+    });
+
+    await router.handleCommand({
+      id: 123,
+      method: "forwardCDPCommand",
+      params: { method: "Target.attachToTarget", params: { targetId: "frame-21", flatten: true } }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 123,
       result: { sessionId: expect.stringMatching(/^pw-tab-/) }
     });
     expect(chrome.debugger.sendCommand).not.toHaveBeenCalledWith(
@@ -410,11 +851,11 @@ describe("CDPRouter", () => {
       }
     });
 
-    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
-      { tabId: 7 },
+    expect(chrome.debugger.sendCommand).not.toHaveBeenCalledWith(
+      expect.anything(),
       "Runtime.enable",
-      {},
-      expect.any(Function)
+      expect.anything(),
+      expect.anything()
     );
     expect(chrome.debugger.sendCommand).not.toHaveBeenCalledWith(
       expect.anything(),
@@ -422,7 +863,25 @@ describe("CDPRouter", () => {
       expect.anything(),
       expect.anything()
     );
-    expect(onResponse).toHaveBeenCalledWith({ id: 5, result: { ok: true }, sessionId });
+    expect(onResponse).toHaveBeenCalledWith({ id: 5, result: {}, sessionId });
+    expect(onEvent).toHaveBeenCalledWith({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Runtime.executionContextCreated",
+        params: {
+          context: expect.objectContaining({
+            id: 1,
+            origin: "https://example.com",
+            auxData: expect.objectContaining({
+              frameId: "tab-7",
+              isDefault: true,
+              type: "default"
+            })
+          })
+        },
+        sessionId
+      }
+    });
 
     await router.handleCommand({
       id: 6,
@@ -445,12 +904,478 @@ describe("CDPRouter", () => {
     });
 
     await router.handleCommand({
+      id: 701,
+      method: "forwardCDPCommand",
+      params: { method: "Target.getTargetInfo", params: {} }
+    });
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 701,
+      result: {
+        targetInfo: expect.objectContaining({
+          targetId: "browser",
+          type: "browser",
+          title: "OpenDevBrowser Relay"
+        })
+      }
+    });
+
+    await router.handleCommand({
       id: 8,
       method: "forwardCDPCommand",
       params: { method: "Target.setAutoAttach", params: { autoAttach: false } }
     });
     const detachedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Target.detachedFromTarget");
     expect(detachedCall).toBeTruthy();
+  });
+
+  it("responds to the Playwright bootstrap sequence on synthetic root sessions", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 51,
+        url: "https://example.com/bootstrap",
+        title: "Bootstrap",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    vi.mocked(chrome.debugger.sendCommand).mockImplementation(
+      (debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+        void debuggee;
+        void params;
+        if (
+          method === "Page.enable"
+          || method === "Log.enable"
+          || method === "Page.setLifecycleEventsEnabled"
+          || method === "Network.enable"
+        ) {
+          callback({});
+          return;
+        }
+        callback({ ok: true });
+      }
+    );
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(51);
+
+    await router.handleCommand({
+      id: 900,
+      method: "forwardCDPCommand",
+      params: { method: "Target.setAutoAttach", params: { autoAttach: true, waitForDebuggerOnStart: true, flatten: true } }
+    });
+
+    const attachedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Target.attachedToTarget");
+    const sessionId = attachedCall?.[0]?.params?.params?.sessionId as string;
+    expect(sessionId).toEqual(expect.any(String));
+
+    onResponse.mockClear();
+    onEvent.mockClear();
+
+    const commands = [
+      { id: 901, method: "Page.enable", params: {} },
+      { id: 902, method: "Page.getFrameTree", params: {} },
+      { id: 903, method: "Log.enable", params: {} },
+      { id: 904, method: "Page.setLifecycleEventsEnabled", params: { enabled: true } },
+      { id: 905, method: "Runtime.enable", params: {} },
+      {
+        id: 906,
+        method: "Page.addScriptToEvaluateOnNewDocument",
+        params: { source: "", worldName: "__playwright_utility_world_page@test" }
+      },
+      { id: 907, method: "Network.enable", params: {} },
+      { id: 908, method: "Emulation.setFocusEmulationEnabled", params: { enabled: true } },
+      { id: 909, method: "Emulation.setEmulatedMedia", params: { media: "", features: [] } },
+      { id: 910, method: "Runtime.runIfWaitingForDebugger", params: {} }
+    ] as const;
+
+    for (const command of commands) {
+      await router.handleCommand({
+        id: command.id,
+        method: "forwardCDPCommand",
+        params: { method: command.method, params: command.params, sessionId }
+      });
+    }
+
+    expect(onResponse).toHaveBeenCalledWith({ id: 901, result: {}, sessionId });
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 902,
+      result: {
+        frameTree: {
+          frame: expect.objectContaining({
+            id: "tab-51",
+            loaderId: "tab-51",
+            url: "https://example.com/bootstrap",
+            mimeType: "text/html"
+          })
+        }
+      },
+      sessionId
+    });
+    expect(onResponse).toHaveBeenCalledWith({ id: 903, result: {}, sessionId });
+    expect(onResponse).toHaveBeenCalledWith({ id: 904, result: {}, sessionId });
+    expect(onResponse).toHaveBeenCalledWith({ id: 905, result: {}, sessionId });
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 906,
+      result: { identifier: "odb-root-script-906" },
+      sessionId
+    });
+    expect(onResponse).toHaveBeenCalledWith({ id: 907, result: {}, sessionId });
+    expect(onResponse).toHaveBeenCalledWith({ id: 908, result: {}, sessionId });
+    expect(onResponse).toHaveBeenCalledWith({ id: 909, result: {}, sessionId });
+    expect(onResponse).toHaveBeenCalledWith({ id: 910, result: {}, sessionId });
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      { targetId: "target-51" },
+      "Page.enable",
+      {},
+      expect.any(Function)
+    );
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      { targetId: "target-51" },
+      "Log.enable",
+      {},
+      expect.any(Function)
+    );
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      { targetId: "target-51" },
+      "Page.setLifecycleEventsEnabled",
+      { enabled: true },
+      expect.any(Function)
+    );
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      { targetId: "target-51" },
+      "Network.enable",
+      {},
+      expect.any(Function)
+    );
+    expect(onEvent).toHaveBeenCalledWith({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Runtime.executionContextCreated",
+        params: {
+          context: expect.objectContaining({
+            id: 1,
+            origin: "https://example.com",
+            auxData: expect.objectContaining({
+              frameId: "tab-51",
+              isDefault: true,
+              type: "default"
+            })
+          })
+        },
+        sessionId
+      }
+    });
+  });
+
+  it("keeps synthetic compat replies working if a pw-tab session is reclassified at runtime", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 52,
+        url: "https://example.com/reclassified",
+        title: "Reclassified",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(52);
+    await router.handleCommand({
+      id: 920,
+      method: "forwardCDPCommand",
+      params: { method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } }
+    });
+
+    const attachedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Target.attachedToTarget");
+    const sessionId = attachedCall?.[0]?.params?.params?.sessionId as string;
+    expect(sessionId).toEqual(expect.any(String));
+
+    const internals = router as unknown as {
+      sessions: {
+        registerAttachedRootSession: (tabId: number, sessionId: string) => void;
+      };
+    };
+    internals.sessions.registerAttachedRootSession(52, sessionId);
+
+    onResponse.mockClear();
+    onEvent.mockClear();
+
+    await router.handleCommand({
+      id: 921,
+      method: "forwardCDPCommand",
+      params: { method: "Runtime.enable", params: {}, sessionId }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({ id: 921, result: {}, sessionId });
+    expect(onEvent).toHaveBeenCalledWith({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Runtime.executionContextCreated",
+        params: {
+          context: expect.objectContaining({
+            id: 1,
+            origin: "https://example.com",
+            auxData: expect.objectContaining({
+              frameId: "tab-52",
+              isDefault: true,
+              type: "default"
+            })
+          })
+        },
+        sessionId
+      }
+    });
+  });
+
+  it("rebuilds synthetic compat replies from the primary tab when the pw-tab session record is missing", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 53,
+        url: "https://example.com/missing-session",
+        title: "Missing Session",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(53);
+    await router.handleCommand({
+      id: 930,
+      method: "forwardCDPCommand",
+      params: { method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } }
+    });
+
+    const attachedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Target.attachedToTarget");
+    const sessionId = attachedCall?.[0]?.params?.params?.sessionId as string;
+    expect(sessionId).toEqual(expect.any(String));
+
+    const internals = router as unknown as {
+      sessions: {
+        sessionsById: Map<string, unknown>;
+      };
+    };
+    internals.sessions.sessionsById.delete(sessionId);
+
+    onResponse.mockClear();
+    onEvent.mockClear();
+
+    await router.handleCommand({
+      id: 931,
+      method: "forwardCDPCommand",
+      params: { method: "Runtime.enable", params: {}, sessionId }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({ id: 931, result: {}, sessionId });
+    expect(onEvent).toHaveBeenCalledWith({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Runtime.executionContextCreated",
+        params: {
+          context: expect.objectContaining({
+            id: 1,
+            origin: "https://example.com",
+            auxData: expect.objectContaining({
+              frameId: "tab-53",
+              isDefault: true,
+              type: "default"
+            })
+          })
+        },
+        sessionId
+      }
+    });
+  });
+
+  it("resets stale legacy state before the next client command", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 1, url: "https://stale.example/one", title: "One", groupId: 1, status: "complete", active: false },
+        { id: 2, url: "https://fresh.example/two", title: "Two", groupId: 1, status: "complete", active: true }
+      ],
+      activeTab: { id: 2, url: "https://fresh.example/two", title: "Two", groupId: 1, status: "complete", active: true }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(1);
+    await router.attach(2);
+    await router.handleCommand({
+      id: 801,
+      method: "forwardCDPCommand",
+      params: { method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } }
+    });
+
+    router.markClientClosed();
+    onEvent.mockClear();
+    onResponse.mockClear();
+
+    await router.handleCommand({
+      id: 802,
+      method: "forwardCDPCommand",
+      params: { method: "Browser.getVersion", params: {} }
+    });
+    await router.handleCommand({
+      id: 803,
+      method: "forwardCDPCommand",
+      params: { method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } }
+    });
+
+    expect(router.getAttachedTabIds()).toEqual([2]);
+    expect(chrome.debugger.detach).toHaveBeenCalledWith({ targetId: "target-1" }, expect.any(Function));
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 802,
+      result: expect.objectContaining({ product: expect.any(String) })
+    });
+    expect(onResponse).toHaveBeenCalledWith({ id: 803, result: {} });
+    const attachedCalls = onEvent.mock.calls.filter((call) => call[0]?.params?.method === "Target.attachedToTarget");
+    expect(attachedCalls).toHaveLength(1);
+    expect(attachedCalls[0]?.[0]).toEqual({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Target.attachedToTarget",
+        params: {
+          sessionId: expect.any(String),
+          targetInfo: expect.objectContaining({
+            targetId: "tab-2",
+            url: "https://fresh.example/two",
+            title: "Two"
+          }),
+          waitingForDebugger: false
+        }
+      }
+    });
+  });
+
+  it("refreshes the retained root debuggee before reapplying auto-attach for the next client", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 2, url: "https://fresh.example/two", title: "Two", groupId: 1, status: "complete", active: true }
+      ],
+      activeTab: { id: 2, url: "https://fresh.example/two", title: "Two", groupId: 1, status: "complete", active: true }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(2);
+
+    const originalGetTargets = vi.mocked(chrome.debugger.getTargets).getMockImplementation();
+    const originalSendCommand = vi.mocked(chrome.debugger.sendCommand).getMockImplementation();
+    let refreshTargetIds = false;
+
+    vi.mocked(chrome.debugger.getTargets).mockImplementation((callback) => {
+      if (refreshTargetIds) {
+        callback([
+          {
+            id: "refreshed-target-2",
+            tabId: 2,
+            type: "page",
+            title: "Two",
+            url: "https://fresh.example/two",
+            attached: false
+          } as chrome.debugger.TargetInfo
+        ]);
+        return;
+      }
+      originalGetTargets?.(callback);
+    });
+
+    chrome.debugger.sendCommand = vi.fn((debuggee, method, params, callback) => {
+      if (refreshTargetIds && method === "Target.setAutoAttach" && debuggee.targetId === "target-2") {
+        mock.setRuntimeError("No target with given id target-2");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      originalSendCommand?.(debuggee, method, params, callback);
+    }) as typeof chrome.debugger.sendCommand;
+
+    router.markClientClosed();
+    refreshTargetIds = true;
+
+    await router.handleCommand({
+      id: 804,
+      method: "forwardCDPCommand",
+      params: { method: "Browser.getVersion", params: {} }
+    });
+    await router.handleCommand({
+      id: 805,
+      method: "forwardCDPCommand",
+      params: { method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } }
+    });
+
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 804,
+      result: expect.objectContaining({ product: expect.any(String) })
+    });
+    expect(onResponse).toHaveBeenCalledWith({ id: 805, result: {} });
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      { targetId: "refreshed-target-2" },
+      "Target.setAutoAttach",
+      expect.objectContaining({ autoAttach: true, flatten: true }),
+      expect.any(Function)
+    );
+  });
+
+  it("prefers a normal web tab over a restricted canvas tab when resetting stale legacy state", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 1, url: "https://example.com/workspace", title: "Workspace", groupId: 1, status: "complete", active: false },
+        { id: 2, url: "chrome-extension://test/canvas.html", title: "Canvas", groupId: 1, status: "complete", active: true }
+      ],
+      activeTab: { id: 2, url: "chrome-extension://test/canvas.html", title: "Canvas", groupId: 1, status: "complete", active: true }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(2);
+
+    router.markClientClosed();
+
+    await router.handleCommand({
+      id: 806,
+      method: "forwardCDPCommand",
+      params: { method: "Browser.getVersion", params: {} }
+    });
+
+    expect(router.getPrimaryTabId()).toBe(1);
+    expect(router.getAttachedTabIds()).toEqual([1]);
+    expect(chrome.debugger.attach).toHaveBeenCalledWith({ targetId: "target-1" }, "1.3", expect.any(Function));
+    expect(onResponse).toHaveBeenCalledWith({
+      id: 806,
+      result: expect.objectContaining({ product: expect.any(String) })
+    });
   });
 
   it("tags forwarded events with the root session id", async () => {
@@ -493,6 +1418,127 @@ describe("CDPRouter", () => {
         method: "Runtime.consoleAPICalled",
         params: { type: "log" },
         sessionId
+      }
+    });
+  });
+
+  it("tags targetId-scoped root events with the root session id", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 55,
+        url: "https://example.com/target-source",
+        title: "Target Source",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(55);
+
+    await router.handleCommand({
+      id: 913,
+      method: "forwardCDPCommand",
+      params: {
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true, flatten: true }
+      }
+    });
+
+    const attachedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Target.attachedToTarget");
+    const rootSessionId = attachedCall?.[0]?.params?.params?.sessionId as string;
+    expect(rootSessionId).toEqual(expect.any(String));
+
+    onEvent.mockClear();
+    mock.emitDebuggerEvent({ targetId: "target-55" }, "Page.lifecycleEvent", {
+      frameId: "tab-55",
+      loaderId: "loader-55",
+      name: "load",
+      timestamp: 1
+    });
+
+    expect(onEvent).toHaveBeenCalledWith({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Page.lifecycleEvent",
+        params: {
+          frameId: "tab-55",
+          loaderId: "loader-55",
+          name: "load",
+          timestamp: 1
+        },
+        sessionId: rootSessionId
+      }
+    });
+  });
+
+  it("routes root lifecycle events through the attached browser session when available", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 54,
+        url: "https://example.com/attached-root",
+        title: "Attached Root",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const onEvent = vi.fn();
+    const onResponse = vi.fn();
+    const onDetach = vi.fn();
+
+    router.setCallbacks({ onEvent, onResponse, onDetach });
+    await router.attach(54);
+
+    await router.handleCommand({
+      id: 911,
+      method: "forwardCDPCommand",
+      params: {
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true, flatten: true }
+      }
+    });
+
+    const rootAttachedCall = onEvent.mock.calls.find((call) => call[0]?.params?.method === "Target.attachedToTarget");
+    const rootSessionId = rootAttachedCall?.[0]?.params?.params?.sessionId as string;
+    expect(rootSessionId).toEqual(expect.any(String));
+
+    await router.handleCommand({
+      id: 912,
+      method: "forwardCDPCommand",
+      params: { method: "Target.attachToBrowserTarget", params: {} }
+    });
+
+    const browserAttachResponse = onResponse.mock.calls.find((call) => call[0]?.id === 912);
+    const browserSessionId = browserAttachResponse?.[0]?.result?.sessionId as string;
+    expect(browserSessionId).toEqual(expect.any(String));
+    expect(browserSessionId).not.toBe(rootSessionId);
+
+    onEvent.mockClear();
+    mock.emitDebuggerEvent({ tabId: 54 }, "Page.lifecycleEvent", {
+      frameId: "tab-54",
+      loaderId: "loader-54",
+      name: "load",
+      timestamp: 1
+    });
+
+    expect(onEvent).toHaveBeenCalledWith({
+      method: "forwardCDPEvent",
+      params: {
+        method: "Page.lifecycleEvent",
+        params: {
+          frameId: "tab-54",
+          loaderId: "loader-54",
+          name: "load",
+          timestamp: 1
+        },
+        sessionId: browserSessionId
       }
     });
   });

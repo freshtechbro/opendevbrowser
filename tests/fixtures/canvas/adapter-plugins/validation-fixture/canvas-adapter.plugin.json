@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0.0",
+  "adapterApiVersion": "1.0.0",
+  "pluginId": "validation-fixture-plugin",
+  "displayName": "Validation fixture plugin",
+  "version": "1.0.0",
+  "engine": {
+    "opendevbrowser": ">=0.0.0"
+  },
+  "entry": "./plugin.mjs",
+  "moduleFormat": "esm",
+  "frameworkAdapters": [
+    {
+      "id": "validation-fixture-plugin/html-static-v1",
+      "sourceFamily": "html-static",
+      "adapterKind": "plugin",
+      "adapterVersion": 1,
+      "moduleExport": "VALIDATION_HTML_STATIC_ADAPTER",
+      "capabilities": [
+        "preview",
+        "inventory_extract",
+        "code_pull"
+      ],
+      "fileMatchers": [
+        "\\.html$"
+      ]
+    }
+  ],
+  "libraryAdapters": [],
+  "capabilities": [
+    "preview",
+    "inventory_extract",
+    "code_pull"
+  ],
+  "fixtureDir": "./fixtures",
+  "trustedWorkspaceRoots": [],
+  "packageRoot": ".",
+  "sdkImport": "opendevbrowser/canvas-sdk"
+}

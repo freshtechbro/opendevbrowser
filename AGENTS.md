@@ -1,6 +1,6 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-03-12 | **Commit:** fa2e88a | **Branch:** codex/design-canvas
+**Generated:** 2026-03-20 | **Commit:** 12a0dfb | **Branch:** codex/canvas-upgrade
 
 ## Overview
 
@@ -29,18 +29,18 @@ OpenCode plugin providing AI agents with browser automation via Chrome DevTools 
 │  bootstrap.ts → wires managers, injects ToolDeps              │
 └────────┬────────────────────────────────────────────────────────┘
          │
-    ┌────┴────┬─────────────┬──────────────┬──────────────┬──────────────┐
-    ▼         ▼             ▼              ▼              ▼              ▼
-┌────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
-│Browser │ │Script  │ │Snapshot  │ │ Annotation │ │  Relay     │ │  Skills    │
-│Manager │ │Runner  │ │Pipeline  │ │  Manager   │ │  Server    │ │  Loader    │
-└───┬────┘ └────────┘ └──────────┘ └────────────┘ └─────┬──────┘ └────────────┘
-    │                                                  │
-    ▼                                                  ▼
-┌────────┐                                        ┌────────────┐
-│Target  │                                        │ Extension  │
-│Manager │                                        │ (WS relay) │
-└────────┘                                        └────────────┘
+    ┌────┴────┬─────────────┬──────────────┬──────────┬────────────┬────────────┬────────────┐
+    ▼         ▼             ▼              ▼          ▼            ▼            ▼
+┌────────┐ ┌────────┐ ┌──────────┐ ┌────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+│Browser │ │Script  │ │Snapshot  │ │ Canvas │ │ Annotation │ │  Relay     │ │  Skills    │
+│Manager │ │Runner  │ │Pipeline  │ │Manager │ │  Manager   │ │  Server    │ │  Loader    │
+└───┬────┘ └────────┘ └──────────┘ └────┬───┘ └─────┬──────┘ └─────┬──────┘ └────────────┘
+    │                                   │            │
+    ▼                                   ▼            ▼
+┌────────┐                         ┌──────────┐ ┌────────────┐
+│Target  │                         │AgentInbox│ │ Extension  │
+│Manager │                         │          │ │ (WS relay) │
+└────────┘                         └──────────┘ └────────────┘
 ```
 
 ### Data Flow
@@ -103,7 +103,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
-├── skills/           # 8 canonical skill packs plus compatibility alias dirs
+├── skills/           # 11 bundled skill directories (9 canonical packs + 2 compatibility aliases)
 ├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, CLI, extension, plans, and version-scoped evidence
 ```
@@ -115,6 +115,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Add/modify tool | `src/tools/` | Keep thin; delegate to managers |
 | Tool registry | `src/tools/index.ts` | Source of truth for tool list/count |
 | Browser lifecycle | `src/browser/browser-manager.ts` | Owns Playwright, targets, cleanup |
+| Chrome-family cookie bootstrap | `src/browser/system-chrome-cookies.ts`, `src/cache/chrome-user-data.ts`, `src/browser/browser-manager.ts` | Managed and `cdpConnect` import readable cookies from the discovered Chrome-family profile; extension mode reuses live tabs |
 | Snapshot/refs | `src/snapshot/` | AX-tree, RefStore, outline/actionables |
 | Extension relay | `src/relay/` | Protocol types, WebSocket security |
 | Hub/relay status | `src/cli/daemon-status.ts`, `src/cli/remote-relay.ts` | Daemon status + relay cache |
@@ -122,7 +123,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Extension routing | `extension/src/services/TargetSessionMap.ts` | Root/child session routing |
 | CLI commands | `src/cli/commands/` | Registry-based, daemon mode |
 | Add skill pack | `skills/*/SKILL.md` | Follow naming conventions |
-| Design canvas + code sync | `src/canvas/`, `src/browser/canvas-manager.ts`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md` | `canvas.session.attach`, `canvas.code.*`, manifest persistence, runtime preview fallback |
+| Design canvas + code sync | `src/canvas/`, `src/canvas/kits/catalog.ts`, `src/canvas/starters/catalog.ts`, `src/browser/canvas-manager.ts`, `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`, `scripts/canvas-competitive-validation.mjs` | Current canvas technical docs, built-in kit and starter inventory, framework-adapter code sync, BYO plugin contract, validator evidence, manifest persistence, and runtime preview fallback |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
 | Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 56 CLI + 49 tools + `/ops` + `/canvas` + `/cdp` map |
@@ -197,7 +198,7 @@ Entry: src/index.ts
   └── Exports: { tool, chat.message, experimental.chat.system.transform }
 
 Bootstrap: src/core/bootstrap.ts
-  └── Creates: BrowserManager, AnnotationManager, CanvasManager, ScriptRunner, SkillLoader, providerRuntime, RelayServer
+  └── Creates: BrowserManager, AnnotationManager, CanvasManager, AgentInbox, ScriptRunner, SkillLoader, providerRuntime, RelayServer
   └── Returns: ToolDeps (injected into all tools)
 
 Config: ~/.config/opencode/opendevbrowser.jsonc
@@ -236,6 +237,8 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Architecture: `docs/ARCHITECTURE.md`
 - CLI reference: `docs/CLI.md`
 - Surface inventory: `docs/SURFACE_REFERENCE.md`
+- Canvas technical docs: `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`
+- Canvas adapter plugin contract: `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`
 - Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
 - Treat generated CLI help as part of the documentation surface.

@@ -30,11 +30,20 @@ pnpm-debug.log*
 
 # Temporary files
 *.tmp
+.tmp/
 tmp/
 .cache/
 artifacts/
 !skills/**/artifacts/
 !skills/**/artifacts/**
+
+# Local OpenDevBrowser runtime data and generated extension sidecars.
+# Keep the repo-local canvas adapter declaration trackable while ignoring generated runtime output.
+.opendevbrowser/*
+!.opendevbrowser/canvas/
+.opendevbrowser/canvas/*
+!.opendevbrowser/canvas/adapters.json
+opendevbrowser-extension.zip.sha256
 
 # Playwright
 test-results/

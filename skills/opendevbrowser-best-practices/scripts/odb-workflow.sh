@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./resolve-odb-cli.sh
+source "$script_dir/resolve-odb-cli.sh"
+
+render_cli_prefix() {
+  local rendered=()
+  local part
+  for part in "${ODB_CLI[@]}"; do
+    rendered+=("$(printf '%q' "$part")")
+  done
+  printf '%s' "${rendered[*]}"
+}
+
+CLI_PREFIX="$(render_cli_prefix)"
+
 print_help() {
   cat <<'EOF'
 OpenDevBrowser workflow router
@@ -17,6 +32,7 @@ Workflows:
   canvas-preflight
   canvas-feedback-eval
   parity-check
+  release-direct-gates
   surface-audit
   ops-channel-check
   cdp-channel-check
@@ -91,26 +107,26 @@ opendevbrowser_network_poll sessionId="<session-id>" max=100
 EOF
     ;;
   canvas-preflight)
-    cat <<'EOF'
+    cat <<EOF
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-handshake-example.json
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
-npx opendevbrowser canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
+$CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
 # Read handshake before any mutation. Require preflightState=handshake_read.
-npx opendevbrowser canvas --command canvas.plan.set --params-file skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
+$CLI_PREFIX canvas --command canvas.plan.set --params-file skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
 # Replace placeholders in the plan file with canvasSessionId, leaseId, and documentId from the open response.
-npx opendevbrowser canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
+$CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
 # Require planStatus=accepted or preflightState=plan_accepted before canvas.document.patch.
 EOF
     ;;
   canvas-feedback-eval)
-    cat <<'EOF'
+    cat <<EOF
 cat skills/opendevbrowser-best-practices/artifacts/canvas-governance-playbook.md
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-feedback-eval.json
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-blocker-checklist.json
-npx opendevbrowser canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'
+$CLI_PREFIX canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'
 # Verify every feedback item is target-attributed and uses approved categories.
-npx opendevbrowser canvas --command canvas.preview.refresh --params '{"requestId":"req_refresh_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","refreshMode":"full"}'
-npx opendevbrowser canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}'
+$CLI_PREFIX canvas --command canvas.preview.refresh --params '{"requestId":"req_refresh_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","refreshMode":"full"}'
+$CLI_PREFIX canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}'
 # Save should fail or warn when requiredBeforeSave governance blocks remain unresolved.
 EOF
     ;;
@@ -119,6 +135,13 @@ EOF
 npm run test -- tests/parity-matrix.test.ts
 npm run test -- tests/tools.test.ts tests/daemon-commands.integration.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+EOF
+    ;;
+  release-direct-gates)
+    cat <<'EOF'
+mkdir -p artifacts/release/vX.Y.Z
+node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json
+node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json
 EOF
     ;;
   surface-audit)
@@ -130,29 +153,29 @@ cat skills/opendevbrowser-best-practices/assets/templates/surface-audit-checklis
 EOF
     ;;
   ops-channel-check)
-    cat <<'EOF'
-npx opendevbrowser serve
-npx opendevbrowser launch --extension-only --wait-for-extension --output-format json
-npx opendevbrowser status --daemon --output-format json
+    cat <<EOF
+$CLI_PREFIX serve
+$CLI_PREFIX launch --extension-only --wait-for-extension --output-format json
+$CLI_PREFIX status --daemon --output-format json
 # Verify opsConnected=true and extensionHandshakeComplete=true
 cat skills/opendevbrowser-best-practices/assets/templates/ops-request-envelope.json
 EOF
     ;;
   cdp-channel-check)
-    cat <<'EOF'
-npx opendevbrowser serve
-npx opendevbrowser launch --extension-only --extension-legacy --wait-for-extension --output-format json
-npx opendevbrowser status --daemon --output-format json
+    cat <<EOF
+$CLI_PREFIX serve
+$CLI_PREFIX launch --extension-only --extension-legacy --wait-for-extension --output-format json
+$CLI_PREFIX status --daemon --output-format json
 # Verify cdpConnected=true while legacy session is active
 cat skills/opendevbrowser-best-practices/assets/templates/cdp-forward-envelope.json
 EOF
     ;;
   mode-flag-matrix)
-    cat <<'EOF'
+    cat <<EOF
 cat skills/opendevbrowser-best-practices/assets/templates/mode-flag-matrix.json
-npx opendevbrowser launch --no-extension --output-format json
-npx opendevbrowser launch --extension-only --wait-for-extension --output-format json
-npx opendevbrowser launch --extension-only --extension-legacy --wait-for-extension --output-format json
+$CLI_PREFIX launch --no-extension --output-format json
+$CLI_PREFIX launch --extension-only --wait-for-extension --output-format json
+$CLI_PREFIX launch --extension-only --extension-legacy --wait-for-extension --output-format json
 EOF
     ;;
   robustness-audit)

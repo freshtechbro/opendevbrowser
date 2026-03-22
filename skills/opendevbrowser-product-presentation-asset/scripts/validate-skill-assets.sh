@@ -42,6 +42,19 @@ for rel in scripts/collect-product.sh scripts/capture-screenshots.sh scripts/dow
   fi
 done
 
+for rel in scripts/collect-product.sh scripts/capture-screenshots.sh scripts/download-images.sh scripts/write-manifest.sh; do
+  if [[ -f "$root/$rel" ]]; then
+    if ! grep -Fq "resolve-odb-cli.sh" "$root/$rel"; then
+      echo "Workflow wrapper missing shared CLI resolver: $rel" >&2
+      status=1
+    fi
+    if ! grep -Fq "ODB_CLI" "$root/$rel"; then
+      echo "Workflow wrapper missing ODB_CLI invocation: $rel" >&2
+      status=1
+    fi
+  fi
+done
+
 if [[ -f "$root/assets/templates/manifest.schema.json" ]]; then
   if ! node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"));' "$root/assets/templates/manifest.schema.json" >/dev/null 2>&1; then
     echo "Invalid JSON template: assets/templates/manifest.schema.json" >&2

@@ -4,7 +4,7 @@ Core bootstrap and dependency injection. Extends `src/AGENTS.md`.
 
 ## Overview
 
-Wires the entire runtime. Creates managers, initializes relay, and returns `ToolDeps` for injection into tools.
+Wires the entire runtime. Creates managers, initializes relay, provisions the repo-local `AgentInbox`, and returns `ToolDeps` for injection into tools.
 
 ## Structure
 
@@ -20,7 +20,7 @@ src/core/
 createOpenDevBrowserCore(options)
   ├── loadGlobalConfig() / use provided config
   ├── Creates: BrowserManager, OpsBrowserManager, ScriptRunner
-  ├── Creates: SkillLoader, RelayServer, AnnotationManager, CanvasManager
+  ├── Creates: SkillLoader, RelayServer, AgentInbox, AnnotationManager, CanvasManager
   ├── Creates: ProviderRuntime (with browser fallback port)
   └── Returns: OpenDevBrowserCore { manager, runner, skills, relay, ... }
 ```
@@ -35,6 +35,7 @@ Core returns this to all tools:
 | `runner` | ScriptRunner | Multi-step script execution |
 | `skills` | SkillLoader | Skill pack discovery |
 | `relay` | RelayServer | Extension relay |
+| `agentInbox` | AgentInbox | Repo-local chat-scoped annotation delivery + stored retrieval |
 | `annotationManager` | AnnotationManager | Annotation coordination |
 | `canvasManager` | CanvasManagerLike | Design-canvas orchestration |
 | `providerRuntime` | object | Search/fetch/crawl/post |

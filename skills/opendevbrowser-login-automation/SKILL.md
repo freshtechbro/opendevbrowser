@@ -43,6 +43,14 @@ Use this skill for deterministic auth testing that handles MFA and anti-bot chec
 - Treat anti-bot challenges as checkpoints (manual solve or approved test keys), not bypass targets.
 - Keep a bounded retry budget (max 2 automated retries) and honor `Retry-After` when present.
 
+## Session Reuse by Mode
+
+- `extension` reuses the attached live tab or profile state; it does not run system cookie bootstrap.
+- `managed` attempts readable system Chrome-family cookie bootstrap before first navigation.
+- `cdpConnect` attempts readable system Chrome-family cookie bootstrap before first navigation.
+- `cookie-import` is the explicit add or override lane after session creation, not the automatic bootstrap path.
+- Canonical direct-run release evidence policy lives in `../opendevbrowser-best-practices/SKILL.md`.
+
 ## Parallel Multitab Alignment
 
 - Apply shared concurrency policy from `../opendevbrowser-best-practices/SKILL.md` ("Parallel Operations").

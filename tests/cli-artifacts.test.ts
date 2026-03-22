@@ -44,6 +44,23 @@ describe("artifacts command", () => {
     });
   });
 
+  it("allows globally parsed flags after the subcommand", () => {
+    const parsed = __test__.parseArtifactsArgs([
+      "cleanup",
+      "--expired-only",
+      "--output-format",
+      "json",
+      "--quiet",
+      "--transport=relay"
+    ]);
+
+    expect(parsed).toEqual({
+      subcommand: "cleanup",
+      expiredOnly: true,
+      outputDir: undefined
+    });
+  });
+
   it("requires --expired-only", () => {
     expect(() => __test__.parseArtifactsArgs(["cleanup"])).toThrow("Usage: opendevbrowser artifacts cleanup --expired-only");
   });
@@ -71,7 +88,9 @@ describe("artifacts command", () => {
       "cleanup",
       "--expired-only",
       "--output-dir",
-      rootDir
+      rootDir,
+      "--output-format",
+      "json"
     ]));
 
     expect(result).toMatchObject({

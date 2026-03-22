@@ -1,0 +1,57 @@
+{
+  "requiredStates": [
+    "default",
+    "hover",
+    "focus",
+    "empty",
+    "loading",
+    "success",
+    "error"
+  ],
+  "mustPass": [
+    "design-contract-aligned",
+    "pattern-family-declared",
+    "nearest-surface-reviewed",
+    "shell-ownership-clear",
+    "navigation-ownership-clear",
+    "clear-primary-action",
+    "state-ownership-clear",
+    "async-ownership-clear",
+    "semantic-token-source-clear",
+    "loading-feedback-plan-declared",
+    "scan-surface-performance-plan-clear",
+    "isolated-preview-validated",
+    "preview-dependencies-deterministic",
+    "responsive-intentional",
+    "accessible-focus-visible",
+    "real-browser-validated"
+  ],
+  "scoredCategories": [
+    "clarity",
+    "visual_direction",
+    "component_discipline",
+    "state_coverage",
+    "responsiveness",
+    "accessibility",
+    "performance_and_restraint"
+  ],
+  "failureTriggers": [
+    "boolean-sprawl",
+    "mixed-state-ownership",
+    "shell-ownership-unclear",
+    "stringly-routed-actions",
+    "existing-surface-ignored",
+    "unbounded-search-restarts",
+    "unstable-list-identity",
+    "scroll-driver-unclear",
+    "spinner-stacking",
+    "raw-token-sprawl",
+    "placeholder-dependent",
+    "live-service-preview",
+    "no-isolated-fixture",
+    "mobile-untested",
+    "keyboard-untested",
+    "contract-drift",
+    "no-browser-proof"
+  ]
+}

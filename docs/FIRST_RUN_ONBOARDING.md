@@ -1,7 +1,7 @@
 # First-Run Onboarding (Pre-Release)
 
 Status: active  
-Last updated: 2026-03-13
+Last updated: 2026-03-20
 
 This guide is the shipping checklist for validating OpenDevBrowser as a new user **before npm distribution is live**.
 
@@ -83,6 +83,30 @@ Expected:
 - extension assets are extracted to `~/.config/opencode/opendevbrowser/extension`
 - extracted assets now include `manifest.json`, `popup.html`, `canvas.html`, `dist/`, and `icons/`
 - `OPENCODE_CONFIG_DIR` isolates config lookup only; it does not relocate the extracted extension asset directory
+- because this guide uses a temp `WORKDIR`, install-time daemon auto-start reconciliation may warn instead of persisting a background entry
+- if persistent login auto-start is desired after onboarding, rerun `opendevbrowser daemon install` from a stable install location outside the temp workspace
+
+## 3c) Stable auto-start follow-up
+
+The onboarding workspace proves first-run package behavior, not long-lived daemon auto-start. Do **not** treat `$WORKDIR` as the
+final login-start location.
+
+When you want to validate daemon auto-start, rerun from the intended persistent install location:
+
+```bash
+# Global install
+opendevbrowser daemon install --output-format json
+opendevbrowser daemon status --output-format json
+
+# Or, from a persistent local package install
+npx --no-install opendevbrowser daemon install --output-format json
+npx --no-install opendevbrowser daemon status --output-format json
+```
+
+Expected from a stable install location:
+- `autostart.health="healthy"`
+- `autostart.needsRepair=false`
+- `command` points at the intended persistent CLI path
 
 ## 4) Start daemon
 
@@ -134,27 +158,38 @@ npx --no-install opendevbrowser disconnect --session-id "$SESSION_ID" --close-br
 
 ## 7) Cookie injection auth mechanism check
 
+Mode/session reuse matrix before first navigation:
+
+| Mode | Session reuse behavior | `cookie-import` role |
+| --- | --- | --- |
+| `extension` | Reuses the attached live tab or profile state. No system bootstrap runs in this mode. | Explicit add/override only after session creation. |
+| `managed` | Attempts readable system Chrome-family cookie bootstrap before first navigation. | Explicit add/override only after session creation. |
+| `cdpConnect` | Attempts readable system Chrome-family cookie bootstrap before first navigation. | Explicit add/override only after session creation. |
+
 ```bash
 npx --no-install opendevbrowser cookie-import --session-id "$SESSION_ID" --cookies-file ./cookies.json --strict --output-format json
 npx --no-install opendevbrowser cookie-list --session-id "$SESSION_ID" --url https://example.com --output-format json
 ```
 
-This validates cookie import/list behavior. Whether auth is accepted depends on provider/session validity.
+This validates explicit cookie add/override behavior plus cookie enumeration. Automatic bootstrap for `managed` and `cdpConnect` happens earlier, before first navigation. Whether auth is accepted still depends on provider/session validity.
 
 ## 8) Multi-tab mode checks
 
 Managed:
 - `target-new` multiple social tabs
 - `target-use` + `goto` + `snapshot` per target
+- reuse baseline: attempts readable system Chrome-family cookie bootstrap before first navigation
 
 CDPConnect:
 - start Chrome with `--remote-debugging-port`
 - `connect --cdp-port <port>`
 - repeat `target-new`/`target-use`/`goto`/`debug-trace-snapshot`
+- reuse baseline: attempts readable system Chrome-family cookie bootstrap before first navigation
 
 Extension:
 - `launch --extension-only --wait-for-extension`
 - if disconnected, expected actionable error is returned with fallback commands
+- reuse baseline: attached live tab/profile state is reused directly; `cookie-import` stays an explicit override lane
 
 ## 9) Shutdown and cleanup
 
@@ -178,5 +213,5 @@ Validated in this repo with local artifact install:
 - provider matrix with browser probes disabled (extension disconnected): pass with one env-limited social timeout (`provider.social.x.search`)
 
 Artifacts:
-- `artifacts/provider-live-matrix-onboarding-smoke.json`
-- `artifacts/provider-live-matrix-onboarding-full-noext.json`
+- `artifacts/provider-direct-runs-onboarding-smoke.json`
+- `artifacts/provider-direct-runs-onboarding-full-noext.json`

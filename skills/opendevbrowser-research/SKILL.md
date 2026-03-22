@@ -71,3 +71,4 @@ opendevbrowser research run --topic "<topic>" --sources web,shopping --mode md
 - `auto` resolves to `web|community|social` in v1.
 - Use `--source-selection all` or `--sources shopping,...` to include shopping.
 - Use `--mode path` with `scripts/write-artifacts.sh` when you need replayable handoff bundles.
+- For browser-backed release proof and mode sweeps, follow the canonical direct-run evidence policy in `../opendevbrowser-best-practices/SKILL.md`.

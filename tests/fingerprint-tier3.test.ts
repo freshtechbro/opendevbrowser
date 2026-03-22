@@ -85,6 +85,31 @@ describe("fingerprint tier3 adaptive", () => {
     expect(manualFallback.fallbackReason).toBe("manual");
   });
 
+  it("short-circuits adaptive evaluation when tier3 is disabled", () => {
+    const adapter: Tier3Adapter = {
+      name: "disabled-adapter",
+      evaluate: () => ({ score: 77, reason: "stable" })
+    };
+
+    const state = createTier3RuntimeState(config, adapter);
+    const disabledConfigResult = evaluateTier3Adaptive(
+      state,
+      { ...config, enabled: false },
+      {
+        hasChallenge: false,
+        healthScore: 77,
+        challengeCount: 0,
+        rotationCount: 0
+      },
+      adapter,
+      1700000012500
+    );
+
+    expect(disabledConfigResult.action).toBe("none");
+    expect(disabledConfigResult.decision).toMatchObject({ score: 77, reason: "stable" });
+    expect(disabledConfigResult.state).toBe(state);
+  });
+
   it("runs deterministic adapter penalties and fallback resolver", () => {
     const adapter = new DeterministicTier3Adapter();
     const critical = adapter.evaluate({

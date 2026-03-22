@@ -1,6 +1,6 @@
 # Public Release Runbook
 
-Last updated: 2026-03-13
+Last updated: 2026-03-20
 
 Canonical runbook for shipping OpenDevBrowser public releases (npm package + GitHub release artifacts) from this repository.
 
@@ -37,16 +37,21 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
 - [ ] Extension version metadata is synced (`npm run extension:sync` updates `extension/manifest.json` and `extension/package.json`).
 - [ ] Local quality gates pass:
   - `npm run version:check`
-  - `npm run test:release-gate` (grouped release-gate units; rerun only failed group with `npm run test:release-gate:g<N>`)
+  - `npm run test:release-gate` (grouped contract coverage only; rerun only failed group with `npm run test:release-gate:g<N>`)
   - `node scripts/audit-zombie-files.mjs`
   - `node scripts/docs-drift-check.mjs`
   - `node scripts/chrome-store-compliance-check.mjs`
   - `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+  - `npx opendevbrowser --help`
+  - `npx opendevbrowser help`
   - `npm run lint`
   - `npm run typecheck`
   - `npm run test`
   - `npm run build`
   - `npm run extension:build`
+  - `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json`
+  - `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json`
+  - Treat the two direct-run commands above as the live release-proof lane. Keep them distinct from grouped contract checks such as `npm run test:release-gate`.
   - `npm run extension:pack`
   - `npm pack`
 - [ ] First-time global install dry run passes (`docs/FIRST_RUN_ONBOARDING.md`) with daemon + extension + mode validation evidence captured.
@@ -71,6 +76,7 @@ git push origin vX.Y.Z
 - validates `package.json` version matches the tag
 - runs release quality gates
 - optionally runs strict live gates when `run_release_live_gates=true`
+  - this input executes `node scripts/provider-direct-runs.mjs --release-gate ...` and `node scripts/live-regression-direct.mjs --release-gate ...`, not matrix wrappers
 - builds and packs extension zip
 - computes checksum (`opendevbrowser-extension.zip.sha256`)
 - publishes npm package

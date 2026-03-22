@@ -9,17 +9,19 @@ const VITEST_BIN = path.join(ROOT, "node_modules", "vitest", "vitest.mjs");
 export const RELEASE_GATE_GROUPS = [
   {
     id: "1",
-    name: "provider-matrix-contracts",
+    name: "provider-direct-contracts",
     files: [
       "tests/provider-live-scenarios.test.ts",
-      "tests/provider-live-matrix-script.test.ts"
+      "tests/provider-direct-runs.test.ts"
     ]
   },
   {
     id: "2",
-    name: "live-regression-gate-semantics",
+    name: "live-direct-regression-contracts",
     files: [
-      "tests/live-regression-release-gate.test.ts"
+      "tests/live-regression-direct.test.ts",
+      "tests/canvas-live-workflow-script.test.ts",
+      "tests/annotate-live-probe-script.test.ts"
     ]
   },
   {
@@ -168,4 +170,3 @@ function main() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   main();
 }
-

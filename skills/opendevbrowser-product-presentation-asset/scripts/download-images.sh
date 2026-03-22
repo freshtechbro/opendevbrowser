@@ -6,4 +6,8 @@ if [[ $# -lt 1 ]]; then
   exit 1
 fi
 
-opendevbrowser product-video run --product-url "$1" --include-all-images --include-screenshots=false
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
+source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+
+"${ODB_CLI[@]}" product-video run --product-url "$1" --include-all-images --include-screenshots=false

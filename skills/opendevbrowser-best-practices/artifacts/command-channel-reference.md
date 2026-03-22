@@ -8,8 +8,8 @@ Compact operational map of the current OpenDevBrowser surfaces, with the `/canva
 
 - CLI commands: `56`
 - Plugin tools: `49`
-- `/ops` command names: `38`
-- `/canvas` command names: `26`
+- `/ops` command names: `44`
+- `/canvas` command names: `35`
 - Legacy `/cdp` relay: generic CDP forwarding (method-level)
 
 Canonical exhaustive reference: `docs/SURFACE_REFERENCE.md`.
@@ -38,7 +38,7 @@ Legacy aliases `claude` and `amp` remain present in installer target metadata fo
 
 - Runtime parity tools map to the CLI runtime categories, including `opendevbrowser_canvas`.
 - Tool-only: `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
-- CLI-only: `rpc`.
+- CLI-only: `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
 ## Relay channels
 
@@ -70,9 +70,10 @@ Concurrency policy:
 
 Core command families:
 - Session and governance: `canvas.session.open`, `canvas.session.attach`, `canvas.session.status`, `canvas.session.close`, `canvas.capabilities.get`, `canvas.plan.set`, `canvas.plan.get`
-- Document: `canvas.document.load`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`
+- Document: `canvas.document.load`, `canvas.document.import`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`
+- History, inventory, and starters: `canvas.history.undo`, `canvas.history.redo`, `canvas.inventory.list`, `canvas.inventory.insert`, `canvas.starter.list`, `canvas.starter.apply`
 - Live targets and overlay: `canvas.tab.open`, `canvas.tab.close`, `canvas.overlay.mount`, `canvas.overlay.unmount`, `canvas.overlay.select`
-- Preview and feedback: `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.feedback.subscribe`
+- Preview and feedback: `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.feedback.subscribe`, `canvas.feedback.next`, `canvas.feedback.unsubscribe`
 - Code sync: `canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, `canvas.code.resolve`
 
 Extension runtime subset:
@@ -148,11 +149,12 @@ Feedback contract markers:
 Current operational constraints:
 - `canvas.feedback.subscribe` returns the initial payload on every public surface. For ongoing events:
   - CLI: use `opendevbrowser canvas --command canvas.feedback.subscribe --output-format stream-json`
-  - tool/daemon loops: reuse the returned cursor with repeated `canvas.feedback.poll`
+  - tool/daemon loops: call `canvas.feedback.next` repeatedly, then `canvas.feedback.unsubscribe` when complete
+- Extension design-tab history clicks emit the internal `canvas_history_requested` event; the actual mutation still runs through public `canvas.history.undo` or `canvas.history.redo`, with `plan_required`, `history_empty`, or `history_invalidated` remaining the operator-facing outcomes.
 - `canvas.tab.sync` and `canvas.overlay.sync` are internal extension runtime helpers only.
 - `canvas_html` remains the default preview/export contract; `bound_app_runtime` is valid only when the binding explicitly opts in and runtime preflight succeeds.
 - Library metadata is preserved, but rendered output is still semantic rather than package-faithful.
-- Popup and canvas both ship per-item and combined annotation `Copy` / `Send` actions. Today, `Send` stores the payload for later `annotate --stored` retrieval rather than proactively delivering it into the active agent chat.
+- Popup and canvas both ship per-item and combined annotation `Copy` / `Send` actions. `Send` dispatches `annotation:sendPayload`, posts `/annotation` `store_agent_payload`, and resolves through the shared `AgentInbox` when scope is safe; it degrades to stored-only `annotate --stored` retrieval when scope or relay conditions fail.
 
 Operational rule:
 - Read `canvas.session.open` or `canvas.capabilities.get` before mutation.
@@ -172,6 +174,7 @@ Operational rule:
 - Extension default: `launch` or relay-normalized `connect`
 - Extension legacy: `launch --extension-legacy` or `connect --extension-legacy`
 - Direct CDP: `connect --ws-endpoint ...` or `connect --host ... --cdp-port ...`
+- Direct release harnesses (`live-regression-direct`, `provider-direct-runs`) are the shipping evidence path; broad matrix wrappers are debug-only and should not replace fresh direct-run artifacts.
 
 Required readiness/status checks:
 - `extensionConnected`

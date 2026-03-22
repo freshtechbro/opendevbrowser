@@ -36,10 +36,10 @@ src/
 
 | Module | Responsibility |
 |--------|----------------|
-| `annotate/` | Direct/relay annotation transport + output formatting |
+| `annotate/` | Direct/relay annotation transport, repo-local shared inbox delivery, and output formatting |
 | `browser/` | BrowserManager, OpsBrowserManager, CanvasManager, TargetManager, AnnotationManager, preview/code-sync coordination, CDP lifecycle. See `browser/AGENTS.md` |
 | `cache/` | Chrome executable resolution |
-| `canvas/` | Canvas document store, validation, repo persistence, TSX-first code-sync helpers. See `canvas/AGENTS.md` |
+| `canvas/` | Canvas document store, validation, repo persistence, built-in kit and starter catalogs, framework or library adapters, repo-local BYO plugin loading, and code-sync helpers. See `canvas/AGENTS.md` |
 | `cli/` | CLI commands, installers, daemon autostart + hub tooling. See `cli/AGENTS.md` |
 | `cli/` (hub) | Daemon lifecycle, FIFO lease queue, relay status refresh |
 | `core/` | Bootstrap, runtime wiring |
@@ -70,17 +70,18 @@ class BrowserManager {
 - `CanvasManager`: `/canvas` session/document/preview orchestration, shared-session attach, code-sync entry point
 - `TargetManager`: Tab lifecycle, naming, active tracking
 - `ScriptRunner`: Action execution with retry/backoff
-- `AnnotationManager`: Direct/relay annotation orchestration
+- `AnnotationManager`: Direct/relay annotation orchestration plus shared inbox stored retrieval
 
 ## Dependency Injection
 
 ```
 bootstrap.ts
-  ├── Creates: BrowserManager, AnnotationManager, CanvasManager, ScriptRunner, SkillLoader, RelayServer, providerRuntime
+  ├── Creates: BrowserManager, AnnotationManager, AgentInbox, CanvasManager, ScriptRunner, SkillLoader, RelayServer, providerRuntime
   └── Returns: ToolDeps interface
         ├── manager
         ├── canvasManager
         ├── annotationManager
+        ├── agentInbox
         ├── runner
         ├── skills
         ├── providerRuntime / browserFallbackPort?

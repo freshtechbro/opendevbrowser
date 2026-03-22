@@ -136,6 +136,9 @@ export class CanvasClient {
         this.socket.on("close", (code, reason) => {
           this.handleClose({ code, reason: reason.toString() });
         });
+        this.socket.on("error", () => {
+          // Errors are surfaced via close or pending requests.
+        });
       }
 
       const hello: CanvasHello = {
@@ -221,6 +224,10 @@ export class CanvasClient {
     }
     this.pendingRequests.clear();
     this.pendingChunks.clear();
+  }
+
+  hasPendingRequests(): boolean {
+    return this.pendingRequests.size > 0;
   }
 
   async request<T>(

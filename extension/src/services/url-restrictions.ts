@@ -1,13 +1,10 @@
-const RESTRICTED_PROTOCOLS = new Set([
-  "chrome:",
-  "chrome-extension:",
-  "chrome-search:",
-  "chrome-untrusted:",
-  "devtools:",
-  "chrome-devtools:",
-  "edge:",
-  "brave:"
+const ALLOWED_PROTOCOLS = new Set([
+  "http:",
+  "https:"
 ]);
+
+const DEFAULT_SCHEME_MESSAGE = "Active tab uses a restricted URL scheme. Focus a normal http(s) tab and retry.";
+const DEFAULT_WEB_STORE_MESSAGE = "Chrome Web Store tabs cannot be debugged. Open a normal tab and retry.";
 
 const isWebStoreUrl = (url: URL): boolean => {
   if (url.hostname === "chromewebstore.google.com") {
@@ -19,12 +16,18 @@ const isWebStoreUrl = (url: URL): boolean => {
   return false;
 };
 
-export const getRestrictionMessage = (url: URL): string | null => {
-  if (RESTRICTED_PROTOCOLS.has(url.protocol)) {
-    return "Active tab uses a restricted URL scheme. Focus a normal http(s) tab and retry.";
+export const getRestrictionMessage = (
+  url: URL,
+  options?: {
+    restrictedSchemeMessage?: string;
+    webStoreMessage?: string;
+  }
+): string | null => {
+  if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
+    return options?.restrictedSchemeMessage ?? DEFAULT_SCHEME_MESSAGE;
   }
   if (isWebStoreUrl(url)) {
-    return "Chrome Web Store tabs cannot be debugged. Open a normal tab and retry.";
+    return options?.webStoreMessage ?? DEFAULT_WEB_STORE_MESSAGE;
   }
   return null;
 };

@@ -37,6 +37,19 @@ for rel in scripts/run-shopping.sh scripts/normalize-offers.sh scripts/render-de
   fi
 done
 
+for rel in scripts/run-shopping.sh scripts/normalize-offers.sh scripts/run-deal-hunt.sh; do
+  if [[ -f "$root/$rel" ]]; then
+    if ! grep -Fq "resolve-odb-cli.sh" "$root/$rel"; then
+      echo "Workflow wrapper missing shared CLI resolver: $rel" >&2
+      status=1
+    fi
+    if ! grep -Fq "ODB_CLI" "$root/$rel"; then
+      echo "Workflow wrapper missing ODB_CLI invocation: $rel" >&2
+      status=1
+    fi
+  fi
+done
+
 for rel in assets/templates/deals-context.json assets/templates/market-analysis.json assets/templates/deal-thresholds.json; do
   if [[ -f "$root/$rel" ]]; then
     if ! node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"));' "$root/$rel" >/dev/null 2>&1; then

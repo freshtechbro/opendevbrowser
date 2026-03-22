@@ -1,0 +1,226 @@
+{
+  "intent": {
+    "audience": "Operators evaluating a new OpenDevBrowser design flow",
+    "task": "Understand the primary page value and complete the intended action quickly",
+    "successCriteria": [
+      "Primary action is obvious within 5 seconds",
+      "Layout remains coherent on desktop, tablet, and mobile"
+    ],
+    "trustPosture": "clear and confident"
+  },
+  "designLanguage": {
+    "direction": "product-led clarity",
+    "styleAxes": {
+      "contrast": "high",
+      "density": "airy",
+      "shapeLanguage": "rounded-structured",
+      "depth": "subtle",
+      "texture": "minimal",
+      "motion": "purposeful"
+    },
+    "approvedLibraries": {
+      "components": [
+        "shadcn"
+      ],
+      "icons": [
+        "tabler"
+      ],
+      "styling": [
+        "tailwindcss"
+      ]
+    },
+    "semanticTokenSource": {
+      "owner": "app-shell theme provider",
+      "tokens": [
+        "color",
+        "typography",
+        "spacing",
+        "radius",
+        "shadow",
+        "motion"
+      ],
+      "rule": "Use semantic tokens in repeated UI; reserve raw values for rare one-off illustration"
+    }
+  },
+  "contentModel": {
+    "primaryMessage": "Show the core value immediately with real copy",
+    "supportingMessages": [
+      "Reinforce trust",
+      "Clarify the primary action",
+      "Reduce ambiguity"
+    ],
+    "realContentRequired": true,
+    "states": [
+      "default",
+      "hover",
+      "focus",
+      "empty",
+      "loading",
+      "success",
+      "error"
+    ],
+    "loadingStrategy": "Preserve the final layout with 3-6 placeholders or one section-level loader when structure cannot be previewed",
+    "emptyStateStrategy": "Explain why nothing is shown and provide the next useful action",
+    "errorStateStrategy": "Keep retry or recovery actions close to the failed region",
+    "transientFeedbackStrategy": "Use short, non-blocking overlays for confirmations instead of reflowing the main layout",
+    "avoidPlaceholderCopy": true
+  },
+  "navigationModel": {
+    "owner": "feature shell route controller",
+    "primaryRouteModel": "One canonical route map translates tabs, selected records, and editor modes into URL-backed state",
+    "deepLinkPolicy": "Shareable tabs, filters, sort, and selected entities stay in the URL with a safe fallback when params are stale or incomplete",
+    "invalidRouteFallback": "Recover to the closest safe baseline view instead of leaving the screen in a partially initialized state",
+    "overlayEntryPoints": [
+      "route-owned detail drawer",
+      "feature-owned confirmation modal"
+    ]
+  },
+  "asyncModel": {
+    "owner": "feature-local controller with URL-owned query state when sharing or refresh matters",
+    "loadTrigger": "load-on-enter for the first view; debounced restart on query, scope, or sort change",
+    "restartTriggers": [
+      "query",
+      "scope",
+      "sort"
+    ],
+    "debounceMs": 250,
+    "emptyQueryBehavior": "Reset to the baseline or empty state without a remote fetch unless the product explicitly needs default results",
+    "cancellationPolicy": "Treat stale requests as normal and do not surface cancellation as a user-facing error",
+    "moveToServiceWhen": [
+      "work must survive dismissal",
+      "caching or retry policy becomes shared",
+      "multiple screens depend on the same in-flight state"
+    ],
+    "urlOwnership": "Put query, filter, and sort in the URL when the state should survive refresh, sharing, or handoff"
+  },
+  "layoutSystem": {
+    "grid": "12-column responsive grid",
+    "containers": "max-width sections with asymmetric emphasis",
+    "spacingRhythm": "8px base with larger section jumps",
+    "alignmentRules": [
+      "Primary content aligns to a consistent reading column",
+      "Actions stay near the message they complete"
+    ]
+  },
+  "typographySystem": {
+    "families": [
+      "Space Grotesk",
+      "Source Sans 3"
+    ],
+    "scale": [
+      "12",
+      "14",
+      "16",
+      "20",
+      "28",
+      "40",
+      "56"
+    ],
+    "measure": "60-72 characters for dense reading blocks",
+    "fallbackPolicy": "Use repo-native or licensed alternatives when these families are unavailable",
+    "loadingStrategy": "Avoid layout shift and keep fallback metrics close"
+  },
+  "motionSystem": {
+    "timing": "short and decisive",
+    "reducedMotionPolicy": "Preserve meaning with reduced movement",
+    "interactionMoments": [
+      "page entry",
+      "section reveal",
+      "primary CTA feedback"
+    ],
+    "parallaxPolicy": "off unless explicitly justified"
+  },
+  "performanceModel": {
+    "renderHotspots": [
+      "scan-heavy collection region",
+      "secondary inspector or preview pane"
+    ],
+    "stableIdentityPolicy": "Rows, cards, tabs, and overlays use stable domain ids instead of array indexes",
+    "listStrategy": "Use the smallest structure that stays fast with realistic data; choose progressive reveal, lazy containers, or virtualization deliberately",
+    "secondaryPanelPolicy": "Heavy inspectors, previews, and editors load on demand when they are not required for first paint",
+    "measurementPlan": "Validate realistic data volume with browser traces and the framework profiler before claiming the surface is performant"
+  },
+  "responsiveSystem": {
+    "breakpoints": [
+      "mobile",
+      "tablet",
+      "desktop"
+    ],
+    "adaptationRules": [
+      "Collapse multicolumn sections before copy becomes cramped",
+      "Preserve primary CTA prominence on the smallest viewport"
+    ],
+    "touchPolicy": "Comfortable targets and low-friction scroll paths",
+    "overflowPolicy": "No horizontal scroll for primary content"
+  },
+  "accessibilityPolicy": {
+    "target": "WCAG 2.2 AA",
+    "keyboardRequirements": [
+      "Visible focus",
+      "Logical tab order"
+    ],
+    "focusPolicy": "Focus rings must remain visible against every background",
+    "semanticRequirements": [
+      "Landmarks are explicit",
+      "Headings remain hierarchical"
+    ]
+  },
+  "generationPlan": {
+    "targetOutcome": {
+      "mode": "high-fi-live-edit",
+      "summary": "Improve hierarchy, clarity, and conversion confidence"
+    },
+    "visualDirection": {
+      "profile": "product-led-clarity",
+      "styleAxes": {
+        "contrast": "high",
+        "density": "airy"
+      }
+    },
+    "layoutStrategy": {
+      "approach": "hero-led-grid"
+    },
+    "contentStrategy": {
+      "source": "real-content-first"
+    },
+    "componentStrategy": {
+      "mode": "reuse-first",
+      "approvedLibraries": [
+        "shadcn"
+      ]
+    },
+    "motionPosture": {
+      "level": "subtle",
+      "allow3D": false,
+      "allowParallax": false,
+      "allowCustomSmoothScroll": false
+    },
+    "responsivePosture": {
+      "primaryViewport": "desktop",
+      "requiredViewports": [
+        "desktop",
+        "tablet",
+        "mobile"
+      ]
+    },
+    "accessibilityPosture": {
+      "target": "WCAG_2_2_AA",
+      "reducedMotion": "required",
+      "keyboardParity": true
+    },
+    "validationTargets": {
+      "blockOn": [
+        "contrast-failure",
+        "keyboard-regression",
+        "stale-search-results",
+        "invalid-route-recovery-failure"
+      ],
+      "warnOn": [
+        "responsive-mismatch",
+        "layout-shift",
+        "spinner-stacking",
+        "scan-surface-jank"
+      ]
+    }
+  }
+}

@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { mkdir, rm } from "fs/promises";
+import { mkdir, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { freemem, totalmem } from "os";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
@@ -18,6 +18,7 @@ import { emitReactComponent, type ReactExport } from "../export/react-emitter";
 import { RefStore } from "../snapshot/refs";
 import { Snapshotter } from "../snapshot/snapshotter";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
+import type { RelayStatus } from "../relay/relay-server";
 import { ensureLocalEndpoint } from "../utils/endpoint-validation";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import type { BlockerSignalV1 } from "../providers/types";
@@ -51,6 +52,7 @@ import {
   type RuntimePreviewBridgeInput,
   type RuntimePreviewBridgeResult
 } from "./canvas-runtime-preview-bridge";
+import { loadSystemChromeCookies } from "./system-chrome-cookies";
 
 export type LaunchOptions = {
   profile?: string;
@@ -75,6 +77,7 @@ export type ManagedSession = {
   mode: BrowserMode;
   headless: boolean;
   extensionLegacy: boolean;
+  relayWsEndpoint?: string;
   browser: Browser;
   context: BrowserContext;
   profileDir: string;
@@ -153,6 +156,8 @@ type CookieListRecord = {
   secure: boolean;
   sameSite?: "Strict" | "Lax" | "None";
 };
+
+const LEGACY_EXTENSION_OPERATION_TIMEOUT_MS = 5000;
 
 const DOM_GET_ATTR_DECLARATION = `
   function(name) {
@@ -341,10 +346,6 @@ export class BrowserManager {
 
       const activeTargetId = targets.getActiveTargetId();
 
-      if (options.startUrl && activeTargetId) {
-        await this.goto(sessionId, options.startUrl, "load", 30000, { browser, context, targets });
-      }
-
       const refStore = new RefStore();
       const snapshotter = new Snapshotter(refStore);
       const consoleTracker = new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole });
@@ -374,6 +375,12 @@ export class BrowserManager {
         networkTracker,
         fingerprint
       };
+
+      warnings.push(...await this.bootstrapSystemChromeCookies(managed, executablePath));
+
+      if (options.startUrl && activeTargetId) {
+        await this.goto(sessionId, options.startUrl, "load", 30000, { browser, context, targets });
+      }
 
       this.store.add({ id: sessionId, mode: "managed", browser, context });
       this.sessions.set(sessionId, managed);
@@ -447,8 +454,8 @@ export class BrowserManager {
     options?: { startUrl?: string }
   ): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string; leaseId?: string }> {
     ensureLocalEndpoint(wsEndpoint, this.config.security.allowNonLocalCdp);
-    const { connectEndpoint, reportedEndpoint } = await this.resolveRelayEndpoints(wsEndpoint);
-    const result = await this.connectWithEndpoint(connectEndpoint, "extension", reportedEndpoint);
+    const { connectEndpoint, reportedEndpoint, relayPort } = await this.resolveRelayEndpoints(wsEndpoint);
+    const result = await this.connectWithEndpoint(connectEndpoint, "extension", reportedEndpoint, relayPort);
     const startUrl = options?.startUrl?.trim();
     if (startUrl && result.activeTargetId) {
       await this.goto(result.sessionId, startUrl);
@@ -569,7 +576,7 @@ export class BrowserManager {
     const managed = this.getManaged(sessionId);
     const activeTargetId = managed.targets.getActiveTargetId();
     const page = activeTargetId ? managed.targets.getPage(activeTargetId) : null;
-    const title = await this.safePageTitle(page, "BrowserManager.status");
+    const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.status");
     const url = this.safePageUrl(page, "BrowserManager.status");
     const summary = this.store.getBlockerSummary(sessionId);
 
@@ -593,11 +600,63 @@ export class BrowserManager {
     fn: (page: Page) => Promise<T>
   ): Promise<T> {
     const managed = this.getManaged(sessionId);
-    const page = targetId ? managed.targets.getPage(targetId) : managed.targets.getActivePage();
+    let page = targetId ? managed.targets.getPage(targetId) : managed.targets.getActivePage();
+    const ensureActiveExtensionPage = async (): Promise<Page> => {
+      const nextPage = await this.createExtensionPage(managed, "withPage");
+      const nextTargetId = managed.targets.registerPage(nextPage);
+      managed.targets.setActiveTarget(nextTargetId);
+      this.attachRefInvalidationForPage(managed, nextTargetId, nextPage);
+      this.attachTrackers(managed);
+      try {
+        await this.waitForExtensionTargetReady(nextPage, "withPage", 5000);
+      } catch (error) {
+        if (!this.isExtensionTargetReadyTimeout(error)) {
+          throw error;
+        }
+      }
+      return nextPage;
+    };
+    const recoverPage = async (error: unknown): Promise<Page> => {
+      if (this.isDetachedFrameError(error)) {
+        try {
+          return await ensureActiveExtensionPage();
+        } catch (retryError) {
+          if (!this.isTargetNotAllowedError(retryError)) {
+            throw retryError;
+          }
+        }
+      }
+      const recovered = await this.recoverLegacyExtensionPage(managed, 5000, ensureActiveExtensionPage, page);
+      return recovered ?? page;
+    };
     if (managed.mode === "extension") {
-      await this.waitForExtensionTargetReady(page, "withPage");
+      if (page.isClosed()) {
+        page = await recoverPage(new Error("Target page, context or browser has been closed"));
+      }
+      try {
+        await this.waitForExtensionTargetReady(page, "withPage");
+      } catch (error) {
+        if (!this.isDetachedFrameError(error) && !this.isLegacyClosedTargetError(managed, error)) {
+          throw error;
+        }
+        page = await recoverPage(error);
+      }
     }
-    return await fn(page);
+    try {
+      return await fn(page);
+    } catch (error) {
+      if (managed.mode !== "extension") {
+        throw error;
+      }
+      if (!this.isDetachedFrameError(error) && !this.isLegacyClosedTargetError(managed, error)) {
+        throw error;
+      }
+      const recovered = await recoverPage(error);
+      if (recovered === page) {
+        throw error;
+      }
+      return await fn(recovered);
+    }
   }
 
   async applyRuntimePreviewBridge(
@@ -618,7 +677,16 @@ export class BrowserManager {
   async listTargets(sessionId: string, includeUrls = false): Promise<{ activeTargetId: string | null; targets: TargetInfo[] }> {
     return this.runStructural(sessionId, async () => {
       const managed = this.getManaged(sessionId);
-      const targets = await managed.targets.listTargets(includeUrls);
+      const targets = await Promise.all(managed.targets.listPageEntries().map(async ({ targetId, page }) => {
+        const url = includeUrls ? this.safePageUrl(page, "BrowserManager.listTargets") : undefined;
+        const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.listTargets");
+        return {
+          targetId,
+          ...(typeof title === "string" ? { title } : {}),
+          ...(includeUrls && typeof url === "string" ? { url } : {}),
+          type: "page" as const
+        };
+      }));
       return {
         activeTargetId: managed.targets.getActiveTargetId(),
         targets
@@ -643,16 +711,26 @@ export class BrowserManager {
           this.attachRefInvalidationForPage(managed, targetId, page);
           created = true;
         } catch (error) {
-          if (!this.isDetachedFrameError(error)) {
+          if (!this.isDetachedFrameError(error) && !this.isLegacyClosedTargetError(managed, error)) {
             throw error;
           }
-          const activeTargetId = managed.targets.getActiveTargetId();
-          if (!activeTargetId) {
-            throw error;
+          if (this.isDetachedFrameError(error)) {
+            const activeTargetId = managed.targets.getActiveTargetId();
+            if (!activeTargetId) {
+              throw error;
+            }
+            managed.targets.setName(activeTargetId, name);
+            targetId = activeTargetId;
+            created = true;
+          } else {
+            const fallback = this.selectExistingExtensionEntry(managed);
+            if (!fallback) {
+              throw error;
+            }
+            managed.targets.setName(fallback.targetId, name);
+            targetId = fallback.targetId;
+            created = true;
           }
-          managed.targets.setName(activeTargetId, name);
-          targetId = activeTargetId;
-          created = true;
         }
       } else {
         const page = await managed.context.newPage();
@@ -669,7 +747,7 @@ export class BrowserManager {
       }
 
       const page = managed.targets.getPage(targetId);
-      const title = await this.safePageTitle(page, "BrowserManager.page");
+      const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.page");
       const finalUrl = this.safePageUrl(page, "BrowserManager.page");
 
       return { targetId, created, url: finalUrl, title };
@@ -684,7 +762,7 @@ export class BrowserManager {
 
       for (const entry of named) {
         const page = managed.targets.getPage(entry.targetId);
-        const title = await this.safePageTitle(page, "BrowserManager.listPages");
+        const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.listPages");
         const url = this.safePageUrl(page, "BrowserManager.listPages");
         pages.push({ name: entry.name, targetId: entry.targetId, url, title });
       }
@@ -721,7 +799,7 @@ export class BrowserManager {
       this.attachTrackers(managed);
 
       const page = managed.targets.getPage(targetId);
-      const title = await this.safePageTitle(page, "BrowserManager.useTarget");
+      const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.useTarget");
 
       return {
         activeTargetId: targetId,
@@ -759,7 +837,9 @@ export class BrowserManager {
           this.attachTrackers(managed);
           return { targetId };
         } catch (error) {
-          if (!this.isDetachedFrameError(error)) {
+          const detached = this.isDetachedFrameError(error);
+          const legacyClosed = this.isLegacyClosedTargetError(managed, error);
+          if (!detached && !legacyClosed) {
             throw error;
           }
           if (createdTargetId) {
@@ -769,21 +849,39 @@ export class BrowserManager {
               // Best-effort cleanup; fall back to the existing tab.
             }
           }
-          const fallbackTargetId = previousTargetId ?? managed.targets.getActiveTargetId();
-          if (!fallbackTargetId) {
-            throw error;
+          let fallbackTargetId = previousTargetId ?? managed.targets.getActiveTargetId();
+          let page: Page;
+          if (fallbackTargetId) {
+            managed.targets.setActiveTarget(fallbackTargetId);
+            page = managed.targets.getPage(fallbackTargetId);
+          } else {
+            if (!legacyClosed) {
+              throw error;
+            }
+            const fallback = this.selectExistingExtensionEntry(managed, previousTargetId ?? managed.targets.getActiveTargetId());
+            if (!fallback) {
+              throw error;
+            }
+            fallbackTargetId = fallback.targetId;
+            page = fallback.page;
           }
-          managed.targets.setActiveTarget(fallbackTargetId);
-          const page = managed.targets.getPage(fallbackTargetId);
           if (url) {
             try {
               await page.goto(url, { waitUntil: "load" });
             } catch (retryError) {
-              if (!this.isDetachedFrameError(retryError)) {
+              if (this.isDetachedFrameError(retryError)) {
+                await delay(200);
+                await page.goto(url, { waitUntil: "load" });
+              } else if (this.isLegacyClosedTargetError(managed, retryError)) {
+                const retryFallback = this.selectExistingExtensionEntry(managed, fallbackTargetId)?.page;
+                if (!retryFallback) {
+                  throw retryError;
+                }
+                page = retryFallback;
+                await page.goto(url, { waitUntil: "load" });
+              } else {
                 throw retryError;
               }
-              await delay(200);
-              await page.goto(url, { waitUntil: "load" });
             }
           }
           this.attachTrackers(managed);
@@ -848,10 +946,10 @@ export class BrowserManager {
           if (managed.mode === "extension") {
             await this.waitForExtensionTargetReady(page, "goto", Math.min(timeoutMs, 5000));
           }
-          const response = await page.goto(url, { waitUntil, timeout: timeoutMs });
-          const finalUrl = this.safePageUrl(page, "BrowserManager.goto");
-          const status = response?.status();
-          const title = await this.safePageTitle(page, "BrowserManager.goto");
+          const navigation = await this.navigatePage(page, url, waitUntil, timeoutMs, managed);
+          const finalUrl = navigation.finalUrl ?? this.safePageUrl(page, "BrowserManager.goto");
+          const status = navigation.response?.status();
+          const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.goto");
           const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
             source: "navigation",
             url,
@@ -877,44 +975,12 @@ export class BrowserManager {
     try {
       const managed = sessionOverride ? this.buildOverrideSession(sessionOverride) : this.getManaged(sessionId);
       let page = managed.targets.getActivePage();
-      const syncExtensionTargets = (): void => {
-        try {
-          managed.targets.syncPages(managed.context.pages());
-        } catch {
-          // Best-effort sync only.
-        }
-      };
-      const pickStableExtensionEntry = (): { targetId: string; page: Page } | null => {
-        syncExtensionTargets();
-        for (const entry of managed.targets.listPageEntries()) {
-          try {
-            const candidateUrl = entry.page.url();
-            if (candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://")) {
-              return entry;
-            }
-          } catch {
-            // Ignore pages that cannot report a URL.
-          }
-        }
-        return null;
-      };
-      const selectFallbackExtensionPage = (): Page | null => {
-        syncExtensionTargets();
-        const entries = managed.targets.listPageEntries().filter((entry) => !entry.page.isClosed());
-        if (entries.length === 0) {
-          return null;
-        }
-        const stable = entries.find((entry) => {
-          try {
-            const candidateUrl = entry.page.url();
-            return candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://");
-          } catch {
-            return false;
-          }
-        }) ?? entries[0]!;
-        managed.targets.setActiveTarget(stable.targetId);
-        return stable.page;
-      };
+      const selectStableExtensionPage = (preferredTargetId?: string | null): Page | null => (
+        this.selectStableExtensionEntry(managed, preferredTargetId)?.page ?? null
+      );
+      const selectFallbackExtensionPage = (preferredTargetId?: string | null): Page | null => (
+        this.selectExistingExtensionEntry(managed, preferredTargetId)?.page ?? null
+      );
       const ensureActiveExtensionPage = async (): Promise<Page> => {
         const newPage = await this.createExtensionPage(managed, "goto");
         const targetId = managed.targets.registerPage(newPage);
@@ -936,26 +1002,38 @@ export class BrowserManager {
         try {
           const currentUrl = page.url();
           if (!currentUrl || currentUrl === "about:blank" || currentUrl.startsWith("chrome://") || currentUrl.startsWith("chrome-extension://")) {
-            const stable = pickStableExtensionEntry();
+            const stable = selectStableExtensionPage();
             if (stable) {
-              managed.targets.setActiveTarget(stable.targetId);
-              page = stable.page;
+              page = stable;
+            } else if (currentUrl === "about:blank") {
+              page = selectFallbackExtensionPage(managed.targets.getActiveTargetId()) ?? page;
             } else {
               try {
                 page = await ensureActiveExtensionPage();
               } catch (error) {
-                if (!this.isTargetNotAllowedError(error)) {
+                if (this.isLegacyClosedTargetError(managed, error)) {
+                  page = selectFallbackExtensionPage() ?? page;
+                } else if (!this.isTargetNotAllowedError(error)) {
                   throw error;
                 }
               }
             }
           }
-        } catch {
-          try {
-            page = await ensureActiveExtensionPage();
-          } catch (error) {
-            if (!this.isTargetNotAllowedError(error)) {
-              throw error;
+        } catch (error) {
+          if (this.isLegacyClosedTargetError(managed, error)) {
+            const stable = selectStableExtensionPage();
+            if (stable) {
+              page = stable;
+            } else {
+              page = await this.recoverLegacyExtensionPage(managed, timeoutMs, ensureActiveExtensionPage, page) ?? page;
+            }
+          } else {
+            try {
+              page = await ensureActiveExtensionPage();
+            } catch (retryError) {
+              if (!this.isTargetNotAllowedError(retryError)) {
+                throw retryError;
+              }
             }
           }
         }
@@ -971,6 +1049,8 @@ export class BrowserManager {
               }
               page = selectFallbackExtensionPage() ?? page;
             }
+          } else if (this.isLegacyClosedTargetError(managed, error)) {
+            page = await this.recoverLegacyExtensionPage(managed, timeoutMs, ensureActiveExtensionPage, page) ?? page;
           } else if (this.isExtensionTargetReadyTimeout(error)) {
             page = selectFallbackExtensionPage() ?? page;
           } else {
@@ -980,38 +1060,48 @@ export class BrowserManager {
       }
 
       let response;
+      let navigatedFinalUrl: string | undefined;
       if (managed.mode === "extension") {
         let lastError: unknown = null;
         for (let attempt = 0; attempt < 2; attempt += 1) {
           try {
-            response = await page.goto(url, { waitUntil, timeout: timeoutMs });
+            const navigation = await this.navigatePage(page, url, waitUntil, timeoutMs, managed);
+            response = navigation.response;
+            navigatedFinalUrl = navigation.finalUrl;
             lastError = null;
             break;
           } catch (error) {
-            if (!this.isDetachedFrameError(error)) {
+            if (this.isDetachedFrameError(error)) {
+              lastError = error;
+              try {
+                page = await ensureActiveExtensionPage();
+              } catch (retryError) {
+                if (!this.isTargetNotAllowedError(retryError)) {
+                  throw retryError;
+                }
+                page = selectFallbackExtensionPage() ?? page;
+              }
+              continue;
+            }
+            if (!this.isLegacyClosedTargetError(managed, error)) {
               throw error;
             }
             lastError = error;
-            try {
-              page = await ensureActiveExtensionPage();
-            } catch (retryError) {
-              if (!this.isTargetNotAllowedError(retryError)) {
-                throw retryError;
-              }
-              page = selectFallbackExtensionPage() ?? page;
-            }
+            page = await this.recoverLegacyExtensionPage(managed, timeoutMs, ensureActiveExtensionPage, page) ?? page;
           }
         }
         if (lastError) {
           throw lastError;
         }
       } else {
-        response = await page.goto(url, { waitUntil, timeout: timeoutMs });
+        const navigation = await this.navigatePage(page, url, waitUntil, timeoutMs, managed);
+        response = navigation.response;
+        navigatedFinalUrl = navigation.finalUrl;
       }
 
-      const finalUrl = this.safePageUrl(page, "BrowserManager.goto");
+      const finalUrl = navigatedFinalUrl ?? this.safePageUrl(page, "BrowserManager.goto");
       const status = response?.status();
-      const title = await this.safePageTitle(page, "BrowserManager.goto");
+      const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.goto");
       const blockerMeta = sessionOverride
         ? undefined
         : this.reconcileSessionBlocker(sessionId, managed, {
@@ -1062,7 +1152,7 @@ export class BrowserManager {
         const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
           source: "navigation",
           finalUrl: this.safePageUrl(page, "BrowserManager.waitForLoad"),
-          title: await this.safePageTitle(page, "BrowserManager.waitForLoad"),
+          title: await this.safeManagedPageTitle(managed, page, "BrowserManager.waitForLoad"),
           verifier: true
         });
         return {
@@ -1103,7 +1193,7 @@ export class BrowserManager {
         const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
           source: "navigation",
           finalUrl: this.safePageUrl(page, "BrowserManager.waitForRef"),
-          title: await this.safePageTitle(page, "BrowserManager.waitForRef"),
+          title: await this.safeManagedPageTitle(managed, page, "BrowserManager.waitForRef"),
           verifier: true
         });
         return {
@@ -1422,10 +1512,22 @@ export class BrowserManager {
   async perfMetrics(sessionId: string, targetId?: string | null): Promise<{ metrics: Array<{ name: string; value: number }> }> {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page }) => {
       const session = await managed.context.newCDPSession(page);
-      const result = await session.send("Performance.getMetrics") as { metrics?: Array<{ name: string; value: number }> };
-      await session.detach();
-      const metrics = Array.isArray(result.metrics) ? result.metrics : [];
-      return { metrics };
+      try {
+        const result = await this.withLegacyExtensionOperationTimeout(
+          managed,
+          session.send("Performance.getMetrics") as Promise<{ metrics?: Array<{ name: string; value: number }> }>,
+          `Performance.getMetrics: Timeout ${LEGACY_EXTENSION_OPERATION_TIMEOUT_MS}ms exceeded.`
+        );
+        const metrics = Array.isArray(result.metrics) ? result.metrics : [];
+        return { metrics };
+      } catch (error) {
+        if (managed.extensionLegacy) {
+          return { metrics: [] };
+        }
+        throw error;
+      } finally {
+        await session.detach().catch(() => undefined);
+      }
     });
   }
 
@@ -1434,14 +1536,51 @@ export class BrowserManager {
     path?: string,
     targetId?: string | null
   ): Promise<{ path?: string; base64?: string; warnings?: string[] }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
-      if (path) {
-        await page.screenshot({ path, type: "png" });
-        return { path };
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, page }) => {
+      try {
+        if (path) {
+          await this.withLegacyExtensionOperationTimeout(
+            managed,
+            page.screenshot({ path, type: "png" }),
+            `page.screenshot: Timeout ${LEGACY_EXTENSION_OPERATION_TIMEOUT_MS}ms exceeded.`
+          );
+          return { path };
+        }
+        const buffer = await this.withLegacyExtensionOperationTimeout(
+          managed,
+          page.screenshot({ type: "png" }),
+          `page.screenshot: Timeout ${LEGACY_EXTENSION_OPERATION_TIMEOUT_MS}ms exceeded.`
+        );
+        return { base64: buffer.toString("base64") };
+      } catch (error) {
+        const fallback = await this.captureScreenshotViaCdp(managed, page, error);
+        if (!fallback) {
+          throw error;
+        }
+        if (path) {
+          await writeFile(path, Buffer.from(fallback.base64, "base64"));
+          return fallback.warnings ? { path, warnings: fallback.warnings } : { path };
+        }
+        return fallback;
       }
-      const buffer = await page.screenshot({ type: "png" });
-      return { base64: buffer.toString("base64") };
     });
+  }
+
+  private async withLegacyExtensionOperationTimeout<T>(
+    managed: Pick<ManagedSession, "extensionLegacy">,
+    operation: Promise<T>,
+    timeoutMessage: string,
+    timeoutMs = LEGACY_EXTENSION_OPERATION_TIMEOUT_MS
+  ): Promise<T> {
+    if (!managed.extensionLegacy) {
+      return await operation;
+    }
+    return await Promise.race([
+      operation,
+      delay(timeoutMs).then(() => {
+        throw new Error(timeoutMessage);
+      })
+    ]);
   }
 
   async consolePoll(
@@ -1656,6 +1795,83 @@ export class BrowserManager {
       cookies,
       count: cookies.length
     };
+  }
+
+  private async bootstrapSystemChromeCookies(
+    managed: ManagedSession,
+    executablePath?: string | null
+  ): Promise<string[]> {
+    if (managed.mode === "extension") {
+      return [];
+    }
+
+    const warnings: string[] = [];
+    let bootstrapExecutable = executablePath ?? null;
+    if (!bootstrapExecutable) {
+      const resolved = await this.resolveSystemChromeBootstrapExecutable();
+      bootstrapExecutable = resolved.executablePath;
+      warnings.push(...resolved.warnings);
+    }
+
+    const result = await loadSystemChromeCookies(bootstrapExecutable);
+    warnings.push(...result.warnings);
+
+    const acceptedCookies: CookieImportRecord[] = [];
+    let rejectedCookies = 0;
+    for (const cookie of result.cookies) {
+      const validation = this.validateCookieRecord(cookie);
+      if (validation.valid) {
+        acceptedCookies.push(validation.cookie);
+      } else {
+        rejectedCookies += 1;
+      }
+    }
+    if (rejectedCookies > 0) {
+      warnings.push(`System Chrome cookie bootstrap skipped ${rejectedCookies} invalid cookies.`);
+    }
+
+    if (acceptedCookies.length > 0) {
+      await managed.context.addCookies(acceptedCookies);
+    }
+
+    if (acceptedCookies.length > 0 || warnings.length > 0) {
+      this.logger.audit("session.system_cookie_bootstrap", {
+        sessionId: managed.sessionId,
+        data: {
+          mode: managed.mode,
+          imported: acceptedCookies.length,
+          warnings,
+          source: result.source
+            ? {
+              browserName: result.source.browserName,
+              userDataDir: result.source.userDataDir,
+              profileDirectory: result.source.profileDirectory
+            }
+            : null
+        }
+      });
+    }
+
+    return warnings;
+  }
+
+  private async resolveSystemChromeBootstrapExecutable(): Promise<{ executablePath: string | null; warnings: string[] }> {
+    const warnings: string[] = [];
+    let executablePath = await findChromeExecutable(this.config.chromePath);
+    if (executablePath) {
+      return { executablePath, warnings };
+    }
+
+    try {
+      const cachePaths = await resolveCachePaths(this.worktree, this.config.profile);
+      const download = await downloadChromeForTesting(cachePaths.chromeDir);
+      executablePath = download.executablePath;
+      warnings.push("System Chrome not found. Downloaded Chrome for Testing for cookie bootstrap.");
+    } catch (error) {
+      warnings.push(`Chrome cookie bootstrap executable unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return { executablePath, warnings };
   }
 
   private initializeFingerprintState(
@@ -2232,7 +2448,7 @@ export class BrowserManager {
     }
 
     const value = cookie.value;
-    if (/\r|\n|;/.test(value)) {
+    if (/[\u0000-\u001F\u007F\uFFFD;]/.test(value)) {
       return { valid: false, reason: `Invalid cookie value for ${name}.`, cookie };
     }
 
@@ -2731,22 +2947,50 @@ export class BrowserManager {
     ].join(" ");
   }
 
+  private async safeManagedPageTitle(
+    managed: Pick<ManagedSession, "extensionLegacy"> | undefined,
+    page: Page | null,
+    context: string
+  ): Promise<string | undefined> {
+    if (this.shouldSkipPageTitleProbe(managed, page)) {
+      return undefined;
+    }
+    return await this.safePageTitle(page, context);
+  }
+
   private async safePageTitle(page: Page | null, context: string): Promise<string | undefined> {
-    if (!page) return undefined;
+    if (!page || page.isClosed()) return undefined;
     try {
+      const titleAttempt = page.title()
+        .then((value) => ({ status: "ok" as const, value }))
+        .catch(() => ({ status: "error" as const }));
       const result = await Promise.race([
-        page.title(),
-        delay(2000).then(() => null)
+        titleAttempt,
+        delay(2000).then(() => ({ status: "timeout" as const }))
       ]);
-      if (result === null) {
+      if (result.status === "timeout") {
         console.warn(`${context}: timed out reading page title`);
         return undefined;
       }
-      return result;
+      if (result.status === "error") {
+        console.warn(`${context}: failed to read page title`);
+        return undefined;
+      }
+      return result.value;
     } catch {
       console.warn(`${context}: failed to read page title`);
       return undefined;
     }
+  }
+
+  private shouldSkipPageTitleProbe(
+    managed: Pick<ManagedSession, "extensionLegacy"> | undefined,
+    page: Page | null
+  ): boolean {
+    if (!page || page.isClosed()) {
+      return false;
+    }
+    return managed?.extensionLegacy ?? false;
   }
 
   private safePageUrl(page: Page | null, context: string): string | undefined {
@@ -2756,6 +3000,115 @@ export class BrowserManager {
     } catch {
       console.warn(`${context}: failed to read page url`);
       return undefined;
+    }
+  }
+
+  private async recoverLegacyExtensionPage(
+    managed: ManagedSession,
+    timeoutMs: number,
+    createExtensionPage: () => Promise<Page>,
+    failedPage?: Page
+  ): Promise<Page | null> {
+    const stable = this.selectExistingExtensionEntry(managed, undefined, failedPage)?.page;
+    if (stable) {
+      return stable;
+    }
+
+    const replacementPage = await waitForPage(managed.context, Math.min(timeoutMs, 3000));
+    if (replacementPage && !replacementPage.isClosed()) {
+      try {
+        managed.targets.syncPages(managed.context.pages());
+      } catch {
+        // Best-effort sync only.
+      }
+      const synced = this.selectExistingExtensionEntry(managed, undefined, failedPage)?.page;
+      if (synced) {
+        this.attachRefInvalidation(managed);
+        this.attachTrackers(managed);
+        return synced;
+      }
+    }
+
+    const reconnectedPage = await this.reconnectLegacyExtensionSession(managed, timeoutMs);
+    if (reconnectedPage) {
+      return reconnectedPage;
+    }
+
+    try {
+      return await createExtensionPage();
+    } catch (error) {
+      if (!this.isTargetNotAllowedError(error) && !this.isLegacyClosedTargetError(managed, error)) {
+        throw error;
+      }
+    }
+
+    return await this.reconnectLegacyExtensionSession(managed, timeoutMs);
+  }
+
+  private async reconnectLegacyExtensionSession(managed: ManagedSession, timeoutMs: number): Promise<Page | null> {
+    if (!managed.extensionLegacy || !managed.relayWsEndpoint) {
+      return null;
+    }
+
+    let browser: Browser | null = null;
+    const previousBrowser = managed.browser;
+    try {
+      const { connectEndpoint, relayPort } = await this.resolveRelayEndpoints(managed.relayWsEndpoint);
+      await previousBrowser.close().catch(() => {});
+      await this.waitForRelayCdpSlot(managed.relayWsEndpoint, relayPort, Math.min(timeoutMs, 5000));
+      browser = await chromium.connectOverCDP(connectEndpoint);
+      const context = browser.contexts()[0] ?? null;
+      if (!context) {
+        return null;
+      }
+      const page = await waitForPage(context, Math.min(timeoutMs, 5000));
+      if (!page) {
+        return null;
+      }
+
+      for (const entry of managed.targets.listPageEntries()) {
+        const cleanup = this.pageListeners.get(entry.page);
+        if (cleanup) {
+          cleanup();
+          this.pageListeners.delete(entry.page);
+        }
+        managed.refStore.clearTarget(entry.targetId);
+      }
+      managed.consoleTracker.detach();
+      managed.exceptionTracker.detach();
+      managed.networkTracker.detach();
+
+      const targets = new TargetManager();
+      const pages = context.pages();
+      if (pages.length > 0) {
+        targets.registerExistingPages(pages);
+      } else {
+        targets.registerPage(page);
+      }
+      for (const entry of targets.listPageEntries()) {
+        try {
+          const currentUrl = entry.page.url();
+          if (currentUrl.startsWith("http://") || currentUrl.startsWith("https://")) {
+            targets.setActiveTarget(entry.targetId);
+            break;
+          }
+        } catch {
+          // Ignore pages that cannot report a URL.
+        }
+      }
+
+      managed.browser = browser;
+      managed.context = context;
+      managed.targets = targets;
+      this.attachRefInvalidation(managed);
+      this.attachTrackers(managed);
+
+      return managed.targets.getActivePage();
+    } catch {
+      if (browser) {
+        await browser.close().catch(() => {});
+      }
+      return null;
     }
   }
 
@@ -2777,7 +3130,85 @@ export class BrowserManager {
     }
   }
 
+  private async navigatePage(
+    page: Page,
+    url: string,
+    waitUntil: "domcontentloaded" | "load" | "networkidle",
+    timeoutMs: number,
+    managed?: ManagedSession
+  ): Promise<{ response: Awaited<ReturnType<Page["goto"]>> | undefined; finalUrl?: string }> {
+    try {
+      return { response: await page.goto(url, { waitUntil, timeout: timeoutMs }) };
+    } catch (error) {
+      const html = this.decodeHtmlDataUrl(url);
+      if (!html || !this.isNavigationAbortError(error)) {
+        throw error;
+      }
+      // Some Chrome relay targets abort `data:text/html` navigations even though the HTML is valid.
+      // Falling back to `setContent` keeps preview rendering on the same canonical payload.
+      await this.resetPageForHtmlFallback(page, timeoutMs);
+      try {
+        await page.setContent(html, { waitUntil: "domcontentloaded", timeout: Math.min(timeoutMs, 5000) });
+      } catch {
+        await this.resetPageForHtmlFallback(page, timeoutMs);
+        await this.writeHtmlDocument(managed, page, html);
+      }
+      if (waitUntil !== "domcontentloaded") {
+        await page.waitForLoadState(waitUntil, { timeout: Math.min(timeoutMs, 5000) }).catch(() => undefined);
+      }
+      return { response: undefined, finalUrl: url };
+    }
+  }
+
+  private async resetPageForHtmlFallback(page: Page, timeoutMs: number): Promise<void> {
+    await page.goto("about:blank", {
+      waitUntil: "domcontentloaded",
+      timeout: Math.min(timeoutMs, 5000)
+    }).catch(() => undefined);
+  }
+
+  private async writeHtmlDocument(managed: ManagedSession | undefined, page: Page, html: string): Promise<void> {
+    if (managed) {
+      const session = await managed.context.newCDPSession(page);
+      try {
+        const tree = await session.send("Page.getFrameTree") as { frameTree?: { frame?: { id?: string } } };
+        const frameId = tree.frameTree?.frame?.id;
+        if (typeof frameId === "string" && frameId.length > 0) {
+          await session.send("Page.setDocumentContent", { frameId, html });
+          return;
+        }
+      } catch {
+        // Fall through to the runtime write fallback.
+      } finally {
+        await session.detach().catch(() => undefined);
+      }
+    }
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        await page.evaluate((nextHtml) => {
+          document.open();
+          document.write(nextHtml);
+          document.close();
+        }, html);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (!this.isExecutionContextDestroyedError(error) || attempt === 4) {
+          throw error;
+        }
+        await delay(250);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
   private async waitForExtensionTargetReady(page: Page, context: string, timeoutMs = 5000): Promise<void> {
+    const currentUrl = this.safePageUrl(page, `BrowserManager.${context}`);
+    if (currentUrl && currentUrl !== "about:blank" && !currentUrl.startsWith("chrome://") && !currentUrl.startsWith("chrome-extension://")) {
+      return;
+    }
     const deadline = Date.now() + timeoutMs;
     let lastError: string | null = null;
 
@@ -2813,6 +3244,34 @@ export class BrowserManager {
     return message.includes("Frame has been detached");
   }
 
+  private isClosedTargetError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("Target page, context or browser has been closed");
+  }
+
+  private isNavigationAbortError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("ERR_ABORTED");
+  }
+
+  private isExecutionContextDestroyedError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("Execution context was destroyed")
+      || message.includes("Cannot find context with specified id");
+  }
+
+  private isScreenshotTimeoutError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("page.screenshot: Timeout");
+  }
+
+  private isLegacyClosedTargetError(managed: ManagedSession, error: unknown): boolean {
+    return managed.extensionLegacy && (
+      this.isClosedTargetError(error)
+      || this.isExtensionTargetReadyClosed(error)
+    );
+  }
+
   private isTargetNotAllowedError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes("Target.createTarget") && message.includes("Not allowed");
@@ -2821,6 +3280,11 @@ export class BrowserManager {
   private isExtensionTargetReadyTimeout(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.startsWith("EXTENSION_TARGET_READY_TIMEOUT");
+  }
+
+  private isExtensionTargetReadyClosed(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.startsWith("EXTENSION_TARGET_READY_CLOSED");
   }
 
   private describeExtensionFailure(context: string, error: unknown, managed: ManagedSession): Error {
@@ -2833,6 +3297,134 @@ export class BrowserManager {
     }
     const urlInfo = url ? ` Active tab: ${url}.` : "";
     return new Error(`Extension mode ${context} failed. Focus a stable http(s) tab and retry.${urlInfo} ${message}`);
+  }
+
+  private decodeHtmlDataUrl(url: string): string | null {
+    if (!url.startsWith("data:text/html")) {
+      return null;
+    }
+    const separator = url.indexOf(",");
+    if (separator < 0) {
+      return null;
+    }
+    const metadata = url.slice(0, separator).toLowerCase();
+    const payload = url.slice(separator + 1);
+    try {
+      return metadata.includes(";base64")
+        ? Buffer.from(payload, "base64").toString("utf8")
+        : decodeURIComponent(payload);
+    } catch {
+      return null;
+    }
+  }
+
+  private selectExistingExtensionEntry(
+    managed: ManagedSession,
+    preferredTargetId?: string | null,
+    failedPage?: Page
+  ): { targetId: string; page: Page } | null {
+    try {
+      managed.targets.syncPages(managed.context.pages());
+    } catch {
+      // Best-effort sync only.
+    }
+
+    const entries = managed.targets.listPageEntries().filter((entry) => !entry.page.isClosed() && entry.page !== failedPage);
+    if (entries.length === 0) {
+      return null;
+    }
+
+    if (preferredTargetId) {
+      const preferred = entries.find((entry) => entry.targetId === preferredTargetId);
+      if (preferred) {
+        managed.targets.setActiveTarget(preferred.targetId);
+        return preferred;
+      }
+    }
+
+    const stable = entries.find((entry) => {
+      try {
+        const candidateUrl = entry.page.url();
+        return candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://");
+      } catch {
+        return false;
+      }
+    }) ?? entries[0]!;
+
+    managed.targets.setActiveTarget(stable.targetId);
+    return stable;
+  }
+
+  private async captureScreenshotViaCdp(
+    managed: ManagedSession,
+    page: Page,
+    error: unknown
+  ): Promise<{ base64: string; warnings?: string[] } | null> {
+    if (!managed.extensionLegacy || !this.isScreenshotTimeoutError(error)) {
+      return null;
+    }
+    const session = await managed.context.newCDPSession(page);
+    try {
+      const result = await session.send("Page.captureScreenshot", { format: "png" }) as { data?: string };
+      if (typeof result.data !== "string" || result.data.length === 0) {
+        return null;
+      }
+      return {
+        base64: result.data,
+        warnings: ["cdp_capture_fallback"]
+      };
+    } catch {
+      return null;
+    } finally {
+      await session.detach().catch(() => undefined);
+    }
+  }
+
+  private selectStableExtensionEntry(
+    managed: ManagedSession,
+    preferredTargetId?: string | null
+  ): { targetId: string; page: Page } | null {
+    try {
+      managed.targets.syncPages(managed.context.pages());
+    } catch {
+      // Best-effort sync only.
+    }
+
+    const entries = managed.targets.listPageEntries().filter((entry) => !entry.page.isClosed());
+    if (entries.length === 0) {
+      return null;
+    }
+
+    if (preferredTargetId) {
+      const preferred = entries.find((entry) => entry.targetId === preferredTargetId);
+      if (preferred) {
+        try {
+          const candidateUrl = preferred.page.url();
+          if (candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://")) {
+            managed.targets.setActiveTarget(preferred.targetId);
+            return preferred;
+          }
+        } catch {
+          // Ignore pages that cannot report a URL.
+        }
+      }
+    }
+
+    const stable = entries.find((entry) => {
+      try {
+        const candidateUrl = entry.page.url();
+        return candidateUrl.startsWith("http://") || candidateUrl.startsWith("https://");
+      } catch {
+        return false;
+      }
+    }) ?? null;
+
+    if (!stable) {
+      return null;
+    }
+
+    managed.targets.setActiveTarget(stable.targetId);
+    return stable;
   }
 
   private attachTrackers(managed: ManagedSession): void {
@@ -2902,7 +3494,8 @@ export class BrowserManager {
   private async connectWithEndpoint(
     connectWsEndpoint: string,
     mode: BrowserMode,
-    reportedWsEndpoint?: string
+    reportedWsEndpoint?: string,
+    relayPort?: number
   ): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
     let browser: Browser | null = null;
     const connectAttempts = mode === "extension" ? 3 : 1;
@@ -2918,8 +3511,14 @@ export class BrowserManager {
           throw new Error("Relay /cdp rejected the connection (unauthorized). Check relayToken configuration and ensure clients use the current token.");
         }
         const staleExtensionTab = mode === "extension" && isExtensionStaleTabAttachError(message);
-        if (staleExtensionTab && attempt < connectAttempts) {
-          await delay(attempt * 250);
+        const reconnectableExtensionDisconnect = mode === "extension" && isExtensionRelayDisconnectError(message);
+        const busyLegacyCdpSlot = mode === "extension" && isExtensionRelaySingleClientError(message);
+        if ((staleExtensionTab || reconnectableExtensionDisconnect || busyLegacyCdpSlot) && attempt < connectAttempts) {
+          if (relayPort) {
+            await this.waitForRelayCdpSlot(reportedWsEndpoint ?? connectWsEndpoint, relayPort);
+          } else {
+            await delay(attempt * 250);
+          }
           continue;
         }
         throw new Error(
@@ -2958,18 +3557,24 @@ export class BrowserManager {
         }
       } else {
         targets.registerExistingPages(pages);
-        if (mode === "extension" || mode === "cdpConnect") {
-          const entries = targets.listPageEntries();
-          for (const entry of entries) {
-            try {
-              const url = entry.page.url();
-              if (url.startsWith("http://") || url.startsWith("https://")) {
-                targets.setActiveTarget(entry.targetId);
-                break;
-              }
-            } catch {
-              // Skip pages that cannot report a URL.
+        const entries = targets.listPageEntries();
+        let selected = false;
+        for (const entry of entries) {
+          try {
+            const url = entry.page.url();
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+              targets.setActiveTarget(entry.targetId);
+              selected = true;
+              break;
             }
+          } catch {
+            // Skip pages that cannot report a URL.
+          }
+        }
+        if (!selected && mode === "extension") {
+          const newest = entries.at(-1);
+          if (newest) {
+            targets.setActiveTarget(newest.targetId);
           }
         }
       }
@@ -2991,6 +3596,7 @@ export class BrowserManager {
         mode,
         headless: false,
         extensionLegacy: mode === "extension",
+        relayWsEndpoint: reportedWsEndpoint ?? connectWsEndpoint,
         browser,
         context,
         profileDir: "",
@@ -3003,6 +3609,8 @@ export class BrowserManager {
         networkTracker,
         fingerprint
       };
+
+      warnings.push(...await this.bootstrapSystemChromeCookies(managed));
 
       this.store.add({ id: sessionId, mode, browser, context });
       this.sessions.set(sessionId, managed);
@@ -3029,9 +3637,63 @@ export class BrowserManager {
     }
   }
 
-  private async resolveRelayEndpoints(wsEndpoint: string): Promise<{ connectEndpoint: string; reportedEndpoint: string }> {
+  private async resolveRelayEndpoints(wsEndpoint: string): Promise<{ connectEndpoint: string; reportedEndpoint: string; relayPort: number }> {
     const result = await resolveRelayEndpoint({ wsEndpoint, path: "cdp", config: this.config });
-    return { connectEndpoint: result.connectEndpoint, reportedEndpoint: result.reportedEndpoint };
+    return {
+      connectEndpoint: result.connectEndpoint,
+      reportedEndpoint: result.reportedEndpoint,
+      relayPort: result.relayPort
+    };
+  }
+
+  private async waitForRelayCdpSlot(wsEndpoint: string, relayPort: number, timeoutMs = 5000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const status = await this.readRelayStatus(wsEndpoint, relayPort);
+      if (!status?.cdpConnected) {
+        return;
+      }
+      await delay(100);
+    }
+  }
+
+  private async readRelayStatus(
+    wsEndpoint: string,
+    relayPort: number
+  ): Promise<Pick<RelayStatus, "opsConnected" | "cdpConnected"> | null> {
+    type RelayStatusResponse = {
+      ok?: boolean;
+      json?: () => Promise<unknown>;
+    };
+
+    try {
+      const baseUrl = new URL(wsEndpoint);
+      const httpProtocol = baseUrl.protocol === "wss:" ? "https:" : "http:";
+      const statusUrl = new URL("/status", `${httpProtocol}//${baseUrl.hostname}:${relayPort}`);
+      ensureLocalEndpoint(statusUrl.toString(), this.config.security.allowNonLocalCdp);
+
+      const relayToken = typeof this.config.relayToken === "string" ? this.config.relayToken.trim() : "";
+      const headers: Record<string, string> = { Accept: "application/json" };
+      if (relayToken) {
+        headers.Authorization = `Bearer ${relayToken}`;
+      }
+
+      const response = await fetch(statusUrl.toString(), { headers }) as unknown as RelayStatusResponse | null | undefined;
+      if (response?.ok !== true || typeof response.json !== "function") {
+        return null;
+      }
+
+      const payload = await response.json() as Partial<RelayStatus>;
+      if (typeof payload.opsConnected !== "boolean") {
+        return null;
+      }
+      return {
+        opsConnected: payload.opsConnected,
+        cdpConnected: payload.cdpConnected === true
+      };
+    } catch {
+      return null;
+    }
   }
 
   private sanitizeWsEndpointForOutput(wsEndpoint: string): string {
@@ -3082,6 +3744,16 @@ function resolveTier3FallbackTarget(tier: "tier1" | "tier2"): "tier1" | "tier2" 
 function isExtensionStaleTabAttachError(detail: string): boolean {
   const message = detail.toLowerCase();
   return message.includes("target.setautoattach") && message.includes("no tab with given id");
+}
+
+function isExtensionRelayDisconnectError(detail: string): boolean {
+  const message = detail.toLowerCase();
+  return message.includes("target page, context or browser has been closed")
+    && message.includes("extension disconnected");
+}
+
+function isExtensionRelaySingleClientError(detail: string): boolean {
+  return detail.toLowerCase().includes("only one cdp client supported");
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

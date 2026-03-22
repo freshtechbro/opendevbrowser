@@ -146,6 +146,122 @@ describe("shopping providers", () => {
     });
   });
 
+  it("hydrates fetch metadata into brand image_urls and shopping_offer price", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head>
+              <meta property="og:image" content="https://cdn.amazon.com/item-1.jpg" />
+              <script type="application/ld+json">
+                {
+                  "@context": "https://schema.org",
+                  "@type": "Product",
+                  "name": "Wireless Mouse Pro",
+                  "brand": { "@type": "Brand", "name": "Amazon Basics" },
+                  "image": "https://cdn.amazon.com/item-1.jpg",
+                  "offers": {
+                    "@type": "Offer",
+                    "price": 59.99,
+                    "priceCurrency": "USD"
+                  }
+                }
+              </script>
+            </head>
+            <body>
+              <main>Wireless Mouse Pro with ergonomic grip and silent buttons.</main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://amazon.com/item-1" }, context);
+
+    expect(records?.[0]?.attributes.brand).toBe("Amazon Basics");
+    expect(records?.[0]?.attributes.image_urls).toEqual(["https://cdn.amazon.com/item-1.jpg"]);
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      title: "Wireless Mouse Pro with ergonomic grip and silent buttons.",
+      price: {
+        amount: 59.99,
+        currency: "USD"
+      }
+    });
+  });
+
+  it("preserves all metadata image_urls on fetch records", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head>
+              <script type="application/ld+json">
+                {
+                  "@context": "https://schema.org",
+                  "@type": "Product",
+                  "name": "Wireless Mouse Pro",
+                  "brand": { "@type": "Brand", "name": "Amazon Basics" },
+                  "image": [
+                    "https://cdn.amazon.com/item-1-primary",
+                    "https://cdn.amazon.com/item-1-alt"
+                  ],
+                  "offers": {
+                    "@type": "Offer",
+                    "price": 59.99,
+                    "priceCurrency": "USD"
+                  }
+                }
+              </script>
+            </head>
+            <body>
+              <main>Wireless Mouse Pro with ergonomic grip and silent buttons.</main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://amazon.com/item-1" }, context);
+
+    expect(records?.[0]?.attributes.image_urls).toEqual([
+      "https://cdn.amazon.com/item-1-primary",
+      "https://cdn.amazon.com/item-1-alt"
+    ]);
+  });
+
+  it("keeps extracted search-card availability on shopping offers", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <a href="https://amazon.com/dp/B012345678">Wireless mouse with contoured shell and silent clicks for all-day work</a>
+            <div>USD 29.99 4.7 out of 5 81 reviews only 2 left</div>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "wireless mouse", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.attributes.retrievalPath).toBe("shopping:search:result-card");
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      availability: "limited",
+      price: {
+        amount: 29.99,
+        currency: "USD"
+      },
+      rating: 4.7,
+      reviews_count: 81
+    });
+  });
+
   it("maps auth/rate-limit/unavailable status codes through the default fetcher", async () => {
     const provider = createShoppingProvider(amazonProfile);
 
@@ -223,6 +339,109 @@ describe("shopping providers", () => {
     }
   });
 
+  it("falls back early when a recoverable Best Buy PDP fetch stalls", async () => {
+    vi.useFakeTimers();
+    const provider = createShoppingProviderById("shopping/bestbuy");
+    const productUrl = "https://www.bestbuy.com/product/logitech-mx-master-3s-bluetooth-edition-performance-wireless-optical-mouse-with-ultra-fast-scrolling-and-quiet-clicks-wireless-black/J7H7ZYG559";
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? productUrl,
+        html: "<html><body><main>Logitech MX Master 3S wireless mouse $88.99 4.8 out of 5 278 reviews in stock</main></body></html>"
+      },
+      details: {}
+    }));
+    const fetchMock = vi.fn((_: string | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        (init?.signal as AbortSignal | undefined)?.addEventListener("abort", () => {
+          reject(new Error("aborted"));
+        }, { once: true });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    try {
+      const pending = provider.fetch?.(
+        { url: productUrl },
+        {
+          ...context,
+          timeoutMs: 120000,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      await vi.advanceTimersByTimeAsync(15000);
+      const records = await pending;
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/bestbuy",
+        operation: "fetch",
+        url: productUrl
+      }));
+      expect(records?.length).toBeGreaterThan(0);
+      expect(records?.[0]?.url).toBe(productUrl);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("falls back when the parent signal is already aborted and the timeout override is invalid", async () => {
+    const provider = createShoppingProviderById("shopping/bestbuy");
+    const productUrl = "https://www.bestbuy.com/site/sample-product/6501234.p?skuId=6501234";
+    const controller = new AbortController();
+    controller.abort("user_cancelled");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? productUrl,
+        html: "<html><body><main>Recovered Best Buy page $88.99 4.8 out of 5 278 reviews in stock</main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn((_: string | URL, init?: RequestInit) => {
+      if ((init?.signal as AbortSignal | undefined)?.aborted) {
+        return Promise.reject(new Error("aborted"));
+      }
+      return Promise.resolve({
+        status: 200,
+        url: productUrl,
+        text: async () => "<html></html>"
+      } as Response);
+    }) as unknown as typeof fetch);
+
+    try {
+      const records = await provider.fetch?.(
+        { url: productUrl },
+        {
+          ...context,
+          timeoutMs: Number.POSITIVE_INFINITY,
+          signal: controller.signal,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/bestbuy",
+        operation: "fetch",
+        url: productUrl
+      }));
+      expect(records?.[0]?.url).toBe(productUrl);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps original auth error when browser fallback rejects the request", async () => {
     const provider = createShoppingProvider(amazonProfile);
     const fallbackResolve = vi.fn(async () => ({
@@ -253,6 +472,191 @@ describe("shopping providers", () => {
         operation: "search",
         reasonCode: "token_required"
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps browser fallback auth errors coherent when fallback omits extra details", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "auth_required" as const
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 403,
+      url: "https://www.amazon.com/s?k=wireless%20mouse",
+      text: async () => "auth"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse" },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "auth",
+        details: {
+          url: "https://amazon.com/s?k=wireless%20mouse"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces auth blocker reasons from browser fallback after recoverable upstream failures", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "token_required" as const,
+      details: { message: "Browser fallback reached auth_required page." }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse" },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "auth",
+        reasonCode: "token_required"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("detects Temu's obfuscated challenge shell and escalates to browser fallback", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "token_required" as const,
+      details: { message: "Browser fallback reached auth_required page." }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+      text: async () => "<html><body><script>function _0x24b9(){} var challenge='challenge';</script></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse" },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "auth",
+        reasonCode: "token_required"
+      });
+
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/temu",
+        operation: "search",
+        reasonCode: "challenge_detected",
+        details: expect.objectContaining({
+          blockerType: "anti_bot_challenge",
+          providerShell: "temu_challenge_shell",
+          reasonCode: "challenge_detected"
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects browser fallback output that still lands on Temu login shells", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      mode: "managed_headed" as const,
+      output: {
+        url: "https://www.temu.com/login.html?from=https%3A%2F%2Fwww.temu.com%2Fsearch_result.html",
+        html: "<html><head><title>Temu | Login</title></head><body>Please log in to continue shopping.</body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "unavailable",
+        reasonCode: "token_required",
+        details: expect.objectContaining({
+          blockerType: "auth_required",
+          title: "Temu | Login"
+        })
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects browser fallback output that still lands on Temu challenge shells", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      mode: "managed_headed" as const,
+      output: {
+        url: "https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+        html: "<html><body><script src=\"https://static.kwcdn.com/upload-static/assets/chl/js/challenge.js\"></script><script>window.challenge=true</script></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        details: expect.objectContaining({
+          blockerType: "anti_bot_challenge",
+          providerShell: "temu_challenge_shell",
+          reasonCode: "challenge_detected"
+        })
+      });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -327,6 +731,813 @@ describe("shopping providers", () => {
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
         reasonCode: "rate_limited"
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("maps token-required browser fallback failures to auth errors", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 403,
+      url: String(input),
+      text: async () => "auth blocked"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: vi.fn(async () => ({
+              ok: false,
+              reasonCode: "token_required" as const,
+              details: {
+                message: "Login required for browser recovery."
+              }
+            }))
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        message: "Login required for browser recovery."
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("maps rate-limited browser fallback failures to retryable rate_limited errors", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 429,
+      url: String(input),
+      text: async () => "rate limited"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: vi.fn(async () => ({
+              ok: false,
+              reasonCode: "rate_limited" as const,
+              details: {
+                message: "Fallback browser hit a rate limit."
+              }
+            }))
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "rate_limited",
+        reasonCode: "rate_limited",
+        retryable: true,
+        message: "Fallback browser hit a rate limit."
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("maps non-env-limited browser fallback failures to unavailable with a default message", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 500,
+      url: String(input),
+      text: async () => "server error"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: vi.fn(async () => ({
+              ok: false,
+              reasonCode: "challenge_detected" as const,
+              details: {}
+            }))
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        message: "Browser fallback failed for https://amazon.com/s?k=wireless%20mouse"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the original auth error when browser fallback stays env-limited", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 403,
+      url: String(input),
+      text: async () => "auth blocked"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: vi.fn(async () => ({
+              ok: false,
+              reasonCode: "env_limited" as const,
+              details: {
+                message: "Extension still disconnected."
+              }
+            }))
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "auth",
+        reasonCode: "token_required"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces blocker metadata from fetched login pages before browser assistance fallback", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.({ query: "wireless mouse", limit: 1 }, context))
+        .rejects.toMatchObject({
+          code: "unavailable",
+          reasonCode: "token_required",
+          details: expect.objectContaining({
+            title: "Sign in",
+            reasonCode: "token_required"
+          })
+        });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves untitled browser-assistance diagnostics for shopping/others shells", async () => {
+    const provider = createShoppingProviderById("shopping/others");
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>Redirected to the non-JavaScript site for this query.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await provider.search?.({ query: "wireless mouse", limit: 1 }, context);
+      throw new Error("Expected shopping/others shell detection to reject the search.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "env_limited",
+        details: expect.objectContaining({
+          providerShell: "duckduckgo_non_js_redirect",
+          constraint: expect.objectContaining({
+            kind: "render_required",
+            evidenceCode: "duckduckgo_non_js_redirect"
+          }),
+          reasonCode: "env_limited"
+        })
+      });
+      expect((error as { details?: Record<string, unknown> }).details?.title).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves titled browser-assistance diagnostics for shopping/others shells", async () => {
+    const provider = createShoppingProviderById("shopping/others");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://html.duckduckgo.com/html/?q=wireless%20mouse%20buy",
+        html: "<html><body><a href=\"https://shop.example.com/product/wireless-mouse-pro\">Wireless mouse pro with a brushed shell and quiet wheel for hybrid desks</a><div>USD 44.99 4.8 out of 5 91 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>DuckDuckGo Lite</title></head><body>Redirected to the non-JavaScript site for this query.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      const request = fallbackResolve.mock.calls[0]?.[0] as { details?: Record<string, unknown> } | undefined;
+      expect(request?.details).toMatchObject({
+        browserRequired: true,
+        providerShell: "duckduckgo_non_js_redirect",
+        constraint: expect.objectContaining({
+          kind: "render_required",
+          evidenceCode: "duckduckgo_non_js_redirect"
+        }),
+        title: "DuckDuckGo Lite"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses browser fallback when a 200 response is actually an anti-bot challenge page", async () => {
+    const provider = createShoppingProviderById("shopping/walmart");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.walmart.com/ip/logitech-mouse/123",
+        html: "<html><body><a href=\"https://www.walmart.com/ip/logitech-mouse/123\">Wireless mouse with silent clicks and compact shell</a><div>USD 24.99 4.7 out of 5 81 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.walmart.com/blocked?url=L3NlYXJjaD9xPXdpcmVsZXNzJTIwbW91c2U=&g=b",
+      text: async () => "<html><head><title>Robot or human?</title></head><body>Activate and hold the button to confirm that you're human.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+        provider: "shopping/walmart",
+        availability: "in_stock"
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/walmart",
+        operation: "search",
+        reasonCode: "challenge_detected"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces challenge blocker diagnostics without synthesizing a title", async () => {
+    const provider = createShoppingProviderById("shopping/walmart");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.walmart.com/ip/logitech-mouse/123",
+        html: "<html><body><a href=\"https://www.walmart.com/ip/logitech-mouse/123\">Wireless mouse with sculpted support and silent scroll wheel for daily work</a><div>USD 27.99 4.7 out of 5 81 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.walmart.com/blocked?url=L3NlYXJjaD9xPXdpcmVsZXNzJTIwbW91c2U=&g=b",
+      text: async () => "<html><body>Activate and hold the button to confirm that you're human.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      const request = fallbackResolve.mock.calls[0]?.[0] as { details?: Record<string, unknown> } | undefined;
+      expect(request?.details).toMatchObject({
+        blockerType: "anti_bot_challenge",
+        reasonCode: "challenge_detected"
+      });
+      expect(request?.details?.title).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("routes best buy international splash pages through browser fallback", async () => {
+    const provider = createShoppingProviderById("shopping/bestbuy");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.bestbuy.com/site/searchpage.jsp?st=wireless%20mouse",
+        html: "<html><body><a href=\"https://www.bestbuy.com/site/logitech-pebble-2-wireless-mouse/6581201.p?skuId=6581201\">Logitech Pebble 2 wireless mouse with dual-device pairing and quiet clicks</a><div>USD 29.99 4.6 out of 5 104 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Best Buy International: Select your Country</title></head><body>Choose a country for shopping and pickup options.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/bestbuy",
+        operation: "search",
+        reasonCode: "env_limited",
+        details: expect.objectContaining({
+          browserRequired: true,
+          providerShell: "bestbuy_international_gate"
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("routes body-only Best Buy international gates through browser fallback without synthesizing a title", async () => {
+    const provider = createShoppingProviderById("shopping/bestbuy");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.bestbuy.com/site/searchpage.jsp?st=wireless%20mouse&intl=nosplash",
+        html: "<html><body><a href=\"https://www.bestbuy.com/site/logitech-signature-m650-wireless-mouse/6581201.p?skuId=6581201\">Logitech Signature wireless mouse with sculpted thumb support and multi-device pairing</a><div>USD 39.99 4.7 out of 5 205 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>Best Buy International. Choose a country for shopping and pickup options.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      const request = fallbackResolve.mock.calls[0]?.[0] as { details?: Record<string, unknown> } | undefined;
+      expect(request?.details).toMatchObject({
+        browserRequired: true,
+        providerShell: "bestbuy_international_gate"
+      });
+      expect(request?.details?.title).toBeUndefined();
+      expect(request?.details?.message).toEqual(expect.stringContaining("Best Buy International"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("parses eBay search cards when live markup emits unquoted href attributes", async () => {
+    const provider = createShoppingProviderById("shopping/ebay", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <div class="su-image">
+              <a class="s-card__link image-treatment" href=https://www.ebay.com/itm/123456789012?itmmeta=abc123>
+                Logitech Pebble wireless mouse with quiet clicks and slim travel shell
+              </a>
+            </div>
+            <div>US $24.99 4.7 out of 5 1,204 reviews free shipping in stock</div>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "wireless mouse", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.ebay.com/itm/123456789012?itmmeta=abc123",
+      title: "Logitech Pebble wireless mouse with quiet clicks and slim travel shell"
+    });
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/ebay",
+      price: {
+        amount: 24.99,
+        currency: "USD"
+      },
+      availability: "in_stock",
+      rating: 4.7,
+      reviews_count: 1204
+    });
+  });
+
+  it("routes target shell pages through browser fallback", async () => {
+    const provider = createShoppingProviderById("shopping/target");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.target.com/s?searchTerm=wireless%20mouse",
+        html: "<html><body><a href=\"https://www.target.com/p/logitech-signature-m650-wireless-mouse/-/A-89123456\">Logitech Signature wireless mouse with sculpted support and silent wheel</a><div>USD 39.99 4.7 out of 5 205 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>\"wireless mouse\" : Target</title></head><body>skip to main content skip to footer weekly ad registry target circle</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/target",
+        operation: "search",
+        reasonCode: "env_limited",
+        preferredModes: ["managed_headed", "extension"],
+        details: expect.objectContaining({
+          browserRequired: true,
+          providerShell: "target_shell_page",
+          constraint: expect.objectContaining({
+            kind: "render_required",
+            evidenceCode: "target_shell_page"
+          })
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces auth-required no-candidate shopping shells from custom fetchers", async () => {
+    const provider = createShoppingProviderById("shopping/costco", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><head><title>Sign In | Costco</title></head><body>Please sign in to continue.</body></html>"
+      })
+    });
+
+    await expect(provider.search?.({ query: "wireless mouse", limit: 1 }, context)).rejects.toMatchObject({
+      code: "auth",
+      reasonCode: "token_required",
+      message: "Authentication required for https://www.costco.com/CatalogSearch?dept=All&keyword=wireless%20mouse",
+      details: expect.objectContaining({
+        title: "Sign In | Costco",
+        message: "Sign In | Costco Please sign in to continue.",
+        blockerType: "auth_required",
+        constraint: {
+          kind: "session_required",
+          evidenceCode: "auth_required",
+          message: "Sign In | Costco Please sign in to continue."
+        }
+      })
+    });
+  });
+
+  it("surfaces auth-required shopping fetch pages through the shared surface-issue path", async () => {
+    const provider = createShoppingProviderById("shopping/costco");
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign In | Costco</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.fetch?.(
+        { url: "https://www.costco.com/wireless-mouse.html" },
+        context
+      )).rejects.toMatchObject({
+        reasonCode: "token_required"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("routes target next-shell search pages without inline product links through browser fallback", async () => {
+    const provider = createShoppingProviderById("shopping/target");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.target.com/s?searchTerm=wireless%20mouse",
+        html: "<html><body><a href=\"https://www.target.com/p/logitech-m240-wireless-mouse/-/A-89711228\">Logitech M240 Wireless Mouse</a><div>USD 24.99 4.6 out of 5 333 ratings in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>&quot;wireless mouse&quot; : Target</title></head><body><script>window.__TGT_DATA__ = {\"slots\":{\"1200\":{\"metadata\":{\"components\":[{\"placement_id\":\"WEB-search-product-grid-default\"}]}}}}</script></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/target",
+        operation: "search",
+        reasonCode: "env_limited",
+        preferredModes: ["managed_headed", "extension"],
+        details: expect.objectContaining({
+          browserRequired: true,
+          providerShell: "target_shell_page",
+          constraint: expect.objectContaining({
+            kind: "render_required",
+            evidenceCode: "target_shell_page"
+          })
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps generic env-limited no-offer pages as tagged fallback rows", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><body>This provider is not available in this environment right now.</body></html>"
+      })
+    });
+
+    const rows = await provider.search?.({ query: "wireless mouse", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.attributes).toMatchObject({
+      reasonCode: "env_limited",
+      blockerType: "env_limited",
+      retrievalPath: "shopping:search:index"
+    });
+  });
+
+  it("routes Temu empty shell pages through browser fallback", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+        html: "<html><body><a href=\"https://www.temu.com/g-601099522700389.html\">Ergonomic mouse with travel sleeve and magnetic top shell for remote work</a><div>USD 18.99 4.5 out of 5 88 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/temu",
+        operation: "search",
+        reasonCode: "env_limited",
+        details: expect.objectContaining({
+          browserRequired: true,
+          providerShell: "temu_empty_shell",
+          constraint: expect.objectContaining({
+            kind: "render_required",
+            evidenceCode: "temu_empty_shell"
+          })
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces challenge no-candidate shopping shells from custom fetchers", async () => {
+    const provider = createShoppingProviderById("shopping/temu", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><head><title>Robot or human?</title></head><body>Activate and hold the button to confirm that you're human.</body></html>"
+      })
+    });
+
+    await expect(provider.search?.({ query: "wireless mouse", limit: 1 }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "challenge_detected",
+      message: "Detected anti-bot challenge while retrieving https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+      details: expect.objectContaining({
+        blockerType: "anti_bot_challenge",
+        reasonCode: "challenge_detected",
+        title: "Robot or human?"
+      })
+    });
+  });
+
+  it("surfaces challenge shopping fetch pages through the shared surface-issue path", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body><script src=\"https://static.kwcdn.com/upload-static/assets/chl/js/challenge.js\"></script><script>window.challenge=true</script></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.fetch?.(
+        { url: "https://www.temu.com/g-601099522700389.html" },
+        context
+      )).rejects.toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        message: "Detected anti-bot challenge while retrieving https://www.temu.com/g-601099522700389.html"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("routes Temu challenge shells through browser fallback", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+        html: "<html><body><a href=\"https://www.temu.com/g-601099522700389.html\">Ergonomic mouse with magnetic shell and travel sleeve</a><div>USD 18.99 4.5 out of 5 88 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body><script src=\"https://static.kwcdn.com/upload-static/assets/chl/js/challenge.js\"></script><script>window.challenge=true</script></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/temu",
+        operation: "search",
+        reasonCode: "challenge_detected",
+        details: expect.objectContaining({
+          browserRequired: true,
+          providerShell: "temu_challenge_shell",
+          blockerType: "anti_bot_challenge",
+          reasonCode: "challenge_detected"
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses the DuckDuckGo HTML endpoint for shopping/others and falls back on non-JS redirect pages", async () => {
+    const provider = createShoppingProviderById("shopping/others");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://html.duckduckgo.com/html/?q=wireless%20mouse%20buy",
+        html: "<html><body><a href=\"https://shop.example.com/product/wireless-mouse-pro\">Wireless mouse pro with low-profile buttons and an anodized aluminum shell</a><div>USD 49.99 4.8 out of 5 61 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+    const fetchMock = vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>You are being redirected to the non-JavaScript site</body></html>"
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://html.duckduckgo.com/html/?q=wireless%20mouse%20buy",
+        expect.objectContaining({
+          redirect: "follow"
+        })
+      );
+        expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+          provider: "shopping/others",
+          operation: "search",
+          reasonCode: "env_limited",
+          details: expect.objectContaining({
+            browserRequired: true,
+            providerShell: "duckduckgo_non_js_redirect",
+            constraint: expect.objectContaining({
+              kind: "render_required",
+              evidenceCode: "duckduckgo_non_js_redirect"
+            })
+          })
+        }));
     } finally {
       vi.unstubAllGlobals();
     }

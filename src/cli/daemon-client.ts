@@ -6,7 +6,12 @@ import { CliError, createDisconnectedError, EXIT_EXECUTION } from "./errors";
 import { writeFileAtomic } from "../utils/fs";
 import { loadGlobalConfig } from "../config";
 import { fetchDaemonStatus } from "./daemon-status";
-import { fetchWithTimeout } from "./utils/http";
+import {
+  fetchWithTimeoutContext,
+  readResponseJsonWithTimeout,
+  readResponseTextWithTimeout,
+  type TimedFetchResponse
+} from "./utils/http";
 
 const CLIENT_ID_FILE = "client.json";
 const DEFAULT_RENEW_AFTER_MS = 20_000;
@@ -111,6 +116,11 @@ const isBindingRequiredError = (error: unknown): boolean => {
 const isLeaseInvalidError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return message.startsWith("RELAY_LEASE_INVALID");
+};
+
+const isTransportTimeoutError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.startsWith("Request timed out after ");
 };
 
 export class DaemonClient {
@@ -256,51 +266,43 @@ export class DaemonClient {
   private async callRaw<T>(name: string, params: Record<string, unknown>, timeoutMs?: number): Promise<T> {
     const connection = await resolveDaemonConnection();
 
-    let response: Response;
+    let timedResponse: TimedFetchResponse;
     try {
-      response = await fetchWithTimeout(`http://127.0.0.1:${connection.port}/command`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${connection.token}`
-        },
-        body: JSON.stringify({ name, params })
-      }, timeoutMs);
-    } catch {
-      response = await retryWithRefreshedConnection(name, params, timeoutMs);
+      timedResponse = await openDaemonCommand(connection.port, connection.token, name, params, timeoutMs);
+    } catch (error) {
+      if (isTransportTimeoutError(error)) {
+        throw error;
+      }
+      timedResponse = await retryWithRefreshedConnection(name, params, timeoutMs);
     }
 
-    if (!response.ok) {
-      const text = await response.text();
-      let message = text || String(response.status);
-      try {
-        const parsed = JSON.parse(text) as Record<string, unknown> | null;
-        if (parsed && typeof parsed === "object") {
-          if (typeof parsed.error === "string" && parsed.error.trim()) {
-            message = parsed.error;
-          } else if (typeof parsed.message === "string" && parsed.message.trim()) {
-            message = parsed.message;
+    try {
+      if (!timedResponse.response.ok) {
+        const message = await readDaemonErrorMessage(timedResponse);
+        if (message.includes("Unauthorized") || timedResponse.response.status === 401) {
+          timedResponse.dispose();
+          timedResponse = await retryWithRefreshedConnection(name, params, timeoutMs);
+          if (!timedResponse.response.ok) {
+            throw new CliError(await readDaemonErrorMessage(timedResponse), EXIT_EXECUTION);
           }
-        }
-      } catch {
-        // Ignore JSON parse errors; fall back to raw text/status.
-      }
-      if (message.includes("Unauthorized") || response.status === 401) {
-        response = await retryWithRefreshedConnection(name, params, timeoutMs);
-        if (!response.ok) {
+        } else {
           throw new CliError(message, EXIT_EXECUTION);
         }
-      } else {
-        throw new CliError(message, EXIT_EXECUTION);
       }
-    }
 
-    const payload = await response.json() as DaemonResponse<T>;
-    if (!payload.ok) {
-      throw new CliError(payload.error || "Daemon command failed.", EXIT_EXECUTION);
-    }
+      const payload = await readResponseJsonWithTimeout<DaemonResponse<T>>(
+        timedResponse.response,
+        timedResponse.signal,
+        timedResponse.timeoutMs
+      );
+      if (!payload.ok) {
+        throw new CliError(payload.error || "Daemon command failed.", EXIT_EXECUTION);
+      }
 
-    return payload.data as T;
+      return payload.data as T;
+    } finally {
+      timedResponse.dispose();
+    }
   }
 }
 
@@ -332,7 +334,8 @@ export async function callDaemon(command: string, params?: Record<string, unknow
 }
 
 export const __test__ = {
-  deriveTransportTimeoutMs
+  deriveTransportTimeoutMs,
+  isTransportTimeoutError
 };
 
 type DaemonConnection = {
@@ -371,7 +374,7 @@ const retryWithRefreshedConnection = async (
   name: string,
   params: Record<string, unknown>,
   timeoutMs?: number
-): Promise<Response> => {
+): Promise<TimedFetchResponse> => {
   const config = loadGlobalConfig();
   if (config.daemonPort <= 0 || !config.daemonToken) {
     throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
@@ -388,14 +391,46 @@ const retryWithRefreshedConnection = async (
       relayInstanceId: status.relay.instanceId,
       relayEpoch: status.relay.epoch
     });
-    return await fetchWithTimeout(`http://127.0.0.1:${config.daemonPort}/command`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.daemonToken}`
-      },
-      body: JSON.stringify({ name, params })
-    }, timeoutMs);
+    return await openDaemonCommand(config.daemonPort, config.daemonToken, name, params, timeoutMs);
   }
   throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
+};
+
+const openDaemonCommand = async (
+  port: number,
+  token: string,
+  name: string,
+  params: Record<string, unknown>,
+  timeoutMs?: number
+): Promise<TimedFetchResponse> => {
+  return await fetchWithTimeoutContext(`http://127.0.0.1:${port}/command`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ name, params })
+  }, timeoutMs);
+};
+
+const readDaemonErrorMessage = async (timedResponse: TimedFetchResponse): Promise<string> => {
+  const text = await readResponseTextWithTimeout(
+    timedResponse.response,
+    timedResponse.signal,
+    timedResponse.timeoutMs
+  );
+  let message = text || String(timedResponse.response.status);
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown> | null;
+    if (parsed && typeof parsed === "object") {
+      if (typeof parsed.error === "string" && parsed.error.trim()) {
+        message = parsed.error;
+      } else if (typeof parsed.message === "string" && parsed.message.trim()) {
+        message = parsed.message;
+      }
+    }
+  } catch {
+    // Ignore JSON parse errors; fall back to raw text/status.
+  }
+  return message;
 };

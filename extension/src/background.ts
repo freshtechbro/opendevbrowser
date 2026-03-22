@@ -15,7 +15,9 @@ import {
   formatDispatchSourceLabel,
   stripAnnotationPayloadScreenshots
 } from "./annotation-payload.js";
+import { getRestrictionMessage } from "./services/url-restrictions.js";
 import type {
+  AgentInboxReceipt,
   AnnotationCommand,
   AnnotationDispatchSource,
   AnnotationErrorCode,
@@ -38,14 +40,17 @@ import type {
 } from "./types.js";
 
 const connection = new ConnectionManager();
-const canvasRuntime = new CanvasRuntime({
-  send: (message) => connection.sendCanvasMessage(message)
-});
+let canvasRuntime: CanvasRuntime;
 const opsRuntime = new OpsRuntime({
   send: (message) => connection.sendOpsMessage(message),
   cdp: connection.getCdpRouter(),
   getCanvasPageState: (targetId) => canvasRuntime.getPageStateByTargetId(targetId),
   performCanvasPageAction: (targetId, action, selector) => canvasRuntime.performPageAction(targetId, action, selector)
+});
+canvasRuntime = new CanvasRuntime({
+  send: (message) => connection.sendCanvasMessage(message),
+  registerOpsCanvasTarget: (browserSessionId, targetId) => opsRuntime.registerCanvasTargetForSession(browserSessionId, targetId),
+  unregisterOpsCanvasTarget: (browserSessionId, targetId) => opsRuntime.unregisterCanvasTargetForSession(browserSessionId, targetId)
 });
 const nativePort = new NativePortManager({
   onMessage: (payload) => {
@@ -69,10 +74,13 @@ const ANNOTATION_CONTENT_SCRIPT = "dist/annotate-content.js";
 const ANNOTATION_CONTENT_STYLE = "dist/annotate-content.css";
 const ANNOTATION_MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const ANNOTATION_REQUEST_TIMEOUT_MS = 120_000;
+const ANNOTATION_RECEIVER_UNAVAILABLE_MESSAGE = "Annotation UI did not load in the page. Reload the tab and retry.";
 const LAST_ANNOTATION_META_KEY = "annotationLastMeta";
 const LAST_ANNOTATION_PAYLOAD_KEY = "annotationLastPayloadSansScreenshots";
 const LAST_AGENT_ANNOTATION_META_KEY = "annotationAgentMeta";
 const LAST_AGENT_ANNOTATION_PAYLOAD_KEY = "annotationAgentPayloadSansScreenshots";
+const LAST_ANNOTATABLE_TAB_ID_KEY = "annotationLastTabId";
+const POPUP_ANNOTATION_TARGET_TTL_MS = 10_000;
 const BADGE_CONNECTED_DOT_COLOR = "#16a34a";
 const BADGE_DISCONNECTED_DOT_COLOR = "#dc2626";
 
@@ -87,9 +95,23 @@ type AnnotationSession = {
   transport: AnnotationTransport;
 };
 
+type AnnotationBridgeStatus = {
+  ok: true;
+  bootId: string;
+  active: boolean;
+};
+
+type PopupAnnotationTargetState = {
+  tabId: number;
+  bootId: string | null;
+  resolvedAt: number;
+};
+
 const annotationSessions = new Map<string, AnnotationSession>();
 let lastAnnotationFull: { meta: PopupAnnotationMeta; payload: AnnotationPayload } | null = null;
 let lastAgentAnnotationFull: { meta: PopupAnnotationMeta; payload: AnnotationPayload } | null = null;
+let lastAnnotatableTabId: number | null = null;
+let lastPopupAnnotationTarget: PopupAnnotationTargetState | null = null;
 
 connection.onAnnotationCommand((command) => {
   handleRelayAnnotationCommand(command).catch((error) => {
@@ -104,17 +126,6 @@ connection.onOpsMessage((message) => {
 connection.onCanvasMessage((message) => {
   canvasRuntime.handleMessage(message);
 });
-
-const RESTRICTED_PROTOCOLS = new Set([
-  "chrome:",
-  "chrome-extension:",
-  "chrome-search:",
-  "chrome-untrusted:",
-  "devtools:",
-  "chrome-devtools:",
-  "edge:",
-  "brave:"
-]);
 
 type RelayConfig = {
   relayPort: number;
@@ -238,6 +249,18 @@ const setStatusNoteOverride = (note: string | null): void => {
   statusNoteOverride = note;
 };
 
+const loadStoredAnnotatableTabId = async (): Promise<number | null> => {
+  const data = await new Promise<Record<string, unknown>>((resolve) => {
+    chrome.storage.local.get([LAST_ANNOTATABLE_TAB_ID_KEY], (items) => resolve(items));
+  });
+  const value = data[LAST_ANNOTATABLE_TAB_ID_KEY];
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+};
+
+const persistAnnotatableTabId = async (tabId: number | null): Promise<void> => {
+  await setStorage({ [LAST_ANNOTATABLE_TAB_ID_KEY]: tabId });
+};
+
 const buildRelayHealthNote = (health: RelayHealthStatus | null): string => {
   if (!health) {
     return "Relay unreachable. Start the daemon and retry.";
@@ -352,24 +375,11 @@ const parseEpoch = (value: unknown): number | null => {
   return null;
 };
 
-const isWebStoreUrl = (url: URL): boolean => {
-  if (url.hostname === "chromewebstore.google.com") {
-    return true;
-  }
-  if (url.hostname === "chrome.google.com" && url.pathname.startsWith("/webstore")) {
-    return true;
-  }
-  return false;
-};
-
-const getRestrictionMessage = (url: URL): string | null => {
-  if (RESTRICTED_PROTOCOLS.has(url.protocol)) {
-    return "Active tab uses a restricted URL scheme. Open a normal http(s) page and retry.";
-  }
-  if (isWebStoreUrl(url)) {
-    return "Chrome Web Store tabs cannot be annotated. Open a normal tab and retry.";
-  }
-  return null;
+const getAnnotationRestrictionMessage = (url: URL): string | null => {
+  return getRestrictionMessage(url, {
+    restrictedSchemeMessage: "Active tab uses a restricted URL scheme. Open a normal http(s) page and retry.",
+    webStoreMessage: "Chrome Web Store tabs cannot be annotated. Open a normal tab and retry."
+  });
 };
 
 const fetchRelayConfig = async (port: number): Promise<RelayConfig | null> => {
@@ -547,9 +557,174 @@ const waitForTabComplete = async (tabId: number, timeoutMs = 10000): Promise<voi
   });
 };
 
+const waitForAnnotationTabReady = async (tabId: number): Promise<void> => {
+  const tab = await getTab(tabId);
+  if (!tab || tab.status === "complete") {
+    return;
+  }
+  try {
+    await waitForTabComplete(tabId);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Tab load timeout") {
+      throw new Error("Active tab is still loading. Wait for it to finish and retry.");
+    }
+    throw error;
+  }
+};
+
 const getActiveTab = async (): Promise<chrome.tabs.Tab | null> => {
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   return tabs[0] ?? null;
+};
+
+const getTabRecency = (tab: chrome.tabs.Tab): number => {
+  return typeof tab.lastAccessed === "number" ? tab.lastAccessed : -1;
+};
+
+const rememberAnnotatableTab = (tab: chrome.tabs.Tab | null): void => {
+  if (!tab || typeof tab.id !== "number") {
+    return;
+  }
+  if (isRestrictedTab(tab) !== null) {
+    if (lastAnnotatableTabId === tab.id) {
+      lastAnnotatableTabId = null;
+      void persistAnnotatableTabId(null).catch((error) => {
+        logError("annotation.persist_tab", error, { code: "annotation_tab_persist_failed", extra: { tabId: null } });
+      });
+    }
+    return;
+  }
+  lastAnnotatableTabId = tab.id;
+  void persistAnnotatableTabId(tab.id).catch((error) => {
+    logError("annotation.persist_tab", error, { code: "annotation_tab_persist_failed", extra: { tabId: tab.id } });
+  });
+};
+
+const getRememberedAnnotatableTab = async (excludeTabId?: number): Promise<chrome.tabs.Tab | null> => {
+  if (typeof lastAnnotatableTabId !== "number") {
+    lastAnnotatableTabId = await loadStoredAnnotatableTabId();
+  }
+  if (typeof lastAnnotatableTabId !== "number") {
+    return null;
+  }
+  if (typeof excludeTabId === "number" && lastAnnotatableTabId === excludeTabId) {
+    return null;
+  }
+  const tabId = lastAnnotatableTabId;
+  const tab = await getTab(tabId);
+  if (!tab || isRestrictedTab(tab) !== null) {
+    if (lastAnnotatableTabId === tabId) {
+      lastAnnotatableTabId = null;
+      void persistAnnotatableTabId(null).catch((error) => {
+        logError("annotation.persist_tab", error, { code: "annotation_tab_persist_failed", extra: { tabId: null } });
+      });
+    }
+    return null;
+  }
+  return tab;
+};
+
+const clearPopupAnnotationTarget = (tabId?: number): void => {
+  if (!lastPopupAnnotationTarget) {
+    return;
+  }
+  if (typeof tabId === "number" && lastPopupAnnotationTarget.tabId !== tabId) {
+    return;
+  }
+  lastPopupAnnotationTarget = null;
+};
+
+const rememberPopupAnnotationTarget = (tabId: number, bootId?: string | null): void => {
+  const previousBootId = lastPopupAnnotationTarget?.tabId === tabId
+    ? lastPopupAnnotationTarget.bootId
+    : null;
+  lastPopupAnnotationTarget = {
+    tabId,
+    bootId: typeof bootId === "string" ? bootId : previousBootId,
+    resolvedAt: Date.now()
+  };
+};
+
+const getCachedPopupAnnotationTab = async (): Promise<chrome.tabs.Tab | null> => {
+  const cached = lastPopupAnnotationTarget;
+  if (!cached) {
+    return null;
+  }
+  if (Date.now() - cached.resolvedAt > POPUP_ANNOTATION_TARGET_TTL_MS) {
+    clearPopupAnnotationTarget(cached.tabId);
+    return null;
+  }
+  const tab = await getTab(cached.tabId);
+  if (!tab || isRestrictedTab(tab) !== null) {
+    clearPopupAnnotationTarget(cached.tabId);
+    return null;
+  }
+  return tab;
+};
+
+const getPopupAnnotationTab = async (tabIdHint?: number): Promise<chrome.tabs.Tab | null> => {
+  const cached = await getCachedPopupAnnotationTab();
+  if (cached) {
+    rememberAnnotatableTab(cached);
+    return cached;
+  }
+  if (typeof tabIdHint === "number") {
+    const hinted = await getTab(tabIdHint);
+    if (hinted && isRestrictedTab(hinted) === null) {
+      rememberAnnotatableTab(hinted);
+      if (typeof hinted.id === "number") {
+        rememberPopupAnnotationTarget(hinted.id);
+      }
+      return hinted;
+    }
+  }
+  const preferred = await getPreferredAnnotationTab();
+  if (preferred && typeof preferred.id === "number") {
+    rememberPopupAnnotationTarget(preferred.id);
+  }
+  return preferred;
+};
+
+const getMostRecentAnnotatableTab = async (excludeTabId?: number): Promise<chrome.tabs.Tab | null> => {
+  const tabs = await chrome.tabs.query({});
+  const candidates = tabs
+    .filter((tab) => {
+      if (typeof tab.id !== "number") {
+        return false;
+      }
+      if (typeof excludeTabId === "number" && tab.id === excludeTabId) {
+        return false;
+      }
+      return isRestrictedTab(tab) === null;
+    })
+    .sort((left, right) => {
+      const recencyDelta = getTabRecency(right) - getTabRecency(left);
+      if (recencyDelta !== 0) {
+        return recencyDelta;
+      }
+      const activeDelta = Number(Boolean(right.active)) - Number(Boolean(left.active));
+      if (activeDelta !== 0) {
+        return activeDelta;
+      }
+      return (right.id ?? 0) - (left.id ?? 0);
+    });
+  return candidates[0] ?? null;
+};
+
+const getPreferredAnnotationTab = async (): Promise<chrome.tabs.Tab | null> => {
+  const active = await getActiveTab();
+  if (active && isRestrictedTab(active) === null) {
+    rememberAnnotatableTab(active);
+    return active;
+  }
+  const excludeTabId = active && typeof active.id === "number" ? active.id : undefined;
+  const remembered = await getRememberedAnnotatableTab(excludeTabId);
+  if (remembered) {
+    return remembered;
+  }
+  const fallback = await getMostRecentAnnotatableTab(excludeTabId);
+  rememberAnnotatableTab(fallback);
+  return fallback ?? active;
 };
 
 const resolveAnnotationTab = async (command: AnnotationCommand): Promise<chrome.tabs.Tab> => {
@@ -574,7 +749,7 @@ const resolveAnnotationTab = async (command: AnnotationCommand): Promise<chrome.
     return created;
   }
 
-  const active = await getActiveTab();
+  const active = await getPreferredAnnotationTab();
   if (!active) {
     throw new Error("No active tab available");
   }
@@ -591,7 +766,7 @@ const isRestrictedTab = (tab: chrome.tabs.Tab): string | null => {
     logError("annotation.parse_tab_url", error, { code: "tab_url_parse_failed" });
     return "Active tab URL is invalid.";
   }
-  return getRestrictionMessage(parsed);
+  return getAnnotationRestrictionMessage(parsed);
 };
 
 const injectAnnotationAssets = async (tabId: number): Promise<void> => {
@@ -638,22 +813,58 @@ const isMissingAnnotationReceiverError = (error: unknown): boolean => {
   return error.message.includes("Receiving end does not exist");
 };
 
+const readAnnotationBridgeStatus = (response: unknown): AnnotationBridgeStatus | null => {
+  if (typeof response !== "object" || response === null) {
+    return null;
+  }
+  const candidate = response as { ok?: unknown; bootId?: unknown; active?: unknown };
+  if (candidate.ok !== true || typeof candidate.bootId !== "string" || typeof candidate.active !== "boolean") {
+    return null;
+  }
+  return {
+    ok: true,
+    bootId: candidate.bootId,
+    active: candidate.active
+  };
+};
+
+const sendAnnotationMessageToTab = async (tabId: number, message: Record<string, unknown>): Promise<unknown> => {
+  try {
+    return await sendMessageToTab(tabId, message);
+  } catch (error) {
+    if (!isMissingAnnotationReceiverError(error)) {
+      throw error;
+    }
+    await ensureAnnotationInjected(tabId);
+    try {
+      return await sendMessageToTab(tabId, message);
+    } catch (retryError) {
+      if (isMissingAnnotationReceiverError(retryError)) {
+        throw new Error(ANNOTATION_RECEIVER_UNAVAILABLE_MESSAGE);
+      }
+      throw retryError;
+    }
+  }
+};
+
 const sleep = async (ms: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
-const pingAnnotation = async (tabId: number): Promise<void> => {
+const pingAnnotation = async (tabId: number): Promise<AnnotationBridgeStatus> => {
   const response = await sendMessageToTab(tabId, { type: "annotation:ping" });
-  const ok = typeof response === "object" && response !== null && (response as { ok?: boolean }).ok === true;
-  if (!ok) {
+  const ready = readAnnotationBridgeStatus(response);
+  if (!ready) {
     throw new Error("Annotation ping failed");
   }
+  rememberPopupAnnotationTarget(tabId, ready.bootId);
+  return ready;
 };
 
-const ensureAnnotationInjected = async (tabId: number): Promise<void> => {
+const ensureAnnotationInjected = async (tabId: number): Promise<AnnotationBridgeStatus> => {
+  await waitForAnnotationTabReady(tabId);
   try {
-    await pingAnnotation(tabId);
-    return;
+    return await pingAnnotation(tabId);
   } catch (error) {
     // Initial ping can fail before content script injection; avoid noisy logs for missing receivers.
     if (!isMissingAnnotationReceiverError(error)) {
@@ -665,9 +876,9 @@ const ensureAnnotationInjected = async (tabId: number): Promise<void> => {
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= backoff.length; attempt += 1) {
     try {
+      await waitForAnnotationTabReady(tabId);
       await injectAnnotationAssets(tabId);
-      await pingAnnotation(tabId);
-      return;
+      return await pingAnnotation(tabId);
     } catch (error) {
       lastError = error;
       logError("annotation.inject", error, { code: "annotation_injection_failed", extra: { tabId, attempt } });
@@ -678,14 +889,65 @@ const ensureAnnotationInjected = async (tabId: number): Promise<void> => {
     }
   }
 
+  if (isMissingAnnotationReceiverError(lastError)) {
+    throw new Error(ANNOTATION_RECEIVER_UNAVAILABLE_MESSAGE);
+  }
   if (lastError instanceof Error) {
     throw lastError;
   }
   throw new Error("Annotation injection failed");
 };
 
-const probeAnnotationInjected = async (): Promise<{ injected: boolean; detail?: string }> => {
-  const active = await getActiveTab();
+const refreshAnnotationInjected = async (tabId: number): Promise<AnnotationBridgeStatus> => {
+  await waitForAnnotationTabReady(tabId);
+  await injectAnnotationAssets(tabId);
+  return await pingAnnotation(tabId);
+};
+
+const startAnnotationUi = async (
+  tabId: number,
+  requestId: string,
+  options: AnnotationCommand["options"] | undefined,
+  url?: string
+): Promise<AnnotationBridgeStatus> => {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await sendAnnotationMessageToTab(tabId, {
+        type: "annotation:start",
+        requestId,
+        options: options ?? {},
+        url
+      });
+      const ready = readAnnotationBridgeStatus(response);
+      if (ready?.active) {
+        rememberPopupAnnotationTarget(tabId, ready.bootId);
+        return ready;
+      }
+      throw new Error("Annotation start acknowledgement missing active bridge.");
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) {
+        await refreshAnnotationInjected(tabId);
+        continue;
+      }
+    }
+  }
+
+  if (
+    isMissingAnnotationReceiverError(lastError)
+    || (lastError instanceof Error && lastError.message.includes("active bridge"))
+  ) {
+    throw new Error(ANNOTATION_RECEIVER_UNAVAILABLE_MESSAGE);
+  }
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error("Annotation start failed");
+};
+
+const probeAnnotationInjected = async (tabIdHint?: number): Promise<{ injected: boolean; detail?: string }> => {
+  const active = await getPopupAnnotationTab(tabIdHint);
   if (!active || typeof active.id !== "number") {
     return { injected: false, detail: "No active tab available." };
   }
@@ -693,8 +955,12 @@ const probeAnnotationInjected = async (): Promise<{ injected: boolean; detail?: 
   if (restricted) {
     return { injected: false, detail: restricted };
   }
+  if (active.status && active.status !== "complete") {
+    return { injected: false, detail: "Active tab is still loading." };
+  }
   try {
-    await pingAnnotation(active.id);
+    const ready = await pingAnnotation(active.id);
+    rememberPopupAnnotationTarget(active.id, ready.bootId);
     return { injected: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Annotation not injected.";
@@ -703,7 +969,7 @@ const probeAnnotationInjected = async (): Promise<{ injected: boolean; detail?: 
 };
 
 const toggleAnnotationUi = async (): Promise<void> => {
-  const tab = await getActiveTab();
+  const tab = await getPreferredAnnotationTab();
   if (!tab || typeof tab.id !== "number") {
     return;
   }
@@ -712,7 +978,7 @@ const toggleAnnotationUi = async (): Promise<void> => {
     return;
   }
   await ensureAnnotationInjected(tab.id);
-  await sendMessageToTab(tab.id, { type: "annotation:toggle" });
+  await sendAnnotationMessageToTab(tab.id, { type: "annotation:toggle" });
 };
 
 const startAnnotationSession = async (command: AnnotationCommand, transport: AnnotationTransport): Promise<void> => {
@@ -748,10 +1014,12 @@ const startAnnotationSession = async (command: AnnotationCommand, transport: Ann
     }, transport);
     return;
   }
+  rememberAnnotatableTab(tab);
 
   let timeoutId: number | null = null;
   try {
-    await ensureAnnotationInjected(tab.id);
+    const initialBridge = await ensureAnnotationInjected(tab.id);
+    rememberPopupAnnotationTarget(tab.id, initialBridge.bootId);
     timeoutId = startAnnotationTimeout(requestId, transport);
     annotationSessions.set(requestId, {
       requestId,
@@ -761,17 +1029,14 @@ const startAnnotationSession = async (command: AnnotationCommand, transport: Ann
       timeoutId,
       transport
     });
-    await sendMessageToTab(tab.id, {
-      type: "annotation:start",
-      requestId,
-      options: command.options ?? {},
-      url: command.url
-    });
+    const startedBridge = await startAnnotationUi(tab.id, requestId, command.options, command.url);
+    rememberPopupAnnotationTarget(tab.id, startedBridge.bootId);
   } catch (error) {
     if (timeoutId !== null) {
       clearTimeout(timeoutId);
     }
     annotationSessions.delete(requestId);
+    clearPopupAnnotationTarget(tab.id);
     throw error instanceof Error ? error : new Error("Annotation injection failed");
   }
 };
@@ -789,7 +1054,7 @@ const cancelAnnotationSession = async (requestId: string, transport: AnnotationT
   }
   clearTimeout(session.timeoutId);
   annotationSessions.delete(requestId);
-  await sendMessageToTab(session.tabId, { type: "annotation:cancel", requestId });
+  await sendAnnotationMessageToTab(session.tabId, { type: "annotation:cancel", requestId });
   sendAnnotationResponse({
     version: 1,
     requestId,
@@ -811,7 +1076,7 @@ const buildLastAnnotationMeta = (
   requestId: string,
   response: AnnotationResponse,
   hasFullPayloadInMemory: boolean,
-  extras: Partial<Pick<PopupAnnotationMeta, "source" | "label">> = {}
+  extras: Partial<Pick<PopupAnnotationMeta, "source" | "label" | "receipt">> = {}
 ): PopupAnnotationMeta => {
   const payload = response.payload;
   const annotationCount = payload ? payload.annotations.length : undefined;
@@ -820,6 +1085,7 @@ const buildLastAnnotationMeta = (
     requestId,
     status: response.status,
     error: response.error,
+    receipt: extras.receipt ?? response.receipt,
     source: extras.source,
     label: extras.label,
     url: payload?.url,
@@ -890,24 +1156,67 @@ const isAnnotationPayload = (value: unknown): value is AnnotationPayload => {
 const storeAgentAnnotationPayload = async (
   payload: AnnotationPayload,
   source: AnnotationDispatchSource,
-  label?: string
+  label?: string,
+  receipt?: AgentInboxReceipt
 ): Promise<PopupAnnotationMeta> => {
   if (!validatePayloadSize(payload)) {
     throw new Error("Annotation payload exceeded size limits.");
   }
   const response: AnnotationResponse = {
     version: 1,
-    requestId: crypto.randomUUID(),
+    requestId: receipt?.receiptId ?? crypto.randomUUID(),
     status: "ok",
-    payload
+    payload,
+    receipt
   };
   const meta = buildLastAnnotationMeta(response.requestId, response, true, {
     source,
-    label: label?.trim().length ? label.trim() : formatDispatchSourceLabel(source)
+    label: label?.trim().length ? label.trim() : formatDispatchSourceLabel(source),
+    receipt
   });
   lastAgentAnnotationFull = { meta, payload };
-  await persistAgentAnnotation(meta, stripAnnotationPayloadScreenshots(payload));
+  await persistAgentAnnotation({ ...meta, hasFullPayloadInMemory: false }, stripAnnotationPayloadScreenshots(payload));
   return meta;
+};
+
+const buildStoredOnlyReceipt = (
+  payload: AnnotationPayload,
+  source: AnnotationDispatchSource,
+  label: string | undefined,
+  reason: string
+): AgentInboxReceipt => {
+  const sanitizedPayload = stripAnnotationPayloadScreenshots(payload);
+  return {
+    receiptId: crypto.randomUUID(),
+    deliveryState: "stored_only",
+    storedFallback: true,
+    reason,
+    chatScopeKey: null,
+    createdAt: new Date().toISOString(),
+    itemCount: sanitizedPayload.annotations.length,
+    byteLength: new TextEncoder().encode(JSON.stringify(sanitizedPayload)).length,
+    source,
+    label: label?.trim().length ? label.trim() : formatDispatchSourceLabel(source)
+  };
+};
+
+const enqueueAgentPayload = async (
+  payload: AnnotationPayload,
+  source: AnnotationDispatchSource,
+  label?: string
+): Promise<AgentInboxReceipt> => {
+  const response = await connection.sendAnnotationCommand({
+    version: 1,
+    requestId: crypto.randomUUID(),
+    command: "store_agent_payload",
+    payload,
+    source,
+    label
+  });
+  if (response.status !== "ok" || !response.receipt) {
+    throw new Error(response.error?.code ?? response.error?.message ?? "relay_unavailable");
+  }
+  return response.receipt;
 };
 
 const loadAgentAnnotationPayload = async (includeScreenshots: boolean): Promise<AnnotationResponse> => {
@@ -1327,6 +1636,41 @@ autoConnect().catch((error) => {
   logError("auto_connect.startup", error, { code: "auto_connect_failed" });
 });
 
+void getActiveTab()
+  .then((tab) => {
+    rememberAnnotatableTab(tab);
+  })
+  .catch((error) => {
+    logError("annotation.initial_tab", error, { code: "annotation_tab_resolution_failed" });
+  });
+
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  void getTab(activeInfo.tabId)
+    .then((tab) => {
+      rememberAnnotatableTab(tab);
+    })
+    .catch((error) => {
+      logError("annotation.tab_activated", error, { code: "annotation_tab_resolution_failed", extra: { tabId: activeInfo.tabId } });
+    });
+});
+
+chrome.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
+  if (!tab.active && tabId !== lastAnnotatableTabId) {
+    return;
+  }
+  rememberAnnotatableTab(tab);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (lastAnnotatableTabId === tabId) {
+    lastAnnotatableTabId = null;
+    void persistAnnotatableTabId(null).catch((error) => {
+      logError("annotation.persist_tab", error, { code: "annotation_tab_persist_failed", extra: { tabId: null } });
+    });
+  }
+  clearPopupAnnotationTarget(tabId);
+});
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") {
     return;
@@ -1419,7 +1763,7 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
       };
 
       try {
-        const active = await getActiveTab();
+        const active = await getPopupAnnotationTab(message.tabId);
         if (!active) {
           response.error = { code: "invalid_request", message: "No active tab available." };
           sendResponse(response);
@@ -1480,7 +1824,7 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
 
   if (message.type === "annotation:probe") {
     (async () => {
-      const result = await probeAnnotationInjected();
+      const result = await probeAnnotationInjected(message.tabId);
       sendResponse({ type: "annotation:probeResult", ...result });
     })().catch((error) => {
       logError("annotation.probe", error, { code: "annotation_probe_failed" });
@@ -1567,20 +1911,53 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
           type: "annotation:sendPayloadResult",
           ok: false,
           meta: null,
+          receipt: null,
           error: { code: "invalid_request", message: "Invalid annotation payload." }
         };
         sendResponse(response);
         return;
       }
-      const meta = await storeAgentAnnotationPayload(
-        message.payload,
-        message.source ?? "popup_all",
-        message.label
-      );
+      const source = message.source ?? "popup_all";
+      let receipt: AgentInboxReceipt;
+      try {
+        receipt = await enqueueAgentPayload(message.payload, source, message.label);
+      } catch (error) {
+        const reason = error instanceof Error && error.message.trim().length > 0
+          ? error.message.trim()
+          : "relay_unavailable";
+        receipt = buildStoredOnlyReceipt(message.payload, source, message.label, reason);
+      }
+      let meta: PopupAnnotationMeta;
+      try {
+        meta = await storeAgentAnnotationPayload(
+          message.payload,
+          source,
+          message.label,
+          receipt
+        );
+      } catch (error) {
+        if (receipt.deliveryState !== "delivered") {
+          throw error;
+        }
+        const response: AnnotationResponse = {
+          version: 1,
+          requestId: receipt.receiptId,
+          status: "ok",
+          payload: message.payload,
+          receipt
+        };
+        meta = buildLastAnnotationMeta(receipt.receiptId, response, true, {
+          source,
+          label: message.label?.trim().length ? message.label.trim() : formatDispatchSourceLabel(source),
+          receipt
+        });
+        logError("annotation.store_agent_payload_optional", error, { code: "annotation_persist_failed" });
+      }
       const response: PopupAnnotationSendPayloadResponse = {
         type: "annotation:sendPayloadResult",
         ok: true,
-        meta: { ...meta, hasFullPayloadInMemory: true }
+        meta: { ...meta, hasFullPayloadInMemory: true },
+        receipt
       };
       sendResponse(response);
     })().catch((error) => {
@@ -1588,6 +1965,7 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
         type: "annotation:sendPayloadResult",
         ok: false,
         meta: null,
+        receipt: null,
         error: {
           code: "payload_too_large",
           message: error instanceof Error ? error.message : "Annotation dispatch failed."

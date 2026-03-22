@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { writeOutput } from "../src/cli/output";
+import { flushOutputAndExit, writeOutput } from "../src/cli/output";
 
 describe("writeOutput", () => {
   const originalLog = console.log;
@@ -46,5 +46,39 @@ describe("writeOutput", () => {
   it("suppresses output in quiet mode", () => {
     writeOutput("hello", { format: "text", quiet: true });
     expect(console.log).not.toHaveBeenCalled();
+  });
+
+  it("flushes stdout and stderr before exiting", async () => {
+    const events: string[] = [];
+    const exit = vi.fn();
+    const proc = {
+      exitCode: 0,
+      stdout: {
+        write: vi.fn((_chunk: string, callback: () => void) => {
+          events.push("stdout");
+          callback();
+          return true;
+        })
+      },
+      stderr: {
+        write: vi.fn((_chunk: string, callback: () => void) => {
+          events.push("stderr");
+          callback();
+          return true;
+        })
+      },
+      exit
+    };
+
+    await new Promise<void>((resolve) => {
+      exit.mockImplementationOnce((code: number) => {
+        events.push(`exit:${code}`);
+        resolve();
+      });
+      void flushOutputAndExit(4, proc as never);
+    });
+
+    expect(proc.exitCode).toBe(4);
+    expect(events).toEqual(["stdout", "stderr", "exit:4"]);
   });
 });

@@ -5,6 +5,43 @@ import type {
   RuntimePreviewBridgeResult
 } from "./canvas-runtime-preview-bridge";
 
+export type BrowserCanvasOverlaySelection = {
+  pageId: string | null;
+  nodeId: string | null;
+  targetId: string | null;
+  updatedAt?: string;
+};
+
+export type BrowserCanvasOverlayMountInput = {
+  mountId: string;
+  title: string;
+  prototypeId: string;
+  selection: BrowserCanvasOverlaySelection;
+};
+
+export type BrowserCanvasOverlaySyncInput = {
+  mountId: string;
+  title: string;
+  selection: BrowserCanvasOverlaySelection;
+};
+
+export type BrowserCanvasOverlaySelectInput = {
+  mountId: string;
+  nodeId: string | null;
+  selectionHint: Record<string, unknown>;
+};
+
+export type BrowserCanvasOverlayResult = {
+  mountId?: string;
+  targetId?: string;
+  overlayState?: string;
+  previewState?: string;
+  capabilities?: Record<string, unknown>;
+  selection?: Record<string, unknown>;
+  warnings?: Array<Record<string, unknown>>;
+  ok?: boolean;
+};
+
 export type BrowserManagerLike = Pick<BrowserManager,
   | "launch"
   | "connect"
@@ -55,9 +92,32 @@ export type BrowserManagerLike = Pick<BrowserManager,
     sessionId: string,
     targetId: string
   ) => Promise<{ targetId: string; url?: string; title?: string; adopted?: boolean }>;
+  supportsOpsOverlayTransport?: (
+    sessionId: string
+  ) => boolean;
   applyRuntimePreviewBridge?: (
     sessionId: string,
     targetId: string | null,
     input: RuntimePreviewBridgeInput
   ) => Promise<RuntimePreviewBridgeResult>;
+  mountCanvasOverlay?: (
+    sessionId: string,
+    targetId: string,
+    input: BrowserCanvasOverlayMountInput
+  ) => Promise<BrowserCanvasOverlayResult>;
+  unmountCanvasOverlay?: (
+    sessionId: string,
+    targetId: string,
+    mountId: string
+  ) => Promise<BrowserCanvasOverlayResult>;
+  selectCanvasOverlay?: (
+    sessionId: string,
+    targetId: string,
+    input: BrowserCanvasOverlaySelectInput
+  ) => Promise<BrowserCanvasOverlayResult>;
+  syncCanvasOverlay?: (
+    sessionId: string,
+    targetId: string,
+    input: BrowserCanvasOverlaySyncInput
+  ) => Promise<BrowserCanvasOverlayResult>;
 };

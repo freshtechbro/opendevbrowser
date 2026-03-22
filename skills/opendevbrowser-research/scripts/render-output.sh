@@ -9,4 +9,8 @@ fi
 TOPIC="$1"
 MODE="$2"
 
-opendevbrowser research run --topic "$TOPIC" --mode "$MODE"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
+source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+
+"${ODB_CLI[@]}" research run --topic "$TOPIC" --mode "$MODE"

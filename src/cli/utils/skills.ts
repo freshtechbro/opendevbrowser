@@ -1,60 +1,16 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { fileURLToPath } from "url";
+export { getBundledSkillsDir } from "../../utils/package-assets";
 
-const PACKAGE_NAME = "opendevbrowser";
 const SKILL_DIR_NAME = "skill";
 const SKILLS_DIR_NAME = "skills";
-
-let cachedPackageRoot: string | null = null;
 
 export type SkillTargetAgent = "opencode" | "codex" | "claudecode" | "ampcli" | "claude" | "amp";
 
 export interface SkillTarget {
   agents: SkillTargetAgent[];
   dir: string;
-}
-
-function findPackageRoot(startDir: string): string {
-  let current = startDir;
-
-  while (true) {
-    const pkgPath = path.join(current, "package.json");
-    if (fs.existsSync(pkgPath)) {
-      try {
-        const parsed = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { name?: string };
-        if (parsed.name === PACKAGE_NAME) {
-          return current;
-        }
-      } catch {
-        void 0;
-      }
-    }
-
-    const parent = path.dirname(current);
-    if (parent === current) {
-      break;
-    }
-    current = parent;
-  }
-
-  throw new Error("Unable to locate opendevbrowser package root for skill installation.");
-}
-
-export function getPackageRoot(): string {
-  if (cachedPackageRoot) return cachedPackageRoot;
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-  cachedPackageRoot = findPackageRoot(moduleDir);
-  return cachedPackageRoot;
-}
-
-export function getBundledSkillsDir(): string {
-  const skillsDir = path.join(getPackageRoot(), "skills");
-  if (!fs.existsSync(skillsDir)) {
-    throw new Error(`Bundled skills directory not found at ${skillsDir}`);
-  }
-  return skillsDir;
 }
 
 export function getGlobalSkillDir(): string {

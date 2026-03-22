@@ -2,7 +2,7 @@
 
 **OpenDevBrowser Chrome Extension**
 
-Last updated: March 13, 2026
+Last updated: March 15, 2026
 
 ## Overview
 
@@ -19,6 +19,8 @@ The extension:
 - Does NOT use analytics or telemetry
 - May access page URLs, titles, and page content locally when you use automation or annotation features
 - May store relay settings and the last user-triggered annotation payload locally on-device so the popup can reconnect and reopen recent annotation results
+- May store screenshot-free annotation payloads in a repo-local shared inbox when you explicitly use popup/canvas/in-page `Send` actions so the active chat for that worktree can consume them, or so the payload can be retrieved later when safe chat scoping is unavailable
+- May keep extension-hosted canvas stage annotation selections, region metadata, and optional local crop references on-device only when you explicitly capture or send them during a canvas session
 
 ## How the Extension Works
 
@@ -30,7 +32,7 @@ The extension operates entirely on your local machine:
 
 3. **Tab Access**: The `tabs` permission is used to identify and manage browser tabs during automation sessions.
 
-4. **Local Storage**: The `storage` permission stores your relay configuration (port, pairing token, pairing toggle) and the last annotation payload metadata locally in Chrome. When you explicitly capture or send annotation results, the extension can also persist a local copy of the last annotation payload without screenshots so the popup can reopen it. This data stays on-device.
+4. **Local Storage**: The `storage` permission stores your relay configuration (port, pairing token, pairing toggle) and the last annotation payload metadata locally in Chrome. When you explicitly capture or send annotation results, the extension can also persist a local copy of the last annotation payload without screenshots so the popup can reopen it. If you explicitly use a `Send` action, OpenDevBrowser can also write a screenshot-free copy into `.opendevbrowser/annotate/agent-inbox.jsonl` in the current worktree so the intended active chat can consume it, or so the payload can be retrieved later with `annotate --stored` when safe chat scoping is unavailable. This data stays local to your machine and repository.
 
 ## Data Flow
 
@@ -58,7 +60,11 @@ The relay and optional native-host transport stay local to your machine. OpenDev
 
 - Relay configuration, pairing state, and health metadata stored in `chrome.storage.local`
 - The last annotation payload metadata, plus a local copy of the last annotation payload without screenshots when you explicitly capture or send annotation results
+- Extension-hosted canvas stage annotation selections, region metadata, and optional local crop references when you explicitly capture or send them
+- Repo-local shared inbox files under `.opendevbrowser/annotate/`, including `agent-inbox.jsonl` and `agent-scopes.json`, when you explicitly use `Send` from popup/canvas/in-page annotation surfaces
 - Full screenshots remain in memory for the active extension session unless you explicitly copy or send them through the local tooling flow
+
+Shared inbox persistence strips screenshots and stores only sanitized payloads plus screenshot asset references. Shared entries are retained locally with bounded limits (`200` entries total, `50` unread entries, `7`-day TTL).
 
 ## Third-Party Services
 

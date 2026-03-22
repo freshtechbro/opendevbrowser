@@ -21,6 +21,7 @@ Canonical documentation map for OpenDevBrowser runtime, extension, and distribut
 - `<public-repo-root>/docs/EXTENSION_RELEASE_RUNBOOK.md` - extension artifact/store publication operations
 - `<public-repo-root>/docs/CUTOVER_CHECKLIST.md` - public/private cutover and rollback checklist
 - `<public-repo-root>/CHANGELOG.md` - release delta history and version-to-version summaries
+- `<public-repo-root>/skills/opendevbrowser-best-practices/SKILL.md` - canonical direct-run release evidence policy and operator runbooks
 
 ## Website and design docs
 
@@ -41,7 +42,7 @@ Use these as planning references only; verify against runtime code and active do
 
 ## Update workflow
 
-1. Validate implementation truth in source files (`src/**`, `extension/**`) and mirrored website inputs (`docs/**`, `skills/**`, `assets/**`, `CHANGELOG.md`, `src/tools/index.ts`).
+1. Validate implementation truth in source files (`src/**`, `extension/**`) and mirrored website inputs (`docs/**`, `skills/**`, `assets/**`, `CHANGELOG.md`, `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`).
 2. Update active documentation sources in this directory.
 3. Dispatch private website sync after public source updates:
    - `.github/workflows/dispatch-private-sync.yml`
@@ -54,7 +55,9 @@ Use these as planning references only; verify against runtime code and active do
 5. Run public quality gates before closing the task.
    - `npx opendevbrowser --help`
    - `npx opendevbrowser help`
+   - touched canonical skill validators (for example `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`)
    - `npm run test:release-gate`
    - `node scripts/audit-zombie-files.mjs`
    - `node scripts/docs-drift-check.mjs`
    - `node scripts/chrome-store-compliance-check.mjs`
+6. Treat `skills/opendevbrowser-best-practices/SKILL.md` as the canonical owner of direct-run release evidence policy; other docs should point there instead of restating the full policy.

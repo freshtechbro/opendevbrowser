@@ -28,9 +28,22 @@ export interface ShoppingOffer {
 
 const toCurrency = (value: number): string => `$${value.toFixed(2)}`;
 
-const compactResearchLines = (records: ResearchRecord[]): string[] => {
+const primaryConstraintSummaryFromMeta = (meta: Record<string, unknown>): string | null => {
+  const summary = meta.primaryConstraintSummary ?? meta.primary_constraint_summary;
+  return typeof summary === "string" && summary.trim().length > 0
+    ? summary.trim()
+    : null;
+};
+
+const compactResearchLines = (records: ResearchRecord[], meta: Record<string, unknown>): string[] => {
   if (records.length === 0) {
-    return ["No records matched the requested timebox."];
+    const summary = primaryConstraintSummaryFromMeta(meta);
+    return summary
+      ? [
+        "No records matched the requested timebox.",
+        `Primary constraint: ${summary}`
+      ]
+      : ["No records matched the requested timebox."];
   }
   return records.slice(0, 10).map((record, index) => {
     const title = record.title ?? record.url ?? record.provider;
@@ -48,7 +61,7 @@ export const renderResearch = (args: {
   response: Record<string, unknown>;
   files: Array<{ path: string; content: string | Record<string, unknown> }>;
 } => {
-  const lines = compactResearchLines(args.records);
+  const lines = compactResearchLines(args.records, args.meta);
   const summary = lines.join("\n");
   const markdown = [
     `# Research: ${args.topic}`,
@@ -141,9 +154,15 @@ const toComparisonCsv = (offers: ShoppingOffer[]): string => {
   return [header, ...rows].join("\n");
 };
 
-const compactShoppingLines = (offers: ShoppingOffer[]): string[] => {
+const compactShoppingLines = (offers: ShoppingOffer[], meta: Record<string, unknown>): string[] => {
   if (offers.length === 0) {
-    return ["No offers available from the selected providers."];
+    const summary = primaryConstraintSummaryFromMeta(meta);
+    return summary
+      ? [
+        "No offers available from the selected providers.",
+        `Primary constraint: ${summary}`
+      ]
+      : ["No offers available from the selected providers."];
   }
   return offers.slice(0, 10).map((offer, index) => {
     const total = offer.price.amount + offer.shipping.amount;
@@ -160,7 +179,7 @@ export const renderShopping = (args: {
   response: Record<string, unknown>;
   files: Array<{ path: string; content: string | Record<string, unknown> }>;
 } => {
-  const lines = compactShoppingLines(args.offers);
+  const lines = compactShoppingLines(args.offers, args.meta);
   const markdown = [
     `# Shopping: ${args.query}`,
     "",

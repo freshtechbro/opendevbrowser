@@ -1,16 +1,20 @@
 import * as fs from "fs";
 import * as path from "path";
-import { homedir } from "os";
 import { execFileSync } from "child_process";
 import { fileURLToPath } from "url";
 import type { ParsedArgs } from "../args";
 import { loadGlobalConfig } from "../../config";
 import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
 import { getExtensionPath } from "../../extension-extractor";
+import {
+  getChromeUserDataRoots,
+  getProfileDirs,
+  readProfilePreferences
+} from "../../cache/chrome-user-data";
 
 type NativeSubcommand = "install" | "uninstall" | "status";
 
-type NativeStatus = {
+export type NativeStatus = {
   installed: boolean;
   manifestPath: string | null;
   wrapperPath: string | null;
@@ -22,6 +26,13 @@ type NativeStatus = {
   expectedExtensionId: string | null;
   expectedExtensionSource: "config" | ExtensionIdMatchReason | null;
   mismatch: boolean;
+};
+
+type NativeStatusAssessment = {
+  success: boolean;
+  message: string;
+  summary: string;
+  exitCode: number | null;
 };
 
 const EXTENSION_ID_RE = /^[a-p]{32}$/;
@@ -162,61 +173,6 @@ const normalizePath = (value: string): string => {
   } catch {
     return path.resolve(value);
   }
-};
-
-const getChromeUserDataRoots = (): string[] => {
-  if (process.platform === "darwin") {
-    return [
-      path.join(homedir(), "Library", "Application Support", "Google", "Chrome"),
-      path.join(homedir(), "Library", "Application Support", "Chromium"),
-      path.join(homedir(), "Library", "Application Support", "BraveSoftware", "Brave-Browser")
-    ];
-  }
-  if (process.platform === "linux") {
-    return [
-      path.join(homedir(), ".config", "google-chrome"),
-      path.join(homedir(), ".config", "chromium"),
-      path.join(homedir(), ".config", "BraveSoftware", "Brave-Browser")
-    ];
-  }
-  if (process.platform === "win32") {
-    const base = process.env.LOCALAPPDATA
-      || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, "AppData", "Local") : "");
-    if (!base) return [];
-    return [
-      path.join(base, "Google", "Chrome", "User Data"),
-      path.join(base, "Chromium", "User Data"),
-      path.join(base, "BraveSoftware", "Brave-Browser", "User Data")
-    ];
-  }
-  return [];
-};
-
-const PROFILE_PREFERENCES_FILES = ["Preferences", "Secure Preferences"] as const;
-
-const getProfileDirs = (root: string): string[] => {
-  try {
-    const entries = fs.readdirSync(root, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isDirectory() && (entry.name === "Default" || entry.name.startsWith("Profile ")))
-      .map((entry) => path.join(root, entry.name))
-      .filter((dir) => PROFILE_PREFERENCES_FILES.some((filename) => fs.existsSync(path.join(dir, filename))));
-  } catch {
-    return [];
-  }
-};
-
-const readProfilePreferences = (profileDir: string): Record<string, unknown>[] => {
-  const records: Record<string, unknown>[] = [];
-  for (const filename of PROFILE_PREFERENCES_FILES) {
-    try {
-      const raw = fs.readFileSync(path.join(profileDir, filename), "utf8");
-      records.push(JSON.parse(raw) as Record<string, unknown>);
-    } catch {
-      // Missing or invalid preference files are ignored; other sources may still be valid.
-    }
-  }
-  return records;
 };
 
 const findExtensionIdInCommands = (preferences: Record<string, unknown>): string | null => {
@@ -425,6 +381,35 @@ export const getNativeStatusSnapshot = (): NativeStatus => {
   };
 };
 
+export function assessNativeStatus(data: NativeStatus): NativeStatusAssessment {
+  if (!data.installed) {
+    return {
+      success: false,
+      message: "Native host not installed.",
+      summary: "not installed",
+      exitCode: EXIT_DISCONNECTED
+    };
+  }
+
+  if (data.mismatch && data.extensionId && data.expectedExtensionId) {
+    return {
+      success: false,
+      message: `Native host targets ${data.extensionId}, but the current extension is ${data.expectedExtensionId}. Reinstall with \`opendevbrowser native install ${data.expectedExtensionId}\` or rerun \`opendevbrowser serve\`.`,
+      summary: `mismatch (${data.extensionId} != ${data.expectedExtensionId})`,
+      exitCode: EXIT_DISCONNECTED
+    };
+  }
+
+  return {
+    success: true,
+    message: data.extensionId
+      ? `Native host installed for extension ${data.extensionId}.`
+      : "Native host installed (extension id missing).",
+    summary: `installed${data.extensionId ? ` (${data.extensionId})` : ""}`,
+    exitCode: null
+  };
+}
+
 export function installNativeHost(extensionId: string) {
   const normalized = normalizeExtensionId(extensionId);
   if (!normalized) {
@@ -489,29 +474,13 @@ export async function runNativeCommand(args: ParsedArgs) {
   }
 
   const data = getNativeStatusSnapshot();
-
-  if (!data.installed) {
-    return {
-      success: false,
-      message: "Native host not installed.",
-      data,
-      exitCode: EXIT_DISCONNECTED
-    };
-  }
-
-  if (data.mismatch && data.extensionId && data.expectedExtensionId) {
-    return {
-      success: false,
-      message: `Native host targets ${data.extensionId}, but the current extension is ${data.expectedExtensionId}. Reinstall with \`opendevbrowser native install ${data.expectedExtensionId}\` or rerun \`opendevbrowser serve\`.`,
-      data,
-      exitCode: EXIT_DISCONNECTED
-    };
-  }
-
-  const message = data.extensionId
-    ? `Native host installed for extension ${data.extensionId}.`
-    : "Native host installed (extension id missing).";
-  return { success: true, message, data };
+  const assessment = assessNativeStatus(data);
+  return {
+    success: assessment.success,
+    message: assessment.message,
+    data,
+    exitCode: assessment.exitCode
+  };
 }
 
 export const __test__ = {
@@ -528,5 +497,6 @@ export const __test__ = {
   readProfilePreferences,
   findExtensionIdInCommands,
   getExtensionPathCandidates,
-  resolveExpectedExtension
+  resolveExpectedExtension,
+  assessNativeStatus
 };
