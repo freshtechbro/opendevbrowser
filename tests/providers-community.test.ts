@@ -270,6 +270,37 @@ describe("community provider", () => {
     });
   });
 
+  it("propagates plain expansion errors without treating them as recoverable", async () => {
+    const provider = createCommunityProvider({
+      search: async () => [{
+        url: "https://forums.local/thread/1",
+        title: "root",
+        attributes: {
+          links: ["https://forums.local/thread/2"]
+        }
+      }],
+      fetch: async (input) => {
+        if (input.url.endsWith("/thread/2")) {
+          throw new Error(`Plain failure for ${input.url}`);
+        }
+        return {
+          url: input.url,
+          title: "ok",
+          content: "ok"
+        };
+      }
+    });
+
+    await expect(provider.search?.({
+      query: "plain-error",
+      filters: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 1
+      }
+    }, context("r-expansion-plain-error"))).rejects.toThrow("Plain failure for https://forums.local/thread/2");
+  });
+
   it("enforces posting policy gates and hook decisions", async () => {
     const provider = createCommunityProvider({
       postPolicyHooks: [
@@ -669,5 +700,29 @@ describe("community provider", () => {
     }, context("r26"));
 
     expect(crawled?.map((record) => record.url)).toEqual(["https://forums.local/root"]);
+  });
+
+  it("prefers blank titles when duplicate canonical urls tie on url sort", async () => {
+    const provider = createCommunityProvider({
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 0,
+        expansionPerRecord: 0,
+        maxRecords: 3
+      },
+      search: async () => ([
+        { url: "https://forums.local/same", title: "with-title", content: "named" },
+        { url: "https://forums.local/same", content: "untitled" }
+      ])
+    });
+
+    const records = await provider.search?.({
+      query: "blank-title",
+      limit: 1
+    }, context("r-blank-title"));
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]?.url).toBe("https://forums.local/same");
+    expect(records?.[0]?.title).toBeUndefined();
   });
 });

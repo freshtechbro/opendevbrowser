@@ -510,6 +510,37 @@ describe("OpsBrowserManager", () => {
     expect(recovered).toBe(true);
   });
 
+  it("does not remember non-tab status targets or blank urls", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsSessions: Set<string>;
+      opsLeases: Map<string, string>;
+      opsSessionTabs: Map<string, number>;
+      opsSessionUrls: Map<string, string>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "canvas-preview",
+        url: "   "
+      })
+    };
+    managerAny.opsSessions.add("ops-null-status");
+    managerAny.opsLeases.set("ops-null-status", "lease-null-status");
+
+    const status = await manager.status("ops-null-status");
+
+    expect(status).toEqual({
+      mode: "extension",
+      activeTargetId: "canvas-preview",
+      url: "   "
+    });
+    expect(managerAny.opsSessionTabs.has("ops-null-status")).toBe(false);
+    expect(managerAny.opsSessionUrls.has("ops-null-status")).toBe(false);
+  });
+
   it("falls back to url-based recovery when the remembered tabId is gone", async () => {
     let recoveryAttempt = 0;
     requestMock.mockImplementation(async (...args: unknown[]) => {
@@ -1683,6 +1714,34 @@ describe("OpsBrowserManager", () => {
     expect(managerAny.opsClient).toBeNull();
   });
 
+  it("preserves a replacement idle disconnect promise when an older disconnect settles", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      opsClient: { disconnect?: ReturnType<typeof vi.fn> } | null;
+      opsSessions: Set<string>;
+      idleDisconnectPromise: Promise<void> | null;
+      disconnectOpsClientIfIdle: () => Promise<void>;
+    };
+
+    let releaseDisconnect: (() => void) | null = null;
+    const disconnect = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
+      releaseDisconnect = resolve;
+    }));
+
+    managerAny.opsClient = { disconnect };
+    managerAny.opsSessions.clear();
+
+    const pending = managerAny.disconnectOpsClientIfIdle();
+    const replacement = Promise.resolve();
+    managerAny.idleDisconnectPromise = replacement;
+
+    releaseDisconnect?.();
+    await pending;
+
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(managerAny.idleDisconnectPromise).toBe(replacement);
+  });
+
   it("awaits an existing idle disconnect promise without starting another ops disconnect", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const managerAny = manager as unknown as {
@@ -1797,6 +1856,62 @@ describe("OpsBrowserManager", () => {
     expect(recoveredClient.request).toHaveBeenCalledWith("targets.list", { includeUrls: true }, "ops-retry", 30000, "lease-retry");
   });
 
+  it("rethrows unknown-session errors when request recovery cannot restore the session", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const error = new Error("[invalid_session] Unknown ops session");
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(error)
+    };
+    managerAny.opsLeases.set("ops-unrecovered", "lease-unrecovered");
+    managerAny.recoverOpsSession = vi.fn().mockResolvedValue(false);
+
+    await expect(managerAny.requestOps("ops-unrecovered", "targets.list", { includeUrls: true })).rejects.toBe(error);
+    expect(managerAny.recoverOpsSession).toHaveBeenCalledWith("ops-unrecovered", { includeUrls: true });
+  });
+
+  it("falls back to the existing lease when recovered sessions do not return a replacement", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const error = new Error("[invalid_session] Unknown ops session");
+    const recoveredClient = {
+      request: vi.fn().mockResolvedValue({ activeTargetId: "tab-202", targets: [] })
+    };
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(error)
+    };
+    managerAny.opsLeases.set("ops-lease-fallback", "lease-existing");
+    managerAny.recoverOpsSession = vi.fn().mockImplementation(async () => {
+      managerAny.opsClient = recoveredClient;
+      managerAny.opsLeases.delete("ops-lease-fallback");
+      return true;
+    });
+
+    await expect(managerAny.requestOps("ops-lease-fallback", "targets.list", { includeUrls: true })).resolves.toEqual({
+      activeTargetId: "tab-202",
+      targets: []
+    });
+    expect(recoveredClient.request).toHaveBeenCalledWith(
+      "targets.list",
+      { includeUrls: true },
+      "ops-lease-fallback",
+      30000,
+      "lease-existing"
+    );
+  });
+
   it("fails reconnectOpsClient when relay readiness or session recovery cannot be restored", async () => {
     const notReadyManager = new OpsBrowserManager({} as never, makeConfig());
     const notReadyAny = notReadyManager as unknown as {
@@ -1874,6 +1989,30 @@ describe("OpsBrowserManager", () => {
           Authorization: "Bearer relay-secret"
         }
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats non-ok relay readiness responses as not ready", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({})
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const manager = new OpsBrowserManager({} as never, makeConfig());
+      const managerAny = manager as unknown as {
+        opsEndpoint: string | null;
+        waitForRelayExtensionReady: (timeoutMs?: number) => Promise<boolean>;
+      };
+      managerAny.opsEndpoint = "wss://example.com:9443/ops";
+
+      const readinessPromise = managerAny.waitForRelayExtensionReady(1);
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(readinessPromise).resolves.toBe(false);
     } finally {
       vi.useRealTimers();
     }
