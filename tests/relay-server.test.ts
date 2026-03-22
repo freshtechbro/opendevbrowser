@@ -93,6 +93,15 @@ const nextMessage = async (socket: WebSocket): Promise<Record<string, unknown>> 
   return JSON.parse(text) as Record<string, unknown>;
 };
 
+const nextMessageWithTimeout = async (socket: WebSocket, timeoutMs = 4000): Promise<Record<string, unknown>> => {
+  return await Promise.race([
+    nextMessage(socket),
+    new Promise<Record<string, unknown>>((_, reject) => {
+      setTimeout(() => reject(new Error("Timed out waiting for socket message")), timeoutMs);
+    })
+  ]);
+};
+
 const waitForHandshakeAck = async (socket: WebSocket): Promise<Record<string, unknown>> => {
   const message = await nextMessage(socket);
   expect(message.type).toBe("handshakeAck");
@@ -765,6 +774,17 @@ describe("RelayServer", () => {
     expect(destroy).toHaveBeenCalled();
   });
 
+  it("does not accumulate rate-limit debt across successful ops upgrades", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      const ops = await connect(`${started.url}/ops`);
+      ops.close();
+      await waitForClose(ops);
+    }
+  });
+
   it("keeps /extension rate limits from spilling into /ops upgrades", async () => {
     server = new RelayServer();
     server.setToken("secret-token");
@@ -875,6 +895,27 @@ describe("RelayServer", () => {
 
     extension.close();
     cdp.close();
+  });
+
+  it("clears extension state and closes cdp when the extension socket errors", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const cdp = await connect(`${started.url}/cdp`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 31 } }));
+    await waitForHandshakeAck(extension);
+
+    const internal = server as unknown as { extensionSocket: WebSocket | null };
+    const extensionClosed = waitForClose(extension);
+    const cdpClosed = waitForClose(cdp);
+    internal.extensionSocket?.emit("error", new Error("boom"));
+
+    await expect(extensionClosed).resolves.toBe(1011);
+    await expect(cdpClosed).resolves.toBe(1011);
+    expect(server.status().extensionConnected).toBe(false);
+    expect(server.status().extensionHandshakeComplete).toBe(false);
   });
 
   it("parses buffer messages and forwards results", async () => {
@@ -1662,6 +1703,7 @@ describe("RelayServer", () => {
     const helloAck = await nextMessage(ops);
     expect(helloAck.type).toBe("ops_hello_ack");
     expect(helloAck.clientId).toBe(clientId);
+    expect(server.status().opsConnected).toBe(true);
 
     ops.send(JSON.stringify({
       type: "ops_request",
@@ -1686,6 +1728,36 @@ describe("RelayServer", () => {
     expect(response.payload).toEqual({ ok: true });
 
     ops.close();
+    extension.close();
+  });
+
+  it("fails silent ops hello handshakes explicitly and clears relay readiness", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const ops = await connect(`${started.url}/ops`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 33 } }));
+    await waitForHandshakeAck(extension);
+
+    ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
+    const forwardedHello = await nextMessage(extension);
+    expect(forwardedHello.type).toBe("ops_hello");
+
+    const response = await nextMessageWithTimeout(ops, 3000);
+    expect(response).toMatchObject({
+      type: "ops_error",
+      requestId: "ops_hello",
+      error: {
+        code: "ops_unavailable",
+        message: "Extension did not acknowledge ops hello."
+      }
+    });
+    expect((response.error as { details?: { reason?: string } }).details?.reason).toBe("ops_hello_timeout");
+    expect(await waitForClose(ops)).toBe(1011);
+    expect(server.status().opsConnected).toBe(false);
+
     extension.close();
   });
 

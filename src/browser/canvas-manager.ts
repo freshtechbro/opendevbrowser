@@ -1634,12 +1634,11 @@ export class CanvasManager implements CanvasManagerLike {
     }
     const status = await this.browserManager.status(session.browserSessionId);
     let result: ExtensionOverlayResult;
-    if (this.usesCanvasRelayOverlay(session, targetId, status.mode)) {
+    const usesCanvasRelayOverlay = this.usesCanvasRelayOverlay(session, targetId, status.mode);
+    if (usesCanvasRelayOverlay) {
       result = await this.requestCanvasExtension(session, "canvas.overlay.mount", {
         targetId,
-        prototypeId,
-        document: session.store.getDocument(),
-        documentRevision: session.store.getRevision()
+        prototypeId
       });
     } else if (status.mode === "extension" && this.supportsOpsOverlayTransport(session) && typeof this.browserManager.mountCanvasOverlay === "function") {
       const mountId = `mount_${randomUUID()}`;
@@ -1655,7 +1654,9 @@ export class CanvasManager implements CanvasManagerLike {
     const mountId = typeof result.mountId === "string" ? result.mountId : `mount_${randomUUID()}`;
     session.overlayMounts.set(mountId, { mountId, targetId, mountedAt: new Date().toISOString() });
     const previewState = session.activeTargets.get(targetId)?.previewState ?? "background";
-    await this.syncLiveViews(session);
+    if (!usesCanvasRelayOverlay) {
+      await this.syncLiveViews(session);
+    }
     return {
       mountId,
       targetId,
@@ -1675,7 +1676,8 @@ export class CanvasManager implements CanvasManagerLike {
       return { ok: true, mountId, previewState: (targetId ? session.activeTargets.get(targetId)?.previewState : null) ?? "background", overlayState: "idle" };
     }
     const status = await this.browserManager.status(session.browserSessionId);
-    if (this.usesCanvasRelayOverlay(session, mount.targetId, status.mode)) {
+    const usesCanvasRelayOverlay = this.usesCanvasRelayOverlay(session, mount.targetId, status.mode);
+    if (usesCanvasRelayOverlay) {
       await this.requestCanvasExtension(session, "canvas.overlay.unmount", { mountId, targetId: mount.targetId });
     } else if (status.mode === "extension" && this.supportsOpsOverlayTransport(session) && typeof this.browserManager.unmountCanvasOverlay === "function") {
       await this.browserManager.unmountCanvasOverlay(session.browserSessionId, mount.targetId, mountId);
@@ -1683,7 +1685,9 @@ export class CanvasManager implements CanvasManagerLike {
       await this.unmountDirectOverlay(session.browserSessionId, mount.targetId, mount.mountId);
     }
     session.overlayMounts.delete(mountId);
-    await this.syncLiveViews(session);
+    if (!usesCanvasRelayOverlay) {
+      await this.syncLiveViews(session);
+    }
     this.disconnectCanvasClientIfIdle();
     return { ok: true, mountId, previewState: session.activeTargets.get(mount.targetId)?.previewState ?? "background", overlayState: "idle" };
   }
@@ -1702,7 +1706,8 @@ export class CanvasManager implements CanvasManagerLike {
       throw new Error("canvas.overlay.select requires a browserSessionId.");
     }
     const status = await this.browserManager.status(session.browserSessionId);
-    const selection = this.usesCanvasRelayOverlay(session, targetId, status.mode)
+    const usesCanvasRelayOverlay = this.usesCanvasRelayOverlay(session, targetId, status.mode);
+    const selection = usesCanvasRelayOverlay
       ? await this.requestCanvasExtension(session, "canvas.overlay.select", { mountId, targetId, nodeId, selectionHint: hint })
       : status.mode === "extension" && this.supportsOpsOverlayTransport(session) && typeof this.browserManager.selectCanvasOverlay === "function"
         ? await this.browserManager.selectCanvasOverlay(session.browserSessionId, targetId, {
@@ -1718,7 +1723,9 @@ export class CanvasManager implements CanvasManagerLike {
         targetId,
         updatedAt: new Date().toISOString()
       };
-      await this.syncLiveViews(session);
+      if (!usesCanvasRelayOverlay) {
+        await this.syncLiveViews(session);
+      }
     }
     return {
       targetId,

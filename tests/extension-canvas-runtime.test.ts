@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CanvasRuntime } from "../extension/src/canvas/canvas-runtime";
-import type { CanvasEnvelope } from "../extension/src/types";
+import { MAX_CANVAS_PAYLOAD_BYTES, type CanvasEnvelope } from "../extension/src/types";
 
 const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0));
 const OPEN_HTML = "<!doctype html><html><body><main data-render=\"open\"></main></body></html>";
@@ -50,6 +50,44 @@ describe("CanvasRuntime", () => {
   afterEach(() => {
     globalThis.chrome = originalChrome;
     vi.restoreAllMocks();
+  });
+
+  it("chunks oversized canvas responses", () => {
+    const sent: CanvasEnvelope[] = [];
+    const runtime = new CanvasRuntime({
+      send: (message) => sent.push(message)
+    });
+
+    (runtime as unknown as {
+      sendResponse: (
+        message: { requestId: string; clientId: string; canvasSessionId: string },
+        payload: unknown
+      ) => void;
+    }).sendResponse(
+      {
+        requestId: "req-chunk",
+        clientId: "client-1",
+        canvasSessionId: "canvas_01"
+      },
+      { data: "x".repeat(MAX_CANVAS_PAYLOAD_BYTES + 1024) }
+    );
+
+    expect(sent[0]).toMatchObject({
+      type: "canvas_response",
+      requestId: "req-chunk",
+      clientId: "client-1",
+      canvasSessionId: "canvas_01",
+      chunked: true,
+      payloadId: expect.any(String),
+      totalChunks: expect.any(Number)
+    });
+    const response = sent[0] as Extract<CanvasEnvelope, { type: "canvas_response" }>;
+    const chunks = sent.slice(1) as Array<Extract<CanvasEnvelope, { type: "canvas_chunk" }>>;
+    expect(chunks).toHaveLength(response.totalChunks ?? 0);
+    expect(chunks.every((chunk) => chunk.type === "canvas_chunk")).toBe(true);
+    expect(JSON.parse(chunks.map((chunk) => chunk.data).join(""))).toEqual({
+      data: "x".repeat(MAX_CANVAS_PAYLOAD_BYTES + 1024)
+    });
   });
 
   it("opens extension-hosted canvas tabs and syncs state to connected page ports", async () => {

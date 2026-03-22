@@ -1784,6 +1784,166 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
     expect(unmountCanvasOverlay).toHaveBeenCalledWith("browser-extension", "tab-preview", "mount-ext");
   });
 
+  it("avoids redundant design-tab sync payloads for canvas-relay overlay commands", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      closeTarget: vi.fn().mockResolvedValue(undefined)
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string, payload?: Record<string, unknown>) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-1", previewState: "focused" };
+      }
+      if (command === "canvas.overlay.mount") {
+        return {
+          mountId: "mount-design",
+          targetId: payload?.targetId,
+          overlayState: "mounted",
+          capabilities: { selection: true, guides: true }
+        };
+      }
+      if (command === "canvas.overlay.select") {
+        return {
+          targetId: payload?.targetId,
+          selection: {
+            matched: true,
+            nodeId: payload?.nodeId,
+            selector: `[data-node-id="${String(payload?.nodeId ?? "")}"]`
+          }
+        };
+      }
+      if (command === "canvas.overlay.unmount") {
+        return { ok: true, mountId: payload?.mountId, overlayState: "idle" };
+      }
+      if (command === "canvas.tab.close") {
+        return { ok: true, targetId: payload?.targetId };
+      }
+      if (command === "canvas.tab.sync") {
+        throw new Error("design-tab overlay should not trigger canvas.tab.sync");
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+    const internal = manager as unknown as {
+      syncLiveViews: (session: unknown) => Promise<void>;
+    };
+    const syncLiveViewsSpy = vi.spyOn(internal, "syncLiveViews");
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const documentId = String(opened.documentId);
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    }) as { document: { pages: Array<{ rootNodeId: string | null }> } };
+    const rootNodeId = loaded.document.pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+
+    await expect(manager.execute("canvas.tab.open", {
+      canvasSessionId,
+      leaseId,
+      prototypeId: "proto_home_default",
+      previewMode: "focused"
+    })).resolves.toMatchObject({
+      targetId: "tab-ext-1",
+      targetIds: ["tab-ext-1"],
+      designTab: true
+    });
+
+    canvasClientRequestMock.mockClear();
+    syncLiveViewsSpy.mockClear();
+
+    await expect(manager.execute("canvas.overlay.mount", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-ext-1",
+      prototypeId: "proto_home_default"
+    })).resolves.toMatchObject({
+      mountId: "mount-design",
+      targetId: "tab-ext-1"
+    });
+
+    await expect(manager.execute("canvas.overlay.select", {
+      canvasSessionId,
+      leaseId,
+      mountId: "mount-design",
+      targetId: "tab-ext-1",
+      nodeId: rootNodeId
+    })).resolves.toMatchObject({
+      selection: {
+        matched: true,
+        nodeId: rootNodeId
+      }
+    });
+
+    await expect(manager.execute("canvas.overlay.unmount", {
+      canvasSessionId,
+      leaseId,
+      mountId: "mount-design",
+      targetId: "tab-ext-1"
+    })).resolves.toMatchObject({
+      ok: true,
+      mountId: "mount-design"
+    });
+
+    expect(syncLiveViewsSpy).not.toHaveBeenCalled();
+    expect(canvasClientRequestMock).toHaveBeenCalledWith(
+      "canvas.overlay.mount",
+      { targetId: "tab-ext-1", prototypeId: "proto_home_default" },
+      canvasSessionId,
+      30000,
+      leaseId
+    );
+    expect(canvasClientRequestMock).not.toHaveBeenCalledWith("canvas.tab.sync", expect.any(Object), canvasSessionId, 30000, leaseId);
+  });
+
   it("disconnects the canvas relay client when the last extension-backed session closes", async () => {
     const browserManager = {
       status: vi.fn().mockResolvedValue({

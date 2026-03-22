@@ -1,6 +1,7 @@
 import {
   CANVAS_PROTOCOL_VERSION,
   MAX_CANVAS_PAYLOAD_BYTES,
+  type CanvasChunk,
   type CanvasEnvelope,
   type CanvasError,
   type CanvasEvent,
@@ -111,6 +112,7 @@ export class CanvasRuntime {
   private readonly sendEnvelope: (message: CanvasEnvelope) => void;
   private readonly registerOpsCanvasTarget?: CanvasRuntimeOptions["registerOpsCanvasTarget"];
   private readonly unregisterOpsCanvasTarget?: CanvasRuntimeOptions["unregisterOpsCanvasTarget"];
+  private readonly encoder = new TextEncoder();
   private readonly tabs = new TabManager();
   private readonly sessions = new TargetSessionCoordinator<CanvasSessionExtra>();
   private readonly overlaySessions = new Map<string, OverlaySessionRecord>();
@@ -816,7 +818,42 @@ export class CanvasRuntime {
       canvasSessionId: message.canvasSessionId,
       payload
     };
-    this.sendEnvelope(response);
+    const serialized = JSON.stringify(payload ?? null);
+    if (this.encoder.encode(serialized).length <= MAX_CANVAS_PAYLOAD_BYTES) {
+      this.sendEnvelope(response);
+      return;
+    }
+
+    const payloadId = crypto.randomUUID();
+    const chunkSize = Math.max(1024, MAX_CANVAS_PAYLOAD_BYTES - 1024);
+    const chunks: string[] = [];
+    for (let i = 0; i < serialized.length; i += chunkSize) {
+      chunks.push(serialized.slice(i, i + chunkSize));
+    }
+
+    this.sendEnvelope({
+      type: "canvas_response",
+      requestId: message.requestId,
+      clientId: message.clientId,
+      canvasSessionId: message.canvasSessionId,
+      chunked: true,
+      payloadId,
+      totalChunks: chunks.length
+    } satisfies CanvasResponse);
+
+    chunks.forEach((data, index) => {
+      const chunk: CanvasChunk = {
+        type: "canvas_chunk",
+        requestId: message.requestId,
+        clientId: message.clientId,
+        canvasSessionId: message.canvasSessionId,
+        payloadId,
+        chunkIndex: index,
+        totalChunks: chunks.length,
+        data
+      };
+      this.sendEnvelope(chunk);
+    });
   }
 
   private sendError(message: Pick<CanvasRequest, "requestId" | "clientId" | "canvasSessionId">, error: CanvasError): void {

@@ -93,6 +93,8 @@ export class RelayServer {
   private cdpSocket: WebSocket | null = null;
   private annotationSocket: WebSocket | null = null;
   private opsClients = new Map<string, WebSocket>();
+  private readyOpsClients = new Set<string>();
+  private pendingOpsHelloAcks = new Map<string, NodeJS.Timeout>();
   private canvasClients = new Map<string, WebSocket>();
   private opsOwnedTabIds = new Set<number>();
   private extensionInfo: ExtensionInfo | null = null;
@@ -114,6 +116,7 @@ export class RelayServer {
   private static readonly MAX_HANDSHAKE_ATTEMPTS = 5;
   private static readonly RATE_LIMIT_WINDOW_MS = 60_000;
   private static readonly MAX_HTTP_ATTEMPTS = 60;
+  private static readonly OPS_HELLO_ACK_TIMEOUT_MS = 1500;
   private static readonly MAX_ANNOTATION_PAYLOAD_BYTES = 12 * 1024 * 1024;
   private static readonly MAX_OPS_PAYLOAD_BYTES = MAX_OPS_PAYLOAD_BYTES;
   private static readonly MAX_CANVAS_PAYLOAD_BYTES = MAX_CANVAS_PAYLOAD_BYTES;
@@ -143,10 +146,7 @@ export class RelayServer {
       this.extensionSocketIp = request.socket.remoteAddress ?? "unknown";
       this.extensionInfo = null;
       this.extensionHandshakeComplete = false;
-      socket.on("message", (data: WebSocket.RawData) => {
-        this.handleExtensionMessage(data);
-      });
-      socket.on("close", () => {
+      const releaseExtensionSocket = () => {
         if (this.extensionSocket === socket) {
           this.extensionSocket = null;
           this.extensionSocketIp = null;
@@ -157,6 +157,22 @@ export class RelayServer {
         }
         if (this.cdpSocket) {
           this.cdpSocket.close(1011, "Extension disconnected");
+        }
+      };
+      socket.on("message", (data: WebSocket.RawData) => {
+        this.handleExtensionMessage(data);
+      });
+      socket.on("close", () => {
+        releaseExtensionSocket();
+      });
+      socket.on("error", () => {
+        releaseExtensionSocket();
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          try {
+            socket.close(1011, "Extension client error");
+          } catch {
+            // Best-effort close after a socket-level failure.
+          }
         }
       });
     });
@@ -220,12 +236,16 @@ export class RelayServer {
       socket.on("close", () => {
         if (this.opsClients.get(clientId) === socket) {
           this.opsClients.delete(clientId);
+          this.readyOpsClients.delete(clientId);
+          this.clearPendingOpsHelloAck(clientId);
           this.notifyOpsClientClosed(clientId);
         }
       });
       socket.on("error", () => {
         if (this.opsClients.get(clientId) === socket) {
           this.opsClients.delete(clientId);
+          this.readyOpsClients.delete(clientId);
+          this.clearPendingOpsHelloAck(clientId);
           this.notifyOpsClientClosed(clientId);
         }
       });
@@ -357,6 +377,7 @@ export class RelayServer {
           socket.destroy();
           return;
         }
+        this.clearHandshakeFailures(ip, pathname);
         this.cdpWss?.handleUpgrade(request, socket, head, (ws: WebSocket) => {
           this.cdpWss?.emit("connection", ws, request);
         });
@@ -389,6 +410,7 @@ export class RelayServer {
           socket.destroy();
           return;
         }
+        this.clearHandshakeFailures(ip, pathname);
         this.annotationWss?.handleUpgrade(request, socket, head, (ws: WebSocket) => {
           this.annotationWss?.emit("connection", ws, request);
         });
@@ -421,6 +443,7 @@ export class RelayServer {
           socket.destroy();
           return;
         }
+        this.clearHandshakeFailures(ip, pathname);
         this.opsWss?.handleUpgrade(request, socket, head, (ws: WebSocket) => {
           this.opsWss?.emit("connection", ws, request);
         });
@@ -453,6 +476,7 @@ export class RelayServer {
           socket.destroy();
           return;
         }
+        this.clearHandshakeFailures(ip, pathname);
         this.canvasWss?.handleUpgrade(request, socket, head, (ws: WebSocket) => {
           this.canvasWss?.emit("connection", ws, request);
         });
@@ -526,6 +550,8 @@ export class RelayServer {
       socket.close(1000, "Relay stopped");
     }
     this.opsClients.clear();
+    this.readyOpsClients.clear();
+    this.clearPendingOpsHelloAcks();
     for (const socket of this.canvasClients.values()) {
       socket.close(1000, "Relay stopped");
     }
@@ -558,7 +584,7 @@ export class RelayServer {
       extensionHandshakeComplete: this.extensionHandshakeComplete,
       cdpConnected: this.isSocketOpen(this.cdpSocket),
       annotationConnected: this.isSocketOpen(this.annotationSocket),
-      opsConnected: this.opsClients.size > 0,
+      opsConnected: this.readyOpsClients.size > 0,
       canvasConnected: this.canvasClients.size > 0,
       pairingRequired: Boolean(this.pairingToken),
       instanceId: this.instanceId,
@@ -1217,6 +1243,11 @@ export class RelayServer {
         return;
       }
 
+      if (isOpsHello(message)) {
+        this.readyOpsClients.delete(clientId);
+        this.trackPendingOpsHelloAck(clientId);
+      }
+
       this.sendJson(this.extensionSocket, { ...message, clientId } satisfies OpsEnvelope);
       return;
     }
@@ -1267,6 +1298,22 @@ export class RelayServer {
   }
 
   private handleOpsExtensionMessage(message: OpsEnvelope): void {
+    if (message.type === "ops_hello_ack") {
+      const clientId = typeof message.clientId === "string" ? message.clientId : null;
+      if (clientId) {
+        this.clearPendingOpsHelloAck(clientId);
+        this.readyOpsClients.add(clientId);
+      }
+    }
+
+    if (message.type === "ops_error" && message.requestId === "ops_hello") {
+      const clientId = typeof message.clientId === "string" ? message.clientId : null;
+      if (clientId) {
+        this.clearPendingOpsHelloAck(clientId);
+        this.readyOpsClients.delete(clientId);
+      }
+    }
+
     if (message.type === "ops_event") {
       const tabId = extractOpsTabId(message.payload);
       if (typeof tabId === "number") {
@@ -1447,7 +1494,7 @@ export class RelayServer {
 
   private buildHealthStatus(): RelayHealthStatus {
     this.pruneClosedSockets();
-    const opsConnected = this.opsClients.size > 0;
+    const opsConnected = this.readyOpsClients.size > 0;
     const canvasConnected = this.canvasClients.size > 0;
     const extensionConnected = this.isSocketOpen(this.extensionSocket);
     const extensionHandshakeComplete = extensionConnected && this.extensionHandshakeComplete;
@@ -1591,8 +1638,50 @@ export class RelayServer {
     for (const [clientId, socket] of clients.entries()) {
       if (!this.isSocketOpen(socket)) {
         clients.delete(clientId);
+        if (clients === this.opsClients) {
+          this.readyOpsClients.delete(clientId);
+          this.clearPendingOpsHelloAck(clientId);
+        }
       }
     }
+  }
+
+  private trackPendingOpsHelloAck(clientId: string): void {
+    this.clearPendingOpsHelloAck(clientId);
+    const timeout = setTimeout(() => {
+      if (!this.pendingOpsHelloAcks.has(clientId)) {
+        return;
+      }
+      this.pendingOpsHelloAcks.delete(clientId);
+      this.readyOpsClients.delete(clientId);
+      this.sendOpsError(clientId, {
+        code: "ops_unavailable",
+        message: "Extension did not acknowledge ops hello.",
+        retryable: true,
+        details: { reason: "ops_hello_timeout" }
+      }, "ops_hello");
+      const client = this.opsClients.get(clientId);
+      if (client && this.isSocketOpen(client)) {
+        client.close(1011, "ops_hello_timeout");
+      }
+    }, RelayServer.OPS_HELLO_ACK_TIMEOUT_MS);
+    this.pendingOpsHelloAcks.set(clientId, timeout);
+  }
+
+  private clearPendingOpsHelloAck(clientId: string): void {
+    const timeout = this.pendingOpsHelloAcks.get(clientId);
+    if (!timeout) {
+      return;
+    }
+    clearTimeout(timeout);
+    this.pendingOpsHelloAcks.delete(clientId);
+  }
+
+  private clearPendingOpsHelloAcks(): void {
+    for (const timeout of this.pendingOpsHelloAcks.values()) {
+      clearTimeout(timeout);
+    }
+    this.pendingOpsHelloAcks.clear();
   }
 
   private isSocketOpen(socket: WebSocket | null): socket is WebSocket {

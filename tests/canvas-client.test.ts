@@ -109,6 +109,26 @@ describe("CanvasClient", () => {
     client.disconnect();
   });
 
+  it("attaches a steady-state socket error listener after connect", async () => {
+    server?.on("connection", (socket) => {
+      socket.on("message", (data) => {
+        const message = JSON.parse(String(data)) as Record<string, unknown>;
+        if (message.type === "canvas_hello") {
+          socket.send(JSON.stringify({
+            type: "canvas_hello_ack",
+            version: "1",
+            maxPayloadBytes: 1024
+          }));
+        }
+      });
+    });
+
+    const client = new CanvasClient(baseUrl, { autoReconnect: false });
+    await client.connect();
+    expect(internals(client).socket?.listenerCount("error")).toBeGreaterThan(0);
+    client.disconnect();
+  });
+
   it("reassembles chunked responses", async () => {
     server?.on("connection", (socket) => {
       socket.on("message", (data) => {
