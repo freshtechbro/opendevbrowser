@@ -31,7 +31,8 @@
 ## Challenge checkpoint workflow
 
 1. Detect challenge state
-2. Pause and annotate checkpoint
-3. Resume after manual completion
-4. Continue assertions from refreshed snapshot
-5. Stop and escalate after repeated challenge loops
+2. If the environment exposes a deterministic slider/test gate, complete it with low-level pointer controls and re-snapshot
+3. Otherwise pause and annotate a manual checkpoint
+4. Resume after completion from a refreshed snapshot
+5. Continue assertions from refreshed snapshot
+6. Stop and escalate after repeated challenge loops

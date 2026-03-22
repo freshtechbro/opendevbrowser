@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -9,6 +9,7 @@ export const CLI = path.join(ROOT, "dist", "cli", "index.js");
 export const MAX_BUFFER = 64 * 1024 * 1024;
 export const DEFAULT_CLI_TIMEOUT_MS = 120_000;
 export const DEFAULT_NODE_TIMEOUT_MS = 900_000;
+export const INSTALL_AUTOSTART_SKIP_ENV_VAR = "OPDEVBROWSER_SKIP_INSTALL_AUTOSTART_RECONCILIATION";
 
 export const ENV_LIMITED_CODES = new Set([
   "unavailable",
@@ -82,6 +83,95 @@ export function summarizeFailure(result) {
     : result?.stderr || result?.stdout || result?.error || "Unknown failure";
 }
 
+function appendOutput(buffer, chunk) {
+  const next = buffer + String(chunk ?? "");
+  if (next.length <= MAX_BUFFER) {
+    return next;
+  }
+  return next.slice(-MAX_BUFFER);
+}
+
+async function runProcessAsync(command, args, {
+  allowFailure = false,
+  cwd = ROOT,
+  env = process.env,
+  timeoutLabel,
+  timeoutMs
+}) {
+  const start = Date.now();
+  const child = spawn(command, args, {
+    cwd,
+    env,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  let timedOut = false;
+
+  const result = await new Promise((resolve) => {
+    let settled = false;
+    let killTimer = null;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+        }
+      }, 1_000);
+    }, timeoutMs);
+
+    child.stdout?.on("data", (chunk) => {
+      stdout = appendOutput(stdout, chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr = appendOutput(stderr, chunk);
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeoutTimer);
+      if (killTimer) clearTimeout(killTimer);
+      finish({
+        status: 1,
+        signal: child.signalCode ?? null,
+        error: String(error)
+      });
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timeoutTimer);
+      if (killTimer) clearTimeout(killTimer);
+      finish({
+        status: code ?? (signal ? 1 : 0),
+        signal: signal ?? null
+      });
+    });
+  });
+
+  const payload = {
+    status: result.status,
+    stdout,
+    stderr,
+    json: parseJsonFromStdout(stdout),
+    durationMs: Date.now() - start,
+    signal: result.signal,
+    timedOut,
+    ...(result.error ? { error: result.error } : {})
+  };
+  payload.detail = timedOut
+    ? `${timeoutLabel} timed out after ${timeoutMs}ms (${args.join(" ")}).`
+    : summarizeFailure(payload);
+
+  if (!allowFailure && payload.status !== 0) {
+    throw new Error(`${timeoutLabel} failed (${args.join(" ")}): ${payload.detail}`);
+  }
+  return payload;
+}
+
 export function runCli(args, {
   allowFailure = false,
   env = process.env,
@@ -150,6 +240,32 @@ export function runNode(args, {
     throw new Error(`Node script failed (${args.join(" ")}): ${payload.detail}`);
   }
   return payload;
+}
+
+export function runCliAsync(args, {
+  allowFailure = false,
+  env = process.env,
+  timeoutMs = DEFAULT_CLI_TIMEOUT_MS
+} = {}) {
+  return runProcessAsync(process.execPath, [CLI, ...args, "--output-format", "json"], {
+    allowFailure,
+    env,
+    timeoutLabel: "CLI",
+    timeoutMs
+  });
+}
+
+export function runNodeAsync(args, {
+  allowFailure = false,
+  env = process.env,
+  timeoutMs = DEFAULT_NODE_TIMEOUT_MS
+} = {}) {
+  return runProcessAsync(process.execPath, args, {
+    allowFailure,
+    env,
+    timeoutLabel: "Node script",
+    timeoutMs
+  });
 }
 
 export function defaultArtifactPath(prefix) {

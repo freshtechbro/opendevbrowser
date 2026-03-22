@@ -6,6 +6,7 @@ import net from "net";
 import { randomUUID } from "crypto";
 import { spawn, spawnSync } from "child_process";
 import { fileURLToPath } from "url";
+import { INSTALL_AUTOSTART_SKIP_ENV_VAR } from "./live-direct-utils.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(ROOT, "dist", "cli", "index.js");
@@ -162,7 +163,8 @@ async function main() {
   const env = {
     ...process.env,
     OPENCODE_CONFIG_DIR: configDir,
-    OPENCODE_CACHE_DIR: cacheDir
+    OPENCODE_CACHE_DIR: cacheDir,
+    [INSTALL_AUTOSTART_SKIP_ENV_VAR]: "1"
   };
 
   console.log(`Using temp config: ${configDir}`);
@@ -288,6 +290,7 @@ async function main() {
         void 0;
       }
     }
+    runCli(["daemon", "uninstall"], { env, allowFailure: true });
     runCli(["serve", "--stop"], { env, allowFailure: true });
     daemon.kill("SIGTERM");
   }

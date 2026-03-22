@@ -1,0 +1,378 @@
+{
+  "schemaVersion": "1.0.0",
+  "canonicalPacks": [
+    {
+      "packId": "opendevbrowser-best-practices",
+      "packType": "governance",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "docs-drift",
+        "best-practices-robustness",
+        "cli-smoke",
+        "provider-direct",
+        "live-regression",
+        "canvas-competitive"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "serve",
+          "status",
+          "launch",
+          "research",
+          "shopping",
+          "product-video",
+          "canvas"
+        ],
+        "tools": [
+          "opendevbrowser_canvas",
+          "opendevbrowser_research_run",
+          "opendevbrowser_shopping_run",
+          "opendevbrowser_product_video_run",
+          "opendevbrowser_skill_list",
+          "opendevbrowser_skill_load"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "auth",
+        "challenge",
+        "rate_limited",
+        "extension_unavailable",
+        "upstream_unavailable"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-continuity-ledger",
+      "packType": "doc_only",
+      "docOnly": true,
+      "validatorCommands": [],
+      "sharedEvidenceIds": [],
+      "runtimeSurfaces": {
+        "cliCommands": [],
+        "tools": [
+          "opendevbrowser_skill_list",
+          "opendevbrowser_skill_load"
+        ],
+        "modes": []
+      },
+      "allowsEnvLimited": false,
+      "envLimitedReasons": []
+    },
+    {
+      "packId": "opendevbrowser-data-extraction",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "cli-smoke",
+        "product-video-fixture"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "snapshot",
+          "dom-html",
+          "dom-text",
+          "dom-attr",
+          "scroll",
+          "wait"
+        ],
+        "tools": [
+          "opendevbrowser_snapshot",
+          "opendevbrowser_dom_get_html",
+          "opendevbrowser_dom_get_text",
+          "opendevbrowser_get_attr",
+          "opendevbrowser_scroll",
+          "opendevbrowser_wait"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "extension_unavailable"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-design-agent",
+      "packType": "browser_surface",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "live-regression",
+        "canvas-competitive"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "canvas",
+          "annotate",
+          "screenshot",
+          "debug-trace-snapshot"
+        ],
+        "tools": [
+          "opendevbrowser_canvas",
+          "opendevbrowser_annotate",
+          "opendevbrowser_screenshot",
+          "opendevbrowser_debug_trace_snapshot"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "extension_unavailable",
+        "figma_token_missing"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-form-testing",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "cli-smoke",
+        "login-fixture"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "snapshot",
+          "type",
+          "click",
+          "wait",
+          "network-poll"
+        ],
+        "tools": [
+          "opendevbrowser_snapshot",
+          "opendevbrowser_type",
+          "opendevbrowser_click",
+          "opendevbrowser_wait",
+          "opendevbrowser_network_poll"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "extension_unavailable"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-login-automation",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-login-automation/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [],
+      "probeId": "login-fixture",
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "launch",
+          "goto",
+          "snapshot",
+          "type",
+          "click",
+          "network-poll"
+        ],
+        "tools": [
+          "opendevbrowser_launch",
+          "opendevbrowser_goto",
+          "opendevbrowser_snapshot",
+          "opendevbrowser_type",
+          "opendevbrowser_click",
+          "opendevbrowser_network_poll"
+        ],
+        "modes": [
+          "managed"
+        ]
+      },
+      "allowsEnvLimited": false,
+      "envLimitedReasons": []
+    },
+    {
+      "packId": "opendevbrowser-product-presentation-asset",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-product-presentation-asset/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [],
+      "probeId": "product-video-fixture",
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "product-video"
+        ],
+        "tools": [
+          "opendevbrowser_product_video_run"
+        ],
+        "modes": [
+          "managed"
+        ]
+      },
+      "allowsEnvLimited": false,
+      "envLimitedReasons": []
+    },
+    {
+      "packId": "opendevbrowser-research",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-research/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [],
+      "probeId": "research-live",
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "research"
+        ],
+        "tools": [
+          "opendevbrowser_research_run"
+        ],
+        "modes": [
+          "managed"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "auth",
+        "challenge",
+        "rate_limited",
+        "upstream_unavailable"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-shopping",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-shopping/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "provider-direct"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "shopping"
+        ],
+        "tools": [
+          "opendevbrowser_shopping_run"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "auth",
+        "challenge",
+        "rate_limited",
+        "upstream_unavailable"
+      ]
+    }
+  ],
+  "runtimeFamilies": [
+    {
+      "id": "session-lifecycle",
+      "label": "Session lifecycle and daemon control",
+      "proofLanes": [
+        "cli-smoke",
+        "live-regression"
+      ]
+    },
+    {
+      "id": "navigation-interaction",
+      "label": "Navigation and interaction",
+      "proofLanes": [
+        "cli-smoke",
+        "login-fixture"
+      ]
+    },
+    {
+      "id": "pointer-controls",
+      "label": "Pointer controls",
+      "proofLanes": [
+        "docs-drift",
+        "login-fixture"
+      ]
+    },
+    {
+      "id": "dom-and-extraction",
+      "label": "DOM and extraction",
+      "proofLanes": [
+        "cli-smoke",
+        "product-video-fixture"
+      ]
+    },
+    {
+      "id": "targets-pages",
+      "label": "Targets and pages",
+      "proofLanes": [
+        "cli-smoke"
+      ]
+    },
+    {
+      "id": "diagnostics-export",
+      "label": "Diagnostics and export",
+      "proofLanes": [
+        "cli-smoke",
+        "live-regression"
+      ]
+    },
+    {
+      "id": "workflow-wrappers",
+      "label": "Workflow wrappers",
+      "proofLanes": [
+        "research-live",
+        "provider-direct",
+        "product-video-fixture"
+      ]
+    },
+    {
+      "id": "canvas-design-relay",
+      "label": "Canvas and design relay",
+      "proofLanes": [
+        "live-regression",
+        "canvas-competitive"
+      ]
+    },
+    {
+      "id": "extension-ops-relay",
+      "label": "Extension /ops relay",
+      "proofLanes": [
+        "live-regression",
+        "docs-drift"
+      ]
+    },
+    {
+      "id": "skill-discovery",
+      "label": "Skill discovery and loading",
+      "proofLanes": [
+        "skill-discovery"
+      ]
+    }
+  ]
+}

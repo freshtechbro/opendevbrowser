@@ -169,6 +169,11 @@ function classifyWorkflowFailure(surface, detail) {
   const normalized = String(detail ?? "").toLowerCase();
   if (
     normalized.includes("extension not connected")
+    || normalized.includes("extension relay connection failed")
+    || normalized.includes("[ops_unavailable]")
+    || normalized.includes("ops_unavailable")
+    || normalized.includes("extension did not acknowledge ops hello")
+    || normalized.includes("connect the extension")
     || normalized.includes("failed to fetch relay config")
     || normalized.includes("daemon not running")
   ) {

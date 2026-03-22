@@ -33,6 +33,7 @@ Workflows:
   canvas-feedback-eval
   parity-check
   release-direct-gates
+  skill-runtime-audit
   surface-audit
   ops-channel-check
   cdp-channel-check
@@ -142,6 +143,23 @@ EOF
 mkdir -p artifacts/release/vX.Y.Z
 node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json
 node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json
+EOF
+    ;;
+  skill-runtime-audit)
+    cat <<'EOF'
+npm run build
+node scripts/docs-drift-check.mjs
+./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-best-practices/scripts/run-robustness-audit.sh
+./skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-login-automation/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-product-presentation-asset/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-research/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-shopping/scripts/validate-skill-assets.sh
+node scripts/skill-runtime-audit.mjs --smoke --out artifacts/skill-runtime-audit/smoke.json
+node scripts/skill-runtime-audit.mjs --out artifacts/skill-runtime-audit/full.json
 EOF
     ;;
   surface-audit)

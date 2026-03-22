@@ -23,15 +23,18 @@ export function getSurfaceCounts() {
   const argsSource = read("src/cli/args.ts");
   const toolsSource = read("src/tools/index.ts");
   const opsSource = read("extension/src/ops/ops-runtime.ts");
+  const canvasSource = read("src/browser/canvas-manager.ts");
 
   const commandCount = extractCountFromSource(/export const CLI_COMMANDS = \[(.*?)\] as const;/s, argsSource, "CLI commands");
   const toolCount = [...toolsSource.matchAll(/\s(opendevbrowser_[a-z_]+):/g)].length;
   const opsCommandNames = [...opsSource.matchAll(/case "([^"]+)":/g)].map((match) => match[1]);
+  const canvasCommandCount = extractCountFromSource(/export const PUBLIC_CANVAS_COMMANDS = \[(.*?)\] as const;/s, canvasSource, "public canvas commands");
 
   return {
     commandCount,
     toolCount,
     opsCommandCount: opsCommandNames.length,
+    canvasCommandCount,
     opsCommandNames
   };
 }
@@ -73,13 +76,14 @@ export function runDocsDriftChecks() {
   const troubleshootingDoc = read("docs/TROUBLESHOOTING.md");
   const bestPracticesSkill = read("skills/opendevbrowser-best-practices/SKILL.md");
   const commandChannelReference = read("skills/opendevbrowser-best-practices/artifacts/command-channel-reference.md");
+  const surfaceAuditChecklist = JSON.parse(read("skills/opendevbrowser-best-practices/assets/templates/surface-audit-checklist.json"));
   const designSkill = read("skills/opendevbrowser-design-agent/SKILL.md");
   const loginSkill = read("skills/opendevbrowser-login-automation/SKILL.md");
   const formSkill = read("skills/opendevbrowser-form-testing/SKILL.md");
   const researchSkill = read("skills/opendevbrowser-research/SKILL.md");
   const shoppingSkill = read("skills/opendevbrowser-shopping/SKILL.md");
 
-  const { commandCount, toolCount, opsCommandCount, opsCommandNames } = getSurfaceCounts();
+  const { commandCount, toolCount, opsCommandCount, canvasCommandCount, opsCommandNames } = getSurfaceCounts();
 
   const checks = [];
 
@@ -128,6 +132,12 @@ export function runDocsDriftChecks() {
     id: "doc.surface.ops_command_listing_matches_source",
     ok: surfaceOpsCommandNames.length === opsCommandCount && missingOpsCommands.length === 0 && extraOpsCommands.length === 0,
     detail: `docs/SURFACE_REFERENCE.md /ops listed=${surfaceOpsCommandNames.length}, source=${opsCommandCount}, missing=${missingOpsCommands.join(",") || "none"}, extra=${extraOpsCommands.join(",") || "none"}`
+  });
+  const surfaceCanvasCount = parseDocCount(/### `\/canvas` command names \((\d+)\)/, surfaceDoc, "surface /canvas count");
+  checks.push({
+    id: "doc.surface.canvas_command_count_matches_source",
+    ok: surfaceCanvasCount === canvasCommandCount,
+    detail: `docs/SURFACE_REFERENCE.md /canvas count=${surfaceCanvasCount}, source=${canvasCommandCount}`
   });
 
   const cliCommandsCount = parseDocCount(/- Total commands: `([0-9]+)`\./, cliDoc, "CLI docs command count");
@@ -237,6 +247,11 @@ export function runDocsDriftChecks() {
     ok: bestPracticesSkill.includes("canonical owner of direct-run release evidence policy"),
     detail: "skills/opendevbrowser-best-practices/SKILL.md must own direct-run release evidence policy."
   });
+  checks.push({
+    id: "skill.best_practices.surface_counts_match_source",
+    ok: bestPracticesSkill.includes(`${commandCount} CLI commands, ${toolCount} tools, ${opsCommandCount} \`/ops\` commands, ${canvasCommandCount} \`/canvas\` commands`),
+    detail: `skills/opendevbrowser-best-practices/SKILL.md must mirror source counts ${commandCount}/${toolCount}/${opsCommandCount}/${canvasCommandCount}.`
+  });
 
   checks.push({
     id: "skill.command_channel_reference.canvas_and_annotation_markers_documented",
@@ -244,6 +259,26 @@ export function runDocsDriftChecks() {
       && commandChannelReference.includes("annotation:sendPayload")
       && commandChannelReference.includes("AgentInbox"),
     detail: "command-channel-reference must document canvas history events and the annotation AgentInbox path."
+  });
+  const commandChannelCliCount = parseDocCount(/- CLI commands: `([0-9]+)`/, commandChannelReference, "best-practices CLI count");
+  const commandChannelToolCount = parseDocCount(/- Plugin tools: `([0-9]+)`/, commandChannelReference, "best-practices tool count");
+  const commandChannelOpsCount = parseDocCount(/- `\/ops` command names: `([0-9]+)`/, commandChannelReference, "best-practices /ops count");
+  const commandChannelCanvasCount = parseDocCount(/- `\/canvas` command names: `([0-9]+)`/, commandChannelReference, "best-practices /canvas count");
+  checks.push({
+    id: "skill.command_channel_reference.surface_counts_match_source",
+    ok: commandChannelCliCount === commandCount
+      && commandChannelToolCount === toolCount
+      && commandChannelOpsCount === opsCommandCount
+      && commandChannelCanvasCount === canvasCommandCount,
+    detail: `command-channel-reference counts cli=${commandChannelCliCount}/${commandCount}, tools=${commandChannelToolCount}/${toolCount}, ops=${commandChannelOpsCount}/${opsCommandCount}, canvas=${commandChannelCanvasCount}/${canvasCommandCount}`
+  });
+  checks.push({
+    id: "skill.surface_audit_checklist.counts_match_source",
+    ok: surfaceAuditChecklist?.expectedCounts?.cliCommands === commandCount
+      && surfaceAuditChecklist?.expectedCounts?.tools === toolCount
+      && surfaceAuditChecklist?.expectedCounts?.opsCommands === opsCommandCount
+      && surfaceAuditChecklist?.expectedCounts?.canvasCommands === canvasCommandCount,
+    detail: `surface-audit-checklist counts cli=${surfaceAuditChecklist?.expectedCounts?.cliCommands ?? "missing"}/${commandCount}, tools=${surfaceAuditChecklist?.expectedCounts?.tools ?? "missing"}/${toolCount}, ops=${surfaceAuditChecklist?.expectedCounts?.opsCommands ?? "missing"}/${opsCommandCount}, canvas=${surfaceAuditChecklist?.expectedCounts?.canvasCommands ?? "missing"}/${canvasCommandCount}`
   });
 
   checks.push({
@@ -292,7 +327,8 @@ export function runDocsDriftChecks() {
     source: {
       commandCount,
       toolCount,
-      opsCommandCount
+      opsCommandCount,
+      canvasCommandCount
     },
     checks,
     failed

@@ -1,6 +1,6 @@
 ---
 name: opendevbrowser-product-presentation-asset
-description: Collects product screenshots, images, copy, and metadata into a local folder pack for video workflows.
+description: Collects product metadata, copy, and optional visual assets into a local folder pack for video workflows.
 version: 2.0.0
 ---
 
@@ -38,13 +38,17 @@ Use this skill to build complete product-video input packs and assembly instruct
 
 ## Final Assets Produced
 
-Expected output pack includes:
+Expected output pack always includes:
 - `manifest.json` with canonical product metadata
 - `product.json` and `pricing.json`
-- `images/` for product stills
-- `screenshots/` for page context and UI proof
 - `copy.md` and `features.md`
 - `raw/source-record.json` for auditability
+
+When visual capture succeeds, the pack may also include:
+- `images/` for product stills
+- `screenshots/` for page context and UI proof
+
+Metadata-first packs with `0` images and `0` screenshots are still valid intermediate outputs when the workflow captured canonical product data, copy, and pricing. Those packs need additional visual sourcing before final video publication.
 
 The `render-video-brief.sh` helper adds:
 - `video-brief.md`
@@ -56,9 +60,9 @@ The `render-video-brief.sh` helper adds:
 
 1. Pick product URL or product name.
 2. Run collection workflow and confirm output pack path.
-3. Review generated manifest/copy/features for accuracy.
-4. Run `render-video-brief.sh` to generate production instructions.
-5. Hand the brief and assets to editor/creator pipeline.
+3. Review generated manifest/copy/features for accuracy and check whether the pack is visual-ready or metadata-first.
+4. Run `render-video-brief.sh` to generate production instructions and visual sourcing notes.
+5. If no visuals were captured, source or capture visuals before handing the brief to the editor/creator pipeline.
 
 ## Parallel Multitab Alignment
 
@@ -70,10 +74,11 @@ The `render-video-brief.sh` helper adds:
 
 1. Use `manifest.json` as source of truth.
 2. Build hooks and claims from `copy.md` + `features.md`.
-3. Pair each claim with supporting asset (`images` or `screenshots`).
-4. Sequence assets using `shot-list.md`.
-5. Validate pricing/availability freshness before publishing.
-6. Validate every claim appears in `claims-evidence-map.md` before publish.
+3. Pair each claim with supporting asset (`images` or `screenshots`) when available.
+4. If the pack is metadata-first, source visuals before final edit and update `shot-list.md` plus `claims-evidence-map.md` with the new asset paths.
+5. Sequence assets using `shot-list.md`.
+6. Validate pricing/availability freshness before publishing.
+7. Validate every claim appears in `claims-evidence-map.md` before publish.
 
 ## Robustness Coverage (Known-Issue Matrix)
 

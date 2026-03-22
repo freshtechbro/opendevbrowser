@@ -5,7 +5,7 @@
 1. Preflight snapshot
 2. Type identifier/password
 3. Submit
-4. Validate URL + auth-only ref + network status
+4. Validate URL + auth-only ref + network status, or accept invalid-credential rejection from the network log when UI error copy is absent
 5. Re-snapshot before any follow-up action
 
 ## MFA workflow
@@ -27,9 +27,10 @@
 
 1. Detect challenge state
 2. Record checkpoint with timestamp and trigger
-3. Pause automated actions
-4. Resume after challenge completion from fresh snapshot
-5. If challenge repeats twice, stop and escalate as anti-bot pressure
+3. If the environment exposes a deterministic slider/test gate, complete it with low-level pointer controls and re-snapshot
+4. Otherwise pause automated actions for manual completion
+5. Resume after challenge completion from fresh snapshot
+6. If challenge repeats twice, stop and escalate as anti-bot pressure
 
 ## Lockout recovery workflow
 

@@ -34,6 +34,7 @@ Use this skill for robust form automation across dynamic, multi-step, challenge-
 - Keep one field mutation per decision loop in failure analysis.
 - Re-snapshot after each invalid submit to avoid stale refs.
 - Verify both UX and network behavior for each submission branch.
+- Use low-level pointer controls when a deterministic challenge or slider gate is part of the approved test path, then re-snapshot before continuing.
 - Keep challenge retries bounded and honor `Retry-After` when 429 pressure appears.
 
 ## Session Reuse by Mode
@@ -109,9 +110,10 @@ opendevbrowser_get_attr sessionId="<session-id>" ref="<field-ref>" name="aria-de
 For forms guarded by challenge providers:
 
 1. Detect challenge widget/frame state.
-2. Mark manual checkpoint in run log.
-3. Complete challenge manually or by approved test key in non-production.
-4. Resume from fresh snapshot and continue validation.
+2. If the environment exposes a deterministic slider/test gate, complete it with low-level pointer controls and re-snapshot.
+3. Otherwise mark a manual checkpoint in the run log.
+4. Complete challenge manually or by approved test key in non-production.
+5. Resume from fresh snapshot and continue validation.
 
 Do not implement challenge bypass behavior.
 

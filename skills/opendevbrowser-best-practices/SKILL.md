@@ -27,11 +27,13 @@ For frontend, design-system, screenshot-to-code, or `/canvas` composition tasks,
 - `artifacts/browser-agent-known-issues-matrix.md` — known browser-agent failure modes mapped to required controls.
 - `artifacts/command-channel-reference.md` — CLI/tool/`/ops`/`/canvas`/`/cdp` surface map plus cross-agent skill-sync targets.
 - `artifacts/canvas-governance-playbook.md` — `/canvas` preflight, blocker, and feedback-evaluation guidance.
+- `artifacts/skill-runtime-surface-matrix.md` — canonical skill-pack and runtime-family inventory for real-task audits.
 - `assets/templates/mode-flag-matrix.json` — mode + flag verification template.
 - `assets/templates/ops-request-envelope.json` — `/ops` request envelope template.
 - `assets/templates/cdp-forward-envelope.json` — `/cdp` relay envelope template.
 - `assets/templates/robustness-checklist.json` — shared issue-status checklist for workflow robustness audits.
 - `assets/templates/surface-audit-checklist.json` — docs/surface audit checklist template.
+- `assets/templates/skill-runtime-pack-matrix.json` — machine-readable canonical skill/runtime matrix for the audit runner.
 - `assets/templates/canvas-handshake-example.json` — canonical `/canvas` handshake example.
 - `assets/templates/canvas-generation-plan.v1.json` — required `canvas.plan.set` request skeleton.
 - `assets/templates/canvas-feedback-eval.json` — target-attributed feedback evaluation checklist.
@@ -188,6 +190,7 @@ Use the router script to avoid retyping flows:
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh robustness-audit
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh canvas-preflight
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh canvas-feedback-eval
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh skill-runtime-audit
 ```
 
 ## Modes and Surface Parity
@@ -216,12 +219,25 @@ node scripts/live-regression-direct.mjs --out artifacts/live-regression-direct.j
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (56 CLI commands, 49 tools, 44 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
+- `docs/SURFACE_REFERENCE.md` (60 CLI commands, 53 tools, 48 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
+- `artifacts/skill-runtime-surface-matrix.md` and `assets/templates/skill-runtime-pack-matrix.json` (canonical pack/runtime audit inventory)
 
 Direct-run release note:
 - `scripts/live-regression-direct.mjs` is the preferred release harness for `/canvas`, annotate, and CLI smoke. It uses temporary managed profiles for managed probes, waits for `/ops` drain before the legacy `/cdp` step, and keeps manual annotation timeouts as explicit `skipped` boundaries in `--release-gate` mode.
 - `scripts/provider-direct-runs.mjs --use-global-env --include-high-friction --include-auth-gated` is the preferred provider release harness. Treat `provider-live-matrix` and `live-regression-matrix` as debug-only helpers, not refreshed release evidence.
+
+## Skill Runtime Audit and Realignment
+
+This pack is the canonical owner of repo-local skill runtime audit policy and skill-pack runtime realignment.
+
+Use these assets when the task is to inventory or validate the full OpenDevBrowser skill/runtime surface:
+- `artifacts/skill-runtime-surface-matrix.md`
+- `assets/templates/skill-runtime-pack-matrix.json`
+- `scripts/skill-runtime-audit.mjs`
+
+Realignment rule:
+- when a pack drifts behind current runtime behavior, update the skill to match the repo reality and strengthen the workflow guidance instead of making the pack merely stop failing validation.
 
 ## Canvas Governance Handshake
 

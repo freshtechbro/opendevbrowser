@@ -29,9 +29,18 @@ const features = Array.isArray(product.features) ? product.features.slice(0, 5) 
 const copy = typeof product.copy === "string" ? product.copy.trim().slice(0, 600) : "";
 const images = Array.isArray(data?.assets?.images) ? data.assets.images : [];
 const screenshots = Array.isArray(data?.assets?.screenshots) ? data.assets.screenshots : [];
+const noVisualAsset = "metadata-only-pack:no-captured-visual";
+const hasVisuals = images.length > 0 || screenshots.length > 0;
+const featureClaims = features.length > 0
+  ? features
+  : ["Review manifest data and add only evidence-backed feature claims"];
 
-const claimRows = (features.length ? features : ["Add verified feature claims"]).map((claim, index) => {
-  const evidence = screenshots[index] || images[index] || images[0] || screenshots[0] || "<asset>";
+function pickVisual(...candidates) {
+  return candidates.find((entry) => typeof entry === "string" && entry.length > 0) || noVisualAsset;
+}
+
+const claimRows = featureClaims.map((claim, index) => {
+  const evidence = pickVisual(screenshots[index], images[index], images[0], screenshots[0]);
   return `| ${claim} | ${evidence} | product.features[${index}] | no |`;
 });
 
@@ -41,12 +50,15 @@ const videoBrief = [
   `- Product: ${title}`,
   `- Brand: ${brand}`,
   `- Price: ${amount} ${currency}`,
+  `- Visual capture status: ${hasVisuals ? "visual-ready" : "metadata-first"}`,
   "",
   "## Verified Features",
-  ...(features.length ? features.map((entry) => `- ${entry}`) : ["- Add verified feature bullets"]),
+  ...featureClaims.map((entry) => `- ${entry}`),
   "",
   "## Suggested Hook",
-  `- "${title} solves <problem> faster with <core benefit>."`,
+  hasVisuals
+    ? `- "${title} from ${brand} should open on its strongest verified benefit and immediate proof."`
+    : `- "${title} from ${brand}: finalize visuals first, then lead with the strongest verified benefit."`,
   "",
   "## Copy Input",
   copy ? copy : "(No copy captured)",
@@ -54,6 +66,7 @@ const videoBrief = [
   "## Assets",
   `- Images: ${images.length}`,
   `- Screenshots: ${screenshots.length}`,
+  `- Additional visual sourcing required: ${hasVisuals ? "no" : "yes"}`,
   "- Claims evidence map: claims-evidence-map.md"
 ].join("\n");
 
@@ -62,9 +75,9 @@ const shotList = [
   "",
   "| Scene | Goal | Asset | Voiceover | Duration |",
   "|---|---|---|---|---:|",
-  `| 1 | Hook | ${screenshots[0] || images[0] || "<asset>"} | Problem + promise | 2s |`,
-  `| 2 | Feature demo | ${images[0] || screenshots[0] || "<asset>"} | Show proof | 4s |`,
-  `| 3 | Outcome + CTA | ${images[1] || screenshots[1] || images[0] || "<asset>"} | Benefit + CTA | 4s |`
+  `| 1 | Hook | ${pickVisual(screenshots[0], images[0])} | Problem + promise | 2s |`,
+  `| 2 | Feature demo | ${pickVisual(images[0], screenshots[0])} | Show proof | 4s |`,
+  `| 3 | Outcome + CTA | ${pickVisual(images[1], screenshots[1], images[0], screenshots[0])} | Benefit + CTA | 4s |`
 ].join("\n");
 
 const ugcBrief = [

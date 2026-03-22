@@ -13,10 +13,11 @@
   "expected_signals": [
     "url_changed",
     "auth_shell_visible",
-    "auth_network_success"
+    "auth_network_success",
+    "pointer_gate_complete_when_required"
   ],
   "failure_signals": [
-    "invalid_credentials",
+    "invalid_credentials_ui_or_network",
     "anti_bot_challenge",
     "rate_limited",
     "lockout"

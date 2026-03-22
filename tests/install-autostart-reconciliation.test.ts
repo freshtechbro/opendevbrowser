@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { reconcileInstallAutostart } from "../src/cli/install-autostart-reconciliation";
+import {
+  INSTALL_AUTOSTART_SKIP_ENV_VAR,
+  reconcileInstallAutostart
+} from "../src/cli/install-autostart-reconciliation";
 import type { AutostartStatus } from "../src/cli/daemon-autostart";
 
 const makeStatus = (overrides: Partial<AutostartStatus> = {}): AutostartStatus => ({
@@ -27,6 +30,18 @@ describe("reconcileInstallAutostart", () => {
     const result = reconcileInstallAutostart(
       { success: false, alreadyInstalled: false },
       { getAutostartStatus, installAutostart }
+    );
+
+    expect(result).toEqual({ attempted: false });
+    expect(getAutostartStatus).not.toHaveBeenCalled();
+    expect(installAutostart).not.toHaveBeenCalled();
+  });
+
+  it("skips reconciliation when the current env marks the install as ephemeral", () => {
+    const result = reconcileInstallAutostart(
+      { success: true, alreadyInstalled: false },
+      { getAutostartStatus, installAutostart },
+      { env: { [INSTALL_AUTOSTART_SKIP_ENV_VAR]: "1" } }
     );
 
     expect(result).toEqual({ attempted: false });
