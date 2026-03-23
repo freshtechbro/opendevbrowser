@@ -1,6 +1,6 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-03-20 | **Commit:** 12a0dfb | **Branch:** codex/canvas-upgrade
+**Generated:** 2026-03-23 | **Commit:** 4028b3bd | **Branch:** antibot
 
 ## Overview
 
