@@ -1186,6 +1186,102 @@ describe("OpsBrowserManager", () => {
     });
   });
 
+  it("merges bounded challenge orchestration into ops status metadata", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-challenge", activeTargetId: "tab-4", leaseId: "lease-challenge" };
+      }
+      if (command === "session.status") {
+        return {
+          mode: "extension",
+          activeTargetId: "tab-4",
+          url: "https://example.com/login",
+          title: "Sign in"
+        };
+      }
+      return { ok: true };
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const base = {
+      setChallengeOrchestrator: vi.fn(),
+      reconcileExternalBlockerMeta: vi.fn().mockReturnValue({
+        blockerState: "active",
+        challenge: {
+          challengeId: "challenge-ops",
+          blockerType: "auth_required",
+          ownerSurface: "ops",
+          ownerLeaseId: "lease-challenge",
+          resumeMode: "manual",
+          status: "active",
+          updatedAt: "2026-03-22T00:00:00.000Z"
+        }
+      })
+    };
+    const orchestrate = vi.fn().mockResolvedValue({
+      action: {
+        status: "resolved",
+        attempts: 1,
+        noProgressCount: 0,
+        executedSteps: [],
+        verification: {
+          status: "clear",
+          blockerState: "clear",
+          changed: true,
+          reason: "Manager verification cleared the blocker."
+        },
+        reusedExistingSession: true,
+        reusedCookies: false
+      },
+      outcome: {
+        challengeId: "challenge-ops",
+        classification: "existing_session_reuse",
+        lane: "generic_browser_autonomy",
+        status: "resolved",
+        reason: "Manager verification cleared the blocker.",
+        attempts: 1,
+        reusedExistingSession: true,
+        reusedCookies: false,
+        verification: {
+          status: "clear",
+          blockerState: "clear",
+          changed: true,
+          reason: "Manager verification cleared the blocker."
+        },
+        evidence: {
+          url: "https://example.com/login",
+          title: "Sign in",
+          blockerType: "auth_required",
+          loginRefs: ["r1"],
+          humanVerificationRefs: [],
+          checkpointRefs: []
+        }
+      }
+    });
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const status = await manager.status("ops-challenge");
+
+    expect(base.setChallengeOrchestrator).toHaveBeenCalled();
+    expect(orchestrate).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "ops-challenge",
+      canImportCookies: true
+    }));
+    expect(status.meta).toMatchObject({
+      blockerState: "clear",
+      challengeOrchestration: {
+        lane: "generic_browser_autonomy",
+        status: "resolved"
+      }
+    });
+  });
+
   it("normalizes secure relay status URLs and rejects invalid websocket endpoints", () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const managerAny = manager as unknown as {

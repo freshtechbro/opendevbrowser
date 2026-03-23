@@ -815,6 +815,114 @@ describe("provider runtime factory", () => {
     expect(manager.disconnect).not.toHaveBeenCalled();
   });
 
+  it("returns a completed fallback response when bounded challenge orchestration clears the blocker", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "challenge-orchestration-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => {
+        throw new Error("networkidle never settled");
+      }),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><h1>Security verification</h1></body></html>"
+        });
+      }),
+      status: vi.fn()
+        .mockResolvedValueOnce({
+          mode: "extension",
+          activeTargetId: "tab-8",
+          url: "https://example.com/challenge"
+        })
+        .mockResolvedValueOnce({
+          mode: "extension",
+          activeTargetId: "tab-8",
+          url: "https://example.com/account"
+        }),
+      disconnect: vi.fn(async () => undefined),
+      createChallengeRuntimeHandle: vi.fn().mockReturnValue({
+        status: vi.fn(),
+        snapshot: vi.fn(),
+        debugTraceSnapshot: vi.fn(),
+        cookieList: vi.fn()
+      })
+    } as unknown as BrowserManagerLike;
+    const challengeOrchestrator = {
+      orchestrate: vi.fn(async () => ({
+        action: {
+          status: "resolved",
+          attempts: 1,
+          noProgressCount: 0,
+          executedSteps: [],
+          verification: {
+            status: "clear",
+            blockerState: "clear",
+            changed: true,
+            reason: "Manager verification cleared the blocker.",
+            bundle: {
+              blockerState: "clear"
+            }
+          },
+          reusedExistingSession: true,
+          reusedCookies: false
+        },
+        outcome: {
+          challengeId: "challenge-provider",
+          classification: "existing_session_reuse",
+          lane: "generic_browser_autonomy",
+          status: "resolved",
+          reason: "Manager verification cleared the blocker.",
+          attempts: 1,
+          reusedExistingSession: true,
+          reusedCookies: false,
+          verification: {
+            status: "clear",
+            blockerState: "clear",
+            changed: true,
+            reason: "Manager verification cleared the blocker."
+          },
+          evidence: {
+            url: "https://example.com/challenge",
+            title: "Security verification",
+            blockerType: "anti_bot_challenge",
+            loginRefs: [],
+            humanVerificationRefs: ["r1"],
+            checkpointRefs: []
+          }
+        }
+      }))
+    };
+
+    const port = createBrowserFallbackPort(manager, {}, {}, challengeOrchestrator as never);
+    const response = await port?.resolve({
+      provider: "shopping/temu",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "challenge_detected",
+      trace: { requestId: "rf-challenge-orchestrated", ts: "2026-03-22T00:00:00.000Z" },
+      url: "https://example.com/challenge"
+    });
+
+    expect(challengeOrchestrator.orchestrate).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "challenge-orchestration-session",
+      fallbackDisposition: "challenge_preserved"
+    }));
+    expect(response).toMatchObject({
+      ok: true,
+      disposition: "completed",
+      output: {
+        url: "https://example.com/account"
+      },
+      details: {
+        challengeOrchestration: {
+          lane: "generic_browser_autonomy",
+          status: "resolved"
+        }
+      }
+    });
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
   it("sanitizes invalid settle and capture delays while keeping fallback capture alive", async () => {
     const waitForTimeout = vi.fn(async () => undefined);
     const manager = {

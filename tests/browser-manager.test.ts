@@ -6773,6 +6773,130 @@ describe("BrowserManager", () => {
     expect(waitForRefResult).not.toHaveProperty("meta");
   });
 
+  it("merges bounded challenge orchestration results into direct-browser goto metadata", async () => {
+    const nodes = [
+      { ref: "r1", role: "link", name: "Sign in", tag: "a", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+    findChromeExecutable.mockResolvedValue("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const { buildChallengeEvidenceBundle } = await import("../src/challenges");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    vi.spyOn(manager as unknown as {
+      reconcileSessionBlocker: (...args: unknown[]) => unknown;
+    }, "reconcileSessionBlocker").mockReturnValue({
+      blockerState: "active",
+      challenge: {
+        challengeId: "challenge-direct",
+        blockerType: "auth_required",
+        ownerSurface: "direct_browser",
+        resumeMode: "manual",
+        status: "active",
+        updatedAt: "2026-03-22T00:00:00.000Z"
+      }
+    });
+
+    const verifiedBundle = buildChallengeEvidenceBundle({
+      status: {
+        mode: "managed",
+        activeTargetId: "tab-1",
+        url: "https://example.com/account",
+        title: "Account",
+        meta: {
+          blockerState: "clear",
+          blockerResolution: {
+            status: "resolved",
+            reason: "verifier_passed",
+            updatedAt: "2026-03-22T00:01:00.000Z"
+          }
+        }
+      },
+      snapshot: { content: "" },
+      canImportCookies: true
+    });
+    const verification = {
+      status: "clear" as const,
+      blockerState: "clear" as const,
+      changed: true,
+      reason: "Manager verification cleared the blocker.",
+      url: "https://example.com/account",
+      title: "Account",
+      bundle: verifiedBundle
+    };
+    const orchestrate = vi.fn().mockResolvedValue({
+      bundle: verifiedBundle,
+      interpretation: {
+        classification: "existing_session_reuse" as const,
+        authState: "session_reusable" as const,
+        humanBoundary: "none" as const,
+        requiredVerification: "full" as const,
+        continuityOpportunities: ["existing_session"] as const,
+        allowedActionFamilies: ["auth_navigation", "session_reuse", "verification", "debug_trace"] as const,
+        laneHints: ["generic_browser_autonomy"] as const,
+        stopRisk: "medium" as const,
+        summary: "classification=existing_session_reuse",
+        likelyCheckpoint: "r1"
+      },
+      decision: {
+        lane: "generic_browser_autonomy" as const,
+        rationale: "Reuse the existing session first.",
+        attemptBudget: 6,
+        noProgressLimit: 3,
+        verificationLevel: "full" as const,
+        stopConditions: ["manager_verification_clears_blocker"],
+        allowedActionFamilies: ["auth_navigation", "session_reuse", "verification", "debug_trace"] as const
+      },
+      action: {
+        status: "resolved" as const,
+        attempts: 1,
+        noProgressCount: 0,
+        executedSteps: [{ kind: "click" as const, ref: "r1", reason: "Use the existing session." }],
+        verification,
+        reusedExistingSession: true,
+        reusedCookies: false
+      },
+      outcome: {
+        challengeId: "challenge-direct",
+        classification: "existing_session_reuse" as const,
+        lane: "generic_browser_autonomy" as const,
+        status: "resolved" as const,
+        reason: verification.reason,
+        attempts: 1,
+        reusedExistingSession: true,
+        reusedCookies: false,
+        verification,
+        evidence: {
+          url: "https://example.com/login",
+          title: "Sign in",
+          blockerType: "auth_required" as const,
+          loginRefs: ["r1"],
+          humanVerificationRefs: [],
+          checkpointRefs: []
+        }
+      }
+    });
+
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+
+    const launch = await manager.launch({ headless: true });
+    const result = await manager.goto(launch.sessionId, "https://example.com/login");
+
+    expect(orchestrate).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: launch.sessionId,
+      canImportCookies: true
+    }));
+    expect(result.meta).toMatchObject({
+      blockerState: "clear",
+      challengeOrchestration: {
+        lane: "generic_browser_autonomy",
+        status: "resolved",
+        reusedExistingSession: true
+      }
+    });
+  });
+
   it("covers connectOverCDP empty-browser failures and updateConfig sessions without parallel state", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
