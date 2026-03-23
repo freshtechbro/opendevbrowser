@@ -1,9 +1,12 @@
 import type { ProvidersChallengeOrchestrationConfig } from "../config";
 import type {
+  ChallengeAutomationHelperEligibility,
+  ChallengeAutomationMode,
   ChallengeActionFamily,
   ChallengeHumanBoundary,
   ChallengeInterpreterResult,
-  ChallengePolicyGate
+  ChallengePolicyGate,
+  ResolvedChallengeAutomationPolicy
 } from "./types";
 
 const ALL_ACTIONS: ChallengeActionFamily[] = [
@@ -33,17 +36,89 @@ const DEFAULT_HANDOFF_TRIGGERS: ChallengeHumanBoundary[] = [
   "exhausted_no_progress"
 ];
 
+const buildResolvedPolicy = (
+  mode: ChallengeAutomationMode,
+  source: ResolvedChallengeAutomationPolicy["source"]
+): ResolvedChallengeAutomationPolicy => {
+  if (mode === "off") {
+    return {
+      mode,
+      source,
+      standDownReason: "challenge_automation_off"
+    };
+  }
+  if (mode === "browser") {
+    return {
+      mode,
+      source,
+      standDownReason: "helper_disabled_for_browser_mode"
+    };
+  }
+  return { mode, source };
+};
+
+export const resolveChallengeAutomationPolicy = (args: {
+  runMode?: ChallengeAutomationMode;
+  sessionMode?: ChallengeAutomationMode;
+  configMode: ChallengeAutomationMode;
+}): ResolvedChallengeAutomationPolicy => {
+  if (args.runMode) {
+    return buildResolvedPolicy(args.runMode, "run");
+  }
+  if (args.sessionMode) {
+    return buildResolvedPolicy(args.sessionMode, "session");
+  }
+  return buildResolvedPolicy(args.configMode, "config");
+};
+
+const resolveHelperEligibility = (
+  config: ProvidersChallengeOrchestrationConfig,
+  policy: ResolvedChallengeAutomationPolicy
+): ChallengeAutomationHelperEligibility => {
+  if (policy.mode === "off") {
+    return {
+      allowed: false,
+      reason: "Challenge automation mode is off; detection and reporting remain active.",
+      standDownReason: "challenge_automation_off"
+    };
+  }
+  if (policy.mode === "browser") {
+    return {
+      allowed: false,
+      reason: "Browser mode keeps the optional helper bridge disabled.",
+      standDownReason: "helper_disabled_for_browser_mode"
+    };
+  }
+  if (!config.optionalComputerUseBridge.enabled) {
+    return {
+      allowed: false,
+      reason: "Optional computer-use bridge is disabled by policy.",
+      standDownReason: "helper_disabled_by_policy"
+    };
+  }
+  return {
+    allowed: true,
+    reason: "Optional helper bridge remains eligible after mode resolution."
+  };
+};
+
 export const buildChallengePolicyGate = (
   config: ProvidersChallengeOrchestrationConfig,
-  interpretation: ChallengeInterpreterResult
+  interpretation: ChallengeInterpreterResult,
+  resolvedPolicy = resolveChallengeAutomationPolicy({
+    configMode: config.mode
+  })
 ): ChallengePolicyGate => {
-  if (!config.enabled) {
+  const helperEligibility = resolveHelperEligibility(config, resolvedPolicy);
+  if (resolvedPolicy.mode === "off") {
     return {
+      resolvedPolicy,
       allowedActions: [],
       forbiddenActions: [...ALL_ACTIONS],
       handoffTriggers: [...DEFAULT_HANDOFF_TRIGGERS],
       governedLanes: [],
-      optionalComputerUseBridge: false
+      optionalComputerUseBridge: false,
+      helperEligibility
     };
   }
 
@@ -87,10 +162,12 @@ export const buildChallengePolicyGate = (
   }
 
   return {
+    resolvedPolicy,
     allowedActions: ALL_ACTIONS.filter((action) => allowed.has(action)),
     forbiddenActions: ALL_ACTIONS.filter((action) => !allowed.has(action)),
     handoffTriggers: [...DEFAULT_HANDOFF_TRIGGERS],
     governedLanes,
-    optionalComputerUseBridge: config.optionalComputerUseBridge.enabled
+    optionalComputerUseBridge: helperEligibility.allowed,
+    helperEligibility
   };
 };

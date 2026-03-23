@@ -93,7 +93,10 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
       {},
       configStore.get().relayPort > 0 && configStore.get().relayToken !== false
         ? { extensionWsEndpoint: `ws://127.0.0.1:${configStore.get().relayPort}` }
-        : {}
+        : {},
+      undefined,
+      configStore.get().providers?.challengeOrchestration?.mode ?? "browser_with_helper",
+      configStore.get().providers?.challengeOrchestration?.optionalComputerUseBridge.enabled ?? true
     );
     providerRuntime = createConfiguredProviderRuntime({
       config: configStore.get(),

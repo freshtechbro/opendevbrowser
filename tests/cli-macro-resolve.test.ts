@@ -139,4 +139,25 @@ describe("macro-resolve CLI command", () => {
       { timeoutMs: 120000 }
     );
   });
+
+  it("passes challenge automation mode through the daemon payload", async () => {
+    callDaemon.mockResolvedValue({
+      runtime: "macros",
+      resolution: { action: { source: "community", operation: "search", input: { query: "openai" } } }
+    });
+
+    await runMacroResolve(makeArgs([
+      "--expression=@community.search(\"openai\")",
+      "--execute",
+      "--challenge-automation-mode=browser_with_helper"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("macro.resolve", {
+      expression: "@community.search(\"openai\")",
+      defaultProvider: undefined,
+      includeCatalog: false,
+      execute: true,
+      challengeAutomationMode: "browser_with_helper"
+    });
+  });
 });

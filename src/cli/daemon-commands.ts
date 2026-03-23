@@ -3,6 +3,7 @@ import type { OpenDevBrowserCore } from "../core";
 import { createConfiguredProviderRuntime } from "../providers/runtime-factory";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
+import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../challenges";
 import {
   executeMacroResolution,
   shapeExecutionPayload,
@@ -622,7 +623,8 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           defaultProvider: optionalString(params.defaultProvider),
           includeCatalog: optionalBoolean(params.includeCatalog) ?? false,
           execute: optionalBoolean(params.execute) ?? false,
-          timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs")
+          timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode)
         },
         core.config,
         core.manager
@@ -646,6 +648,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           outputDir: optionalString(params.outputDir),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           useCookies: optionalBoolean(params.useCookies),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         }
       );
@@ -666,6 +669,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           outputDir: optionalString(params.outputDir),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           useCookies: optionalBoolean(params.useCookies),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         }
       );
@@ -687,6 +691,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours"),
           timeoutMs: productVideoTimeoutMs,
           useCookies: optionalBoolean(params.useCookies),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         },
         {
@@ -1433,6 +1438,14 @@ function optionalCookiePolicy(value: unknown): "off" | "auto" | "required" | und
   throw new Error("Invalid cookiePolicyOverride");
 }
 
+function optionalChallengeAutomationMode(value: unknown): ChallengeAutomationMode | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (isChallengeAutomationMode(value)) {
+    return value;
+  }
+  throw new Error("Invalid challengeAutomationMode");
+}
+
 function optionalShoppingSort(value: unknown): "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping" | undefined {
   if (typeof value === "undefined") return undefined;
   if (value === "best_deal" || value === "lowest_price" || value === "highest_rating" || value === "fastest_shipping") {
@@ -1539,6 +1552,7 @@ type MacroResolveOptions = {
   includeCatalog: boolean;
   execute: boolean;
   timeoutMs?: number;
+  challengeAutomationMode?: ChallengeAutomationMode;
 };
 
 const MIN_WAIT_TIMEOUT_MS = 3000;
@@ -1759,7 +1773,10 @@ async function resolveMacroExpression(
             }
           }
           : {})
-      })
+      }),
+      {
+        challengeAutomationMode: options.challengeAutomationMode
+      }
     )
   );
   return {

@@ -910,7 +910,7 @@ describe("daemon-commands integration", () => {
   it("forwards macro timeoutMs into provider runtime budgets", async () => {
     const core = makeCore();
     const runtimeSpy = vi.spyOn(providerRuntimeFactoryModule, "createConfiguredProviderRuntime").mockReturnValue({} as never);
-    vi.spyOn(macroExecuteModule, "executeMacroResolution").mockResolvedValue({
+    const executeSpy = vi.spyOn(macroExecuteModule, "executeMacroResolution").mockResolvedValue({
       records: [],
       failures: [],
       metrics: {
@@ -934,7 +934,8 @@ describe("daemon-commands integration", () => {
       params: {
         expression: "@community.search(\"openai\")",
         execute: true,
-        timeoutMs: 45000
+        timeoutMs: 45000,
+        challengeAutomationMode: "browser_with_helper"
       }
     });
 
@@ -952,6 +953,11 @@ describe("daemon-commands integration", () => {
         }
       }
     }));
+    expect(executeSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { challengeAutomationMode: "browser_with_helper" }
+    );
   });
 
   it("rejects extension-mode headless launch with unsupported_mode", async () => {

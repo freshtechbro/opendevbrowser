@@ -3,6 +3,22 @@ import { OpsBrowserManager } from "../src/browser/ops-browser-manager";
 import { resolveConfig } from "../src/config";
 
 describe("ops browser manager challenge runtime handle", () => {
+  it("stores session-scoped challenge automation mode on ops manager state without exposing policy mutators on the handle", () => {
+    const manager = new OpsBrowserManager({ setChallengeOrchestrator: vi.fn() } as never, resolveConfig({}));
+
+    expect(manager.getSessionChallengeAutomationMode("missing-session")).toBeUndefined();
+
+    manager.setSessionChallengeAutomationMode("session-ops", "browser");
+    expect(manager.getSessionChallengeAutomationMode("session-ops")).toBe("browser");
+
+    manager.setSessionChallengeAutomationMode("session-ops", undefined);
+    expect(manager.getSessionChallengeAutomationMode("session-ops")).toBeUndefined();
+
+    const handle = manager.createChallengeRuntimeHandle() as Record<string, unknown>;
+    expect("getSessionChallengeAutomationMode" in handle).toBe(false);
+    expect("setSessionChallengeAutomationMode" in handle).toBe(false);
+  });
+
   it("delegates every challenge handle call and always clears suppression state", async () => {
     const manager = new OpsBrowserManager({ setChallengeOrchestrator: vi.fn() } as never, resolveConfig({}));
     const managerAny = manager as unknown as Record<string, ReturnType<typeof vi.fn> | ((sessionId: string) => boolean)>;
@@ -47,6 +63,8 @@ describe("ops browser manager challenge runtime handle", () => {
     });
 
     const handle = manager.createChallengeRuntimeHandle();
+    expect("getSessionChallengeAutomationMode" in (handle as Record<string, unknown>)).toBe(false);
+    expect("setSessionChallengeAutomationMode" in (handle as Record<string, unknown>)).toBe(false);
     await handle.status("session-ops");
     await handle.goto("session-ops", "https://example.com/login", "domcontentloaded", 1000, undefined, "tab-1");
     await handle.waitForLoad("session-ops", "networkidle", 1000, "tab-1");

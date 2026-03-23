@@ -6,10 +6,20 @@ import { evaluateGovernedLane } from "./governed-adapter-gateway";
 import { buildHumanYieldPacket, shouldYieldToHuman } from "./human-yield-gate";
 import { interpretChallengeEvidence } from "./interpreter";
 import { OutcomeRecorder } from "./outcome-recorder";
-import { buildChallengePolicyGate } from "./policy-gate";
+import { suggestComputerUseActions } from "./optional-computer-use-bridge";
+import { buildChallengePolicyGate, resolveChallengeAutomationPolicy } from "./policy-gate";
 import { selectChallengeStrategy } from "./strategy-selector";
 import { runChallengeActionLoop } from "./action-loop";
-import type { ChallengeEvidenceBundle, ChallengeOrchestrationResult, ChallengeOrchestrationSnapshot, ChallengeStrategyDecision, OutcomeRecord, VerificationResult } from "./types";
+import type {
+  ChallengeCapabilityMatrix,
+  ChallengeEvidenceBundle,
+  ChallengeOrchestrationResult,
+  ChallengeOrchestrationSnapshot,
+  ChallengeStrategyDecision,
+  OutcomeRecord,
+  ResolvedChallengeAutomationPolicy,
+  VerificationResult
+} from "./types";
 import type { JsonValue } from "../providers/types";
 
 const toStillBlockedVerification = (bundle: ChallengeEvidenceBundle, reason: string): VerificationResult => ({
@@ -28,6 +38,8 @@ const buildOutcome = (args: {
   bundle: ChallengeEvidenceBundle;
   decision: ChallengeStrategyDecision;
   interpretation: ReturnType<typeof interpretChallengeEvidence>;
+  policy: ResolvedChallengeAutomationPolicy;
+  capabilityMatrix: ChallengeCapabilityMatrix;
   verification: VerificationResult;
   status: ChallengeOrchestrationSnapshot["status"];
   reason: string;
@@ -38,12 +50,22 @@ const buildOutcome = (args: {
 }): ChallengeOrchestrationSnapshot => ({
   challengeId: args.bundle.challengeId,
   classification: args.interpretation.classification,
+  mode: args.policy.mode,
+  source: args.policy.source,
   lane: args.decision.lane,
   status: args.status,
   reason: args.reason,
   attempts: args.attempts,
   reusedExistingSession: args.reusedExistingSession,
   reusedCookies: args.reusedCookies,
+  helperEligibility: args.capabilityMatrix.helperEligibility,
+  ...(
+    !args.capabilityMatrix.helperEligibility.allowed || args.policy.standDownReason
+      ? {
+        standDownReason: args.capabilityMatrix.helperEligibility.standDownReason ?? args.policy.standDownReason
+      }
+      : {}
+  ),
   verification: args.verification,
   evidence: {
     url: args.bundle.url,
@@ -127,6 +149,7 @@ export class ChallengeOrchestrator {
     handle: ChallengeRuntimeHandle;
     sessionId: string;
     targetId?: string | null;
+    policy?: ResolvedChallengeAutomationPolicy;
     canImportCookies?: boolean;
     fallbackDisposition?: ChallengeEvidenceBundle["fallbackDisposition"];
     registryPressure?: ChallengeEvidenceBundle["registryPressure"];
@@ -143,7 +166,10 @@ export class ChallengeOrchestrator {
       taskData: args.taskData
     });
     const interpretation = interpretChallengeEvidence(bundle);
-    const gate = buildChallengePolicyGate(this.config, interpretation);
+    const policy = args.policy ?? resolveChallengeAutomationPolicy({
+      configMode: this.config.mode
+    });
+    const gate = buildChallengePolicyGate(this.config, interpretation, policy);
     const capabilityMatrix = buildCapabilityMatrix(bundle, interpretation, gate);
     const decision = selectChallengeStrategy({
       config: this.config,
@@ -164,6 +190,8 @@ export class ChallengeOrchestrator {
         bundle,
         decision,
         interpretation,
+        policy: gate.resolvedPolicy,
+        capabilityMatrix,
         verification,
         status: "deferred",
         reason: "Recent attempt throttle",
@@ -194,6 +222,8 @@ export class ChallengeOrchestrator {
         bundle,
         decision,
         interpretation,
+        policy: gate.resolvedPolicy,
+        capabilityMatrix,
         verification,
         status: "deferred",
         reason: decision.rationale,
@@ -234,6 +264,8 @@ export class ChallengeOrchestrator {
         bundle,
         decision,
         interpretation,
+        policy: gate.resolvedPolicy,
+        capabilityMatrix,
         verification,
         status: "yield_required",
         reason: `Yield required: ${yieldDecision.reason}`,
@@ -261,6 +293,13 @@ export class ChallengeOrchestrator {
     }
 
     let suggestedSteps = undefined;
+    if (decision.lane === "optional_computer_use_bridge") {
+      suggestedSteps = suggestComputerUseActions({
+        helperEligibility: capabilityMatrix.helperEligibility,
+        bundle,
+        maxSuggestions: this.config.optionalComputerUseBridge.maxSuggestions
+      }).suggestedSteps;
+    }
     if (decision.governedLane) {
       const governed = evaluateGovernedLane(this.config, {
         lane: decision.governedLane,
@@ -275,6 +314,8 @@ export class ChallengeOrchestrator {
           bundle,
           decision,
           interpretation,
+          policy: gate.resolvedPolicy,
+          capabilityMatrix,
           verification,
           status: "policy_blocked",
           reason: governed.reason,
@@ -311,6 +352,7 @@ export class ChallengeOrchestrator {
       config: this.config,
       suggestedSteps
     });
+    const verifiedBundle = action.verification.bundle ?? bundle;
 
     const maybeYield = shouldYieldToHuman({
       interpretation,
@@ -318,7 +360,7 @@ export class ChallengeOrchestrator {
     });
     const yielded = action.status === "yield_required" || maybeYield.yield
       ? buildHumanYieldPacket({
-        bundle: action.verification.bundle ?? bundle,
+        bundle: verifiedBundle,
         interpretation,
         sessionId: args.sessionId,
         targetId: args.targetId,
@@ -328,9 +370,11 @@ export class ChallengeOrchestrator {
       : undefined;
 
     const outcome = buildOutcome({
-      bundle: action.verification.bundle ?? bundle,
+      bundle: verifiedBundle,
       decision,
       interpretation,
+      policy: gate.resolvedPolicy,
+      capabilityMatrix,
       verification: action.verification,
       status: action.status === "yield_required" || maybeYield.yield
         ? "yield_required"

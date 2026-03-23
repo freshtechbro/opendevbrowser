@@ -1,29 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildChallengeEvidenceBundle, suggestComputerUseActions } from "../src/challenges";
-import type { ProvidersChallengeOrchestrationConfig } from "../src/config";
-
-const makeConfig = (enabled: boolean, maxSuggestions = 3): ProvidersChallengeOrchestrationConfig => ({
-  enabled: true,
-  attemptBudget: 6,
-  noProgressLimit: 3,
-  stepTimeoutMs: 5000,
-  minAttemptGapMs: 10000,
-  allowAuthNavigation: true,
-  allowSessionReuse: true,
-  allowCookieReuse: true,
-  allowNonSecretFormFill: true,
-  allowInteractionExploration: true,
-  governed: {
-    allowOwnedEnvironmentFixtures: true,
-    allowSanctionedIdentity: false,
-    allowServiceAdapters: false,
-    requireAuditMetadata: true
-  },
-  optionalComputerUseBridge: {
-    enabled,
-    maxSuggestions
-  }
-});
+import type { ChallengeAutomationHelperEligibility } from "../src/challenges";
 
 const makeBundle = (snapshot: string) => buildChallengeEvidenceBundle({
   status: {
@@ -38,21 +15,37 @@ const makeBundle = (snapshot: string) => buildChallengeEvidenceBundle({
   }
 });
 
+const makeHelperEligibility = (
+  allowed: boolean,
+  overrides: Partial<ChallengeAutomationHelperEligibility> = {}
+): ChallengeAutomationHelperEligibility => ({
+  allowed,
+  reason: allowed
+    ? "Optional helper bridge remains eligible after mode resolution."
+    : "Optional computer-use bridge is disabled by policy.",
+  ...overrides
+});
+
 describe("optional computer-use bridge", () => {
-  it("returns disabled when the bridge is off", () => {
+  it("returns disabled when helper eligibility is denied", () => {
     const result = suggestComputerUseActions({
-      config: makeConfig(false),
-      bundle: makeBundle("[r1] button \"Verify you're human\"")
+      helperEligibility: makeHelperEligibility(false, {
+        standDownReason: "helper_disabled_by_policy"
+      }),
+      bundle: makeBundle("[r1] button \"Verify you're human\""),
+      maxSuggestions: 3
     });
 
     expect(result.status).toBe("disabled");
+    expect(result.standDownReason).toBe("helper_disabled_by_policy");
     expect(result.suggestedSteps).toEqual([]);
   });
 
   it("returns unsupported when canonical evidence has no safe refs", () => {
     const result = suggestComputerUseActions({
-      config: makeConfig(true),
-      bundle: makeBundle("[r1] heading \"Challenge\"")
+      helperEligibility: makeHelperEligibility(true),
+      bundle: makeBundle("[r1] heading \"Challenge\""),
+      maxSuggestions: 3
     });
 
     expect(result.status).toBe("unsupported");
@@ -62,13 +55,14 @@ describe("optional computer-use bridge", () => {
 
   it("returns bounded browser-scoped suggestions from canonical refs", () => {
     const result = suggestComputerUseActions({
-      config: makeConfig(true, 2),
+      helperEligibility: makeHelperEligibility(true),
       bundle: makeBundle([
         "[r1] link \"Sign in\"",
         "[r2] button \"Use existing session\"",
         "[r3] button \"Verify you're human\"",
         "[r4] button \"Continue\""
-      ].join("\n"))
+      ].join("\n")),
+      maxSuggestions: 2
     });
 
     expect(result.status).toBe("suggested");

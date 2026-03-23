@@ -292,6 +292,42 @@ describe("workflow CLI commands", () => {
     }));
   });
 
+  it("propagates challengeAutomationMode across workflow commands", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runResearchCommand(makeArgs("research", [
+      "run",
+      "--topic=browser automation",
+      "--challenge-automation-mode=browser_with_helper"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("research.run", expect.objectContaining({
+      topic: "browser automation",
+      challengeAutomationMode: "browser_with_helper"
+    }));
+
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless keyboard",
+      "--challenge-automation-mode",
+      "browser"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("shopping.run", expect.objectContaining({
+      query: "wireless keyboard",
+      challengeAutomationMode: "browser"
+    }));
+
+    await runProductVideoCommand(makeArgs("product-video", [
+      "run",
+      "--product-url=https://example.com/item",
+      "--challenge-automation-mode",
+      "off"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("product.video.run", expect.objectContaining({
+      product_url: "https://example.com/item",
+      challengeAutomationMode: "off"
+    }));
+  });
+
   it("enforces run subcommand and required input", async () => {
     await expect(runResearchCommand(makeArgs("research", ["status"]))).rejects.toThrow("Usage: opendevbrowser research run");
     await expect(runShoppingCommand(makeArgs("shopping", ["run"]))).rejects.toThrow("Missing --query");

@@ -21,7 +21,7 @@ import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoin
 import type { RelayStatus } from "../relay/relay-server";
 import { ensureLocalEndpoint } from "../utils/endpoint-validation";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
-import { ChallengeOrchestrator } from "../challenges";
+import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
 import type {
   BlockerSignalV1,
   ChallengeOwnerSurface,
@@ -86,6 +86,7 @@ export type ManagedSession = {
   mode: BrowserMode;
   headless: boolean;
   extensionLegacy: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   relayWsEndpoint?: string;
   browser: Browser;
   context: BrowserContext;
@@ -248,6 +249,18 @@ export class BrowserManager {
 
   setChallengeOrchestrator(orchestrator?: ChallengeOrchestrator): void {
     this.challengeOrchestrator = orchestrator;
+  }
+
+  getSessionChallengeAutomationMode(sessionId: string): ChallengeAutomationMode | undefined {
+    return this.sessions.get(sessionId)?.challengeAutomationMode;
+  }
+
+  setSessionChallengeAutomationMode(sessionId: string, mode?: ChallengeAutomationMode): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+    session.challengeAutomationMode = mode;
   }
 
   createChallengeRuntimeHandle(): ChallengeRuntimeHandle {
@@ -2717,14 +2730,59 @@ export class BrowserManager {
     if (!meta || !meta.challenge || meta.blockerState === "clear") {
       return meta;
     }
-    if (!this.challengeOrchestrator || this.isChallengeAutomationSuppressed(sessionId)) {
+    if (!this.challengeOrchestrator) {
       return meta;
+    }
+    const policy = resolveChallengeAutomationPolicy({
+      sessionMode: this.getSessionChallengeAutomationMode(sessionId),
+      configMode: this.config.providers?.challengeOrchestration.mode ?? "browser_with_helper"
+    });
+    if (this.isChallengeAutomationSuppressed(sessionId)) {
+      return {
+        ...meta,
+        challengeOrchestration: {
+          challengeId: meta.challenge.challengeId,
+          classification: meta.blocker?.type === "auth_required"
+            ? "auth_required"
+            : "unsupported_third_party_challenge",
+          mode: policy.mode,
+          source: policy.source,
+          lane: "defer",
+          status: "deferred",
+          reason: "Challenge automation is suppressed while a bounded challenge action is already in progress.",
+          attempts: 0,
+          reusedExistingSession: false,
+          reusedCookies: false,
+          standDownReason: "suppressed_by_manager",
+          helperEligibility: {
+            allowed: false,
+            reason: "Challenge automation is currently suppressed by the manager guard.",
+            standDownReason: "suppressed_by_manager"
+          },
+          verification: {
+            status: "still_blocked",
+            blockerState: meta.blockerState,
+            blocker: meta.blocker,
+            challenge: meta.challenge,
+            changed: false,
+            reason: "Challenge automation is currently suppressed by the manager guard.",
+            url: undefined,
+            title: undefined
+          },
+          evidence: {
+            loginRefs: [],
+            humanVerificationRefs: [],
+            checkpointRefs: []
+          }
+        }
+      };
     }
     try {
       const result = await this.challengeOrchestrator.orchestrate({
         handle: this.createChallengeRuntimeHandle(),
         sessionId,
         targetId,
+        policy,
         canImportCookies: true
       });
       const verification = result.action.verification;

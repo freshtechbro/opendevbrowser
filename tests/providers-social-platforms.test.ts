@@ -40,6 +40,42 @@ describe("social platform adapters", () => {
     }
   });
 
+  it("builds youtube social search URLs and ignores malformed extracted links", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      return {
+        status: 200,
+        url,
+        text: async () => [
+          "<html><body>",
+          "<main>youtube social search</main>",
+          "<a href=\"http://[\">bad</a>",
+          "<a href=\"/watch?v=123\">good</a>",
+          "</body></html>"
+        ].join("")
+      };
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "social", providerIds: ["social/youtube"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records.length).toBeGreaterThan(0);
+      expect(result.failures).toHaveLength(0);
+      expect(result.records[0]?.provider).toBe("social/youtube");
+      expect(result.records[0]?.url).toContain("youtube.com/results?search_query=browser+automation");
+      expect(result.records[0]?.attributes.links).toEqual([
+        "https://www.youtube.com/watch?v=123"
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("times out social retrieval when the response body never resolves after headers arrive", async () => {
     const cancel = vi.fn(async () => undefined);
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
@@ -131,6 +167,15 @@ describe("social platform adapters", () => {
         .map((call) => call[0]?.provider)
         .filter((provider): provider is string => typeof provider === "string");
       expect(providers).toEqual(expect.arrayContaining(authBlockedProviders));
+
+      const fallbackCalls = new Map(
+        fallbackResolve.mock.calls
+          .map(([request]) => [request?.provider, request] as const)
+          .filter((entry): entry is readonly [string, { preferredModes?: string[] }] => typeof entry[0] === "string")
+      );
+      expect(fallbackCalls.get("social/linkedin")?.preferredModes).toEqual(["extension", "managed_headed"]);
+      expect(fallbackCalls.get("social/instagram")?.preferredModes).toEqual(["managed_headed"]);
+      expect(fallbackCalls.get("social/reddit")?.preferredModes).toEqual(["managed_headed"]);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -164,6 +209,266 @@ describe("social platform adapters", () => {
           }
         }
       });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("falls back to browser retrieval for 200 auth-wall social pages when browser fallback is available", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string; preferredModes?: string[] }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.linkedin.com/search/results/content/?keywords=browser%20automation&page=1",
+        html: "<html><body><main>fallback social content</main><a href=\"https://www.linkedin.com/feed/update/urn:li:activity:1\">post</a></body></html>"
+      },
+      details: {}
+    }));
+
+    const fetchSpy = vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    }));
+    vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records.length).toBeGreaterThan(0);
+      expect(result.failures).toHaveLength(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/linkedin",
+        reasonCode: "token_required",
+        preferredModes: ["extension", "managed_headed"]
+      }));
+      expect(fallbackResolve.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves helper execution metadata on successful linkedin browser fallback recovery", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string; preferredModes?: string[] }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.linkedin.com/search/results/content/?keywords=browser%20automation&page=1",
+        html: "<html><body><main>fallback social content</main></body></html>"
+      },
+      details: {
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 2
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records[0]?.attributes).toMatchObject({
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "token_required",
+        browser_fallback_cookie_diagnostics: {
+          available: true,
+          verifiedCount: 2
+        },
+        browser_fallback_challenge_orchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves browser fallback metadata when linkedin recovery completes but the auth wall remains", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string; preferredModes?: string[] }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.linkedin.com/search/results/content/?keywords=browser%20automation&page=1",
+        html: "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+      },
+      details: {
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 2
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        browserFallbackMode: "extension",
+        browserFallbackReasonCode: "token_required",
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 2
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces non-completed linkedin fallback dispositions as provider failures", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "token_required" as const,
+      disposition: "challenge_preserved" as const,
+      details: {
+        message: "Browser fallback preserved a challenge session for LinkedIn."
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        message: "Browser fallback preserved a challenge session for LinkedIn.",
+        details: {
+          disposition: "challenge_preserved"
+        }
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/linkedin",
+        preferredModes: ["extension", "managed_headed"]
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not attempt browser recovery for instagram auth-wall pages that are already explicit session boundaries", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "token_required" as const,
+      mode: "managed_headed" as const,
+      output: {
+        url: "https://www.instagram.com/explore/search/keyword/?q=browser%20automation&page=1",
+        html: "<html><body>fallback social content</body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Login • Instagram</title></head><body>Log in to see photos and videos from friends.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/instagram"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        details: {
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          }
+        }
+      });
+      expect(fallbackResolve).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }

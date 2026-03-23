@@ -59,6 +59,8 @@ describe("loadGlobalConfig", () => {
     expect(config.providers?.crawler.workerThreads).toBe(4);
     expect(config.providers?.crawler.queueMax).toBe(2000);
     expect(config.providers?.cookiePolicy).toBe("auto");
+    expect(config.providers?.challengeOrchestration.mode).toBe("browser_with_helper");
+    expect(config.providers?.challengeOrchestration.optionalComputerUseBridge.enabled).toBe(true);
     expect(config.providers?.cookieSource).toEqual({
       type: "file",
       value: "~/.config/opencode/opendevbrowser.provider-cookies.json"
@@ -408,6 +410,8 @@ describe("resolveConfig", () => {
     expect(config.profile).toBe("custom");
     expect(config.relayPort).toBe(8787);
     expect(config.daemonPort).toBe(8788);
+    expect(config.providers?.challengeOrchestration.mode).toBe("browser_with_helper");
+    expect(config.providers?.challengeOrchestration.optionalComputerUseBridge.enabled).toBe(true);
   });
 
   it("parses figma integration config", () => {

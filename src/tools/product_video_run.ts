@@ -3,9 +3,11 @@ import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
+import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 
 const z = tool.schema;
 const cookiePolicySchema = z.enum(["off", "auto", "required"]);
+const challengeAutomationModeSchema = z.enum(CHALLENGE_AUTOMATION_MODES);
 
 async function captureScreenshotBuffer(deps: ToolDeps, url: string): Promise<Buffer | null> {
   let sessionId: string | null = null;
@@ -45,6 +47,7 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
       ttl_hours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
       timeoutMs: z.number().int().positive().optional().describe("Workflow timeout in milliseconds"),
       useCookies: z.boolean().optional().describe("Enable/disable provider cookie injection for this run"),
+      challengeAutomationMode: challengeAutomationModeSchema.optional().describe("Challenge automation mode: off|browser|browser_with_helper"),
       cookiePolicyOverride: cookiePolicySchema.optional().describe("Override cookie policy: off|auto|required")
     },
     async execute(args) {
@@ -63,6 +66,7 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
           ttl_hours: args.ttl_hours,
           timeoutMs: args.timeoutMs,
           useCookies: args.useCookies,
+          challengeAutomationMode: args.challengeAutomationMode,
           cookiePolicyOverride: args.cookiePolicyOverride
         }, {
           captureScreenshot: includeScreenshots

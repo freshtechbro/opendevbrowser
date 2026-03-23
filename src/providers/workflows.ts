@@ -12,6 +12,7 @@ import {
 } from "./shopping";
 import { createLogger, redactSensitive } from "../core/logging";
 import { normalizeProviderReasonCode } from "./errors";
+import type { ChallengeAutomationMode } from "../challenges/types";
 import { providerRequestHeaders } from "./shared/request-headers";
 import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, extractText, toSnippet } from "./web/extract";
@@ -55,6 +56,7 @@ export interface ResearchRunInput {
   outputDir?: string;
   ttlHours?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
@@ -69,6 +71,7 @@ export interface ShoppingRunInput {
   outputDir?: string;
   ttlHours?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
@@ -83,6 +86,7 @@ export interface ProductVideoRunInput {
   ttl_hours?: number;
   timeoutMs?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
@@ -473,6 +477,16 @@ const withCookieOverrides = (
   };
 };
 
+const withChallengeAutomationOverride = (
+  options: ProviderRunOptions,
+  input: { challengeAutomationMode?: ChallengeAutomationMode }
+): ProviderRunOptions => {
+  return {
+    ...options,
+    ...(input.challengeAutomationMode ? { challengeAutomationMode: input.challengeAutomationMode } : {})
+  };
+};
+
 const withWorkflowResumeIntent = (
   options: ProviderRunOptions,
   kind: "workflow.research" | "workflow.shopping" | "workflow.product_video",
@@ -592,6 +606,48 @@ const summarizeCookieDiagnostics = (
       });
     }
   }
+  return diagnostics;
+};
+
+const summarizeChallengeOrchestration = (
+  failures: ProviderFailureEntry[],
+  records: NormalizedRecord[]
+): Array<Record<string, JsonValue>> => {
+  const diagnostics: Array<Record<string, JsonValue>> = [];
+
+  for (const failure of failures) {
+    const candidate = failure.error.details?.challengeOrchestration;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    diagnostics.push({
+      provider: failure.provider,
+      source: failure.source,
+      ...(detectFailureReasonCode(failure) ? { reasonCode: detectFailureReasonCode(failure) as JsonValue } : {}),
+      ...(typeof failure.error.details?.browserFallbackReasonCode === "string"
+        ? { browserFallbackReasonCode: failure.error.details.browserFallbackReasonCode }
+        : {}),
+      ...(typeof failure.error.details?.browserFallbackMode === "string"
+        ? { browserFallbackMode: failure.error.details.browserFallbackMode }
+        : {}),
+      ...(candidate as Record<string, JsonValue>)
+    });
+  }
+
+  for (const record of records) {
+    const candidate = record.attributes.browser_fallback_challenge_orchestration;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    diagnostics.push({
+      provider: record.provider,
+      source: record.source,
+      ...(typeof record.attributes.browser_fallback_reason_code === "string"
+        ? { browserFallbackReasonCode: record.attributes.browser_fallback_reason_code }
+        : {}),
+      ...(typeof record.attributes.browser_fallback_mode === "string"
+        ? { browserFallbackMode: record.attributes.browser_fallback_mode }
+        : {}),
+      ...(candidate as Record<string, JsonValue>)
+    });
+  }
+
   return diagnostics;
 };
 
@@ -1447,9 +1503,9 @@ export const runResearchWorkflow = async (
         timebox_from: timebox.from,
         timebox_to: timebox.to
       }
-    }, withWorkflowResumeIntent(withCookieOverrides({
+    }, withWorkflowResumeIntent(withChallengeAutomationOverride(withCookieOverrides({
       source
-    }, input), "workflow.research", input as unknown as JsonValue));
+    }, input), input), "workflow.research", input as unknown as JsonValue));
     observeWorkflowSignals(runtime, result);
     return {
       source,
@@ -1582,11 +1638,11 @@ export const runShoppingWorkflow = async (
         ...(typeof input.budget === "number" ? { budget: input.budget } : {}),
         ...(input.region ? { region: input.region } : {})
       }
-    }, withWorkflowResumeIntent(withCookieOverrides({
+    }, withWorkflowResumeIntent(withChallengeAutomationOverride(withCookieOverrides({
       source: "shopping",
       providerIds: [providerId],
       ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {})
-    }, input), "workflow.shopping", input as unknown as JsonValue));
+    }, input), input), "workflow.shopping", input as unknown as JsonValue));
     observeWorkflowSignals(runtime, result);
     return {
       providerId,
@@ -1627,6 +1683,7 @@ export const runShoppingWorkflow = async (
   const transcriptStrategyDetailDistribution = summarizeTranscriptStrategyDetailDistribution(records);
   const transcriptDurability = summarizeTranscriptDurability(records, failures);
   const cookieDiagnostics = summarizeCookieDiagnostics(failures, records);
+  const challengeOrchestration = summarizeChallengeOrchestration(failures, records);
   const antiBotPressure = summarizeAntiBotPressure(failures);
   const meta = withPrimaryConstraintMeta({
     selection: {
@@ -1648,6 +1705,8 @@ export const runShoppingWorkflow = async (
       transcriptDurability,
       cookie_diagnostics: cookieDiagnostics,
       cookieDiagnostics,
+      challenge_orchestration: challengeOrchestration,
+      challengeOrchestration,
       anti_bot_pressure: antiBotPressure,
       antiBotPressure
     },
@@ -1728,6 +1787,7 @@ export const runProductVideoWorkflow = async (
       mode: "json",
       ...timeoutOptions,
       useCookies: input.useCookies,
+      challengeAutomationMode: input.challengeAutomationMode,
       cookiePolicyOverride: input.cookiePolicyOverride
     });
 
@@ -1765,11 +1825,11 @@ export const runProductVideoWorkflow = async (
   }
   const details = await runtime.fetch(
     { url: productUrl },
-    withWorkflowResumeIntent(withCookieOverrides({
+    withWorkflowResumeIntent(withChallengeAutomationOverride(withCookieOverrides({
       source,
       providerIds: shoppingProviderId ? [shoppingProviderId] : undefined,
       ...timeoutOptions
-    }, input), "workflow.product_video", input as unknown as JsonValue)
+    }, input), input), "workflow.product_video", input as unknown as JsonValue)
   );
   observeWorkflowSignals(runtime, details);
 

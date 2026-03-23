@@ -1,7 +1,10 @@
 import { classifyBlockerSignal } from "../blocker";
 import {
+  browserFallbackObservationDetails,
+  browserFallbackObservationAttributes,
   readFallbackString,
   resolveProviderBrowserFallback,
+  toBrowserFallbackObservation,
   toProviderFallbackError
 } from "../browser-fallback";
 import { applyProviderIssueHint, classifyProviderIssue } from "../constraint";
@@ -11,6 +14,8 @@ import { providerRequestHeaders } from "../shared/request-headers";
 import { canonicalizeUrl } from "../web/crawler";
 import { extractStructuredContent, extractText, toSnippet } from "../web/extract";
 import type {
+  BrowserFallbackMode,
+  BrowserFallbackObservation,
   JsonValue,
   NormalizedRecord,
   ProviderAdapter,
@@ -27,6 +32,9 @@ import type {
 const SHOPPING_SOURCE = "shopping" as const;
 const DEFAULT_CURRENCY = "USD";
 const DEFAULT_RECOVERABLE_SHOPPING_FETCH_TIMEOUT_MS = 15_000;
+const DEFAULT_SHOPPING_FALLBACK_MODES: BrowserFallbackMode[] = ["managed_headed", "extension"];
+const EXTENSION_FIRST_SHOPPING_FALLBACK_MODES: BrowserFallbackMode[] = ["extension", "managed_headed"];
+const EXTENSION_FIRST_SHOPPING_RECOVERY_PROFILES = new Set<ShoppingProviderName>(["costco", "target", "temu"]);
 
 export type ShoppingProviderName =
   | "amazon"
@@ -94,6 +102,7 @@ interface ShoppingFetchRecord {
   status: number;
   url: string;
   html: string;
+  browserFallback?: BrowserFallbackObservation;
 }
 
 interface ShoppingSearchCandidate {
@@ -335,7 +344,9 @@ const bindRecoverableFetchSignal = (
 };
 
 const buildShoppingRecoveryHints = (profile: ShoppingProviderProfile): ProviderRecoveryHints => ({
-  preferredFallbackModes: ["managed_headed", "extension"],
+  preferredFallbackModes: EXTENSION_FIRST_SHOPPING_RECOVERY_PROFILES.has(profile.name)
+    ? EXTENSION_FIRST_SHOPPING_FALLBACK_MODES
+    : DEFAULT_SHOPPING_FALLBACK_MODES,
   highFrictionTarget: profile.name === "temu" || profile.name === "target",
   challengeProne: profile.name === "temu" || profile.name === "target" || profile.name === "bestbuy",
   settleTimeoutMs: 15000,
@@ -390,7 +401,8 @@ const resolveBrowserFallback = async (args: {
   return {
     status: 200,
     url: resolvedUrl,
-    html: readFallbackString(fallback.output, "html") ?? ""
+    html: readFallbackString(fallback.output, "html") ?? "",
+    browserFallback: toBrowserFallbackObservation(fallback)
   };
 };
 
@@ -435,7 +447,8 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
   const buildSurfaceIssueError = (
     responseUrl: string,
     issue: ReturnType<typeof classifyProviderIssue>,
-    details: Record<string, JsonValue>
+    details: Record<string, JsonValue>,
+    browserFallback?: BrowserFallbackObservation
   ): ProviderRuntimeError => {
     /* c8 ignore next -- browser-assistance classification always returns a reasonCode when issue is present */
     const reasonCode = issue?.reasonCode ?? "env_limited";
@@ -452,14 +465,18 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
         source: SHOPPING_SOURCE,
         retryable: reasonCode === "env_limited",
         reasonCode,
-        details: applyProviderIssueHint(details, issue)
+        details: {
+          ...applyProviderIssueHint(details, issue),
+          ...browserFallbackObservationDetails(browserFallback)
+        }
       }
     );
   };
   const detectFetchedPageError = (
     responseUrl: string,
     status: number,
-    html: string
+    html: string,
+    browserFallback?: BrowserFallbackObservation
   ): ProviderRuntimeError | null => {
     const extracted = extractStructuredContent(html, responseUrl);
     const message = toSnippet(
@@ -492,7 +509,8 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
           blockerType: blocker.type,
           blockerConfidence: blocker.confidence,
           ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
-          reasonCode: blocker.reasonCode ?? "env_limited"
+          reasonCode: blocker.reasonCode ?? "env_limited",
+          ...browserFallbackObservationDetails(browserFallback)
         }
       });
     }
@@ -517,7 +535,7 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
       providerShell: requirement.reason,
       ...(requirement.title ? { title: requirement.title } : {}),
       ...(requirement.message ? { message: requirement.message } : {})
-    });
+    }, browserFallback);
   };
   const resolveFallbackOrThrow = async (error: ProviderRuntimeError): Promise<ShoppingFetchRecord> => {
     const fallback = await resolveBrowserFallback({
@@ -529,7 +547,7 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
       context
     });
     if (fallback) {
-      const fallbackError = detectFetchedPageError(fallback.url, fallback.status, fallback.html);
+      const fallbackError = detectFetchedPageError(fallback.url, fallback.status, fallback.html, fallback.browserFallback);
       if (fallbackError) {
         throw fallbackError;
       }
@@ -1286,7 +1304,8 @@ const createDefaultSearch = (
           ...(candidate.availability ? { availability: candidate.availability } : {})
         }),
         rank: index + 1,
-        retrievalPath: "shopping:search:result-card"
+        retrievalPath: "shopping:search:result-card",
+        ...browserFallbackObservationAttributes(fetched.browserFallback)
       }
     }));
   }
@@ -1305,12 +1324,15 @@ const createDefaultSearch = (
         source: SHOPPING_SOURCE,
         retryable: reasonCode === "env_limited",
         reasonCode,
-        details: applyProviderIssueHint({
-          status: fetched.status,
-          url: fetched.url,
-          ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
-          ...(content ? { message: content } : {})
-        }, pageIssue)
+        details: {
+          ...applyProviderIssueHint({
+            status: fetched.status,
+            url: fetched.url,
+            ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
+            ...(content ? { message: content } : {})
+          }, pageIssue),
+          ...browserFallbackObservationDetails(fetched.browserFallback)
+        }
       }
     );
   }
@@ -1334,7 +1356,8 @@ const createDefaultSearch = (
         retrievalPath: isHttpUrl(query) ? "shopping:search:url" : "shopping:search:index",
         ...(pageIssue ? { reasonCode: pageIssue.reasonCode } : {}),
         ...(pageIssue?.blockerType ? { blockerType: pageIssue.blockerType } : {}),
-        ...(pageIssue?.constraint ? { constraint: pageIssue.constraint } : {})
+        ...(pageIssue?.constraint ? { constraint: pageIssue.constraint } : {}),
+        ...browserFallbackObservationAttributes(fetched.browserFallback)
       }
     }
   ];
@@ -1380,7 +1403,8 @@ const createDefaultFetch = (
       status: fetched.status,
       links: dedupeLinks(extracted.links, 30),
       selectors: extracted.selectors,
-      retrievalPath: "shopping:fetch:url"
+      retrievalPath: "shopping:fetch:url",
+      ...browserFallbackObservationAttributes(fetched.browserFallback)
     }
   };
 };

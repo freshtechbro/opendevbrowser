@@ -63,6 +63,8 @@ export type MacroExecutionPayload = {
   diagnostics?: ProviderAggregateResult["diagnostics"];
 };
 
+type MacroExecutionOverrides = Pick<ProviderRunOptions, "challengeAutomationMode">;
+
 const isRecordValue = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -153,7 +155,10 @@ const normalizePostInput = (input: Record<string, unknown>): ProviderCallResultB
   };
 };
 
-const buildRunOptions = (resolution: MacroResolution): ProviderRunOptions => {
+const buildRunOptions = (
+  resolution: MacroResolution,
+  overrides?: MacroExecutionOverrides
+): ProviderRunOptions => {
   const source = resolution.action.source;
   const providerId = typeof resolution.action.input.providerId === "string"
     && resolution.action.input.providerId.trim()
@@ -161,20 +166,24 @@ const buildRunOptions = (resolution: MacroResolution): ProviderRunOptions => {
     : undefined;
   return {
     source,
-    ...(providerId ? { providerIds: [providerId] } : {})
+    ...(providerId ? { providerIds: [providerId] } : {}),
+    ...(overrides?.challengeAutomationMode
+      ? { challengeAutomationMode: overrides.challengeAutomationMode }
+      : {})
   };
 };
 
 export const executeMacroResolution = async (
   resolution: MacroResolution,
-  runtime: MacroRuntimeExecutor
+  runtime: MacroRuntimeExecutor,
+  overrides?: MacroExecutionOverrides
 ): Promise<ProviderAggregateResult> => {
   const { operation, input } = resolution.action;
   if (!isRecordValue(input)) {
     throw new Error("Macro action input is invalid");
   }
 
-  const options = buildRunOptions(resolution);
+  const options = buildRunOptions(resolution, overrides);
   switch (operation) {
     case "search":
       return runtime.search(normalizeSearchInput(input), options);

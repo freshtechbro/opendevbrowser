@@ -3,6 +3,7 @@ import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
+import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 
 type ShoppingCommandArgs = {
   query?: string;
@@ -15,13 +16,13 @@ type ShoppingCommandArgs = {
   outputDir?: string;
   ttlHours?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: "off" | "auto" | "required";
 };
 
 const SORT_VALUES = new Set(["best_deal", "lowest_price", "highest_rating", "fastest_shipping"]);
 const MODE_VALUES = new Set(["compact", "json", "md", "context", "path"]);
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
-
 const requireValue = (rawArgs: string[], index: number, flag: string): string => {
   const value = rawArgs[index + 1];
   if (!value) {
@@ -168,6 +169,24 @@ const parseShoppingRunArgs = (rawArgs: string[]): ShoppingCommandArgs => {
       continue;
     }
 
+    if (arg === "--challenge-automation-mode") {
+      const value = requireValue(rawArgs, index, "--challenge-automation-mode");
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--challenge-automation-mode=")) {
+      const value = arg.split("=", 2)[1] ?? "";
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      continue;
+    }
+
     if (arg === "--cookie-policy-override" || arg === "--cookie-policy") {
       const value = requireValue(rawArgs, index, arg).toLowerCase();
       if (!COOKIE_POLICY_VALUES.has(value)) {
@@ -212,6 +231,7 @@ export async function runShoppingCommand(args: ParsedArgs) {
     outputDir: parsed.outputDir,
     ttlHours: parsed.ttlHours,
     useCookies: parsed.useCookies,
+    challengeAutomationMode: parsed.challengeAutomationMode,
     cookiePolicyOverride: parsed.cookiePolicyOverride
   };
 

@@ -15,7 +15,7 @@ import type { ChallengeRuntimeHandle } from "../src/browser/manager-types";
 import type { ProvidersChallengeOrchestrationConfig } from "../src/config";
 
 const config: ProvidersChallengeOrchestrationConfig = {
-  enabled: true,
+  mode: "browser",
   attemptBudget: 1,
   noProgressLimit: 2,
   stepTimeoutMs: 1000,

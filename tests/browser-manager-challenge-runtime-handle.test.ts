@@ -3,6 +3,26 @@ import { BrowserManager } from "../src/browser/browser-manager";
 import { resolveConfig } from "../src/config";
 
 describe("browser manager challenge runtime handle", () => {
+  it("stores session-scoped challenge automation mode on manager state without exposing policy mutators on the handle", () => {
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      sessions: Map<string, Record<string, unknown>>;
+    };
+    managerAny.sessions.set("session-policy", {});
+
+    expect(manager.getSessionChallengeAutomationMode("missing-session")).toBeUndefined();
+
+    manager.setSessionChallengeAutomationMode("session-policy", "browser_with_helper");
+    expect(manager.getSessionChallengeAutomationMode("session-policy")).toBe("browser_with_helper");
+
+    manager.setSessionChallengeAutomationMode("session-policy", undefined);
+    expect(manager.getSessionChallengeAutomationMode("session-policy")).toBeUndefined();
+
+    const handle = manager.createChallengeRuntimeHandle() as Record<string, unknown>;
+    expect("getSessionChallengeAutomationMode" in handle).toBe(false);
+    expect("setSessionChallengeAutomationMode" in handle).toBe(false);
+  });
+
   it("delegates every challenge handle call and always clears suppression state", async () => {
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
     const managerAny = manager as unknown as Record<string, ReturnType<typeof vi.fn> | ((sessionId: string) => boolean)>;
@@ -47,6 +67,8 @@ describe("browser manager challenge runtime handle", () => {
     });
 
     const handle = manager.createChallengeRuntimeHandle();
+    expect("getSessionChallengeAutomationMode" in (handle as Record<string, unknown>)).toBe(false);
+    expect("setSessionChallengeAutomationMode" in (handle as Record<string, unknown>)).toBe(false);
     await handle.status("session-1");
     await handle.goto("session-1", "https://example.com/login", "domcontentloaded", 1000, undefined, "tab-1");
     await handle.waitForLoad("session-1", "networkidle", 1000, "tab-1");

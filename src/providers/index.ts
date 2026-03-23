@@ -12,8 +12,11 @@ import { AdaptiveConcurrencyController } from "./adaptive-concurrency";
 import { applyPromptGuard } from "./safety/prompt-guard";
 import { fallbackTierMetadata, selectTierRoute, shouldFallbackToTierA } from "./tier-router";
 import {
+  browserFallbackObservationDetails,
+  browserFallbackObservationAttributes,
   readFallbackString,
   resolveProviderBrowserFallback,
+  toBrowserFallbackObservation,
   toProviderFallbackError
 } from "./browser-fallback";
 import { createLogger } from "../core/logging";
@@ -46,7 +49,9 @@ import {
 } from "./workflows";
 import type {
   AdaptiveConcurrencyDiagnostics,
+  BrowserFallbackObservation,
   BrowserFallbackPort,
+  BrowserFallbackMode,
   BlockerSignalV1,
   ChallengeOwnerSurface,
   JsonValue,
@@ -61,6 +66,7 @@ import type {
   ProviderErrorCode,
   ProviderOperation,
   ProviderOperationResult,
+  ProviderRecoveryHints,
   ProviderReasonCode,
   ProviderRunOptions,
   ProviderRuntimeBudgets,
@@ -83,6 +89,59 @@ const DEFAULT_PROVIDER_SUSPENDED_INTENT_KIND: Record<ProviderOperation, Suspende
 };
 
 type SuspendedIntentResumeResult = ProviderAggregateResult | Record<string, unknown>;
+
+const EXTENSION_FIRST_SOCIAL_RECOVERY_PLATFORMS = new Set<SocialPlatform>(["linkedin"]);
+const EXTENSION_FIRST_FALLBACK_MODES: BrowserFallbackMode[] = ["extension", "managed_headed"];
+const SOCIAL_BROWSER_RECOVERY_REASON_CODES = new Set<ProviderReasonCode>(["challenge_detected"]);
+
+const withPrioritizedFallbackModes = (
+  prioritized: readonly BrowserFallbackMode[],
+  existing?: readonly BrowserFallbackMode[]
+): BrowserFallbackMode[] => [...new Set([...prioritized, ...(existing ?? [])])];
+
+const buildSocialRecoveryHints = (
+  platform: SocialPlatform,
+  options: SocialProviderOptions | undefined
+): ProviderRecoveryHints | undefined => {
+  const existing = options?.recoveryHints?.();
+  if (!EXTENSION_FIRST_SOCIAL_RECOVERY_PLATFORMS.has(platform)) {
+    return existing;
+  }
+  return {
+    ...(existing ?? {}),
+    preferredFallbackModes: withPrioritizedFallbackModes(
+      EXTENSION_FIRST_FALLBACK_MODES,
+      existing?.preferredFallbackModes
+    )
+  };
+};
+
+const buildSocialDefaultTraversal = (
+  platform: SocialPlatform,
+  options: SocialProviderOptions | undefined
+): SocialProviderOptions["defaultTraversal"] => {
+  const existing = options?.defaultTraversal;
+  if (!EXTENSION_FIRST_SOCIAL_RECOVERY_PLATFORMS.has(platform)) {
+    return existing;
+  }
+  return {
+    pageLimit: 1,
+    hopLimit: 0,
+    expansionPerRecord: 0,
+    ...(existing ?? {})
+  };
+};
+
+const shouldRecoverSocialDocumentIssue = (
+  platform: SocialPlatform,
+  reasonCode: ProviderReasonCode
+): boolean => {
+  if (SOCIAL_BROWSER_RECOVERY_REASON_CODES.has(reasonCode)) {
+    return true;
+  }
+  return reasonCode === "token_required"
+    && EXTENSION_FIRST_SOCIAL_RECOVERY_PLATFORMS.has(platform);
+};
 
 const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -218,6 +277,7 @@ type RuntimeFetchedDocument = {
   html: string;
   text: string;
   links: string[];
+  browserFallback?: BrowserFallbackObservation;
 };
 
 const isHttpUrl = (value: string): boolean => {
@@ -453,6 +513,7 @@ const fetchRuntimeDocumentWithFallback = async (args: {
   signal?: AbortSignal;
   context?: ProviderContext;
   browserFallbackPort?: BrowserFallbackPort;
+  recoveryHints?: ProviderRecoveryHints;
 }): Promise<RuntimeFetchedDocument> => {
   try {
     return await fetchRuntimeDocument({
@@ -487,7 +548,8 @@ const fetchRuntimeDocumentWithFallback = async (args: {
         errorCode: normalized.code,
         message: normalized.message,
         ...(normalized.details ?? {})
-      }
+      },
+      recoveryHints: args.recoveryHints
     });
     if (!fallback) {
       throw error;
@@ -509,7 +571,8 @@ const fetchRuntimeDocumentWithFallback = async (args: {
       status: 200,
       html,
       text: extracted.text,
-      links: extracted.links
+      links: extracted.links,
+      browserFallback: toBrowserFallbackObservation(fallback)
     };
   }
 };
@@ -1112,6 +1175,9 @@ export class ProviderRuntime {
               signal,
               suspendedIntent: this.buildSuspendedIntent(provider.id, provider.source, operation, input, runOptions),
               ...(typeof runOptions.useCookies === "boolean" ? { useCookies: runOptions.useCookies } : {}),
+              ...(runOptions.challengeAutomationMode
+                ? { challengeAutomationMode: runOptions.challengeAutomationMode }
+                : {}),
               ...(runOptions.cookiePolicyOverride
                 ? { cookiePolicyOverride: runOptions.cookiePolicyOverride }
                 : {}),
@@ -1803,12 +1869,13 @@ const withDefaultWebOptions = (
           title: document.url,
           content: toSnippet(stripUrls(document.text), 1500),
           confidence: isHttpUrl(query) ? 0.75 : 0.55,
-          attributes: {
-            query,
-            status: document.status,
-            retrievalPath: searchPath
-          }
-        }];
+        attributes: {
+          query,
+          status: document.status,
+          retrievalPath: searchPath,
+          ...browserFallbackObservationAttributes(document.browserFallback)
+        }
+      }];
       }
 
       return links.map((url, index) => ({
@@ -1820,7 +1887,8 @@ const withDefaultWebOptions = (
           query,
           rank: index + 1,
           status: document.status,
-          retrievalPath: searchPath
+          retrievalPath: searchPath,
+          ...browserFallbackObservationAttributes(document.browserFallback)
         }
       }));
     })
@@ -1861,7 +1929,8 @@ const withDefaultCommunityOptions = (
           page,
           status: document.status,
           links,
-          retrievalPath: isHttpUrl(query) ? "community:search:url" : "community:search:index"
+          retrievalPath: isHttpUrl(query) ? "community:search:url" : "community:search:index",
+          ...browserFallbackObservationAttributes(document.browserFallback)
         }
       }];
     }),
@@ -1883,7 +1952,8 @@ const withDefaultCommunityOptions = (
         attributes: {
           status: document.status,
           links,
-          retrievalPath: "community:fetch:url"
+          retrievalPath: "community:fetch:url",
+          ...browserFallbackObservationAttributes(document.browserFallback)
         }
       };
     })
@@ -1896,8 +1966,115 @@ const withDefaultSocialPlatformOptions = (
   browserFallbackPort?: BrowserFallbackPort
 ): SocialProviderOptions => {
   const providerId = options?.id ?? `social/${platform}`;
+  const extensionFirstRecoveryHints = buildSocialRecoveryHints(platform, options);
+  const defaultTraversal = buildSocialDefaultTraversal(platform, options);
+  const describeDocumentIssue = (document: RuntimeFetchedDocument) => {
+    const extracted = extractStructuredContent(document.html, document.url);
+    const title = typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined;
+    const pageMessage = toSnippet(stripUrls(extracted.text), 1600);
+    const issue = classifyProviderIssue({
+      url: document.url,
+      title,
+      message: pageMessage,
+      status: document.status,
+      providerErrorCode: "unavailable",
+      retryable: true
+    });
+    return {
+      extracted,
+      title,
+      pageMessage,
+      issue,
+      details: applyProviderIssueHint({
+        status: document.status,
+        url: document.url,
+        ...(title ? { title } : {}),
+        ...(pageMessage ? { message: pageMessage } : {})
+      }, issue)
+    };
+  };
+  const toIssueError = (document: RuntimeFetchedDocument, issueDetails: ReturnType<typeof describeDocumentIssue>) => {
+    const reasonCode = issueDetails.issue?.reasonCode ?? "env_limited";
+    return new ProviderRuntimeError(
+      providerErrorCodeFromReasonCode(reasonCode),
+      reasonCode === "token_required"
+        ? `Authentication required for ${document.url}`
+        : reasonCode === "challenge_detected"
+          ? `Detected anti-bot challenge while retrieving ${document.url}`
+          : `Browser assistance required for ${document.url}`,
+      {
+        provider: providerId,
+        source: "social",
+        retryable: reasonCode === "env_limited",
+        reasonCode,
+        details: {
+          ...issueDetails.details,
+          ...browserFallbackObservationDetails(document.browserFallback)
+        }
+      }
+    );
+  };
+  const resolveFallbackDocumentIfNeeded = async (
+    operation: "search" | "fetch",
+    document: RuntimeFetchedDocument,
+    context: ProviderContext
+  ): Promise<{ document: RuntimeFetchedDocument } & ReturnType<typeof describeDocumentIssue>> => {
+    let currentDocument = document;
+    let described = describeDocumentIssue(currentDocument);
+    const initialIssue = described.issue;
+    if (!initialIssue) {
+      return { document: currentDocument, ...described };
+    }
+    if (initialIssue.reasonCode === "env_limited" && !initialIssue.constraint) {
+      return { document: currentDocument, ...described };
+    }
+    if (!shouldRecoverSocialDocumentIssue(platform, initialIssue.reasonCode)) {
+      throw toIssueError(currentDocument, described);
+    }
+
+    const fallback = await resolveProviderBrowserFallback({
+      browserFallbackPort: context.browserFallbackPort ?? browserFallbackPort,
+      provider: providerId,
+      source: "social",
+      operation,
+      reasonCode: initialIssue.reasonCode,
+      url: currentDocument.url,
+      context,
+      details: described.details,
+      recoveryHints: extensionFirstRecoveryHints
+    });
+    if (fallback) {
+      if (fallback.disposition !== "completed") {
+        throw toProviderFallbackError({
+          provider: providerId,
+          source: "social",
+          url: currentDocument.url,
+          fallback
+        });
+      }
+
+      const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? currentDocument.url);
+      const html = readFallbackString(fallback.output, "html") ?? "";
+      const extracted = extractStructuredContent(html, resolvedUrl);
+      currentDocument = {
+        url: resolvedUrl,
+        status: 200,
+        html,
+        text: extracted.text,
+        links: extracted.links,
+        browserFallback: toBrowserFallbackObservation(fallback)
+      };
+      described = describeDocumentIssue(currentDocument);
+      if (!described.issue || (described.issue.reasonCode === "env_limited" && !described.issue.constraint)) {
+        return { document: currentDocument, ...described };
+      }
+    }
+
+    throw toIssueError(currentDocument, described);
+  };
   return {
     ...options,
+    ...(defaultTraversal ? { defaultTraversal } : {}),
     search: options?.search ?? (async (input, context) => {
       const query = input.query.trim();
       const page = toPositiveInt(input.filters?.page, 1);
@@ -1911,55 +2088,25 @@ const withDefaultSocialPlatformOptions = (
         operation: "search",
         signal: context.signal,
         context,
-        browserFallbackPort
+        browserFallbackPort,
+        recoveryHints: extensionFirstRecoveryHints
       });
-      const extracted = extractStructuredContent(document.html, document.url);
-      const pageMessage = toSnippet(stripUrls(extracted.text), 1600);
-      const issue = classifyProviderIssue({
-        url: document.url,
-        title: typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined,
-        message: pageMessage,
-        status: document.status,
-        providerErrorCode: "unavailable",
-        retryable: true
-      });
-      if (issue && (issue.reasonCode !== "env_limited" || issue.constraint)) {
-        const reasonCode = issue.reasonCode;
-        throw new ProviderRuntimeError(
-          providerErrorCodeFromReasonCode(reasonCode),
-          reasonCode === "token_required"
-            ? `Authentication required for ${document.url}`
-            : reasonCode === "challenge_detected"
-              ? `Detected anti-bot challenge while retrieving ${document.url}`
-              : `Browser assistance required for ${document.url}`,
-          {
-            provider: providerId,
-            source: "social",
-            retryable: reasonCode === "env_limited",
-            reasonCode,
-            details: applyProviderIssueHint({
-              status: document.status,
-              url: document.url,
-              ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
-              ...(pageMessage ? { message: pageMessage } : {})
-            }, issue)
-          }
-        );
-      }
-      const links = dedupeLinks(document.links, document.url, 20);
+      const { document: resolvedDocument, extracted, pageMessage } = await resolveFallbackDocumentIfNeeded("search", document, context);
+      const links = dedupeLinks(resolvedDocument.links, resolvedDocument.url, 20);
 
       return [{
-        url: document.url,
-        title: isHttpUrl(query) ? document.url : `${platform} search: ${query}`,
+        url: resolvedDocument.url,
+        title: isHttpUrl(query) ? resolvedDocument.url : `${platform} search: ${query}`,
         content: pageMessage,
         confidence: isHttpUrl(query) ? 0.72 : 0.58,
         attributes: {
           platform,
           query,
           page,
-          status: document.status,
+          status: resolvedDocument.status,
           links,
-          retrievalPath: isHttpUrl(query) ? "social:search:url" : "social:search:index"
+          retrievalPath: isHttpUrl(query) ? "social:search:url" : "social:search:index",
+          ...browserFallbackObservationAttributes(resolvedDocument.browserFallback)
         }
       }];
     }),
@@ -1971,21 +2118,25 @@ const withDefaultSocialPlatformOptions = (
         operation: "fetch",
         signal: context.signal,
         context,
-        browserFallbackPort
+        browserFallbackPort,
+        recoveryHints: extensionFirstRecoveryHints
       });
-      const links = dedupeLinks(document.links, document.url, 20);
+      const { document: resolvedDocument, extracted } = await resolveFallbackDocumentIfNeeded("fetch", document, context);
+      const links = dedupeLinks(resolvedDocument.links, resolvedDocument.url, 20);
       return {
-        url: document.url,
-        title: document.url,
-        content: document.text,
+        url: resolvedDocument.url,
+        title: resolvedDocument.url,
+        content: resolvedDocument.text,
         attributes: {
           platform,
-          status: document.status,
+          status: resolvedDocument.status,
           links,
-          retrievalPath: "social:fetch:url"
+          retrievalPath: "social:fetch:url",
+          ...browserFallbackObservationAttributes(resolvedDocument.browserFallback)
         }
       };
-    })
+    }),
+    ...(extensionFirstRecoveryHints ? { recoveryHints: () => extensionFirstRecoveryHints } : {})
   };
 };
 

@@ -9,7 +9,7 @@ import type { ChallengeRuntimeHandle } from "../src/browser/manager-types";
 import type { ProvidersChallengeOrchestrationConfig } from "../src/config";
 
 const config: ProvidersChallengeOrchestrationConfig = {
-  enabled: true,
+  mode: "browser",
   attemptBudget: 3,
   noProgressLimit: 2,
   stepTimeoutMs: 1000,
@@ -36,7 +36,7 @@ const makeBundle = (args: {
   title?: string;
   snapshot: string;
   cookieCount?: number;
-  taskData?: Record<string, string | number | boolean>;
+  taskData?: Record<string, unknown>;
 }): ChallengeEvidenceBundle => buildChallengeEvidenceBundle({
   status: {
     mode: "extension",
@@ -423,6 +423,66 @@ describe("challenge action loop", () => {
     ]);
   });
 
+  it("uses the optional bridge lane with explicit suggestions before falling back to canonical helper refs", async () => {
+    const explicitSuggestion: ChallengeActionStep = {
+      kind: "click",
+      ref: "r20",
+      reason: "Worker-selected helper suggestion."
+    };
+    const explicit = await runChallengeActionLoop({
+      handle: makeHandle("[r20] button \"Resume\"\n[r21] button \"Verify you're human\"", {
+        advanceOnKinds: ["click"]
+      }),
+      sessionId: "session-optional-explicit",
+      initialBundle: makeBundle({
+        url: "https://example.com/challenge",
+        title: "Challenge",
+        snapshot: "[r20] button \"Resume\"\n[r21] button \"Verify you're human\""
+      }),
+      decision: makeDecision(["verification"], {
+        lane: "optional_computer_use_bridge"
+      }),
+      suggestedSteps: [explicitSuggestion],
+      config: {
+        ...config,
+        optionalComputerUseBridge: {
+          enabled: true,
+          maxSuggestions: 1
+        }
+      }
+    });
+    const fallback = await runChallengeActionLoop({
+      handle: makeHandle("[r21] button \"Verify you're human\"", {
+        advanceOnKinds: ["click"]
+      }),
+      sessionId: "session-optional-fallback",
+      initialBundle: makeBundle({
+        url: "https://example.com/challenge",
+        title: "Challenge",
+        snapshot: "[r21] button \"Verify you're human\""
+      }),
+      decision: makeDecision(["verification"], {
+        lane: "optional_computer_use_bridge"
+      }),
+      config: {
+        ...config,
+        optionalComputerUseBridge: {
+          enabled: true,
+          maxSuggestions: 1
+        }
+      }
+    });
+
+    expect(explicit.executedSteps).toEqual([explicitSuggestion]);
+    expect(fallback.executedSteps).toEqual([
+      {
+        kind: "click",
+        ref: "r21",
+        reason: "Optional bridge suggested a browser-scoped click follow-up from canonical evidence."
+      }
+    ]);
+  });
+
   it("falls through invalid auth and task-data inputs to a bounded wait", async () => {
     const result = await runChallengeActionLoop({
       handle: makeHandle("[r10] textbox \"Password\""),
@@ -494,6 +554,32 @@ describe("challenge action loop", () => {
       decision: makeDecision(["non_secret_form_fill", "verification"]),
       config
     });
+    const booleanTaskValue = await runChallengeActionLoop({
+      handle: makeHandle("[r16] textbox \"Company\""),
+      sessionId: "session-boolean-task-value",
+      initialBundle: makeBundle({
+        snapshot: "[r16] textbox \"Company\"",
+        taskData: {
+          company: true
+        }
+      }),
+      decision: makeDecision(["non_secret_form_fill", "verification"]),
+      config
+    });
+    const structuredTaskValue = await runChallengeActionLoop({
+      handle: makeHandle("[r17] textbox \"Company\""),
+      sessionId: "session-structured-task-value",
+      initialBundle: makeBundle({
+        snapshot: "[r17] textbox \"Company\"",
+        taskData: {
+          company: {
+            legalName: "Acme"
+          }
+        }
+      }),
+      decision: makeDecision(["non_secret_form_fill", "verification"]),
+      config
+    });
 
     expect(noUrlOrTaskData.executedSteps[0]).toEqual({
       kind: "wait",
@@ -511,6 +597,15 @@ describe("challenge action loop", () => {
       kind: "type",
       ref: "r15",
       text: "42"
+    });
+    expect(booleanTaskValue.executedSteps[0]).toMatchObject({
+      kind: "type",
+      ref: "r16",
+      text: "true"
+    });
+    expect(structuredTaskValue.executedSteps[0]).toEqual({
+      kind: "wait",
+      reason: "Give the page a short bounded settle window before yielding."
     });
   });
 

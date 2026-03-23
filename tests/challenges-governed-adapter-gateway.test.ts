@@ -9,7 +9,7 @@ import type {
 import type { ProvidersChallengeOrchestrationConfig } from "../src/config";
 
 const makeConfig = (overrides: Partial<ProvidersChallengeOrchestrationConfig> = {}): ProvidersChallengeOrchestrationConfig => ({
-  enabled: true,
+  mode: "browser",
   attemptBudget: 6,
   noProgressLimit: 3,
   stepTimeoutMs: 5000,
@@ -89,7 +89,7 @@ const makeRequest = (
 describe("challenge governed adapter gateway", () => {
   it("blocks all governed lanes when challenge orchestration is disabled", () => {
     const result = evaluateGovernedLane(
-      makeConfig({ enabled: false }),
+      makeConfig({ mode: "off" }),
       makeRequest(
         "owned_environment_fixture",
         makeBundle("file:///tmp/turnstile-checkbox.html", "turnstile-checkbox fixture", "[r1] button \"Verify you're human\"")
@@ -99,7 +99,7 @@ describe("challenge governed adapter gateway", () => {
     expect(result).toEqual({
       status: "blocked",
       lane: "owned_environment_fixture",
-      reason: "Challenge orchestration is disabled.",
+      reason: "Challenge automation mode is off.",
       auditMetadata: {}
     });
   });

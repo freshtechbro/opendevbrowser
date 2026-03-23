@@ -8,11 +8,11 @@ export const evaluateGovernedLane = (
   config: ProvidersChallengeOrchestrationConfig,
   request: GovernedLaneRequest
 ): GovernedLaneResult => {
-  if (!config.enabled) {
+  if (config.mode === "off") {
     return {
       status: "blocked",
       lane: request.lane,
-      reason: "Challenge orchestration is disabled.",
+      reason: "Challenge automation mode is off.",
       auditMetadata: {}
     };
   }

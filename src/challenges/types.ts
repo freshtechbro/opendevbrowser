@@ -24,6 +24,36 @@ export type ChallengeHumanBoundary =
   | "unsupported_third_party"
   | "exhausted_no_progress";
 
+export const CHALLENGE_AUTOMATION_MODES = ["off", "browser", "browser_with_helper"] as const;
+export type ChallengeAutomationMode = (typeof CHALLENGE_AUTOMATION_MODES)[number];
+const CHALLENGE_AUTOMATION_MODE_SET = new Set<string>(CHALLENGE_AUTOMATION_MODES);
+
+export function isChallengeAutomationMode(value: unknown): value is ChallengeAutomationMode {
+  return typeof value === "string" && CHALLENGE_AUTOMATION_MODE_SET.has(value);
+}
+
+export type ChallengeAutomationModeSource = "run" | "session" | "config";
+
+export type ChallengeAutomationStandDownReason =
+  | "challenge_automation_off"
+  | "helper_disabled_for_browser_mode"
+  | "helper_disabled_by_policy"
+  | "helper_blocked_by_human_boundary"
+  | "helper_no_safe_actions"
+  | "suppressed_by_manager";
+
+export type ChallengeAutomationHelperEligibility = {
+  allowed: boolean;
+  reason: string;
+  standDownReason?: ChallengeAutomationStandDownReason;
+};
+
+export type ResolvedChallengeAutomationPolicy = {
+  mode: ChallengeAutomationMode;
+  source: ChallengeAutomationModeSource;
+  standDownReason?: ChallengeAutomationStandDownReason;
+};
+
 export type ChallengeVerificationLevel = "light" | "full";
 
 export type ChallengeGovernedLaneKind =
@@ -170,11 +200,13 @@ export type ChallengeInterpreterResult = {
 };
 
 export type ChallengePolicyGate = {
+  resolvedPolicy: ResolvedChallengeAutomationPolicy;
   allowedActions: ChallengeActionFamily[];
   forbiddenActions: ChallengeActionFamily[];
   handoffTriggers: ChallengeHumanBoundary[];
   governedLanes: ChallengeGovernedLaneKind[];
   optionalComputerUseBridge: boolean;
+  helperEligibility: ChallengeAutomationHelperEligibility;
 };
 
 export type ChallengeCapabilityMatrix = {
@@ -187,6 +219,7 @@ export type ChallengeCapabilityMatrix = {
   canUseSanctionedIdentity: boolean;
   canUseServiceAdapter: boolean;
   canUseComputerUseBridge: boolean;
+  helperEligibility: ChallengeAutomationHelperEligibility;
   mustYield: boolean;
   mustDefer: boolean;
 };
@@ -269,12 +302,16 @@ export type OutcomeRecord = {
 export type ChallengeOrchestrationSnapshot = {
   challengeId?: string;
   classification: ChallengeClassification;
+  mode: ChallengeAutomationMode;
+  source: ChallengeAutomationModeSource;
   lane: ChallengeStrategyLane;
   status: ChallengeActionStatus;
   reason: string;
   attempts: number;
   reusedExistingSession: boolean;
   reusedCookies: boolean;
+  standDownReason?: ChallengeAutomationStandDownReason;
+  helperEligibility: ChallengeAutomationHelperEligibility;
   verification: VerificationResult;
   evidence: {
     url?: string;
@@ -319,6 +356,7 @@ export type ComputerUseBridgeResult = {
   status: "disabled" | "suggested" | "unsupported";
   reason: string;
   suggestedSteps: ChallengeActionStep[];
+  standDownReason?: ChallengeAutomationStandDownReason;
   auditMetadata?: Record<string, JsonValue>;
 };
 

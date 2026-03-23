@@ -7,6 +7,7 @@ import { CODE_SYNC_CAPABILITIES } from "./canvas/code-sync/types";
 import { generateSecureToken } from "./utils/crypto";
 import { writeFileAtomic } from "./utils/fs";
 import type { CanvasAdapterPluginDeclaration } from "./canvas/adapter-plugins/types";
+import type { ChallengeAutomationMode } from "./challenges/types";
 import type {
   ProviderCookieImportRecord,
   ProviderCookiePolicy,
@@ -164,7 +165,7 @@ export type ProvidersChallengeOptionalBridgeConfig = {
 };
 
 export type ProvidersChallengeOrchestrationConfig = {
-  enabled: boolean;
+  mode: ChallengeAutomationMode;
   attemptBudget: number;
   noProgressLimit: number;
   stepTimeoutMs: number;
@@ -360,7 +361,7 @@ const providersSchema = z.object({
     allowBrowserEscalation: z.boolean().default(true)
   }).default({}),
   challengeOrchestration: z.object({
-    enabled: z.boolean().default(true),
+    mode: z.enum(["off", "browser", "browser_with_helper"]).default("browser_with_helper"),
     attemptBudget: z.number().int().min(1).max(20).default(6),
     noProgressLimit: z.number().int().min(1).max(10).default(3),
     stepTimeoutMs: z.number().int().min(250).max(120000).default(5000),
@@ -377,7 +378,7 @@ const providersSchema = z.object({
       requireAuditMetadata: z.boolean().default(true)
     }).default({}),
     optionalComputerUseBridge: z.object({
-      enabled: z.boolean().default(false),
+      enabled: z.boolean().default(true),
       maxSuggestions: z.number().int().min(1).max(20).default(3)
     }).default({})
   }).default({}),

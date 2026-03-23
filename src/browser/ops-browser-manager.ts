@@ -4,7 +4,7 @@ import type { OpenDevBrowserConfig } from "../config";
 import { createRequestId } from "../core/logging";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
 import type { ParallelismGovernorPolicyPayload } from "../relay/protocol";
-import { ChallengeOrchestrator } from "../challenges";
+import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
 import type {
   BrowserCanvasOverlayMountInput,
   BrowserCanvasOverlayResult,
@@ -63,6 +63,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
   private publicSessionIdsByProtocolId = new Map<string, string>();
   private opsSessionTabs = new Map<string, number>();
   private opsSessionUrls = new Map<string, string>();
+  private opsSessionChallengeAutomationModes = new Map<string, ChallengeAutomationMode>();
   private closedOpsSessions = new Map<string, number>();
   private idleDisconnectPromise: Promise<void> | null = null;
   private challengeOrchestrator?: ChallengeOrchestrator;
@@ -76,6 +77,18 @@ export class OpsBrowserManager implements BrowserManagerLike {
   setChallengeOrchestrator(orchestrator?: ChallengeOrchestrator): void {
     this.challengeOrchestrator = orchestrator;
     this.base.setChallengeOrchestrator(orchestrator);
+  }
+
+  getSessionChallengeAutomationMode(sessionId: string): ChallengeAutomationMode | undefined {
+    return this.opsSessionChallengeAutomationModes.get(sessionId);
+  }
+
+  setSessionChallengeAutomationMode(sessionId: string, mode?: ChallengeAutomationMode): void {
+    if (typeof mode === "undefined") {
+      this.opsSessionChallengeAutomationModes.delete(sessionId);
+      return;
+    }
+    this.opsSessionChallengeAutomationModes.set(sessionId, mode);
   }
 
   createChallengeRuntimeHandle(): ChallengeRuntimeHandle {
@@ -1105,8 +1118,9 @@ export class OpsBrowserManager implements BrowserManagerLike {
       this.releaseProtocolSession(sessionId);
       this.releaseExternalBlockerSlot(sessionId);
       this.opsSessionTabs.delete(sessionId);
-      this.opsSessionUrls.delete(sessionId);
-      this.closedOpsSessions.set(sessionId, Date.now());
+    this.opsSessionUrls.delete(sessionId);
+    this.opsSessionChallengeAutomationModes.delete(sessionId);
+    this.closedOpsSessions.set(sessionId, Date.now());
       this.trackClosedSessionCleanup();
       void this.disconnectOpsClientIfIdle();
     }
@@ -1276,14 +1290,60 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (!result.meta?.challenge || result.meta.blockerState === "clear") {
       return result;
     }
-    if (!this.challengeOrchestrator || this.isChallengeAutomationSuppressed(sessionId)) {
+    if (!this.challengeOrchestrator) {
       return result;
+    }
+    const policy = resolveChallengeAutomationPolicy({
+      sessionMode: this.getSessionChallengeAutomationMode(sessionId),
+      configMode: this.config.providers?.challengeOrchestration.mode ?? "browser_with_helper"
+    });
+    if (this.isChallengeAutomationSuppressed(sessionId)) {
+      return {
+        ...result,
+        meta: {
+          ...result.meta,
+          challengeOrchestration: {
+            challengeId: result.meta.challenge.challengeId,
+            classification: result.meta.blocker?.type === "auth_required"
+              ? "auth_required"
+              : "unsupported_third_party_challenge",
+            mode: policy.mode,
+            source: policy.source,
+            lane: "defer",
+            status: "deferred",
+            reason: "Challenge automation is suppressed while a bounded challenge action is already in progress.",
+            attempts: 0,
+            reusedExistingSession: false,
+            reusedCookies: false,
+            standDownReason: "suppressed_by_manager",
+            helperEligibility: {
+              allowed: false,
+              reason: "Challenge automation is currently suppressed by the manager guard.",
+              standDownReason: "suppressed_by_manager"
+            },
+            verification: {
+              status: "still_blocked",
+              blockerState: result.meta.blockerState,
+              blocker: result.meta.blocker,
+              challenge: result.meta.challenge,
+              changed: false,
+              reason: "Challenge automation is currently suppressed by the manager guard."
+            },
+            evidence: {
+              loginRefs: [],
+              humanVerificationRefs: [],
+              checkpointRefs: []
+            }
+          }
+        }
+      };
     }
     try {
       const orchestration = await this.challengeOrchestrator.orchestrate({
         handle: this.createChallengeRuntimeHandle(),
         sessionId,
         targetId,
+        policy,
         canImportCookies: true
       });
       const verification = orchestration.action.verification;

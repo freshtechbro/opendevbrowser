@@ -5,7 +5,7 @@ import type { ChallengeRuntimeHandle } from "../src/browser/manager-types";
 import type { ProvidersChallengeOrchestrationConfig } from "../src/config";
 
 const makeConfig = (overrides: Partial<ProvidersChallengeOrchestrationConfig> = {}): ProvidersChallengeOrchestrationConfig => ({
-  enabled: true,
+  mode: "browser",
   attemptBudget: 2,
   noProgressLimit: 1,
   stepTimeoutMs: 1000,
@@ -230,6 +230,73 @@ describe("challenge orchestrator", () => {
     expect(recorder.latest("challenge-1")?.resumeOutcome).toBe("awaiting_human_reclaim");
   });
 
+  it("surfaces manager stand-down reasons when helper eligibility stays otherwise allowed", async () => {
+    const orchestrator = new ChallengeOrchestrator(makeConfig({
+      mode: "browser_with_helper",
+      optionalComputerUseBridge: {
+        enabled: true,
+        maxSuggestions: 2
+      }
+    }));
+
+    const result = await orchestrator.orchestrate({
+      handle: makeHandle({
+        url: "https://example.com/login",
+        title: "Continue sign in",
+        snapshot: "[r1] link \"Continue to sign in\"",
+        clearOnRef: "r1"
+      }),
+      sessionId: "session-manager-stand-down",
+      canImportCookies: true,
+      policy: {
+        mode: "browser_with_helper",
+        source: "session",
+        standDownReason: "suppressed_by_manager"
+      }
+    });
+
+    expect(result.outcome.status).toBe("resolved");
+    expect(result.outcome.standDownReason).toBe("suppressed_by_manager");
+    expect(result.outcome.helperEligibility.allowed).toBe(true);
+  });
+
+  it("runs the optional browser-scoped helper lane when generic autonomy is exhausted", async () => {
+    const orchestrator = new ChallengeOrchestrator(makeConfig({
+      mode: "browser_with_helper",
+      allowAuthNavigation: false,
+      allowSessionReuse: false,
+      allowCookieReuse: false,
+      allowNonSecretFormFill: false,
+      allowInteractionExploration: false,
+      optionalComputerUseBridge: {
+        enabled: true,
+        maxSuggestions: 2
+      }
+    }));
+
+    const result = await orchestrator.orchestrate({
+      handle: makeHandle({
+        url: "https://example.com/challenge",
+        title: "Verification required",
+        snapshot: "[r30] button \"Use existing session\"",
+        blockerType: "anti_bot_challenge",
+        reasonCode: "challenge_detected",
+        advanceOnKinds: ["click"]
+      }),
+      sessionId: "session-helper-lane",
+      canImportCookies: true
+    });
+
+    expect(result.decision.lane).toBe("optional_computer_use_bridge");
+    expect(result.action.executedSteps).toEqual([
+      {
+        kind: "click",
+        ref: "r30",
+        reason: "Optional bridge suggested a browser-scoped click follow-up from canonical evidence."
+      }
+    ]);
+  });
+
   it("blocks governed sanctioned-identity runs without explicit entitlement metadata", async () => {
     const orchestrator = new ChallengeOrchestrator(makeConfig({
       allowAuthNavigation: false,
@@ -264,7 +331,7 @@ describe("challenge orchestrator", () => {
   it("records defer outcomes when config disables orchestration", async () => {
     const recorder = new OutcomeRecorder();
     const orchestrator = new ChallengeOrchestrator(makeConfig({
-      enabled: false
+      mode: "off"
     }), recorder);
 
     const result = await orchestrator.orchestrate({
@@ -283,7 +350,7 @@ describe("challenge orchestrator", () => {
 
   it("defaults omitted canImportCookies to false during orchestration capture", async () => {
     const orchestrator = new ChallengeOrchestrator(makeConfig({
-      enabled: false
+      mode: "off"
     }));
 
     const result = await orchestrator.orchestrate({

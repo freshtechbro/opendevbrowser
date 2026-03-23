@@ -4,9 +4,12 @@ import {
   buildChallengeEvidenceBundle,
   buildChallengePolicyGate,
   interpretChallengeEvidence,
+  resolveChallengeAutomationPolicy,
   selectChallengeStrategy
 } from "../src/challenges";
 import type {
+  ChallengeAutomationHelperEligibility,
+  ChallengeAutomationMode,
   ChallengeCapabilityMatrix,
   ChallengeInterpreterResult,
   ChallengePolicyGate
@@ -14,7 +17,7 @@ import type {
 import type { ProvidersChallengeOrchestrationConfig } from "../src/config";
 
 const makeConfig = (overrides: Partial<ProvidersChallengeOrchestrationConfig> = {}): ProvidersChallengeOrchestrationConfig => ({
-  enabled: true,
+  mode: "browser",
   attemptBudget: 6,
   noProgressLimit: 3,
   stepTimeoutMs: 5000,
@@ -86,13 +89,47 @@ const makeBundle = (args: {
   ...(args.registryPressure ? { registryPressure: args.registryPressure } : {})
 });
 
-const makeGate = (allowedActions: ChallengePolicyGate["allowedActions"], governedLanes: ChallengePolicyGate["governedLanes"] = [], optionalComputerUseBridge = false): ChallengePolicyGate => ({
-  allowedActions,
-  forbiddenActions: [],
-  handoffTriggers: ["secret_entry", "mfa", "explicit_consent", "policy_blocked", "unsupported_third_party", "exhausted_no_progress"],
-  governedLanes,
-  optionalComputerUseBridge
+const makeHelperEligibility = (
+  allowed: boolean,
+  overrides: Partial<ChallengeAutomationHelperEligibility> = {}
+): ChallengeAutomationHelperEligibility => ({
+  allowed,
+  reason: allowed
+    ? "Optional helper bridge remains eligible after mode resolution."
+    : "Browser mode keeps the optional helper bridge disabled.",
+  ...overrides
 });
+
+const makeGate = (
+  allowedActions: ChallengePolicyGate["allowedActions"],
+  governedLanes: ChallengePolicyGate["governedLanes"] = [],
+  options: {
+    mode?: ChallengeAutomationMode;
+    helperEligibility?: ChallengeAutomationHelperEligibility;
+  } = {}
+): ChallengePolicyGate => {
+  const mode = options.mode ?? "browser";
+  const helperEligibility = options.helperEligibility
+    ?? (mode === "off"
+      ? makeHelperEligibility(false, {
+        reason: "Challenge automation mode is off; detection and reporting remain active.",
+        standDownReason: "challenge_automation_off"
+      })
+      : mode === "browser_with_helper"
+        ? makeHelperEligibility(true)
+        : makeHelperEligibility(false, {
+          standDownReason: "helper_disabled_for_browser_mode"
+        }));
+  return {
+    resolvedPolicy: resolveChallengeAutomationPolicy({ configMode: mode }),
+    allowedActions,
+    forbiddenActions: [],
+    handoffTriggers: ["secret_entry", "mfa", "explicit_consent", "policy_blocked", "unsupported_third_party", "exhausted_no_progress"],
+    governedLanes,
+    optionalComputerUseBridge: helperEligibility.allowed,
+    helperEligibility
+  };
+};
 
 const makeInterpretation = (overrides: Partial<ChallengeInterpreterResult> = {}): ChallengeInterpreterResult => ({
   classification: "checkpoint_or_friction",
@@ -108,6 +145,10 @@ const makeInterpretation = (overrides: Partial<ChallengeInterpreterResult> = {})
   ...overrides
 });
 
+const disabledHelperEligibility = makeHelperEligibility(false, {
+  standDownReason: "helper_disabled_for_browser_mode"
+});
+
 const baseCapabilityMatrix: ChallengeCapabilityMatrix = {
   canNavigateToAuth: false,
   canReuseExistingSession: false,
@@ -118,25 +159,65 @@ const baseCapabilityMatrix: ChallengeCapabilityMatrix = {
   canUseSanctionedIdentity: false,
   canUseServiceAdapter: false,
   canUseComputerUseBridge: false,
+  helperEligibility: disabledHelperEligibility,
   mustYield: false,
   mustDefer: false
 };
 
 describe("challenge policy gate", () => {
-  it("disables every action when orchestration is off", () => {
+  it("disables every action when orchestration mode is off", () => {
     const gate = buildChallengePolicyGate(
-      makeConfig({ enabled: false }),
+      makeConfig({ mode: "off" }),
       makeInterpretation()
     );
 
     expect(gate.allowedActions).toEqual([]);
     expect(gate.forbiddenActions).toContain("verification");
     expect(gate.optionalComputerUseBridge).toBe(false);
+    expect(gate.helperEligibility.standDownReason).toBe("challenge_automation_off");
+  });
+
+  it("forces helper stand-down in browser mode even when bridge policy is enabled", () => {
+    const gate = buildChallengePolicyGate(
+      makeConfig({
+        mode: "browser",
+        optionalComputerUseBridge: {
+          enabled: true,
+          maxSuggestions: 3
+        }
+      }),
+      makeInterpretation()
+    );
+
+    expect(gate.optionalComputerUseBridge).toBe(false);
+    expect(gate.helperEligibility.allowed).toBe(false);
+    expect(gate.helperEligibility.standDownReason).toBe("helper_disabled_for_browser_mode");
+  });
+
+  it("keeps the helper disabled in browser_with_helper mode when bridge policy is off", () => {
+    const gate = buildChallengePolicyGate(
+      makeConfig({
+        mode: "browser_with_helper",
+        optionalComputerUseBridge: {
+          enabled: false,
+          maxSuggestions: 3
+        }
+      }),
+      makeInterpretation()
+    );
+
+    expect(gate.optionalComputerUseBridge).toBe(false);
+    expect(gate.helperEligibility).toEqual({
+      allowed: false,
+      reason: "Optional computer-use bridge is disabled by policy.",
+      standDownReason: "helper_disabled_by_policy"
+    });
   });
 
   it("removes non-secret form fill for secret boundaries and exposes governed lanes", () => {
     const gate = buildChallengePolicyGate(
       makeConfig({
+        mode: "browser_with_helper",
         governed: {
           allowOwnedEnvironmentFixtures: true,
           allowSanctionedIdentity: true,
@@ -159,6 +240,7 @@ describe("challenge policy gate", () => {
       "service_adapter"
     ]);
     expect(gate.optionalComputerUseBridge).toBe(true);
+    expect(gate.helperEligibility.allowed).toBe(true);
   });
 });
 
@@ -187,7 +269,10 @@ describe("challenge capability matrix", () => {
     const gate = makeGate(
       ["auth_navigation", "session_reuse", "cookie_reuse", "non_secret_form_fill", "click_path", "verification"],
       ["owned_environment_fixture"],
-      true
+      {
+        mode: "browser_with_helper",
+        helperEligibility: makeHelperEligibility(true)
+      }
     );
 
     const capabilityMatrix = buildCapabilityMatrix(bundle, interpretation, gate);
@@ -241,7 +326,7 @@ describe("challenge capability matrix", () => {
 });
 
 describe("challenge strategy selector", () => {
-  it("defers when orchestration is disabled", () => {
+  it("defers when orchestration mode is off", () => {
     const bundle = makeBundle({
       url: "https://example.com/login",
       title: "Sign in",
@@ -249,15 +334,21 @@ describe("challenge strategy selector", () => {
     });
 
     const decision = selectChallengeStrategy({
-      config: makeConfig({ enabled: false }),
+      config: makeConfig({ mode: "off" }),
       bundle,
       interpretation: makeInterpretation(),
-      capabilityMatrix: baseCapabilityMatrix,
-      gate: makeGate([])
+      capabilityMatrix: {
+        ...baseCapabilityMatrix,
+        helperEligibility: makeHelperEligibility(false, {
+          reason: "Challenge automation mode is off; detection and reporting remain active.",
+          standDownReason: "challenge_automation_off"
+        })
+      },
+      gate: makeGate([], [], { mode: "off" })
     });
 
     expect(decision.lane).toBe("defer");
-    expect(decision.stopConditions).toContain("orchestration_disabled");
+    expect(decision.stopConditions).toContain("challenge_automation_off");
   });
 
   it("defers when capability evaluation says automation must stop", () => {
@@ -399,6 +490,7 @@ describe("challenge strategy selector", () => {
 
     const decision = selectChallengeStrategy({
       config: makeConfig({
+        mode: "browser_with_helper",
         optionalComputerUseBridge: {
           enabled: true,
           maxSuggestions: 2
@@ -408,12 +500,43 @@ describe("challenge strategy selector", () => {
       interpretation: makeInterpretation(),
       capabilityMatrix: {
         ...baseCapabilityMatrix,
-        canUseComputerUseBridge: true
+        canUseComputerUseBridge: true,
+        helperEligibility: makeHelperEligibility(true)
       },
-      gate: makeGate(["verification"], [], true)
+      gate: makeGate(["verification"], [], {
+        mode: "browser_with_helper",
+        helperEligibility: makeHelperEligibility(true)
+      })
     });
 
     expect(decision.lane).toBe("optional_computer_use_bridge");
+  });
+
+  it("uses the default off stand-down reason when the resolved policy omits it", () => {
+    const bundle = makeBundle({
+      url: "https://example.com/challenge",
+      title: "Security verification",
+      snapshot: "",
+      blockerType: "anti_bot_challenge",
+      reasonCode: "challenge_detected"
+    });
+
+    const decision = selectChallengeStrategy({
+      config: makeConfig({ mode: "off" }),
+      bundle,
+      interpretation: makeInterpretation(),
+      capabilityMatrix: baseCapabilityMatrix,
+      gate: {
+        ...makeGate([], [], { mode: "off" }),
+        resolvedPolicy: {
+          mode: "off",
+          source: "config"
+        }
+      }
+    });
+
+    expect(decision.lane).toBe("defer");
+    expect(decision.stopConditions).toEqual(["challenge_automation_off"]);
   });
 
   it("falls through to sanctioned identity and service adapters when they are the only governed lanes left", () => {

@@ -123,6 +123,18 @@ describe("shopping providers", () => {
     expect(() => createShoppingProviderById("shopping/unknown")).toThrow(ProviderRuntimeError);
   });
 
+  it("exposes extension-first recovery hints only for the high-friction shopping profiles", () => {
+    expect(createShoppingProviderById("shopping/target").recoveryHints?.()).toMatchObject({
+      preferredFallbackModes: ["extension", "managed_headed"]
+    });
+    expect(createShoppingProviderById("shopping/costco").recoveryHints?.()).toMatchObject({
+      preferredFallbackModes: ["extension", "managed_headed"]
+    });
+    expect(createShoppingProviderById("shopping/amazon").recoveryHints?.()).toMatchObject({
+      preferredFallbackModes: ["managed_headed", "extension"]
+    });
+  });
+
   it("normalizes search and fetch records with shopping_offer metadata", async () => {
     const provider = createShoppingProvider(amazonProfile, {
       fetcher: async ({ url }) => ({
@@ -736,6 +748,63 @@ describe("shopping providers", () => {
     }
   });
 
+  it("preserves helper execution metadata on successful shopping browser fallback recovery", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://amazon.com/s?k=wireless%20mouse",
+        html: "<html><body><main>fallback shopping content</main><a href=\"https://amazon.com/product/1\">item</a></body></html>"
+      },
+      details: {
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 1
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(rows?.[0]?.attributes).toMatchObject({
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "env_limited",
+        browser_fallback_cookie_diagnostics: {
+          available: true,
+          verifiedCount: 1
+        },
+        browser_fallback_challenge_orchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("maps token-required browser fallback failures to auth errors", async () => {
     const provider = createShoppingProvider(amazonProfile);
 
@@ -1218,7 +1287,7 @@ describe("shopping providers", () => {
         provider: "shopping/target",
         operation: "search",
         reasonCode: "env_limited",
-        preferredModes: ["managed_headed", "extension"],
+        preferredModes: ["extension", "managed_headed"],
         details: expect.objectContaining({
           browserRequired: true,
           providerShell: "target_shell_page",
@@ -1314,7 +1383,7 @@ describe("shopping providers", () => {
         provider: "shopping/target",
         operation: "search",
         reasonCode: "env_limited",
-        preferredModes: ["managed_headed", "extension"],
+        preferredModes: ["extension", "managed_headed"],
         details: expect.objectContaining({
           browserRequired: true,
           providerShell: "target_shell_page",
@@ -1324,6 +1393,72 @@ describe("shopping providers", () => {
           })
         })
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves browser fallback metadata when target recovery still ends on a render-required shell", async () => {
+    const provider = createShoppingProviderById("shopping/target");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.target.com/s?searchTerm=wireless%20mouse",
+        html: "<html><head><title>\"wireless mouse\" : Target</title></head><body>skip to main content skip to footer weekly ad registry target circle</body></html>"
+      },
+      details: {
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 1
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>\"wireless mouse\" : Target</title></head><body>skip to main content skip to footer weekly ad registry target circle</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+      throw new Error("Expected target shell recovery to stay blocked");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderRuntimeError);
+      expect((error as ProviderRuntimeError).reasonCode).toBe("env_limited");
+      expect((error as ProviderRuntimeError).details).toMatchObject({
+        browserFallbackMode: "extension",
+        browserFallbackReasonCode: "env_limited",
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 1
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        },
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "target_shell_page"
+        },
+        providerShell: "target_shell_page"
+      });
     } finally {
       vi.unstubAllGlobals();
     }

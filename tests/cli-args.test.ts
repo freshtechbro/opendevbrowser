@@ -202,6 +202,57 @@ describe("parseArgs", () => {
     ]);
   });
 
+  it("accepts workflow challenge automation flags through top-level CLI parsing", () => {
+    const research = parseArgs([
+      "node",
+      "cli",
+      "research",
+      "run",
+      "--topic=agent workflows",
+      "--challenge-automation-mode=browser_with_helper"
+    ]);
+    expect(research.command).toBe("research");
+    expect(research.rawArgs).toEqual([
+      "run",
+      "--topic=agent workflows",
+      "--challenge-automation-mode=browser_with_helper"
+    ]);
+
+    const shopping = parseArgs([
+      "node",
+      "cli",
+      "shopping",
+      "run",
+      "--query=usb hub",
+      "--challenge-automation-mode",
+      "browser"
+    ]);
+    expect(shopping.command).toBe("shopping");
+    expect(shopping.rawArgs).toEqual([
+      "run",
+      "--query=usb hub",
+      "--challenge-automation-mode",
+      "browser"
+    ]);
+
+    const productVideo = parseArgs([
+      "node",
+      "cli",
+      "product-video",
+      "run",
+      "--product-url=https://example.com/p/1",
+      "--challenge-automation-mode",
+      "off"
+    ]);
+    expect(productVideo.command).toBe("product-video");
+    expect(productVideo.rawArgs).toEqual([
+      "run",
+      "--product-url=https://example.com/p/1",
+      "--challenge-automation-mode",
+      "off"
+    ]);
+  });
+
   it("accepts --extension-legacy for launch/connect command parsing", () => {
     const launchParsed = parseArgs(["node", "cli", "launch", "--extension-only", "--extension-legacy"]);
     expect(launchParsed.command).toBe("launch");
@@ -434,6 +485,32 @@ describe("parseMacroResolveArgs", () => {
       "120000"
     ]);
     expect(parsed.timeoutMs).toBe(120000);
+  });
+
+  it("parses challenge automation mode flags", () => {
+    const spaced = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--challenge-automation-mode",
+      "browser_with_helper"
+    ]);
+    expect(spaced.challengeAutomationMode).toBe("browser_with_helper");
+
+    const equalsForm = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--challenge-automation-mode=browser"
+    ]);
+    expect(equalsForm.challengeAutomationMode).toBe("browser");
+  });
+
+  it("rejects invalid challenge automation mode", () => {
+    expect(() => macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--challenge-automation-mode",
+      "invalid"
+    ])).toThrow("Invalid --challenge-automation-mode: invalid");
   });
 
   it("rejects invalid timeout-ms", () => {

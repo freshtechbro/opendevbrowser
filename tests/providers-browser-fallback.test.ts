@@ -292,4 +292,72 @@ describe("provider browser fallback helpers", () => {
       }
     }));
   });
+
+  it("merges suspended intent input and forwards challenge automation mode into fallback requests", async () => {
+    const port: BrowserFallbackPort = {
+      resolve: vi.fn(async () => ({
+        ok: true,
+        reasonCode: "challenge_detected",
+        disposition: "completed",
+        output: {}
+      }))
+    };
+
+    await resolveProviderBrowserFallback({
+      browserFallbackPort: port,
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "challenge_detected",
+      context: {
+        trace: {
+          requestId: "req-merge",
+          provider: "shopping/target",
+          ts: "2026-03-23T00:00:00.000Z"
+        },
+        attempt: 1,
+        challengeAutomationMode: "browser_with_helper"
+      },
+      suspendedIntent: {
+        kind: "provider.search",
+        note: "resume target"
+      },
+      intentInput: {
+        query: "portable monitor"
+      }
+    });
+
+    await resolveProviderBrowserFallback({
+      browserFallbackPort: port,
+      provider: "shopping/amazon",
+      source: "shopping",
+      operation: "fetch",
+      reasonCode: "env_limited",
+      intentInput: {
+        url: "https://example.com/item"
+      }
+    });
+
+    expect(port.resolve).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      challengeAutomationMode: "browser_with_helper",
+      suspendedIntent: {
+        kind: "provider.search",
+        note: "resume target",
+        input: {
+          query: "portable monitor"
+        }
+      }
+    }));
+    expect(port.resolve).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      suspendedIntent: {
+        kind: "provider.fetch",
+        provider: "shopping/amazon",
+        source: "shopping",
+        operation: "fetch",
+        input: {
+          url: "https://example.com/item"
+        }
+      }
+    }));
+  });
 });

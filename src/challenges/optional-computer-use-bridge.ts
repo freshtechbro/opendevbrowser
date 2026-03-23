@@ -1,7 +1,16 @@
-import type { ProvidersChallengeOrchestrationConfig } from "../config";
-import type { ChallengeActionStep, ChallengeEvidenceBundle, ComputerUseBridgeResult } from "./types";
+import type {
+  ChallengeActionStep,
+  ChallengeAutomationHelperEligibility,
+  ChallengeEvidenceBundle,
+  ComputerUseBridgeResult
+} from "./types";
 
-const buildSuggestions = (bundle: ChallengeEvidenceBundle, maxSuggestions: number): ChallengeActionStep[] => {
+export const OPTIONAL_BRIDGE_SUGGESTION_REASON = "Optional bridge suggested a browser-scoped click follow-up from canonical evidence.";
+
+export const buildComputerUseSuggestions = (
+  bundle: ChallengeEvidenceBundle,
+  maxSuggestions: number
+): ChallengeActionStep[] => {
   const refs = [
     ...bundle.continuity.loginRefs,
     ...bundle.continuity.sessionReuseRefs,
@@ -13,28 +22,31 @@ const buildSuggestions = (bundle: ChallengeEvidenceBundle, maxSuggestions: numbe
     .map((ref) => ({
       kind: "click",
       ref,
-      reason: "Optional bridge suggested a browser-scoped click follow-up from canonical evidence."
+      reason: OPTIONAL_BRIDGE_SUGGESTION_REASON
     }));
 };
 
 export const suggestComputerUseActions = (args: {
-  config: ProvidersChallengeOrchestrationConfig;
+  helperEligibility: ChallengeAutomationHelperEligibility;
   bundle: ChallengeEvidenceBundle;
+  maxSuggestions: number;
 }): ComputerUseBridgeResult => {
-  if (!args.config.optionalComputerUseBridge.enabled) {
+  if (!args.helperEligibility.allowed) {
     return {
       status: "disabled",
-      reason: "Optional computer-use bridge is disabled by policy.",
-      suggestedSteps: []
+      reason: args.helperEligibility.reason,
+      suggestedSteps: [],
+      standDownReason: args.helperEligibility.standDownReason
     };
   }
 
-  const suggestedSteps = buildSuggestions(args.bundle, args.config.optionalComputerUseBridge.maxSuggestions);
+  const suggestedSteps = buildComputerUseSuggestions(args.bundle, args.maxSuggestions);
   if (suggestedSteps.length === 0) {
     return {
       status: "unsupported",
       reason: "Canonical evidence did not expose any safe browser-scoped bridge actions.",
-      suggestedSteps: []
+      suggestedSteps: [],
+      standDownReason: "helper_no_safe_actions"
     };
   }
 

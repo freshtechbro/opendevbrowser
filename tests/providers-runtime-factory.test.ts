@@ -915,12 +915,264 @@ describe("provider runtime factory", () => {
       },
       details: {
         challengeOrchestration: {
+          invoked: true,
           lane: "generic_browser_autonomy",
           status: "resolved"
         }
       }
     });
     expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("resolves challenge automation precedence as run then session then config during fallback orchestration", async () => {
+    const cases = [
+      {
+        label: "run",
+        runMode: "off" as const,
+        sessionMode: "browser_with_helper" as const,
+        configMode: "browser" as const,
+        expectedMode: "off" as const,
+        expectedSource: "run" as const,
+        expectedStandDownReason: "challenge_automation_off" as const
+      },
+      {
+        label: "session",
+        runMode: undefined,
+        sessionMode: "browser_with_helper" as const,
+        configMode: "browser" as const,
+        expectedMode: "browser_with_helper" as const,
+        expectedSource: "session" as const,
+        expectedStandDownReason: undefined
+      },
+      {
+        label: "config",
+        runMode: undefined,
+        sessionMode: undefined,
+        configMode: "browser" as const,
+        expectedMode: "browser" as const,
+        expectedSource: "config" as const,
+        expectedStandDownReason: "helper_disabled_for_browser_mode" as const
+      }
+    ];
+
+    for (const testCase of cases) {
+      const manager = {
+        launch: vi.fn(async () => ({ sessionId: `challenge-${testCase.label}-session` })),
+        goto: vi.fn(async () => ({ ok: true })),
+        waitForLoad: vi.fn(async () => {
+          throw new Error("networkidle never settled");
+        }),
+        withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+          return callback({
+            waitForTimeout: async () => undefined,
+            content: async () => "<html><body><h1>Security verification</h1></body></html>"
+          });
+        }),
+        status: vi.fn(async () => ({
+          mode: "extension",
+          url: "https://example.com/challenge",
+          activeTargetId: "target-1"
+        })),
+        disconnect: vi.fn(async () => undefined),
+        getSessionChallengeAutomationMode: vi.fn(() => testCase.sessionMode),
+        setSessionChallengeAutomationMode: vi.fn()
+      } as unknown as BrowserManagerLike;
+
+      const challengeOrchestrator = {
+        orchestrate: vi.fn(async ({ policy }: { policy: { mode: string; source: string; standDownReason?: string } }) => ({
+          action: {
+            status: "deferred",
+            attempts: 0,
+            noProgressCount: 0,
+            executedSteps: [],
+            verification: {
+              status: "still_blocked",
+              blockerState: "active",
+              changed: false,
+              reason: "Challenge still active.",
+              bundle: {
+                blockerState: "active"
+              }
+            },
+            reusedExistingSession: false,
+            reusedCookies: false
+          },
+          outcome: {
+            challengeId: `challenge-${testCase.label}`,
+            classification: "checkpoint_or_friction",
+            mode: policy.mode,
+            source: policy.source,
+            lane: "generic_browser_autonomy",
+            status: "deferred",
+            reason: "Challenge still active.",
+            attempts: 0,
+            reusedExistingSession: false,
+            reusedCookies: false,
+            helperEligibility: {
+              allowed: policy.mode === "browser_with_helper",
+              reason: policy.mode === "browser_with_helper"
+                ? "Optional helper bridge remains eligible after mode resolution."
+                : "Helper bridge is standing down."
+            },
+            ...(policy.standDownReason ? { standDownReason: policy.standDownReason } : {}),
+            verification: {
+              status: "still_blocked",
+              blockerState: "active",
+              changed: false,
+              reason: "Challenge still active."
+            },
+            evidence: {
+              url: "https://example.com/challenge",
+              title: "Security verification",
+              blockerType: "anti_bot_challenge",
+              loginRefs: [],
+              humanVerificationRefs: ["r1"],
+              checkpointRefs: []
+            }
+          }
+        }))
+      };
+
+      const port = createBrowserFallbackPort(manager, {}, {}, challengeOrchestrator as never, testCase.configMode);
+      const response = await port?.resolve({
+        provider: "shopping/temu",
+        source: "shopping",
+        operation: "search",
+        reasonCode: "challenge_detected",
+        trace: { requestId: `rf-precedence-${testCase.label}`, ts: "2026-03-23T00:00:00.000Z" },
+        url: "https://example.com/challenge",
+        ...(testCase.runMode ? { challengeAutomationMode: testCase.runMode } : {})
+      });
+
+      expect(challengeOrchestrator.orchestrate).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: `challenge-${testCase.label}-session`,
+        policy: expect.objectContaining({
+          mode: testCase.expectedMode,
+          source: testCase.expectedSource
+        })
+      }));
+      expect(response).toMatchObject({
+        ok: false,
+        disposition: "challenge_preserved",
+        details: {
+          challengeOrchestration: {
+            mode: testCase.expectedMode,
+            source: testCase.expectedSource
+          }
+        }
+      });
+      if (testCase.expectedStandDownReason) {
+        expect(response).toMatchObject({
+          details: {
+            challengeOrchestration: {
+              standDownReason: testCase.expectedStandDownReason
+            }
+          }
+        });
+      }
+      if (testCase.runMode) {
+        expect(manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith(
+          `challenge-${testCase.label}-session`,
+          testCase.runMode
+        );
+      } else {
+        expect(manager.setSessionChallengeAutomationMode).not.toHaveBeenCalled();
+      }
+      expect(manager.disconnect).not.toHaveBeenCalled();
+    }
+  });
+
+  it("defaults fallback challenge policy to browser_with_helper when no config mode is provided", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "default-mode-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => {
+        throw new Error("networkidle unavailable");
+      }),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><h1>Security verification</h1></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "extension",
+        url: "https://example.com/challenge",
+        activeTargetId: "target-default"
+      })),
+      disconnect: vi.fn(async () => undefined),
+      getSessionChallengeAutomationMode: vi.fn(() => undefined),
+      setSessionChallengeAutomationMode: vi.fn()
+    } as unknown as BrowserManagerLike;
+
+    const challengeOrchestrator = {
+      orchestrate: vi.fn(async ({ policy }: { policy: { mode: string; source: string } }) => ({
+        action: {
+          status: "deferred",
+          attempts: 0,
+          noProgressCount: 0,
+          executedSteps: [],
+          verification: {
+            status: "still_blocked",
+            blockerState: "active",
+            changed: false,
+            reason: "Challenge still active.",
+            bundle: {
+              blockerState: "active"
+            }
+          },
+          reusedExistingSession: false,
+          reusedCookies: false
+        },
+        outcome: {
+          challengeId: "challenge-default-mode",
+          classification: "checkpoint_or_friction",
+          mode: policy.mode,
+          source: policy.source,
+          lane: "generic_browser_autonomy",
+          status: "deferred",
+          reason: "Challenge still active.",
+          attempts: 0,
+          reusedExistingSession: false,
+          reusedCookies: false,
+          helperEligibility: {
+            allowed: policy.mode === "browser_with_helper",
+            reason: "Optional helper bridge remains eligible after mode resolution."
+          },
+          verification: {
+            status: "still_blocked",
+            blockerState: "active",
+            changed: false,
+            reason: "Challenge still active."
+          },
+          evidence: {
+            url: "https://example.com/challenge",
+            title: "Security verification",
+            blockerType: "anti_bot_challenge",
+            loginRefs: [],
+            humanVerificationRefs: ["r1"],
+            checkpointRefs: []
+          }
+        }
+      }))
+    };
+
+    const port = createBrowserFallbackPort(manager, {}, {}, challengeOrchestrator as never);
+    await port?.resolve({
+      provider: "shopping/temu",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "challenge_detected",
+      trace: { requestId: "rf-default-mode", ts: "2026-03-23T00:00:00.000Z" },
+      url: "https://example.com/challenge"
+    });
+
+    expect(challengeOrchestrator.orchestrate).toHaveBeenCalledWith(expect.objectContaining({
+      policy: expect.objectContaining({
+        mode: "browser_with_helper",
+        source: "config"
+      })
+    }));
   });
 
   it("sanitizes invalid settle and capture delays while keeping fallback capture alive", async () => {
@@ -994,9 +1246,147 @@ describe("provider runtime factory", () => {
       output: {
         html: "",
         url: "https://example.com/no-helper"
+      },
+      details: {
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          invoked: false,
+          reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked."
+        }
       }
     });
     expect(manager.disconnect).toHaveBeenCalledWith("no-helper-session", true);
+  });
+
+  it("marks helper-capable auth fallback recoveries as not-invoked when the recovered page is already clear", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "clear-auth-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => undefined),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><main>Recovered account content</main></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "extension", url: "https://www.linkedin.com/feed/" })),
+      disconnect: vi.fn(async () => undefined),
+      setSessionChallengeAutomationMode: vi.fn(),
+      getSessionChallengeAutomationMode: vi.fn(() => "browser_with_helper")
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "social/linkedin",
+      source: "social",
+      operation: "search",
+      reasonCode: "token_required",
+      trace: { requestId: "rf-clear-auth", ts: "2026-03-23T00:00:00.000Z" },
+      url: "https://www.linkedin.com/search/results/content/?keywords=browser%20automation&page=1",
+      challengeAutomationMode: "browser_with_helper"
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      details: {
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "run",
+          invoked: false,
+          reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked."
+        }
+      }
+    });
+  });
+
+  it("reports helper-disabled policy and strips non-json challenge outcome fields", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "helper-disabled-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => {
+        throw new Error("networkidle unavailable");
+      }),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><h1>Security verification</h1></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "extension",
+        url: "https://example.com/challenge",
+        activeTargetId: "target-helper-disabled"
+      })),
+      disconnect: vi.fn(async () => undefined),
+      getSessionChallengeAutomationMode: vi.fn(() => undefined),
+      setSessionChallengeAutomationMode: vi.fn()
+    } as unknown as BrowserManagerLike;
+
+    const challengeOrchestrator = {
+      orchestrate: vi.fn(async () => ({
+        action: {
+          status: "deferred",
+          attempts: 0,
+          noProgressCount: 0,
+          executedSteps: [],
+          verification: {
+            status: "still_blocked",
+            blockerState: "active",
+            changed: false,
+            reason: "Challenge still active.",
+            bundle: {
+              blockerState: "active"
+            }
+          },
+          reusedExistingSession: false,
+          reusedCookies: false
+        },
+        outcome: {
+          lane: "generic_browser_autonomy",
+          status: "deferred",
+          transientFunction: () => "drop-me"
+        }
+      }))
+    };
+
+    const port = createBrowserFallbackPort(
+      manager,
+      {},
+      {},
+      challengeOrchestrator as never,
+      "browser_with_helper",
+      false
+    );
+    const response = await port?.resolve({
+      provider: "shopping/temu",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "challenge_detected",
+      trace: { requestId: "rf-helper-disabled", ts: "2026-03-23T00:00:00.000Z" },
+      url: "https://example.com/challenge"
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      disposition: "challenge_preserved",
+      details: {
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          invoked: true,
+          helperEligibility: {
+            allowed: false,
+            standDownReason: "helper_disabled_by_policy"
+          },
+          lane: "generic_browser_autonomy",
+          status: "deferred"
+        }
+      }
+    });
+    expect((response as { details?: { challengeOrchestration?: Record<string, unknown> } }).details?.challengeOrchestration)
+      .not.toHaveProperty("transientFunction");
+    expect(manager.disconnect).not.toHaveBeenCalled();
   });
 
   it("returns env_limited on fallback manager errors and still disconnects", async () => {
@@ -2098,5 +2488,22 @@ describe("provider runtime factory", () => {
     expect(providerIds).toContain("web/default");
     expect(providerIds).toContain("social/youtube");
     expect(providerIds).toContain("shopping/amazon");
+  });
+
+  it("attaches the resolved challenge orchestrator to managers that expose the setter", () => {
+    const setChallengeOrchestrator = vi.fn();
+    const manager = {
+      setChallengeOrchestrator
+    } as unknown as BrowserManagerLike;
+    const challengeOrchestrator = {
+      orchestrate: vi.fn()
+    };
+
+    createConfiguredProviderRuntime({
+      manager,
+      challengeOrchestrator: challengeOrchestrator as never
+    });
+
+    expect(setChallengeOrchestrator).toHaveBeenCalledWith(challengeOrchestrator);
   });
 });

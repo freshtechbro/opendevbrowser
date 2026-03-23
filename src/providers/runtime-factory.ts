@@ -3,7 +3,7 @@ import * as os from "os";
 import { readFile } from "fs/promises";
 import type { BrowserManagerLike } from "../browser/manager-types";
 import type { OpenDevBrowserConfig } from "../config";
-import { ChallengeOrchestrator } from "../challenges";
+import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
 import { createDefaultRuntime, type RuntimeDefaults, type RuntimeInit } from "./index";
 import { classifyBlockerSignal } from "./blocker";
 import { ProviderRuntimeError } from "./errors";
@@ -178,14 +178,16 @@ const baseCookieDiagnostics = (
 const fallbackFailure = (
   reasonCode: BrowserFallbackResponse["reasonCode"],
   message: string,
-  cookieDiagnostics?: BrowserFallbackCookieDiagnostics
+  cookieDiagnostics?: BrowserFallbackCookieDiagnostics,
+  challengeOrchestration?: Record<string, JsonValue>
 ): BrowserFallbackResponse => ({
   ok: false,
   reasonCode,
   disposition: reasonCode === "env_limited" ? "deferred" : "failed",
   details: {
     message,
-    ...(cookieDiagnostics ? { cookieDiagnostics: toJsonRecord(cookieDiagnostics) } : {})
+    ...(cookieDiagnostics ? { cookieDiagnostics: toJsonRecord(cookieDiagnostics) } : {}),
+    ...(challengeOrchestration ? { challengeOrchestration } : {})
   }
 });
 
@@ -223,6 +225,78 @@ const toJsonRecord = (value: unknown): Record<string, JsonValue> => {
   return normalized && typeof normalized === "object" && !Array.isArray(normalized)
     ? normalized
     : {};
+};
+
+const shouldEmitFallbackChallengeOrchestration = (
+  reasonCode: BrowserFallbackResponse["reasonCode"]
+): boolean => {
+  return reasonCode === "auth_required"
+    || reasonCode === "token_required"
+    || reasonCode === "challenge_detected"
+    || reasonCode === "env_limited";
+};
+
+const resolveFallbackHelperEligibility = (args: {
+  mode: ChallengeAutomationMode;
+  helperBridgeEnabled: boolean;
+}): Record<string, JsonValue> => {
+  if (args.mode === "off") {
+    return {
+      allowed: false,
+      reason: "Challenge automation mode is off; detection and reporting remain active.",
+      standDownReason: "challenge_automation_off"
+    };
+  }
+  if (args.mode === "browser") {
+    return {
+      allowed: false,
+      reason: "Browser mode keeps the optional helper bridge disabled.",
+      standDownReason: "helper_disabled_for_browser_mode"
+    };
+  }
+  if (!args.helperBridgeEnabled) {
+    return {
+      allowed: false,
+      reason: "Optional computer-use bridge is disabled by policy.",
+      standDownReason: "helper_disabled_by_policy"
+    };
+  }
+  return {
+    allowed: true,
+    reason: "Optional helper bridge remains eligible after mode resolution."
+  };
+};
+
+const buildFallbackChallengeOrchestration = (args: {
+  manager: BrowserManagerLike;
+  request: Parameters<NonNullable<BrowserFallbackPort>["resolve"]>[0];
+  sessionId?: string | null;
+  challengeModeDefault: ChallengeAutomationMode;
+  helperBridgeEnabled: boolean;
+  invoked: boolean;
+  reason: string;
+}): Record<string, JsonValue> | undefined => {
+  if (!shouldEmitFallbackChallengeOrchestration(args.request.reasonCode)) {
+    return undefined;
+  }
+  const policy = resolveChallengeAutomationPolicy({
+    runMode: args.request.challengeAutomationMode,
+    sessionMode: args.sessionId
+      ? args.manager.getSessionChallengeAutomationMode?.(args.sessionId)
+      : undefined,
+    configMode: args.challengeModeDefault
+  });
+  return toJsonRecord({
+    mode: policy.mode,
+    source: policy.source,
+    ...(policy.standDownReason ? { standDownReason: policy.standDownReason } : {}),
+    helperEligibility: resolveFallbackHelperEligibility({
+      mode: policy.mode,
+      helperBridgeEnabled: args.helperBridgeEnabled
+    }),
+    invoked: args.invoked,
+    reason: args.reason
+  });
 };
 
 const isPreserveEligibleBlocker = (
@@ -388,7 +462,9 @@ export const createBrowserFallbackPort = (
   manager: BrowserManagerLike | undefined,
   cookieDefaults: Partial<BrowserFallbackCookieConfig> = {},
   transportDefaults: BrowserFallbackTransportConfig = {},
-  challengeOrchestrator?: ChallengeOrchestrator
+  challengeOrchestrator?: ChallengeOrchestrator,
+  challengeModeDefault: ChallengeAutomationMode = "browser_with_helper",
+  helperBridgeEnabled = true
 ): BrowserFallbackPort | undefined => {
   if (!manager) return undefined;
   const defaults: BrowserFallbackCookieConfig = {
@@ -468,6 +544,9 @@ export const createBrowserFallbackPort = (
               ...(request.source === "shopping" ? { flags: SHOPPING_FALLBACK_FLAGS } : {})
             });
             sessionId = launched.sessionId;
+          }
+          if (sessionId && request.challengeAutomationMode) {
+            manager.setSessionChallengeAutomationMode?.(sessionId, request.challengeAutomationMode);
           }
           ensureNotAborted("session_ready");
 
@@ -570,16 +649,41 @@ export const createBrowserFallbackPort = (
               )
                 ? status.meta.challenge
                 : undefined;
-              let challengeOrchestrationRecord: Record<string, JsonValue> | undefined;
+              let challengeOrchestrationRecord = buildFallbackChallengeOrchestration({
+                manager,
+                request,
+                sessionId,
+                challengeModeDefault,
+                helperBridgeEnabled,
+                invoked: false,
+                reason: "Fallback reached a preserve-eligible blocker before challenge orchestration ran."
+              });
               if (challengeOrchestrator) {
+                const policy = resolveChallengeAutomationPolicy({
+                  runMode: request.challengeAutomationMode,
+                  sessionMode: manager.getSessionChallengeAutomationMode?.(sessionId),
+                  configMode: challengeModeDefault
+                });
                 const orchestration = await challengeOrchestrator.orchestrate({
                   handle: manager.createChallengeRuntimeHandle?.() ?? manager,
                   sessionId,
                   targetId: status.activeTargetId ?? undefined,
-                  canImportCookies: policy !== "off",
+                  policy,
+                  canImportCookies: policy.mode !== "off",
                   fallbackDisposition: disposition
                 });
-                challengeOrchestrationRecord = toJsonRecord(orchestration.outcome);
+                challengeOrchestrationRecord = {
+                  ...(buildFallbackChallengeOrchestration({
+                    manager,
+                    request,
+                    sessionId,
+                    challengeModeDefault,
+                    helperBridgeEnabled,
+                    invoked: true,
+                    reason: "Fallback invoked challenge orchestration after reaching a preserve-eligible blocker."
+                  }) ?? {}),
+                  ...toJsonRecord(orchestration.outcome)
+                };
                 const verifiedBundle = orchestration.action.verification.bundle;
                 if (verifiedBundle?.blockerState === "clear") {
                   const refreshedStatus = await manager.status(sessionId);
@@ -643,11 +747,29 @@ export const createBrowserFallbackPort = (
             lastFailure = fallbackFailure(
               reasonCode,
               `Browser fallback reached ${blocker.type} page at ${resolvedUrl}.`,
-              cookieDiagnostics
+              cookieDiagnostics,
+              buildFallbackChallengeOrchestration({
+                manager,
+                request,
+                sessionId,
+                challengeModeDefault,
+                helperBridgeEnabled,
+                invoked: false,
+                reason: "Fallback ended on a non-preserve-eligible blocker, so challenge orchestration was not invoked."
+              })
             );
             continue;
           }
 
+          const challengeOrchestrationRecord = buildFallbackChallengeOrchestration({
+            manager,
+            request,
+            sessionId,
+            challengeModeDefault,
+            helperBridgeEnabled,
+            invoked: false,
+            reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked."
+          });
           return {
             ok: true,
             reasonCode: request.reasonCode,
@@ -660,7 +782,8 @@ export const createBrowserFallbackPort = (
             details: {
               provider: request.provider,
               operation: request.operation,
-              cookieDiagnostics: toJsonRecord(cookieDiagnostics)
+              cookieDiagnostics: toJsonRecord(cookieDiagnostics),
+              ...(challengeOrchestrationRecord ? { challengeOrchestration: challengeOrchestrationRecord } : {})
             }
           };
         } catch (error) {
@@ -776,7 +899,7 @@ export const createConfiguredProviderRuntime = (args: {
   const fallbackPort = args.browserFallbackPort ?? createBrowserFallbackPort(args.manager, {
     policy: args.config?.providers?.cookiePolicy,
     source: args.config?.providers?.cookieSource
-  }, {}, challengeOrchestrator);
+  }, {}, challengeOrchestrator, args.config?.providers?.challengeOrchestration?.mode ?? "browser_with_helper", args.config?.providers?.challengeOrchestration?.optionalComputerUseBridge.enabled ?? true);
   const runtimeInit = {
     ...buildRuntimeInitFromConfig(args.config, fallbackPort),
     ...(args.init ?? {})

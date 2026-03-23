@@ -1,7 +1,7 @@
 import type { ChallengeRuntimeHandle } from "../browser/manager-types";
-import { suggestComputerUseActions } from "./optional-computer-use-bridge";
 import { verifyChallengeProgress } from "./verification-gate";
 import type { ProvidersChallengeOrchestrationConfig } from "../config";
+import { buildComputerUseSuggestions } from "./optional-computer-use-bridge";
 import type {
   ChallengeActionResult,
   ChallengeActionStep,
@@ -43,8 +43,13 @@ const resolveTaskValue = (bundle: ChallengeEvidenceBundle, ref: string): string 
     if (!name.includes(key.toLowerCase())) {
       continue;
     }
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      return String(value);
+    switch (typeof value) {
+      case "string":
+      case "number":
+      case "boolean":
+        return String(value);
+      default:
+        break;
     }
   }
   return undefined;
@@ -55,7 +60,6 @@ const nextUnusedRef = (refs: string[], steps: ChallengeActionStep[], kind: "clic
 };
 
 const planGenericStep = (
-  config: ProvidersChallengeOrchestrationConfig,
   bundle: ChallengeEvidenceBundle,
   decision: ChallengeStrategyDecision,
   executedSteps: ChallengeActionStep[]
@@ -165,10 +169,6 @@ const planGenericStep = (
     };
   }
 
-  if (config.optionalComputerUseBridge.enabled) {
-    return suggestComputerUseActions({ config, bundle }).suggestedSteps[0];
-  }
-
   return undefined;
 };
 
@@ -254,8 +254,18 @@ export const runChallengeActionLoop = async (args: {
   let reusedCookies = false;
 
   for (let attempt = 1; attempt <= args.decision.attemptBudget; attempt += 1) {
-    const step = args.suggestedSteps?.find((candidate) => !hasExecuted(executedSteps, candidate.kind, candidate.ref, candidate.url))
-      ?? planGenericStep(args.config, currentBundle, args.decision, executedSteps);
+    const suggestedStep = args.suggestedSteps?.find((candidate) => (
+      !hasExecuted(executedSteps, candidate.kind, candidate.ref, candidate.url)
+    ));
+    const helperSuggestedStep = args.config.optionalComputerUseBridge.enabled
+      ? buildComputerUseSuggestions(
+        currentBundle,
+        args.config.optionalComputerUseBridge.maxSuggestions
+      ).find((candidate) => !hasExecuted(executedSteps, candidate.kind, candidate.ref, candidate.url))
+      : undefined;
+    const step = args.decision.lane === "optional_computer_use_bridge"
+      ? suggestedStep ?? helperSuggestedStep
+      : suggestedStep ?? planGenericStep(currentBundle, args.decision, executedSteps) ?? helperSuggestedStep;
 
     if (!step) {
       return {

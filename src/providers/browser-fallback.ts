@@ -1,5 +1,6 @@
 import { ProviderRuntimeError, providerErrorCodeFromReasonCode } from "./errors";
 import type {
+  BrowserFallbackObservation,
   BrowserFallbackMode,
   BrowserFallbackPort,
   BrowserFallbackResponse,
@@ -63,6 +64,16 @@ const toJsonRecord = (value: unknown): Record<string, JsonValue> => {
     : {};
 };
 
+const readFallbackRecord = (
+  details: Record<string, JsonValue> | undefined,
+  key: string
+): Record<string, JsonValue> | undefined => {
+  const candidate = details?.[key];
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? candidate
+    : undefined;
+};
+
 export const readFallbackString = (
   output: Record<string, JsonValue> | undefined,
   key: "html" | "url"
@@ -115,6 +126,49 @@ export const toProviderFallbackError = (args: {
     }
   );
 };
+
+export const toBrowserFallbackObservation = (
+  fallback: Pick<BrowserFallbackResponse, "reasonCode" | "mode" | "details">
+): BrowserFallbackObservation => ({
+  reasonCode: fallback.reasonCode,
+  ...(fallback.mode ? { mode: fallback.mode } : {}),
+  ...(readFallbackRecord(fallback.details, "cookieDiagnostics")
+    ? { cookieDiagnostics: readFallbackRecord(fallback.details, "cookieDiagnostics") }
+    : {}),
+  ...(readFallbackRecord(fallback.details, "challengeOrchestration")
+    ? { challengeOrchestration: readFallbackRecord(fallback.details, "challengeOrchestration") }
+    : {})
+});
+
+export const browserFallbackObservationDetails = (
+  observation: BrowserFallbackObservation | undefined
+): Record<string, JsonValue> => (
+  observation
+    ? {
+      browserFallbackReasonCode: observation.reasonCode,
+      ...(observation.mode ? { browserFallbackMode: observation.mode } : {}),
+      ...(observation.cookieDiagnostics ? { cookieDiagnostics: observation.cookieDiagnostics } : {}),
+      ...(observation.challengeOrchestration ? { challengeOrchestration: observation.challengeOrchestration } : {})
+    }
+    : {}
+);
+
+export const browserFallbackObservationAttributes = (
+  observation: BrowserFallbackObservation | undefined
+): Record<string, JsonValue> => (
+  observation
+    ? {
+      browser_fallback_reason_code: observation.reasonCode,
+      ...(observation.mode ? { browser_fallback_mode: observation.mode } : {}),
+      ...(observation.cookieDiagnostics
+        ? { browser_fallback_cookie_diagnostics: observation.cookieDiagnostics }
+        : {}),
+      ...(observation.challengeOrchestration
+        ? { browser_fallback_challenge_orchestration: observation.challengeOrchestration }
+        : {})
+    }
+    : {}
+);
 
 export const resolveProviderFallbackModes = (args: {
   source: ProviderSource;
@@ -192,6 +246,9 @@ export const resolveProviderBrowserFallback = async (args: {
       preferredModes: args.preferredModes
     }),
     ...(typeof args.context?.useCookies === "boolean" ? { useCookies: args.context.useCookies } : {}),
+    ...(args.context?.challengeAutomationMode
+      ? { challengeAutomationMode: args.context.challengeAutomationMode }
+      : {}),
     ...(args.context?.cookiePolicyOverride ? { cookiePolicyOverride: args.context.cookiePolicyOverride } : {}),
     ownerSurface: "provider_fallback",
     resumeMode: "auto",

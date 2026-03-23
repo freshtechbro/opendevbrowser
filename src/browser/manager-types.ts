@@ -1,7 +1,7 @@
 /* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
 import type { BlockerSignalV1, SessionChallengeSummary } from "../providers/types";
-import type { ChallengeOrchestrationSnapshot } from "../challenges";
+import type { ChallengeAutomationMode, ChallengeOrchestrationSnapshot } from "../challenges";
 import type {
   RuntimePreviewBridgeInput,
   RuntimePreviewBridgeResult
@@ -144,6 +144,13 @@ export type BrowserManagerLike = Pick<BrowserManager,
     targetId: string,
     input: BrowserCanvasOverlaySyncInput
   ) => Promise<BrowserCanvasOverlayResult>;
+  getSessionChallengeAutomationMode?: (
+    sessionId: string
+  ) => ChallengeAutomationMode | undefined;
+  setSessionChallengeAutomationMode?: (
+    sessionId: string,
+    mode?: ChallengeAutomationMode
+  ) => void;
   createChallengeRuntimeHandle?: () => ChallengeRuntimeHandle;
 };
 

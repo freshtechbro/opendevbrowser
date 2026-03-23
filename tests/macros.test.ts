@@ -414,6 +414,56 @@ describe("macro parser + registry", () => {
     });
   });
 
+  it("forwards challenge automation mode into provider run options", async () => {
+    let receivedOptions: Record<string, unknown> | undefined;
+    const runtime = {
+      search: async (_input: { query: string }, options?: Record<string, unknown>) => {
+        receivedOptions = options;
+        return {
+          ok: true,
+          records: [],
+          trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+          partial: false,
+          failures: [],
+          metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+          sourceSelection: "web" as const,
+          providerOrder: ["web/default"]
+        };
+      },
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await executeMacroResolution({
+      action: {
+        source: "web",
+        operation: "search",
+        input: {
+          query: "macro challenge mode"
+        }
+      },
+      provenance: {
+        macro: "web.search",
+        provider: "web/default",
+        resolvedQuery: "macro challenge mode",
+        pack: "core:web",
+        args: { positional: [], named: {} }
+      }
+    }, runtime, { challengeAutomationMode: "browser_with_helper" });
+
+    expect(receivedOptions).toMatchObject({
+      source: "web",
+      challengeAutomationMode: "browser_with_helper"
+    });
+  });
+
   it("rejects numeric boolean arguments in core macros", async () => {
     const registry = createDefaultMacroRegistry();
     await expect(registry.resolve("@community.post('timeline','ship',confirm=1)"))

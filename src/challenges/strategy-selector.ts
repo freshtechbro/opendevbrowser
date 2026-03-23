@@ -45,15 +45,16 @@ export const selectChallengeStrategy = (args: {
     "human_boundary_detected",
     "no_progress_budget_exhausted"
   ];
+  const { mode, standDownReason } = gate.resolvedPolicy;
 
-  if (!config.enabled) {
+  if (mode === "off") {
     return buildDecision(
       config,
       "defer",
-      "Challenge orchestration is disabled by config.",
+      "Challenge automation mode is off; challenge handling is detect-and-report only.",
       [],
       "light",
-      ["orchestration_disabled"]
+      [standDownReason ?? "challenge_automation_off"]
     );
   }
 
@@ -166,7 +167,7 @@ export const selectChallengeStrategy = (args: {
   return buildDecision(
     config,
     "human_yield",
-    "No legitimate autonomous lane remains after applying policy and continuity checks.",
+    `No legitimate autonomous lane remains after applying policy and continuity checks. ${capabilityMatrix.helperEligibility.reason}`,
     gate.allowedActions,
     interpretation.requiredVerification,
     [...stopConditions, "no_legitimate_lane_remaining"]

@@ -356,6 +356,136 @@ describe("artifact and workflow runtime", () => {
     });
   });
 
+  it("summarizes shopping challenge orchestration from successful browser-assisted records", async () => {
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/target";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [{
+            id: `${providerId}-offer`,
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.target.com/p/portable-monitor/-/A-123",
+            title: "Portable monitor",
+            content: "$129.99",
+            timestamp: "2026-02-16T00:00:00.000Z",
+            confidence: 0.8,
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              browser_fallback_mode: "extension",
+              browser_fallback_reason_code: "challenge_detected",
+              browser_fallback_challenge_orchestration: {
+                mode: "browser_with_helper",
+                source: "config",
+                status: "resolved"
+              },
+              shopping_offer: {
+                provider: providerId,
+                product_id: "target-monitor",
+                title: "Portable monitor",
+                url: "https://www.target.com/p/portable-monitor/-/A-123",
+                price: {
+                  amount: 129.99,
+                  currency: "USD",
+                  retrieved_at: "2026-02-16T00:00:00.000Z"
+                },
+                shipping: {
+                  amount: 0,
+                  currency: "USD",
+                  notes: "free"
+                },
+                availability: "in_stock",
+                rating: 4.7,
+                reviews_count: 42
+              }
+            }
+          }]
+        });
+      }),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "portable monitor",
+      providers: ["shopping/target"],
+      mode: "json"
+    });
+
+    expect((output.meta as {
+      metrics: {
+        challenge_orchestration: Array<Record<string, unknown>>;
+      };
+    }).metrics.challenge_orchestration).toEqual([
+      expect.objectContaining({
+        provider: "shopping/target",
+        browserFallbackMode: "extension",
+        browserFallbackReasonCode: "challenge_detected",
+        mode: "browser_with_helper",
+        source: "config",
+        status: "resolved"
+      })
+    ]);
+  });
+
+  it("summarizes shopping challenge orchestration from failure details when browser recovery stays blocked", async () => {
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/temu";
+        return makeAggregate({
+          ok: false,
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          failures: [{
+            provider: providerId,
+            source: "shopping",
+            error: {
+              code: "unavailable",
+              message: "challenge remains active",
+              retryable: false,
+              reasonCode: "challenge_detected",
+              provider: providerId,
+              source: "shopping",
+              details: {
+                browserFallbackMode: "extension",
+                browserFallbackReasonCode: "challenge_detected",
+                challengeOrchestration: {
+                  mode: "browser_with_helper",
+                  source: "config",
+                  status: "deferred"
+                }
+              }
+            }
+          }]
+        });
+      }),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "wireless mouse",
+      providers: ["shopping/temu"],
+      mode: "json"
+    });
+
+    expect((output.meta as {
+      metrics: {
+        challenge_orchestration: Array<Record<string, unknown>>;
+      };
+    }).metrics.challenge_orchestration).toEqual([
+      expect.objectContaining({
+        provider: "shopping/temu",
+        reasonCode: "challenge_detected",
+        browserFallbackMode: "extension",
+        browserFallbackReasonCode: "challenge_detected",
+        mode: "browser_with_helper",
+        source: "config",
+        status: "deferred"
+      })
+    ]);
+  });
+
   it("preserves auth-required blocker reasons when empty shopping runs are actually login pages", async () => {
     const runtime = toRuntime({
       search: vi.fn(async (_input, options) => {

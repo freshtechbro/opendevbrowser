@@ -37,7 +37,9 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     config.relayPort > 0 && config.relayToken !== false
       ? { extensionWsEndpoint: `ws://127.0.0.1:${config.relayPort}` }
       : {},
-    challengeOrchestrator
+    challengeOrchestrator,
+    config.providers?.challengeOrchestration?.mode ?? "browser_with_helper",
+    config.providers?.challengeOrchestration?.optionalComputerUseBridge.enabled ?? true
   );
   const providerRuntime = createConfiguredProviderRuntime({
     config,

@@ -161,6 +161,49 @@ describe("workflow tools", () => {
     );
   });
 
+  it("forwards challengeAutomationMode through workflow tools", async () => {
+    const deps = makeDeps();
+    const { createResearchRunTool } = await import("../src/tools/research_run");
+    const { createShoppingRunTool } = await import("../src/tools/shopping_run");
+    const { createProductVideoRunTool } = await import("../src/tools/product_video_run");
+
+    const researchTool = createResearchRunTool(deps as never);
+    const shoppingTool = createShoppingRunTool(deps as never);
+    const productVideoTool = createProductVideoRunTool(deps as never);
+
+    await researchTool.execute({
+      topic: "automation",
+      sourceSelection: "web",
+      days: 7,
+      challengeAutomationMode: "browser_with_helper"
+    } as never);
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ challengeAutomationMode: "browser_with_helper" })
+    );
+
+    deps.providerRuntime.search.mockClear();
+    await shoppingTool.execute({
+      query: "usb microphone",
+      providers: ["shopping/amazon"],
+      challengeAutomationMode: "browser"
+    } as never);
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ challengeAutomationMode: "browser" })
+    );
+
+    await productVideoTool.execute({
+      product_url: "https://example.com/product",
+      include_screenshots: false,
+      challengeAutomationMode: "off"
+    } as never);
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/product" },
+      expect.objectContaining({ challengeAutomationMode: "off" })
+    );
+  });
+
   it("returns structured errors when required workflow input is missing", async () => {
     const deps = makeDeps();
     const { createResearchRunTool } = await import("../src/tools/research_run");

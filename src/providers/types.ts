@@ -1,3 +1,9 @@
+import type {
+  ChallengeAutomationMode,
+  ChallengeAutomationModeSource,
+  ChallengeAutomationStandDownReason
+} from "../challenges/types";
+
 export type ProviderSource = "web" | "community" | "social" | "shopping";
 export type ProviderSelection = "auto" | ProviderSource | "all";
 export type ProviderOperation = "search" | "fetch" | "crawl" | "post";
@@ -235,6 +241,7 @@ export interface ProviderContext {
   attempt: number;
   signal?: AbortSignal;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
   browserFallbackPort?: BrowserFallbackPort;
   suspendedIntent?: SuspendedIntentSummary;
@@ -405,6 +412,7 @@ export interface ProviderRunOptions {
   timeoutMs?: number;
   trace?: Partial<TraceContext>;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
   suspendedIntent?: SuspendedIntentSummary;
   tier?: {
@@ -493,6 +501,7 @@ export interface BrowserFallbackRequest {
   settleTimeoutMs?: number;
   captureDelayMs?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
   ownerSurface?: ChallengeOwnerSurface;
   ownerLeaseId?: string;
@@ -510,6 +519,24 @@ export interface BrowserFallbackResponse {
   challenge?: SessionChallengeSummary;
   preservedSessionId?: string;
   preservedTargetId?: string;
+}
+
+export interface BrowserFallbackObservation {
+  reasonCode: ProviderReasonCode;
+  mode?: BrowserFallbackMode;
+  cookieDiagnostics?: Record<string, JsonValue>;
+  challengeOrchestration?: Record<string, JsonValue>;
+}
+
+export interface ChallengeAutomationResolutionMetadata {
+  mode: ChallengeAutomationMode;
+  source: ChallengeAutomationModeSource;
+  standDownReason?: ChallengeAutomationStandDownReason;
+  helperEligibility?: {
+    allowed: boolean;
+    reason: string;
+    standDownReason?: ChallengeAutomationStandDownReason;
+  };
 }
 
 export interface PreservedChallengeContext {

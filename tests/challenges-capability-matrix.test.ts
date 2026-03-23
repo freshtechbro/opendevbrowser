@@ -14,6 +14,12 @@ const baseInterpretation: ChallengeInterpreterResult = {
   summary: "classification=checkpoint_or_friction"
 };
 
+const secretEntryInterpretation: ChallengeInterpreterResult = {
+  ...baseInterpretation,
+  humanBoundary: "secret_entry",
+  summary: "classification=checkpoint_or_friction;humanBoundary=secret_entry"
+};
+
 const buildBundle = (snapshot: string, blockerState: "active" | "clear" = "active") => buildChallengeEvidenceBundle({
   status: {
     mode: "extension",
@@ -74,6 +80,36 @@ describe("challenge capability matrix", () => {
 
     expect(matrix.canExploreClicks).toBe(true);
     expect(matrix.canUseComputerUseBridge).toBe(true);
+  });
+
+  it("stands the helper bridge down when a human boundary is active", () => {
+    const matrix = buildCapabilityMatrix(
+      buildBundle("[r3] button \"Continue\""),
+      secretEntryInterpretation,
+      buildGate(["click_path"], { optionalComputerUseBridge: true })
+    );
+
+    expect(matrix.canUseComputerUseBridge).toBe(false);
+    expect(matrix.helperEligibility).toEqual({
+      allowed: false,
+      reason: "Helper bridge is blocked by human boundary: secret_entry.",
+      standDownReason: "helper_blocked_by_human_boundary"
+    });
+  });
+
+  it("stands the helper bridge down when canonical evidence exposes no safe helper refs", () => {
+    const matrix = buildCapabilityMatrix(
+      buildBundle(""),
+      baseInterpretation,
+      buildGate(["click_path"], { optionalComputerUseBridge: true })
+    );
+
+    expect(matrix.canUseComputerUseBridge).toBe(false);
+    expect(matrix.helperEligibility).toEqual({
+      allowed: false,
+      reason: "Canonical evidence did not expose any safe browser-scoped helper actions.",
+      standDownReason: "helper_no_safe_actions"
+    });
   });
 
   it("defers when the blocker is already clear and no blocker payload remains", () => {
