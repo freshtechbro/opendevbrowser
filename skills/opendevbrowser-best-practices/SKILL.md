@@ -236,6 +236,9 @@ Use these assets when the task is to inventory or validate the full OpenDevBrows
 - `assets/templates/skill-runtime-pack-matrix.json`
 - `scripts/skill-runtime-audit.mjs`
 
+Audit runtime rule:
+- `scripts/skill-runtime-audit.mjs` keeps smoke mode isolated and reproducible with temp harnesses, but full mode must reuse the current configured daemon and environment for `provider-direct` and `live-regression` so extension state, cookies, and auth-backed scenarios are exercised for real when available.
+
 Realignment rule:
 - when a pack drifts behind current runtime behavior, update the skill to match the repo reality and strengthen the workflow guidance instead of making the pack merely stop failing validation.
 

@@ -10,13 +10,39 @@
 
 > **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
-OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions. Frontend website source and deployment are maintained in the private repo `opendevbrowser-website-deploy`.
+OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
+
+The current public surface includes [60 CLI commands and 53 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
   <br />
   <em>AI-assisted annotation and browser automation workflow</em>
 </p>
+
+## Table of Contents
+
+- [Use It Your Way](#use-it-your-way)
+- [Why OpenDevBrowser?](#why-opendevbrowser)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Challenge Handling Boundary](#challenge-handling-boundary)
+- [Recent Features](#recent-features)
+- [Features](#features)
+- [Tool Reference](#tool-reference)
+- [Bundled Skills](#bundled-skills)
+- [Browser Modes](#browser-modes)
+- [Relay Channels](#relay-channels)
+- [Breaking Changes (latest)](#breaking-changes-latest)
+- [Chrome Extension (Optional)](#chrome-extension-optional)
+- [Configuration](#configuration)
+- [CLI Commands](#cli-commands)
+- [Security](#security)
+- [Updating](#updating)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Privacy](#privacy)
+- [License](#license)
 
 ## Use It Your Way
 
@@ -27,35 +53,16 @@ OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it a
 | **OpenCode Plugin Tools** | Yes | Native tool-calling inside OpenCode (`opendevbrowser_*`) |
 | **Frontend Website (private repo)** | No | Product website and generated docs routes |
 
-All core automation flows are available through the CLI command surface and the plugin tool surface.
-Private website docs routes are generated from public repository source-of-truth docs and skill packs.
-
-Distribution split (current target state):
-- Public repo (`opendevbrowser`): runtime, CLI, extension, docs, npm, release artifacts.
-- Private repo (`opendevbrowser-website-deploy`): website deployment (`website-production` branch).
+The public repo owns the automation runtime and canonical docs; see [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the full surface inventory.
 
 ## Why OpenDevBrowser?
 
-| Feature | Benefit |
-|---------|---------|
-| **Script-first UX** | Snapshot → Refs → Actions workflow optimized for AI agents |
-| **Accessibility-tree snapshots** | Token-efficient page representation (not raw DOM) |
-| **Stable refs** | Elements identified by `backendNodeId`, not fragile selectors |
-| **Security by default** | CDP localhost-only, timing-safe auth, HTML sanitization |
-| **3 browser modes** | Managed, CDP connect, or extension relay for logged-in sessions |
-| **Chrome-family session reuse** | Managed and `cdpConnect` sessions bootstrap readable cookies from the discovered system Chrome-family profile; extension mode reuses the already logged-in tab |
-| **Ops + Canvas + CDP channels** | High-level multi-client `/ops`, dedicated `/canvas`, plus legacy `/cdp` compatibility |
-| **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
-| **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
-| **Design canvas + code sync** | Persist repo-native design documents, attach same-session observers, run framework-adapter-backed code sync across built-in React or HTML or custom-elements or Vue or Svelte lanes plus repo-local BYO plugins, author tokens in `canvas.html`, and drive preview tabs with `canvas_html` or opted-in `bound_app_runtime` reconciliation |
-| **Shared annotation inbox** | Popup/canvas `Send` actions deliver into the active chat when scope is safe and degrade cleanly to `annotate --stored` retrieval when it is not |
-| **Loop-closure diagnostics** | Console/network polling + unified debug trace snapshots for verification workflows |
-| **Challenge orchestration plane** | One shared bounded challenge lane now interprets preserved incidents across direct browser, `/ops`, and provider fallback paths, then attempts legitimate auth navigation, session or cookie reuse, non-secret fill, and bounded interaction exploration before yielding |
-| **Low-level pointer primitives** | `pointer-move`, `pointer-down`, `pointer-up`, and `pointer-drag` are exposed across CLI, tools, and `/ops` for manual challenge handling |
-| **Registry-backed anti-bot pressure** | `ProviderRegistry` is the single durable pressure authority for policy, runtime routing, and workflow summaries |
-| **11 bundled skill directories** | Best practices, design-agent guidance, login, forms, data extraction, research, shopping, and product asset workflows |
-| **53 tools** | Complete browser automation coverage, including low-level pointer control and the design-canvas command surface |
-| **97% test coverage** | Production-ready with strict TypeScript |
+- **Script-first automation model**: snapshot → refs → actions, built around accessibility-tree capture instead of brittle selector-first workflows.
+- **Stable interaction primitives**: refs resolve through `backendNodeId`, and low-level pointer commands remain available when normal DOM actions are not enough.
+- **Flexible session control**: run managed sessions, attach through direct CDP, or reuse logged-in tabs through the extension relay and `/ops`.
+- **Design and review workflows**: use the design canvas, shared annotation inbox, and repo-backed code-sync flows without leaving the runtime surface.
+- **Diagnostics and bounded challenge handling**: pair console or network polling and unified debug traces with the shared challenge orchestration plane.
+- **Production guardrails**: local-only CDP by default, timing-safe auth, sanitized exports, strict TypeScript, and branch coverage held at 97% or higher.
 
 ---
 
@@ -83,7 +90,7 @@ opendevbrowser --version
 
 ### Pre-release Local Package (No npm publish required)
 
-Use this path to validate first-run onboarding before public distribution:
+Use this flow to validate first-run local package onboarding before npm publish.
 
 ```bash
 cd <public-repo-root>
@@ -97,28 +104,11 @@ npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
 
-Full validated flow: [`docs/FIRST_RUN_ONBOARDING.md`](docs/FIRST_RUN_ONBOARDING.md).
-Dependency/runtime inventory: [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
-Live CLI inventory/help surface: `npx opendevbrowser --help` or `npx opendevbrowser help`.
+See [docs/FIRST_RUN_ONBOARDING.md](docs/FIRST_RUN_ONBOARDING.md) for the full onboarding checklist, [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for runtime inventory, and [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the live CLI and tool surface.
 
-Use OpenCode only if you want plugin tools. CLI and extension workflows work without OpenCode.
+Successful installs reconcile daemon auto-start on supported platforms so the relay is available on login. If the current CLI entrypoint lives under a transient temp-root path such as a first-run `/tmp` or `/private/tmp` workspace, OpenDevBrowser refuses to persist that path as auto-start. Rerun `opendevbrowser daemon install`, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, from a stable install location if you want login auto-start; remove it later with `opendevbrowser daemon uninstall`.
 
-On successful installs, the CLI reconciles daemon auto-start on supported platforms so the relay is available on login. Existing
-installs are rechecked and repaired when the per-user auto-start entry is missing, stale, or malformed. If the current CLI
-entrypoint lives under a transient temp-root path (for example a first-run `/tmp` or `/private/tmp` workspace), OpenDevBrowser
-refuses to persist that path as auto-start. Plugin install still succeeds, but you must rerun `opendevbrowser daemon install`
-from a stable install location, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, if you
-want login auto-start. You can remove it later with `opendevbrowser daemon uninstall`.
-
-During install, bundled skills are synced for **OpenCode, Codex, ClaudeCode, and AmpCLI**.
-Default `--skills-global` targets:
-- `~/.config/opencode/skill` (OpenCode)
-- `$CODEX_HOME/skills` (fallback `~/.codex/skills`)
-- `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (fallback `~/.claude/skills`)
-- `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
-
-Use `--skills-local` for project-local targets:
-- `./.opencode/skill`, `./.codex/skills`, `./.claude/skills`, `./.amp/skills`
+Bundled skills sync to **OpenCode, Codex, ClaudeCode, and AmpCLI** targets during install. Use `--skills-global` for user-wide installs or `--skills-local` for project-local installs; see [docs/CLI.md](docs/CLI.md) for exact target paths.
 
 ### CLI + Extension (No OpenCode)
 
@@ -150,6 +140,8 @@ Website build/data pipeline lives in the private repo:
 - `npm run generate:docs` regenerates docs, metrics, and roadmap JSON consumed by `/docs`.
 
 ### Agent Installation (OpenCode)
+
+Use OpenCode only when you want native `opendevbrowser_*` tool calls; the CLI and extension workflows work without it.
 
 Recommended (CLI, installs plugin + config + bundled skills + extension assets):
 
@@ -248,6 +240,8 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 - `SessionStore` remains the blocker FSM source of truth. Managed and `/ops`-backed responses keep `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` stable and may append additive `meta.challenge` plus `meta.challengeOrchestration`.
 - Direct browser, `/ops`, and provider fallback paths now share one bounded challenge orchestration plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded interaction exploration before yielding to a human.
+- Workflow and manager callers can set `challengeAutomationMode` to `off`, `browser`, or `browser_with_helper`. Effective precedence is `run > session > config`, and hard gates still apply after resolution.
+- The optional helper bridge is browser-scoped, not a desktop agent. `browser` forces it to stand down, and `browser_with_helper` only evaluates it after the existing helper hard gates pass.
 - Browser fallback returns explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, or `failed`. When orchestration runs during fallback, decision evidence is recorded under `details.challengeOrchestration`.
 - `ProviderRegistry` is the only durable anti-bot pressure authority. Shared runtime and policy own fallback ordering and resume policy; provider modules only contribute extraction logic and `recoveryHints()`.
 - In scope: preserved sessions, normal browser controls, bounded interaction experimentation, human yield packets for secret or human-authority boundaries, and owned-environment fixtures that use vendor test keys only.
@@ -262,6 +256,7 @@ Use `--output-format json|stream-json` for automation-friendly output.
 - **Design canvas runtime is now shipped end-to-end** across core, CLI, tool, relay, and extension surfaces, including `canvas.html`, overlay control, preview feedback, starter or inventory flows, Figma import, and repo-backed framework-adapter code sync.
 - **Canvas token authoring and adapter-plugin validation are now first-class**: the extension token panel edits collections, modes, aliases, and bindings, while `scripts/canvas-competitive-validation.mjs` captures grouped evidence for adapters, token round-trip, inbox delivery, surface parity, and optional live Figma smoke.
 - **Canvas surface governance and skill-pack coverage** now include current `/canvas` inventories, handshake/blocker templates, and feedback-evaluation artifacts.
+- **Challenge automation override control is now first-class** across workflows and manager metadata via `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence and a browser-scoped helper boundary.
 - **Release packaging/docs were refreshed for v0.0.17**, including current tarball examples, extension version sync, release evidence, and public/private cutover guidance.
 
 ### v0.0.16
@@ -602,6 +597,12 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
     "cookieSource": {
       "type": "file",
       "value": "~/.config/opencode/opendevbrowser.provider-cookies.json"
+    },
+    "challengeOrchestration": {
+      "mode": "browser",
+      "optionalComputerUseBridge": {
+        "enabled": false
+      }
     }
   },
 
@@ -702,6 +703,14 @@ Workflow cookie controls (`research run`, `shopping run`, `product-video run`):
 - Defaults come from `providers.cookiePolicy` (`off|auto|required`) and `providers.cookieSource` (`file|env|inline`).
 - Per-run overrides: `--use-cookies`, `--cookie-policy-override` (alias `--cookie-policy`).
 - `auto` is non-blocking when cookies are unavailable; `required` fails fast with `reasonCode=auth_required`.
+
+Workflow challenge controls (`research run`, `shopping run`, `product-video run`):
+- Per-run override: `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode`.
+- Effective precedence is `run > session > config`.
+- `off` keeps detection and reporting active but stands down challenge actions.
+- `browser` allows browser-native lanes only and keeps the helper bridge disabled.
+- `browser_with_helper` keeps browser-native lanes first and evaluates the browser-scoped helper bridge second when hard gates pass.
+- The helper bridge remains browser-scoped and is not a desktop agent.
 
 ---
 

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS } from "../src/cli/args";
 import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_REFERENCE_ENTRIES, HELP_TOOL_ENTRIES } from "../src/cli/help";
@@ -17,6 +19,28 @@ describe("cli help parity", () => {
 
     expect(new Set(names).size).toBe(HELP_TOOL_ENTRIES.length);
     expect(HELP_TOOL_ENTRIES).toEqual(TOOL_SURFACE_ENTRIES);
+  });
+
+  it("keeps runtime command registration aligned with the declared CLI inventory", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/cli/index.ts"), "utf8");
+    const registeredNames = [...source.matchAll(/registerCommand\(\{\s*name:\s*"([^"]+)"/gs)].map((match) => match[1]);
+
+    expect(new Set(registeredNames)).toEqual(new Set(CLI_COMMANDS));
+  });
+
+  it("keeps runtime tool names aligned with the mirrored tool inventory", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/tools/index.ts"), "utf8");
+    const runtimeToolNames = [...source.matchAll(/\s(opendevbrowser_[a-z_]+):/g)].map((match) => match[1]);
+
+    expect(new Set(runtimeToolNames)).toEqual(new Set(TOOL_SURFACE_ENTRIES.map((entry) => entry.name)));
+  });
+
+  it("keeps multi-flag help metadata aligned for workflow and run commands", () => {
+    expect(COMMAND_HELP_DETAILS.uninstall.usage).toContain("--quiet");
+    expect(COMMAND_HELP_DETAILS.run.flags).toEqual(expect.arrayContaining(["--headless", "--persist-profile"]));
+    expect(COMMAND_HELP_DETAILS.research.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS.shopping.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS["product-video"].flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
   });
 
   it("mentions both help invocations in the generated help text", () => {

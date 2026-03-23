@@ -2,12 +2,12 @@
 
 Status: blocked (historical snapshot)
 Snapshot date: 2026-02-23
-Last audited against repo: 2026-03-12
+Last audited against repo: 2026-03-23
 Owner: product-marketing + maintainer reviewer
 
 Current audit note:
 - the register below is preserved as 2026-02-23 evidence and no longer satisfies this file's 24-hour freshness rule.
-- current source-verified runtime counts are `56` CLI commands (`src/cli/args.ts`) and `49` tools (`src/tools/index.ts`).
+- current source-verified runtime counts are `60` CLI commands (`src/cli/args.ts`) and `53` tools (`src/tools/index.ts`).
 - branch coverage and any landing proof-strip publish values were not re-verified in this pass, so landing publication should remain blocked until same-day evidence is regenerated.
 
 Purpose:
@@ -32,7 +32,8 @@ Freshness rules:
 
 | verified_at_utc | verifier | review_owner | notes |
 |----------------|----------|--------------|-------|
-| 2026-03-12T00:00:00Z | codex historical-status audit | maintainer reviewer | Marked this file blocked/historical after confirming the repo now exposes `56` CLI commands and `49` tools; retained the 2026-02-23 table as archival evidence pending a fresh landing-metrics verification pass. |
+| 2026-03-23T05:55:36Z | codex source re-audit | maintainer reviewer | Re-verified the current repo source files, corrected the current audit note to `60` CLI commands and `53` tools, kept status `blocked (historical snapshot)`, and retained the 2026-02-23 table as archival evidence pending a fresh landing-metrics verification pass. |
+| 2026-03-12T00:00:00Z | codex historical-status audit | maintainer reviewer | Marked this file blocked/historical and retained the 2026-02-23 table as archival evidence pending a fresh landing-metrics verification pass. |
 | 2026-02-23T03:16:29Z | maintainer | maintainer reviewer | Re-verified CLI/tool surface counts from source and recomputed branch coverage from `coverage/lcov.info` after latest copy + docs sync pass. |
 | 2026-02-22T19:52:55Z | maintainer | maintainer reviewer | Re-verified command/tool counts directly from source files and recomputed branch coverage from `coverage/lcov.info`. |
 | 2026-02-16T21:21:22Z | maintainer | maintainer reviewer | Re-verified proof-strip launch metrics from canonical source files and live command outputs; all entries satisfy freshness and evidence requirements. |

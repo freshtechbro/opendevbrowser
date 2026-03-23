@@ -133,16 +133,18 @@ export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
     "--quiet"
   ),
   update: commandHelp("npx opendevbrowser update [--global|--local]", "--global", "--local"),
-  uninstall: commandHelp("npx opendevbrowser uninstall [--global|--local] [--no-prompt]", "--global", "--local", "--no-prompt", "--quiet"),
+  uninstall: commandHelp("npx opendevbrowser uninstall [--global|--local] [--no-prompt] [--quiet]", "--global", "--local", "--no-prompt", "--quiet"),
   help: commandHelp("npx opendevbrowser --help | npx opendevbrowser help", "--help"),
   version: commandHelp("npx opendevbrowser --version | npx opendevbrowser version", "--version"),
   serve: commandHelp("npx opendevbrowser serve [--port <port>] [--token <token>] [--stop]", "--port", "--token", "--stop"),
   daemon: commandHelp("npx opendevbrowser daemon <install|uninstall|status>", "--output-format"),
   native: commandHelp("npx opendevbrowser native <install|uninstall|status> [extension-id]", "--output-format"),
   run: commandHelp(
-    "npx opendevbrowser run --script <path> [--profile <name>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>]",
+    "npx opendevbrowser run --script <path> [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>]",
     "--script",
+    "--headless",
     "--profile",
+    "--persist-profile",
     "--chrome-path",
     "--start-url",
     "--flag"
@@ -172,7 +174,7 @@ export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
   disconnect: commandHelp("npx opendevbrowser disconnect --session-id <id> [--close-browser]", "--session-id", "--close-browser"),
   status: commandHelp("npx opendevbrowser status [--session-id <id> | --daemon] [--transport <relay|native>]", "--session-id", "--daemon", "--transport"),
   research: commandHelp(
-    "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--mode <mode>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--cookie-policy-override <policy>]",
+    "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
     "--topic",
     "--days",
     "--from",
@@ -183,12 +185,15 @@ export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
     "--limit-per-source",
     "--mode",
     "--timeout-ms",
+    "--output-dir",
+    "--ttl-hours",
     "--use-cookies",
+    "--challenge-automation-mode",
     "--cookie-policy-override",
     "--cookie-policy"
   ),
   shopping: commandHelp(
-    "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--cookie-policy-override <policy>]",
+    "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
     "--query",
     "--providers",
     "--budget",
@@ -196,12 +201,15 @@ export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
     "--sort",
     "--mode",
     "--timeout-ms",
+    "--output-dir",
+    "--ttl-hours",
     "--use-cookies",
+    "--challenge-automation-mode",
     "--cookie-policy-override",
     "--cookie-policy"
   ),
   "product-video": commandHelp(
-    "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots <bool>] [--include-all-images <bool>] [--include-copy <bool>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--cookie-policy-override <policy>] [--output-dir <path>]",
+    "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots <bool>] [--include-all-images <bool>] [--include-copy <bool>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
     "--product-url",
     "--product-name",
     "--provider-hint",
@@ -210,9 +218,11 @@ export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
     "--include-copy",
     "--timeout-ms",
     "--use-cookies",
+    "--challenge-automation-mode",
     "--cookie-policy-override",
     "--cookie-policy",
-    "--output-dir"
+    "--output-dir",
+    "--ttl-hours"
   ),
   artifacts: commandHelp("npx opendevbrowser artifacts cleanup [--expired-only] [--output-dir <path>]", "--expired-only", "--output-dir"),
   goto: commandHelp("npx opendevbrowser goto --session-id <id> --url <url> [--wait-until <state>] [--timeout-ms <ms>]", "--session-id", "--url", "--wait-until", "--timeout-ms"),
@@ -262,7 +272,7 @@ export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
   ),
   "cookie-import": commandHelp("npx opendevbrowser cookie-import --session-id <id> (--cookies <json> | --cookies-file <path>) [--strict <bool>]", "--session-id", "--cookies", "--cookies-file", "--strict"),
   "cookie-list": commandHelp("npx opendevbrowser cookie-list --session-id <id> [--url <url>]", "--session-id", "--url"),
-  "macro-resolve": commandHelp("npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute] [--timeout-ms <ms>]", "--expression", "--default-provider", "--include-catalog", "--execute", "--timeout-ms"),
+  "macro-resolve": commandHelp("npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute] [--timeout-ms <ms>] [--challenge-automation-mode <mode>]", "--expression", "--default-provider", "--include-catalog", "--execute", "--timeout-ms", "--challenge-automation-mode"),
   annotate: commandHelp(
     "npx opendevbrowser annotate --session-id <id> [--url <url>] [--transport <auto|direct|relay>] [--target-id <id>] [--tab-id <tab>] [--screenshot-mode <visible|full|none>] [--context <text>] [--debug] [--stored] [--include-screenshots <bool>] [--timeout-ms <ms>]",
     "--session-id",
@@ -418,6 +428,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--include-all-images", description: "Include all discovered product images." },
       { flag: "--include-copy", description: "Include product marketing copy metadata." },
       { flag: "--use-cookies", description: "Enable or disable provider cookie injection for workflow runs; a bare flag means true.", example: "opendevbrowser shopping run --query 'usb hub' --use-cookies" },
+      { flag: "--challenge-automation-mode", description: "Per-run challenge automation mode for workflow runs and macro-resolve execute: off, browser, or browser_with_helper. Precedence is run > session > config, and the helper remains browser-scoped only.", example: "opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute --challenge-automation-mode browser_with_helper" },
       { flag: "--cookie-policy-override", description: "Per-run workflow cookie policy override: off, auto, or required.", example: "opendevbrowser research run --topic 'agent workflows' --cookie-policy-override required" },
       { flag: "--cookie-policy", description: "Alias of --cookie-policy-override." },
       { flag: "--output-dir", description: "Directory where generated artifacts are written." },

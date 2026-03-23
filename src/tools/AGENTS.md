@@ -4,7 +4,7 @@ Tool development patterns. Extends `src/AGENTS.md`.
 
 ## Overview
 
-49 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
+53 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
 Hub mode is enforced via `ensureHub` in `src/tools/index.ts` to rebind remote managers and avoid local relay fallback.
 
 ## Tool Structure

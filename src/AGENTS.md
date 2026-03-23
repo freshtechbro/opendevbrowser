@@ -18,7 +18,7 @@ src/
 │   ├── ops-browser-manager.ts # Extension ops sessions (/ops relay)
 │   └── target-manager.ts    # Tab management, active tracking
 ├── providers/            # Provider runtime, policy, workflows, browser fallback
-├── tools/                # 49 tool definitions (see tools/AGENTS.md)
+├── tools/                # 53 tool definitions (see tools/AGENTS.md)
 ├── snapshot/             # AX-tree capture, RefStore
 ├── relay/                # WebSocket relay server
 ├── devtools/             # Console/network with redaction
@@ -49,7 +49,7 @@ src/
 | `relay/` | Extension relay server, protocol types. See `relay/AGENTS.md` |
 | `skills/` | SkillLoader, topic filtering. See `../skills/AGENTS.md` |
 | `snapshot/` | AX-tree snapshots, ref management. See `snapshot/AGENTS.md` |
-| `tools/` | 49 tool definitions (thin wrappers). See `tools/AGENTS.md` |
+| `tools/` | 53 tool definitions (thin wrappers). See `tools/AGENTS.md` |
 | `utils/` | Shared utilities |
 
 ## Manager Pattern

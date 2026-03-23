@@ -98,7 +98,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 49 opendevbrowser_* tool definitions
+│   ├── tools/        # 53 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
@@ -126,7 +126,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Design canvas + code sync | `src/canvas/`, `src/canvas/kits/catalog.ts`, `src/canvas/starters/catalog.ts`, `src/browser/canvas-manager.ts`, `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`, `scripts/canvas-competitive-validation.mjs` | Current canvas technical docs, built-in kit and starter inventory, framework-adapter code sync, BYO plugin contract, validator evidence, manifest persistence, and runtime preview fallback |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
-| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 56 CLI + 49 tools + `/ops` + `/canvas` + `/cdp` map |
+| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 60 CLI + 53 tools + 48 `/ops` + 35 `/canvas` + `/cdp` map |
 
 ## Commands
 
@@ -213,7 +213,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_canvas: createCanvasTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 49 tools
+    // ... 53 tools
   };
 }
 ```

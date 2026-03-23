@@ -1,7 +1,7 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-03-13
+Last updated: 2026-03-23
 
 This document tracks runtime and build dependencies across the repository.
 
@@ -15,6 +15,7 @@ This document tracks runtime and build dependencies across the repository.
 | `@puppeteer/browsers` | `^2.13.0` | Chrome for Testing resolution/download |
 | `async-mutex` | `^0.5.0` | Session/relay concurrency controls |
 | `jsonc-parser` | `^3.2.0` | JSONC config parsing |
+| `parse5` | `^8.0.0` | HTML parsing for export and DOM normalization paths |
 | `playwright-core` | `^1.58.2` | Browser control + CDP sessions |
 | `typescript` | `^5.9.3` | Runtime TSX parsing/printing for canvas code sync plus repository TypeScript builds |
 | `ws` | `^8.19.0` | Relay and daemon websocket transport |
@@ -46,6 +47,12 @@ This public repository no longer tracks website package manifests or lockfiles. 
 
 The extension is built with the root toolchain (`npm run extension:build`) and does not maintain an independent runtime dependency graph.
 Version synchronization is handled by `npm run extension:sync`, which keeps `extension/manifest.json` and `extension/package.json` aligned with the root package version.
+
+## Challenge override rollout audit
+
+- No new package dependencies were required for `challengeAutomationMode`.
+- No package.json, tsconfig.json, eslint.config.js, or vitest.config.ts changes were required for this rollout.
+- No Vite config exists in the public repo, so no Vite update was required.
 
 ## Dependency update workflow
 

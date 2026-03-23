@@ -322,7 +322,8 @@
       "sourceSeams": [
         "skills/opendevbrowser-best-practices/SKILL.md",
         "src/skills/skill-loader.ts",
-        "src/cli/installers/skills.ts",
+        "src/cli/installers/global.ts",
+        "src/cli/installers/local.ts",
         "src/tools/skill_list.ts",
         "src/tools/skill_load.ts"
       ],
@@ -444,8 +445,8 @@
         "src/browser/canvas-manager.ts",
         "src/annotate/direct-annotator.ts",
         "src/annotate/agent-inbox.ts",
-        "src/tools/canvas.ts",
-        "src/tools/annotate.ts",
+        "src/tools/index.ts",
+        "src/tools/surface.ts",
         "extension/src/canvas/canvas-runtime.ts",
         "extension/src/annotate-content.ts"
       ],
@@ -510,7 +511,7 @@
       "sourceSeams": [
         "src/providers/registry.ts",
         "src/providers/runtime-factory.ts",
-        "src/providers/types.ts",
+        "src/providers/workflows.ts",
         "src/macros/execute.ts",
         "src/tools/macro_resolve.ts",
         "src/cli/commands/macro-resolve.ts"

@@ -10,13 +10,16 @@ function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
-function extractCountFromSource(pattern, source, label) {
+function extractStringListFromSource(pattern, source, label) {
   const match = source.match(pattern);
   if (!match) {
     throw new Error(`Unable to parse ${label}.`);
   }
-  const values = [...match[1].matchAll(/"([^"]+)"/g)];
-  return values.length;
+  return [...match[1].matchAll(/"([^"]+)"/g)].map((valueMatch) => valueMatch[1]);
+}
+
+function extractCountFromSource(pattern, source, label) {
+  return extractStringListFromSource(pattern, source, label).length;
 }
 
 export function getSurfaceCounts() {
@@ -25,17 +28,20 @@ export function getSurfaceCounts() {
   const opsSource = read("extension/src/ops/ops-runtime.ts");
   const canvasSource = read("src/browser/canvas-manager.ts");
 
-  const commandCount = extractCountFromSource(/export const CLI_COMMANDS = \[(.*?)\] as const;/s, argsSource, "CLI commands");
-  const toolCount = [...toolsSource.matchAll(/\s(opendevbrowser_[a-z_]+):/g)].length;
+  const commandNames = extractStringListFromSource(/export const CLI_COMMANDS = \[(.*?)\] as const;/s, argsSource, "CLI commands");
+  const toolNames = [...toolsSource.matchAll(/\s(opendevbrowser_[a-z_]+):/g)].map((match) => match[1]);
   const opsCommandNames = [...opsSource.matchAll(/case "([^"]+)":/g)].map((match) => match[1]);
-  const canvasCommandCount = extractCountFromSource(/export const PUBLIC_CANVAS_COMMANDS = \[(.*?)\] as const;/s, canvasSource, "public canvas commands");
+  const canvasCommandNames = extractStringListFromSource(/export const PUBLIC_CANVAS_COMMANDS = \[(.*?)\] as const;/s, canvasSource, "public canvas commands");
 
   return {
-    commandCount,
-    toolCount,
+    commandCount: commandNames.length,
+    toolCount: toolNames.length,
     opsCommandCount: opsCommandNames.length,
-    canvasCommandCount,
-    opsCommandNames
+    canvasCommandCount: canvasCommandNames.length,
+    commandNames,
+    toolNames,
+    opsCommandNames,
+    canvasCommandNames
   };
 }
 
@@ -59,6 +65,16 @@ function extractCommandNamesFromDocSection(source, startHeading, endHeading, lab
   return [...commandSection.matchAll(/^- `([^`]+)`$/gm)].map((match) => match[1]);
 }
 
+function extractBacktickedNamesFromDocSection(source, startHeading, endHeading, label) {
+  const start = source.indexOf(startHeading);
+  if (start < 0) {
+    throw new Error(`Unable to locate ${label} start heading.`);
+  }
+  const end = source.indexOf(endHeading, start);
+  const section = source.slice(start, end >= 0 ? end : undefined);
+  return [...section.matchAll(/^- `([^`]+)`(?:[^\n]*)$/gm)].map((match) => match[1]);
+}
+
 export function runDocsDriftChecks() {
   const packageJson = JSON.parse(read("package.json"));
   const version = String(packageJson.version ?? "");
@@ -67,6 +83,7 @@ export function runDocsDriftChecks() {
   }
 
   const cliDoc = read("docs/CLI.md");
+  const publicReadme = read("README.md");
   const docsReadme = read("docs/README.md");
   const onboardingDoc = read("docs/FIRST_RUN_ONBOARDING.md");
   const surfaceDoc = read("docs/SURFACE_REFERENCE.md");
@@ -74,6 +91,9 @@ export function runDocsDriftChecks() {
   const annotateDoc = read("docs/ANNOTATE.md");
   const extensionDoc = read("docs/EXTENSION.md");
   const troubleshootingDoc = read("docs/TROUBLESHOOTING.md");
+  const privacyDoc = read("docs/privacy.md");
+  const dependenciesDoc = read("docs/DEPENDENCIES.md");
+  const cutoverDoc = read("docs/CUTOVER_CHECKLIST.md");
   const bestPracticesSkill = read("skills/opendevbrowser-best-practices/SKILL.md");
   const commandChannelReference = read("skills/opendevbrowser-best-practices/artifacts/command-channel-reference.md");
   const surfaceAuditChecklist = JSON.parse(read("skills/opendevbrowser-best-practices/assets/templates/surface-audit-checklist.json"));
@@ -83,7 +103,7 @@ export function runDocsDriftChecks() {
   const researchSkill = read("skills/opendevbrowser-research/SKILL.md");
   const shoppingSkill = read("skills/opendevbrowser-shopping/SKILL.md");
 
-  const { commandCount, toolCount, opsCommandCount, canvasCommandCount, opsCommandNames } = getSurfaceCounts();
+  const { commandCount, toolCount, opsCommandCount, canvasCommandCount, commandNames, toolNames, opsCommandNames } = getSurfaceCounts();
 
   const checks = [];
 
@@ -110,6 +130,36 @@ export function runDocsDriftChecks() {
     id: "doc.surface.tool_count_matches_source",
     ok: surfaceToolCount === toolCount,
     detail: `docs/SURFACE_REFERENCE.md tool count=${surfaceToolCount}, source=${toolCount}`
+  });
+  const surfaceCommandNames = extractBacktickedNamesFromDocSection(
+    surfaceDoc,
+    "## CLI Command Inventory",
+    "## Tool Inventory",
+    "surface CLI commands"
+  );
+  const sourceCommandSet = new Set(commandNames);
+  const docCommandSet = new Set(surfaceCommandNames);
+  const missingCommands = commandNames.filter((command) => !docCommandSet.has(command));
+  const extraCommands = surfaceCommandNames.filter((command) => !sourceCommandSet.has(command));
+  checks.push({
+    id: "doc.surface.command_listing_matches_source",
+    ok: surfaceCommandNames.length === commandCount && missingCommands.length === 0 && extraCommands.length === 0,
+    detail: `docs/SURFACE_REFERENCE.md commands listed=${surfaceCommandNames.length}, source=${commandCount}, missing=${missingCommands.join(",") || "none"}, extra=${extraCommands.join(",") || "none"}`
+  });
+  const surfaceToolNames = extractBacktickedNamesFromDocSection(
+    surfaceDoc,
+    "## Tool Inventory",
+    "## Relay Channel Inventory",
+    "surface tools"
+  );
+  const sourceToolSet = new Set(toolNames);
+  const docToolSet = new Set(surfaceToolNames);
+  const missingTools = toolNames.filter((tool) => !docToolSet.has(tool));
+  const extraTools = surfaceToolNames.filter((tool) => !sourceToolSet.has(tool));
+  checks.push({
+    id: "doc.surface.tool_listing_matches_source",
+    ok: surfaceToolNames.length === toolCount && missingTools.length === 0 && extraTools.length === 0,
+    detail: `docs/SURFACE_REFERENCE.md tools listed=${surfaceToolNames.length}, source=${toolCount}, missing=${missingTools.join(",") || "none"}, extra=${extraTools.join(",") || "none"}`
   });
 
   const surfaceOpsCount = parseDocCount(/### `\/ops` command names \((\d+)\)/, surfaceDoc, "surface /ops count");
@@ -199,6 +249,26 @@ export function runDocsDriftChecks() {
   });
 
   checks.push({
+    id: "doc.readme.challenge_override_contract_documented",
+    ok: publicReadme.includes("challengeAutomationMode")
+      && publicReadme.includes("browser_with_helper")
+      && publicReadme.includes("run > session > config")
+      && publicReadme.includes("browser-scoped")
+      && publicReadme.includes("not a desktop agent"),
+    detail: "README.md must document challengeAutomationMode, enum values, precedence, and the browser-scoped helper boundary."
+  });
+
+  checks.push({
+    id: "doc.cli.challenge_override_contract_documented",
+    ok: cliDoc.includes("challengeAutomationMode")
+      && cliDoc.includes("browser_with_helper")
+      && cliDoc.includes("run > session > config")
+      && cliDoc.includes("browser-scoped")
+      && cliDoc.includes("not a desktop agent"),
+    detail: "docs/CLI.md must document challengeAutomationMode, enum values, precedence, and the browser-scoped helper boundary."
+  });
+
+  checks.push({
     id: "doc.architecture.canvas_history_event_documented",
     ok: architectureDoc.includes("canvas_history_requested")
       && architectureDoc.includes("canvas.history.undo")
@@ -212,6 +282,27 @@ export function runDocsDriftChecks() {
       && architectureDoc.includes("store_agent_payload")
       && architectureDoc.includes("AgentInbox"),
     detail: "docs/ARCHITECTURE.md must document annotation:sendPayload -> store_agent_payload -> AgentInbox."
+  });
+
+  checks.push({
+    id: "doc.architecture.challenge_override_contract_documented",
+    ok: architectureDoc.includes("challengeAutomationMode")
+      && architectureDoc.includes("browser_with_helper")
+      && architectureDoc.includes("run > session > config")
+      && architectureDoc.includes("browser-scoped")
+      && architectureDoc.includes("not a desktop agent")
+      && architectureDoc.includes("roadmap-only"),
+    detail: "docs/ARCHITECTURE.md must document the challenge override contract, browser-only helper boundary, and roadmap-only desktop section."
+  });
+
+  checks.push({
+    id: "doc.surface.challenge_override_contract_documented",
+    ok: surfaceDoc.includes("challengeAutomationMode")
+      && surfaceDoc.includes("browser_with_helper")
+      && surfaceDoc.includes("run > session > config")
+      && surfaceDoc.includes("browser-scoped")
+      && surfaceDoc.includes("standDownReason"),
+    detail: "docs/SURFACE_REFERENCE.md must document workflow challenge override flags, precedence, and surfaced stand-down metadata."
   });
 
   checks.push({
@@ -240,6 +331,33 @@ export function runDocsDriftChecks() {
       && troubleshootingDoc.includes("Chrome-family cookie bootstrap")
       && troubleshootingDoc.includes("skills/opendevbrowser-best-practices/SKILL.md"),
     detail: "docs/TROUBLESHOOTING.md must document history event wording, AgentInbox send fallback, cookie bootstrap, and the canonical direct-run policy pointer."
+  });
+
+  checks.push({
+    id: "doc.privacy.challenge_override_boundary_documented",
+    ok: privacyDoc.includes("challengeAutomationMode")
+      && privacyDoc.includes("browser-scoped")
+      && privacyDoc.includes("not a desktop agent"),
+    detail: "docs/privacy.md must document that challengeAutomationMode stays local and the helper bridge remains browser-scoped only."
+  });
+
+  checks.push({
+    id: "doc.dependencies.challenge_override_config_audit_documented",
+    ok: dependenciesDoc.includes("No package.json, tsconfig.json, eslint.config.js, or vitest.config.ts changes were required")
+      && dependenciesDoc.includes("No Vite config exists in the public repo")
+      && dependenciesDoc.includes("No new package dependencies were required for")
+      && dependenciesDoc.includes("challengeAutomationMode"),
+    detail: "docs/DEPENDENCIES.md must record the no-new-dependencies and no-config-drift audit for the challenge override rollout."
+  });
+
+  checks.push({
+    id: "doc.cutover.challenge_override_sync_documented",
+    ok: cutoverDoc.includes("challengeAutomationMode")
+      && cutoverDoc.includes("run > session > config")
+      && cutoverDoc.includes("docs/privacy.md")
+      && cutoverDoc.includes("docs/DEPENDENCIES.md")
+      && cutoverDoc.includes("docs/CUTOVER_CHECKLIST.md"),
+    detail: "docs/CUTOVER_CHECKLIST.md must include challenge override doc-sync and config-audit steps."
   });
 
   checks.push({

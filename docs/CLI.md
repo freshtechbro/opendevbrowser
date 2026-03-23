@@ -2,7 +2,7 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-22
+Last updated: 2026-03-23
 
 OpenDevBrowser exposes 53 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff/compaction.
@@ -150,8 +150,12 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 - Managed and `/ops`-backed manager responses preserve the shipped blocker fields `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution`, and may append additive `meta.challenge` plus `meta.challengeOrchestration`.
 - Browser-assisted provider fallback reports explicit transport `disposition`: `completed`, `challenge_preserved`, `deferred`, or `failed`. When bounded challenge orchestration runs during fallback, decision evidence is recorded in `details.challengeOrchestration`.
+- Workflow and daemon callers can set `challengeAutomationMode` to `off`, `browser`, or `browser_with_helper`. Effective precedence is `run > session > config`.
+- Shipped config defaults now resolve to `providers.challengeOrchestration.mode = browser_with_helper` and `providers.challengeOrchestration.optionalComputerUseBridge.enabled = true`.
+- `meta.challengeOrchestration` and fallback `details.challengeOrchestration` can expose `mode`, `source`, `standDownReason`, and `helperEligibility` so stand-down decisions stay explicit.
 - `ProviderRegistry` is the only durable anti-bot pressure authority used by policy, runtime routing, and workflow summaries. Provider modules only contribute extraction logic and optional `recoveryHints()`.
 - Direct browser, `/ops`, and provider fallback flows share one bounded challenge plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded browser-native interaction experimentation before yielding.
+- The optional helper bridge is browser-scoped, not a desktop agent. `browser` keeps it disabled and `browser_with_helper` only evaluates it after the existing hard gates pass.
 - Provider and workflow auto-resume still happen only after manager-owned verification clears the blocker.
 - In scope: preserved sessions, visual observation loops, low-level pointer controls, bounded interaction experimentation, reclaimable human yield packets, and owned-environment fixtures that use vendor test keys only.
 - Out of scope: hidden bypass paths, CAPTCHA-solving services, challenge token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
@@ -245,7 +249,8 @@ npx opendevbrowser -v
 - All supported CLI flags, grouped by install/session/navigation/workflow usage, with representative examples on high-value shared flags.
 - All `opendevbrowser_*` tools (53), each with a one-line description and CLI equivalent or tool-only scope.
 - Macro and design-canvas timeout guidance via `--timeout-ms`.
-- Canonical inventory pointers: `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`, `docs/SURFACE_REFERENCE.md`, and this CLI guide.
+- The exhaustive mirrored name + description inventory lives in `docs/SURFACE_REFERENCE.md`.
+- Canonical inventory pointers: `src/cli/index.ts`, `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`, `docs/SURFACE_REFERENCE.md`, and this CLI guide.
 
 Operational help parity check:
 
@@ -398,6 +403,7 @@ Flags:
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
+- `--challenge-automation-mode` (`off|browser|browser_with_helper`)
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
@@ -420,6 +426,7 @@ Flags:
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
+- `--challenge-automation-mode` (`off|browser|browser_with_helper`)
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
@@ -441,6 +448,7 @@ Flags:
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
+- `--challenge-automation-mode` (`off|browser|browser_with_helper`)
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
@@ -453,6 +461,12 @@ Wrapper behavior:
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
 - `auto` attempts injection when cookies are available and continues when cookies are missing/unusable.
 - `required` fails fast with `reasonCode=auth_required` when cookie loading/injection/verification cannot establish a session.
+- Workflow challenge automation defaults to `providers.challengeOrchestration.mode`.
+- Effective challenge precedence is `challengeAutomationMode` with `run > session > config`.
+- `off` keeps detection and reporting active but stands down challenge actions.
+- `browser` enables only browser-native lanes and forces the helper bridge to stand down.
+- `browser_with_helper` preserves browser-first lane ordering and only evaluates the browser-scoped helper bridge when hard gates pass.
+- The helper bridge is browser-scoped and is not a desktop agent.
 - Cookie diagnostics are exposed in workflow metrics under `meta.metrics.cookie_diagnostics` and `meta.metrics.cookieDiagnostics`.
 - Shopping providers that return zero usable offer records now emit `meta.failures[*].error.reasonCode=env_limited` instead of silently counting as success.
 
@@ -667,12 +681,14 @@ npx opendevbrowser macro-resolve --expression '@web.search("openai")'
 npx opendevbrowser macro-resolve --expression '@social.post("x", "ship it")' --default-provider social/x --include-catalog
 npx opendevbrowser macro-resolve --expression '@web.search("opendevbrowser")' --execute --output-format json
 npx opendevbrowser macro-resolve --expression '@media.search("youtube transcript parity", "youtube", 5)' --execute --timeout-ms 120000 --output-format json
+npx opendevbrowser macro-resolve --expression '@community.search("browser automation failures", 4)' --execute --challenge-automation-mode browser_with_helper --output-format json
 ```
 
 Notes:
 - Default mode is resolve-only (returns the resolved action/provenance payload).
 - `--execute` runs the resolved provider action and returns additive execution metadata (`meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, `meta.provenance.retrievedAt`).
 - `--timeout-ms` sets client-side daemon transport timeout for slow `--execute` runs.
+- `--challenge-automation-mode` is accepted for `--execute` runs and maps to `challengeAutomationMode` with the same `run > session > config` precedence as workflow commands.
 - `opendevbrowser --help` includes this timeout flag in the global flag inventory.
 
 ### Blocker contract (v2)
@@ -1234,6 +1250,7 @@ npx opendevbrowser debug-trace-snapshot \
 | `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
 | `--timeout-ms` | `macro-resolve` | Client-side daemon call timeout in ms |
 | `--use-cookies` | `research run`, `shopping run`, `product-video run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
+| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `macro-resolve --execute` | Per-run challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
 | `--cookie-policy-override` | `research run`, `shopping run`, `product-video run` | Per-run provider cookie policy override (`off|auto|required`) |
 | `--cookie-policy` | `research run`, `shopping run`, `product-video run` | Alias of `--cookie-policy-override` |
 

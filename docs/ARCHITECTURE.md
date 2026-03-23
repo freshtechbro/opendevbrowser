@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-03-22
+Last updated: 2026-03-23
 
 ---
 
@@ -24,8 +24,11 @@ Current automation surface sizes:
 - `/canvas` command names: `35`
 
 Human-facing inventory metadata is split intentionally:
+- `src/cli/index.ts` owns the one-line CLI command descriptions shown in help and mirrored docs
 - `src/cli/help.ts` owns CLI usage and primary-flag snippets for `opendevbrowser --help` / `opendevbrowser help`
-- `src/tools/surface.ts` owns the help-facing `opendevbrowser_*` tool catalog
+- `src/tools/surface.ts` owns the help-facing `opendevbrowser_*` tool catalog and short descriptions
+- `docs/SURFACE_REFERENCE.md` mirrors every public CLI command and tool name with those short descriptions
+- `docs/CLI.md` carries the longer operator guide and help parity runbook
 - `src/cli/args.ts` and `src/tools/index.ts` remain the runtime inventory authorities
 
 The shared runtime core is in `src/core/` and wires `BrowserManager`, `CanvasManager`, `AnnotationManager`, `AgentInbox`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
@@ -58,6 +61,32 @@ Legitimacy boundary:
 
 - In scope: preserved sessions, standard browser controls, bounded auth-navigation and session-reuse attempts, bounded interaction experimentation, reclaimable human yield for secret or human-authority boundaries, and owned-environment challenge fixtures that use vendor test keys only.
 - Out of scope: hidden bypasses, CAPTCHA-solving services, token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
+
+### Challenge automation override contract
+
+- Public override field: `challengeAutomationMode`
+- Accepted values: `off`, `browser`, `browser_with_helper`
+- Effective precedence: `run > session > config`
+- Config baseline: `providers.challengeOrchestration.mode`
+- `BrowserManager` and `OpsBrowserManager` remain the only surfaced challenge metadata writers.
+- `meta.challengeOrchestration` and fallback `details.challengeOrchestration` can expose `mode`, `source`, `standDownReason`, and helper eligibility so stand-down decisions stay explicit.
+- The optional helper bridge is browser-scoped, not a desktop agent. `browser` disables it, while `browser_with_helper` only evaluates it when the existing hard gates pass.
+- Governed advanced lanes stay separately entitlement-gated and are never granted by `challengeAutomationMode`.
+
+### Roadmap-only desktop boundary
+
+This section is roadmap-only and non-shipping.
+
+- A future desktop agent must use a new runtime contract separate from `ChallengeRuntimeHandle`.
+- Minimum capability bar before any desktop-agent claim is allowed:
+  - OS-level input actuation outside the browser
+  - cross-window and cross-app focus management
+  - desktop capture or accessibility-tree observation beyond browser DOM
+  - explicit permission and consent gating
+  - bounded workspace and abort controls
+  - audit artifacts and replay-safe execution logs
+  - a typed failure taxonomy separate from the current helper bridge
+- Until that runtime exists, public docs and surfaces must not describe the current helper bridge as a desktop agent.
 
 ---
 
@@ -311,6 +340,7 @@ sequenceDiagram
   - `research.run` / `opendevbrowser_research_run` / `opendevbrowser research run`
   - `shopping.run` / `opendevbrowser_shopping_run` / `opendevbrowser shopping run`
   - `product.video.run` / `opendevbrowser_product_video_run` / `opendevbrowser product-video run`
+- Those workflow wrappers also expose `challengeAutomationMode` (`off|browser|browser_with_helper`) as a run-scoped override with `run > session > config` precedence.
 - Workflow runtime primitives are layered as:
   - `timebox` (strict `days|from|to` resolution)
   - `orchestrator` (source/provider fanout + partial-failure accumulation)

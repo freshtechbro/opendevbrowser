@@ -4,7 +4,7 @@
 
 ## Overview
 
-CLI layer implementing script-first UX with 56 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, design-canvas, export, diagnostics, provider workflows, macro, annotate, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
+CLI layer implementing script-first UX with 60 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, design-canvas, export, diagnostics, provider workflows, macro, annotate, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
 
 ## Structure
 

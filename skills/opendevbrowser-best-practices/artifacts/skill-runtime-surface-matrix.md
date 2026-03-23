@@ -49,6 +49,7 @@ Canonical inventory of repo-local OpenDevBrowser skill packs and the runtime sur
 
 - A pack is `fail` when discovery/load parity fails, the validator fails, the required live probe is missing, or the real workflow probe reports a repo-owned defect.
 - A pack is `env_limited` only when the probe exists, ran, and hit a real external blocker.
+- `scripts/skill-runtime-audit.mjs` smoke mode may use isolated temp harnesses, but full-mode `provider-direct` and `live-regression` lanes must reuse the current configured daemon/environment so extension and auth-backed coverage is real when available.
 - A shared runtime family is considered covered only when at least one live proof lane exercised that family during the same audit pass.
 - An audit domain is `fail` when any mapped proof lane or mapped pack reports a repo-owned defect.
 - An audit domain is `env_limited` when it has no repo defects but a mapped proof lane hit real external blockers.
