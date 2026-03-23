@@ -257,13 +257,14 @@ Envelope contract:
 
 - Managed and `/ops`-backed manager responses preserve the shipped blocker fields `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution`.
 - `meta.challenge` is additive and may appear on manager-shaped `status`, `goto`, `wait`, and `debugTraceSnapshot` responses after blocker reconciliation.
-- Provider browser fallback uses explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`.
+- `meta.challengeOrchestration` is additive and may appear on manager-shaped `status`, `goto`, `wait`, and `waitForRef` responses after bounded challenge orchestration runs.
+- Provider browser fallback uses explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`, and may include `details.challengeOrchestration` when the shared challenge plane ran during fallback.
 - `ProviderRegistry` is the only durable anti-bot pressure authority. Workflow outputs keep their existing keys while reading registry-backed pressure instead of provider-local durable state.
 
 ## Legitimacy boundary
 
-- In scope: preserved sessions, low-level pointer control, visual observation loops, manual completion on third-party sites, and owned-environment fixtures that use vendor test keys only.
-- Out of scope: hidden bypasses, CAPTCHA-solving services, challenge token harvesting, or autonomous solving of third-party anti-bot systems.
+- In scope: preserved sessions, low-level pointer control, visual observation loops, bounded auth-navigation and session-reuse attempts, reclaimable human yield packets, and owned-environment fixtures that use vendor test keys only.
+- Out of scope: hidden bypasses, CAPTCHA-solving services, challenge token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
 
 ### `/canvas` command names (35)
 

@@ -47,16 +47,17 @@ and `daemon status`, and a stable persisted auto-start entry remains authoritati
 The anti-bot cutover keeps blocker truth and challenge lifecycle separate on purpose:
 
 - `src/browser/session-store.ts` remains the only blocker FSM authority.
-- `src/browser/browser-manager.ts` and `src/browser/ops-browser-manager.ts` remain the only writers of surfaced blocker and challenge metadata. Existing `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` fields stay stable; additive `meta.challenge` is layered on top.
+- `src/browser/browser-manager.ts` and `src/browser/ops-browser-manager.ts` remain the only writers of surfaced blocker and challenge metadata. Existing `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` fields stay stable; additive `meta.challenge` and `meta.challengeOrchestration` are layered on top.
 - `src/browser/global-challenge-coordinator.ts` owns lifecycle-only state for claim, refresh, resolve, defer, expire, and release. It does not classify blockers.
+- `src/challenges/` is the shared Part 2 intelligence plane. It builds canonical evidence, interprets the incident, selects one bounded lane, executes browser-native steps, verifies via manager-owned checks, and emits reclaimable yield or outcome records without becoming a second truth authority.
 - `src/providers/runtime-factory.ts` plus `src/providers/browser-fallback.ts` own preserve-or-complete browser fallback transport. Responses use explicit `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`.
 - `src/providers/registry.ts` is the sole durable anti-bot pressure authority. `src/providers/shared/anti-bot-policy.ts`, `src/providers/policy.ts`, `src/providers/index.ts`, and `src/providers/workflows.ts` read or write that registry-backed state instead of maintaining parallel durable maps.
 - Provider modules keep extraction logic and `recoveryHints()` only. Shared runtime owns fallback ordering, preserve or resume decisions, and legacy compatibility translation for older fallback callers.
 
 Legitimacy boundary:
 
-- In scope: preserved sessions, standard browser controls, manual completion on third-party sites, and owned-environment challenge fixtures that use vendor test keys only.
-- Out of scope: hidden bypasses, CAPTCHA-solving services, token harvesting, or autonomous solving of third-party anti-bot systems.
+- In scope: preserved sessions, standard browser controls, bounded auth-navigation and session-reuse attempts, bounded interaction experimentation, reclaimable human yield for secret or human-authority boundaries, and owned-environment challenge fixtures that use vendor test keys only.
+- Out of scope: hidden bypasses, CAPTCHA-solving services, token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
 
 ---
 

@@ -50,7 +50,7 @@ Distribution split (current target state):
 | **Design canvas + code sync** | Persist repo-native design documents, attach same-session observers, run framework-adapter-backed code sync across built-in React or HTML or custom-elements or Vue or Svelte lanes plus repo-local BYO plugins, author tokens in `canvas.html`, and drive preview tabs with `canvas_html` or opted-in `bound_app_runtime` reconciliation |
 | **Shared annotation inbox** | Popup/canvas `Send` actions deliver into the active chat when scope is safe and degrade cleanly to `annotate --stored` retrieval when it is not |
 | **Loop-closure diagnostics** | Console/network polling + unified debug trace snapshots for verification workflows |
-| **Challenge-preserving recovery** | Auth and anti-bot fallback paths preserve live sessions with additive `meta.challenge` instead of tearing them down immediately |
+| **Challenge orchestration plane** | One shared bounded challenge lane now interprets preserved incidents across direct browser, `/ops`, and provider fallback paths, then attempts legitimate auth navigation, session or cookie reuse, non-secret fill, and bounded interaction exploration before yielding |
 | **Low-level pointer primitives** | `pointer-move`, `pointer-down`, `pointer-up`, and `pointer-drag` are exposed across CLI, tools, and `/ops` for manual challenge handling |
 | **Registry-backed anti-bot pressure** | `ProviderRegistry` is the single durable pressure authority for policy, runtime routing, and workflow summaries |
 | **11 bundled skill directories** | Best practices, design-agent guidance, login, forms, data extraction, research, shopping, and product asset workflows |
@@ -246,11 +246,12 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ## Challenge Handling Boundary
 
-- `SessionStore` remains the blocker FSM source of truth. Managed and `/ops`-backed responses keep `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` stable and may append additive `meta.challenge`.
-- Browser fallback now returns explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, or `failed`. Preserved auth or anti-bot sessions stay alive for manual continuation.
+- `SessionStore` remains the blocker FSM source of truth. Managed and `/ops`-backed responses keep `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` stable and may append additive `meta.challenge` plus `meta.challengeOrchestration`.
+- Direct browser, `/ops`, and provider fallback paths now share one bounded challenge orchestration plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded interaction exploration before yielding to a human.
+- Browser fallback returns explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, or `failed`. When orchestration runs during fallback, decision evidence is recorded under `details.challengeOrchestration`.
 - `ProviderRegistry` is the only durable anti-bot pressure authority. Shared runtime and policy own fallback ordering and resume policy; provider modules only contribute extraction logic and `recoveryHints()`.
-- In scope: preserved sessions, normal browser controls, manual completion on third-party sites, and owned-environment fixtures that use vendor test keys only.
-- Out of scope: hidden bypasses, CAPTCHA-solving services, token harvesting, or autonomous solving of third-party anti-bot systems.
+- In scope: preserved sessions, normal browser controls, bounded interaction experimentation, human yield packets for secret or human-authority boundaries, and owned-environment fixtures that use vendor test keys only.
+- Out of scope: hidden bypasses, CAPTCHA-solving services, token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
 
 ---
 

@@ -1,7 +1,9 @@
 # Investigation: Hardened Anti-Bot Challenge Orchestration
 
-Status: active
+Status: closed
 Date: 2026-03-21
+
+Closure evidence: `docs/ANTI_BOT_CHALLENGE_ORCHESTRATION_AUDIT_2026-03-22.md`
 
 ## Summary
 

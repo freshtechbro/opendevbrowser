@@ -148,12 +148,13 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ## Challenge orchestration contract
 
-- Managed and `/ops`-backed manager responses preserve the shipped blocker fields `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution`, and may append additive `meta.challenge`.
-- Browser-assisted provider fallback now reports explicit transport `disposition`: `completed`, `challenge_preserved`, `deferred`, or `failed`. Preserved auth and anti-bot sessions stay open for manual continuation instead of being disconnected in `finally`.
+- Managed and `/ops`-backed manager responses preserve the shipped blocker fields `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution`, and may append additive `meta.challenge` plus `meta.challengeOrchestration`.
+- Browser-assisted provider fallback reports explicit transport `disposition`: `completed`, `challenge_preserved`, `deferred`, or `failed`. When bounded challenge orchestration runs during fallback, decision evidence is recorded in `details.challengeOrchestration`.
 - `ProviderRegistry` is the only durable anti-bot pressure authority used by policy, runtime routing, and workflow summaries. Provider modules only contribute extraction logic and optional `recoveryHints()`.
-- Direct browser continuation stays manual by default. Provider and workflow auto-resume only happen after manager-owned verification clears the blocker.
-- In scope: preserved sessions, visual observation loops, low-level pointer controls, manual completion on third-party sites, and owned-environment fixtures that use vendor test keys only.
-- Out of scope: hidden bypass paths, CAPTCHA-solving services, challenge token harvesting, or autonomous solving of third-party anti-bot systems.
+- Direct browser, `/ops`, and provider fallback flows share one bounded challenge plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded browser-native interaction experimentation before yielding.
+- Provider and workflow auto-resume still happen only after manager-owned verification clears the blocker.
+- In scope: preserved sessions, visual observation loops, low-level pointer controls, bounded interaction experimentation, reclaimable human yield packets, and owned-environment fixtures that use vendor test keys only.
+- Out of scope: hidden bypass paths, CAPTCHA-solving services, challenge token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
 
 ---
 
