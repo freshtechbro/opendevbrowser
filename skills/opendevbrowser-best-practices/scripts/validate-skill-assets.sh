@@ -224,8 +224,15 @@ const hasMarker = (content, marker) => content.includes(marker);
       ? packMatrix.canonicalPacks.map((entry) => entry?.packId).filter((value) => typeof value === "string")
       : [];
     const uniquePackIds = new Set(packIds);
+    const auditDomainIds = Array.isArray(packMatrix.auditDomains)
+      ? packMatrix.auditDomains.map((entry) => entry?.id).filter((value) => typeof value === "string")
+      : [];
+    const uniqueAuditDomainIds = new Set(auditDomainIds);
     if (packIds.length !== 9 || uniquePackIds.size !== 9) {
       failures.push(`Skill runtime pack matrix must contain 9 unique canonical packs; found ${uniquePackIds.size}.`);
+    }
+    if (auditDomainIds.length !== 9 || uniqueAuditDomainIds.size !== 9) {
+      failures.push(`Skill runtime pack matrix must contain 9 unique audit domains; found ${uniqueAuditDomainIds.size}.`);
     }
     if (!Array.isArray(packMatrix.runtimeFamilies) || packMatrix.runtimeFamilies.length === 0) {
       failures.push("Skill runtime pack matrix missing runtimeFamilies.");
@@ -257,7 +264,17 @@ const hasMarker = (content, marker) => content.includes(marker);
       "opendevbrowser-product-presentation-asset",
       "opendevbrowser-research",
       "opendevbrowser-shopping",
-      "Shared runtime families"
+      "Shared runtime families",
+      "Audit domains",
+      "skills-assets-discovery",
+      "cli-tools-surface",
+      "scripts-and-governance",
+      "browser-snapshot-interaction",
+      "canvas-annotate-design",
+      "extension-relay-cdp",
+      "providers-macros-workflows",
+      "challenges-and-guardrails",
+      "runtime-infrastructure"
     ]) {
       if (!hasMarker(runtimeMatrix, marker)) {
         failures.push(`Skill runtime surface matrix missing marker: ${marker}`);

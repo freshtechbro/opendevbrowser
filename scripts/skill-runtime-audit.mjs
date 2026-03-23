@@ -20,6 +20,7 @@ import {
   writeJson
 } from "./live-direct-utils.mjs";
 import {
+  getAuditDomains,
   getCanonicalSkillRuntimePacks,
   getRuntimeFamilies,
   loadSkillRuntimeMatrix,
@@ -767,6 +768,28 @@ function collectPackChecks(pack, sharedLaneResults, discoveryLane, validatorResu
   });
 }
 
+function syntheticCheckFromPack(pack) {
+  const detail = pack.repoDefects[0]?.detail
+    ?? pack.externalConstraints[0]?.detail
+    ?? pack.observedExternalConstraints[0]?.detail
+    ?? pack.skipped[0]?.detail
+    ?? null;
+
+  return {
+    id: `pack:${pack.packId}`,
+    status: pack.status,
+    detail,
+    artifactPath: null,
+    counts: {
+      pass: pack.status === "pass" ? 1 : 0,
+      fail: pack.status === "fail" ? 1 : 0,
+      env_limited: pack.status === "env_limited" ? 1 : 0,
+      expected_timeout: 0,
+      skipped: pack.status === "skipped" ? 1 : 0
+    }
+  };
+}
+
 export function derivePackStatus(pack, checks) {
   const repoDefects = checks
     .filter((entry) => entry.status === "fail")
@@ -798,6 +821,30 @@ export function derivePackStatus(pack, checks) {
     externalConstraints,
     observedExternalConstraints,
     skipped
+  };
+}
+
+export function deriveAuditDomainStatus(domain, sharedLaneResults, packResults) {
+  const checks = [
+    ...(domain.proofLanes ?? []).map((laneId) => sharedLaneResults.get(laneId)).filter(Boolean),
+    ...(domain.packIds ?? []).map((packId) => packResults.get(packId)).filter(Boolean).map(syntheticCheckFromPack)
+  ];
+  const derived = derivePackStatus({ allowsEnvLimited: true, docOnly: false }, checks);
+
+  return {
+    id: domain.id,
+    label: domain.label,
+    priority: domain.priority,
+    proofLanes: domain.proofLanes ?? [],
+    packIds: domain.packIds ?? [],
+    contractTests: domain.contractTests ?? [],
+    sourceSeams: domain.sourceSeams ?? [],
+    targetedRerunCommands: domain.targetedRerunCommands ?? [],
+    status: derived.status,
+    repoDefects: derived.repoDefects,
+    externalConstraints: derived.externalConstraints,
+    observedExternalConstraints: derived.observedExternalConstraints,
+    skipped: derived.skipped
   };
 }
 
@@ -844,6 +891,57 @@ function countPackStatuses(packs) {
   return counts;
 }
 
+export function buildFixQueue(domainResults) {
+  const severityRank = {
+    fail: 0,
+    env_limited: 1,
+    skipped: 2,
+    pass: 3
+  };
+
+  return [...domainResults]
+    .filter((entry) => entry.status !== "pass")
+    .sort((left, right) => {
+      const severityDelta = severityRank[left.status] - severityRank[right.status];
+      if (severityDelta !== 0) {
+        return severityDelta;
+      }
+      const priorityDelta = left.priority - right.priority;
+      if (priorityDelta !== 0) {
+        return priorityDelta;
+      }
+      return left.id.localeCompare(right.id);
+    })
+    .map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      status: entry.status,
+      priority: entry.priority,
+      rerunCommands: entry.targetedRerunCommands,
+      repoDefectCount: entry.repoDefects.length,
+      externalConstraintCount: entry.externalConstraints.reduce(
+        (count, item) => count + (item.constraintCount ?? 0),
+        0
+      ),
+      sourceSeams: entry.sourceSeams
+    }));
+}
+
+export function buildTargetedRerunCommands(domainResults) {
+  const commands = [];
+  const seen = new Set();
+  for (const entry of buildFixQueue(domainResults)) {
+    for (const command of entry.rerunCommands) {
+      if (seen.has(command)) {
+        continue;
+      }
+      seen.add(command);
+      commands.push(command);
+    }
+  }
+  return commands;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   ensureCliBuilt();
@@ -856,11 +954,14 @@ async function main() {
     inventory: {
       canonicalPackCount: matrix.canonicalPacks.length,
       canonicalPackIds: canonicalPackIds(),
+      auditDomainCount: matrix.auditDomains.length,
+      auditDomainIds: matrix.auditDomains.map((entry) => entry.id),
       runtimeFamilyCount: matrix.runtimeFamilies.length,
       runtimeFamilyIds: matrix.runtimeFamilies.map((entry) => entry.id)
     },
     sharedLanes: [],
     packs: [],
+    auditDomains: [],
     runtimeFamilies: []
   };
 
@@ -893,10 +994,11 @@ async function main() {
   }
 
   const discoveryLane = sharedLaneResults.get("skill-discovery");
+  const packResults = new Map();
   for (const pack of getCanonicalSkillRuntimePacks()) {
     const checks = collectPackChecks(pack, sharedLaneResults, discoveryLane, validatorResults);
     const derived = derivePackStatus(pack, checks);
-    report.packs.push({
+    const packReport = {
       packId: pack.packId,
       packType: pack.packType,
       docOnly: pack.docOnly,
@@ -911,7 +1013,15 @@ async function main() {
       externalConstraints: derived.externalConstraints,
       observedExternalConstraints: derived.observedExternalConstraints,
       skipped: derived.skipped
-    });
+    };
+    report.packs.push(packReport);
+    packResults.set(pack.packId, packReport);
+  }
+
+  for (const domain of getAuditDomains()) {
+    report.auditDomains.push(
+      deriveAuditDomainStatus(domain, sharedLaneResults, packResults)
+    );
   }
 
   for (const family of getRuntimeFamilies()) {
@@ -919,7 +1029,10 @@ async function main() {
   }
 
   report.packCounts = countPackStatuses(report.packs);
+  report.domainCounts = countPackStatuses(report.auditDomains);
   report.familyCounts = countPackStatuses(report.runtimeFamilies);
+  report.targetedRerunCommands = buildTargetedRerunCommands(report.auditDomains);
+  report.fixQueue = buildFixQueue(report.auditDomains);
   report.summary = {
     repoDefectCount: report.packs.reduce((sum, pack) => sum + pack.repoDefects.length, 0),
     externalConstraintCount: report.packs.reduce(
@@ -930,10 +1043,11 @@ async function main() {
       (sum, pack) => sum + pack.observedExternalConstraints.reduce((count, entry) => count + (entry.constraintCount ?? 0), 0),
       0
     ),
+    failingDomainCount: report.auditDomains.filter((entry) => entry.status === "fail").length,
     failingFamilyCount: report.runtimeFamilies.filter((entry) => entry.status === "fail").length
   };
   report.finishedAt = new Date().toISOString();
-  report.ok = report.packCounts.fail === 0 && report.familyCounts.fail === 0;
+  report.ok = report.packCounts.fail === 0 && report.domainCounts.fail === 0 && report.familyCounts.fail === 0;
 
   ensureDir(options.out);
   writeJson(options.out, report);
@@ -942,8 +1056,10 @@ async function main() {
     mode: options.mode,
     out: options.out,
     packCounts: report.packCounts,
+    domainCounts: report.domainCounts,
     familyCounts: report.familyCounts,
-    summary: report.summary
+    summary: report.summary,
+    targetedRerunCommands: report.targetedRerunCommands
   }, null, 2));
 
   if (!report.ok) {

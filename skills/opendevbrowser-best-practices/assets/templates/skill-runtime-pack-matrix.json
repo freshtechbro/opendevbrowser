@@ -294,6 +294,296 @@
       ]
     }
   ],
+  "auditDomains": [
+    {
+      "id": "skills-assets-discovery",
+      "label": "Skills, assets, and discovery",
+      "priority": 1,
+      "packIds": [
+        "opendevbrowser-best-practices",
+        "opendevbrowser-continuity-ledger",
+        "opendevbrowser-data-extraction",
+        "opendevbrowser-design-agent",
+        "opendevbrowser-form-testing",
+        "opendevbrowser-login-automation",
+        "opendevbrowser-product-presentation-asset",
+        "opendevbrowser-research",
+        "opendevbrowser-shopping"
+      ],
+      "proofLanes": [
+        "skill-discovery",
+        "docs-drift"
+      ],
+      "contractTests": [
+        "tests/skill-loader.test.ts",
+        "tests/skill-workflow-packs.test.ts",
+        "tests/cli-skills-installer.test.ts"
+      ],
+      "sourceSeams": [
+        "skills/opendevbrowser-best-practices/SKILL.md",
+        "src/skills/skill-loader.ts",
+        "src/cli/installers/skills.ts",
+        "src/tools/skill_list.ts",
+        "src/tools/skill_load.ts"
+      ],
+      "targetedRerunCommands": [
+        "./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh",
+        "node scripts/skill-runtime-audit.mjs --smoke --out artifacts/skill-runtime-audit/smoke.json"
+      ]
+    },
+    {
+      "id": "cli-tools-surface",
+      "label": "CLI, tools, and surface inventory",
+      "priority": 2,
+      "packIds": [
+        "opendevbrowser-best-practices"
+      ],
+      "proofLanes": [
+        "docs-drift",
+        "cli-smoke"
+      ],
+      "contractTests": [
+        "tests/cli-help.test.ts",
+        "tests/cli-help-parity.test.ts",
+        "tests/daemon-commands.integration.test.ts"
+      ],
+      "sourceSeams": [
+        "src/cli/args.ts",
+        "src/cli/help.ts",
+        "src/tools/index.ts",
+        "src/tools/surface.ts",
+        "docs/SURFACE_REFERENCE.md"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/docs-drift-check.mjs",
+        "node scripts/cli-smoke-test.mjs",
+        "npm run test -- tests/cli-help.test.ts tests/cli-help-parity.test.ts tests/daemon-commands.integration.test.ts"
+      ]
+    },
+    {
+      "id": "scripts-and-governance",
+      "label": "Scripts and audit governance",
+      "priority": 3,
+      "packIds": [
+        "opendevbrowser-best-practices"
+      ],
+      "proofLanes": [
+        "docs-drift",
+        "best-practices-robustness",
+        "skill-discovery"
+      ],
+      "contractTests": [
+        "tests/docs-drift-check.test.ts",
+        "tests/skill-runtime-audit.test.ts",
+        "tests/audit-zombie-files.test.ts"
+      ],
+      "sourceSeams": [
+        "scripts/skill-runtime-audit.mjs",
+        "scripts/skill-runtime-scenarios.mjs",
+        "scripts/docs-drift-check.mjs",
+        "skills/opendevbrowser-best-practices/scripts/odb-workflow.sh",
+        "skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh"
+      ],
+      "targetedRerunCommands": [
+        "./skills/opendevbrowser-best-practices/scripts/run-robustness-audit.sh",
+        "node scripts/docs-drift-check.mjs",
+        "npm run test -- tests/docs-drift-check.test.ts tests/skill-runtime-audit.test.ts"
+      ]
+    },
+    {
+      "id": "browser-snapshot-interaction",
+      "label": "Browser, snapshot, DOM, and interaction",
+      "priority": 4,
+      "packIds": [
+        "opendevbrowser-data-extraction",
+        "opendevbrowser-form-testing",
+        "opendevbrowser-login-automation"
+      ],
+      "proofLanes": [
+        "cli-smoke",
+        "login-fixture",
+        "product-video-fixture"
+      ],
+      "contractTests": [
+        "tests/tools-workflows.test.ts",
+        "tests/tools-workflows-branches.test.ts",
+        "tests/browser-manager.test.ts"
+      ],
+      "sourceSeams": [
+        "src/browser/browser-manager.ts",
+        "src/snapshot/snapshotter.ts",
+        "src/snapshot/refs.ts",
+        "src/tools/snapshot.ts",
+        "src/tools/click.ts",
+        "src/tools/type.ts",
+        "src/tools/dom_get_html.ts"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/cli-smoke-test.mjs",
+        "node scripts/login-fixture-live-probe.mjs --out artifacts/skill-runtime-audit/lanes/login-fixture.json",
+        "node scripts/product-video-fixture-live-probe.mjs --out artifacts/skill-runtime-audit/lanes/product-video-fixture.json"
+      ]
+    },
+    {
+      "id": "canvas-annotate-design",
+      "label": "Canvas, annotate, and design surfaces",
+      "priority": 5,
+      "packIds": [
+        "opendevbrowser-design-agent"
+      ],
+      "proofLanes": [
+        "live-regression",
+        "canvas-competitive"
+      ],
+      "contractTests": [
+        "tests/canvas-command-inventory.test.ts",
+        "tests/canvas-live-workflow-script.test.ts",
+        "tests/annotate-live-probe-script.test.ts"
+      ],
+      "sourceSeams": [
+        "src/browser/canvas-manager.ts",
+        "src/annotate/direct-annotator.ts",
+        "src/annotate/agent-inbox.ts",
+        "src/tools/canvas.ts",
+        "src/tools/annotate.ts",
+        "extension/src/canvas/canvas-runtime.ts",
+        "extension/src/annotate-content.ts"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/live-regression-direct.mjs --out artifacts/skill-runtime-audit/lanes/live-regression.json",
+        "node scripts/canvas-competitive-validation.mjs --out artifacts/skill-runtime-audit/lanes/canvas-competitive.json",
+        "node scripts/canvas-live-workflow.mjs --surface managed-headless",
+        "node scripts/annotate-live-probe.mjs --transport direct"
+      ]
+    },
+    {
+      "id": "extension-relay-cdp",
+      "label": "Extension, relay, and CDP modes",
+      "priority": 6,
+      "packIds": [
+        "opendevbrowser-best-practices",
+        "opendevbrowser-design-agent",
+        "opendevbrowser-shopping"
+      ],
+      "proofLanes": [
+        "live-regression",
+        "docs-drift"
+      ],
+      "contractTests": [
+        "tests/parity-matrix.test.ts",
+        "tests/relay-server.test.ts",
+        "tests/ops-browser-manager.test.ts"
+      ],
+      "sourceSeams": [
+        "src/relay/protocol.ts",
+        "src/browser/ops-browser-manager.ts",
+        "extension/src/services/TabManager.ts",
+        "extension/src/services/TargetSessionMap.ts",
+        "src/cli/daemon-status.ts"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/live-regression-direct.mjs --out artifacts/skill-runtime-audit/lanes/live-regression.json",
+        "npm run test -- tests/parity-matrix.test.ts tests/relay-server.test.ts tests/ops-browser-manager.test.ts",
+        "./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh cdp-channel-check",
+        "./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh ops-channel-check"
+      ]
+    },
+    {
+      "id": "providers-macros-workflows",
+      "label": "Providers, macros, and workflow wrappers",
+      "priority": 7,
+      "packIds": [
+        "opendevbrowser-research",
+        "opendevbrowser-shopping",
+        "opendevbrowser-product-presentation-asset"
+      ],
+      "proofLanes": [
+        "provider-direct",
+        "research-live",
+        "product-video-fixture"
+      ],
+      "contractTests": [
+        "tests/provider-direct-runs.test.ts",
+        "tests/macro-resolve.test.ts",
+        "tests/cli-macro-resolve.test.ts"
+      ],
+      "sourceSeams": [
+        "src/providers/registry.ts",
+        "src/providers/runtime-factory.ts",
+        "src/providers/types.ts",
+        "src/macros/execute.ts",
+        "src/tools/macro_resolve.ts",
+        "src/cli/commands/macro-resolve.ts"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/provider-direct-runs.mjs --smoke --out artifacts/skill-runtime-audit/lanes/provider-direct.json",
+        "node scripts/skill-runtime-audit.mjs --smoke --out artifacts/skill-runtime-audit/smoke.json",
+        "npm run test -- tests/provider-direct-runs.test.ts tests/macro-resolve.test.ts tests/cli-macro-resolve.test.ts"
+      ]
+    },
+    {
+      "id": "challenges-and-guardrails",
+      "label": "Challenges and guardrails",
+      "priority": 8,
+      "packIds": [
+        "opendevbrowser-form-testing",
+        "opendevbrowser-login-automation",
+        "opendevbrowser-research",
+        "opendevbrowser-shopping"
+      ],
+      "proofLanes": [
+        "login-fixture",
+        "provider-direct",
+        "research-live",
+        "live-regression"
+      ],
+      "contractTests": [
+        "tests/challenges-capability-matrix.test.ts",
+        "tests/browser-manager-challenge-runtime-handle.test.ts",
+        "tests/ops-browser-manager-challenge-runtime-handle.test.ts"
+      ],
+      "sourceSeams": [
+        "src/browser/global-challenge-coordinator.ts",
+        "src/challenges/capability-matrix.ts",
+        "skills/opendevbrowser-login-automation/assets/templates/challenge-checkpoint.md",
+        "skills/opendevbrowser-form-testing/assets/templates/challenge-decision-tree.json"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/login-fixture-live-probe.mjs --out artifacts/skill-runtime-audit/lanes/login-fixture.json",
+        "node scripts/provider-direct-runs.mjs --smoke --out artifacts/skill-runtime-audit/lanes/provider-direct.json",
+        "npm run test -- tests/challenges-capability-matrix.test.ts tests/browser-manager-challenge-runtime-handle.test.ts tests/ops-browser-manager-challenge-runtime-handle.test.ts"
+      ]
+    },
+    {
+      "id": "runtime-infrastructure",
+      "label": "Runtime infrastructure and utilities",
+      "priority": 9,
+      "packIds": [
+        "opendevbrowser-best-practices"
+      ],
+      "proofLanes": [
+        "cli-smoke",
+        "live-regression"
+      ],
+      "contractTests": [
+        "tests/core-bootstrap.test.ts",
+        "tests/providers-runtime-factory.test.ts",
+        "tests/daemon-client.test.ts"
+      ],
+      "sourceSeams": [
+        "src/core/bootstrap.ts",
+        "src/utils/hub-enabled.ts",
+        "src/providers/runtime-factory.ts",
+        "src/cli/daemon-client.ts",
+        "src/browser/browser-manager.ts"
+      ],
+      "targetedRerunCommands": [
+        "npm run test -- tests/core-bootstrap.test.ts tests/providers-runtime-factory.test.ts tests/daemon-client.test.ts",
+        "node scripts/cli-smoke-test.mjs",
+        "node scripts/live-regression-direct.mjs --out artifacts/skill-runtime-audit/lanes/live-regression.json"
+      ]
+    }
+  ],
   "runtimeFamilies": [
     {
       "id": "session-lifecycle",
