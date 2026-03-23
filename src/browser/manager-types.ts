@@ -1,6 +1,7 @@
 /* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
 import type { BlockerSignalV1, SessionChallengeSummary } from "../providers/types";
+import type { ChallengeOrchestrationSnapshot } from "../challenges";
 import type {
   RuntimePreviewBridgeInput,
   RuntimePreviewBridgeResult
@@ -57,6 +58,7 @@ export type BrowserResponseMeta = {
   blockerUpdatedAt?: string;
   blockerResolution?: BrowserBlockerResolutionMeta;
   challenge?: BrowserChallengeMeta;
+  challengeOrchestration?: ChallengeOrchestrationSnapshot;
 };
 
 export type BrowserManagerLike = Pick<BrowserManager,
@@ -142,4 +144,25 @@ export type BrowserManagerLike = Pick<BrowserManager,
     targetId: string,
     input: BrowserCanvasOverlaySyncInput
   ) => Promise<BrowserCanvasOverlayResult>;
+  createChallengeRuntimeHandle?: () => ChallengeRuntimeHandle;
 };
+
+export type ChallengeRuntimeHandle = Pick<BrowserManagerLike,
+  | "status"
+  | "goto"
+  | "waitForLoad"
+  | "snapshot"
+  | "click"
+  | "hover"
+  | "press"
+  | "type"
+  | "select"
+  | "scroll"
+  | "pointerMove"
+  | "pointerDown"
+  | "pointerUp"
+  | "drag"
+  | "cookieList"
+  | "cookieImport"
+  | "debugTraceSnapshot"
+>;

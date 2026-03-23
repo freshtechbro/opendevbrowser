@@ -4,13 +4,15 @@ import type { OpenDevBrowserConfig } from "../config";
 import { createRequestId } from "../core/logging";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
 import type { ParallelismGovernorPolicyPayload } from "../relay/protocol";
+import { ChallengeOrchestrator } from "../challenges";
 import type {
   BrowserCanvasOverlayMountInput,
   BrowserCanvasOverlayResult,
   BrowserCanvasOverlaySelectInput,
   BrowserCanvasOverlaySyncInput,
   BrowserManagerLike,
-  BrowserResponseMeta
+  BrowserResponseMeta,
+  ChallengeRuntimeHandle
 } from "./manager-types";
 import type { ConnectOptions, LaunchOptions } from "./browser-manager";
 import type { BrowserMode } from "./session-store";
@@ -63,10 +65,85 @@ export class OpsBrowserManager implements BrowserManagerLike {
   private opsSessionUrls = new Map<string, string>();
   private closedOpsSessions = new Map<string, number>();
   private idleDisconnectPromise: Promise<void> | null = null;
+  private challengeOrchestrator?: ChallengeOrchestrator;
+  private readonly challengeAutomationSuppression = new Map<string, number>();
 
   constructor(base: BrowserManager, config: OpenDevBrowserConfig) {
     this.base = base;
     this.config = config;
+  }
+
+  setChallengeOrchestrator(orchestrator?: ChallengeOrchestrator): void {
+    this.challengeOrchestrator = orchestrator;
+    this.base.setChallengeOrchestrator(orchestrator);
+  }
+
+  createChallengeRuntimeHandle(): ChallengeRuntimeHandle {
+    return {
+      status: (sessionId) => this.withChallengeAutomationSuppressed(sessionId, () => this.status(sessionId)),
+      goto: (sessionId, url, waitUntil, timeoutMs, sessionOverride, targetId) => (
+        this.withChallengeAutomationSuppressed(
+          sessionId,
+          () => this.goto(sessionId, url, waitUntil, timeoutMs, sessionOverride, targetId)
+        )
+      ),
+      waitForLoad: (sessionId, until, timeoutMs, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.waitForLoad(sessionId, until, timeoutMs, targetId))
+      ),
+      snapshot: (sessionId, mode, maxChars, cursor, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.snapshot(sessionId, mode, maxChars, cursor, targetId))
+      ),
+      click: (sessionId, ref, targetId) => this.withChallengeAutomationSuppressed(sessionId, () => this.click(sessionId, ref, targetId)),
+      hover: (sessionId, ref, targetId) => this.withChallengeAutomationSuppressed(sessionId, () => this.hover(sessionId, ref, targetId)),
+      press: (sessionId, key, ref, targetId) => this.withChallengeAutomationSuppressed(sessionId, () => this.press(sessionId, key, ref, targetId)),
+      type: (sessionId, ref, text, clear, submit, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.type(sessionId, ref, text, clear, submit, targetId))
+      ),
+      select: (sessionId, ref, values, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.select(sessionId, ref, values, targetId))
+      ),
+      scroll: (sessionId, dy, ref, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.scroll(sessionId, dy, ref, targetId))
+      ),
+      pointerMove: (sessionId, x, y, targetId, steps) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.pointerMove(sessionId, x, y, targetId, steps))
+      ),
+      pointerDown: (sessionId, x, y, targetId, button, clickCount) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.pointerDown(sessionId, x, y, targetId, button, clickCount))
+      ),
+      pointerUp: (sessionId, x, y, targetId, button, clickCount) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.pointerUp(sessionId, x, y, targetId, button, clickCount))
+      ),
+      drag: (sessionId, from, to, targetId, steps) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.drag(sessionId, from, to, targetId, steps))
+      ),
+      cookieList: (sessionId, urls) => this.withChallengeAutomationSuppressed(sessionId, () => this.cookieList(sessionId, urls)),
+      cookieImport: (sessionId, cookies, replaceExisting) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.cookieImport(sessionId, cookies, replaceExisting))
+      ),
+      debugTraceSnapshot: (sessionId, options) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.debugTraceSnapshot(sessionId, options))
+      )
+    };
+  }
+
+  private async withChallengeAutomationSuppressed<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
+    const current = this.challengeAutomationSuppression.get(sessionId) ?? 0;
+    this.challengeAutomationSuppression.set(sessionId, current + 1);
+    try {
+      return await action();
+    } finally {
+      const next = (this.challengeAutomationSuppression.get(sessionId) ?? 1) - 1;
+      if (next <= 0) {
+        this.challengeAutomationSuppression.delete(sessionId);
+      } else {
+        this.challengeAutomationSuppression.set(sessionId, next);
+      }
+    }
+  }
+
+  private isChallengeAutomationSuppressed(sessionId: string): boolean {
+    return (this.challengeAutomationSuppression.get(sessionId) ?? 0) > 0;
   }
 
   private reserveExternalBlockerSlot(sessionId: string): void {
@@ -196,13 +273,13 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.base.status(sessionId);
     }
     const result = await this.getRawOpsStatus(sessionId);
-    return this.withOpsMeta(sessionId, result, {
+    return await this.maybeOrchestrateChallenge(sessionId, result.activeTargetId, this.withOpsMeta(sessionId, result, {
       source: "navigation",
       finalUrl: result.url,
       title: result.title,
       targetId: result.activeTargetId,
       verifier: false
-    });
+    }));
   }
 
   async withPage<T>(sessionId: string, targetId: string | null, fn: (page: never) => Promise<T>): Promise<T> {
@@ -358,7 +435,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
     const rememberedUrl = typeof result.finalUrl === "string" ? result.finalUrl : url;
     const finalUrl = typeof result.finalUrl === "string" ? result.finalUrl : status.url ?? url;
     this.rememberSessionUrl(sessionId, rememberedUrl);
-    return this.withOpsMeta(sessionId, result, {
+    return await this.maybeOrchestrateChallenge(sessionId, targetId ?? status.activeTargetId, this.withOpsMeta(sessionId, result, {
       source: "navigation",
       url,
       finalUrl,
@@ -366,7 +443,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
       status: typeof result.status === "number" ? result.status : undefined,
       targetId: targetId ?? status.activeTargetId,
       verifier: true
-    });
+    }));
   }
 
   async waitForLoad(
@@ -384,13 +461,13 @@ export class OpsBrowserManager implements BrowserManagerLike {
       this.withTarget({ until, timeoutMs }, targetId)
     );
     const status = await this.getRawOpsStatus(sessionId);
-    return this.withOpsMeta(sessionId, result, {
+    return await this.maybeOrchestrateChallenge(sessionId, targetId ?? status.activeTargetId, this.withOpsMeta(sessionId, result, {
       source: "navigation",
       finalUrl: status.url,
       title: status.title,
       targetId: targetId ?? status.activeTargetId,
       verifier: true
-    });
+    }));
   }
 
   async waitForRef(
@@ -409,13 +486,13 @@ export class OpsBrowserManager implements BrowserManagerLike {
       this.withTarget({ ref, state, timeoutMs }, targetId)
     );
     const status = await this.getRawOpsStatus(sessionId);
-    return this.withOpsMeta(sessionId, result, {
+    return await this.maybeOrchestrateChallenge(sessionId, targetId ?? status.activeTargetId, this.withOpsMeta(sessionId, result, {
       source: "navigation",
       finalUrl: status.url,
       title: status.title,
       targetId: targetId ?? status.activeTargetId,
       verifier: true
-    });
+    }));
   }
 
   async snapshot(
@@ -1189,6 +1266,41 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
     this.rememberSessionUrl(sessionId, result.url);
     return result;
+  }
+
+  private async maybeOrchestrateChallenge<T extends Record<string, unknown> & { meta?: BrowserResponseMeta }>(
+    sessionId: string,
+    targetId: string | null | undefined,
+    result: T
+  ): Promise<T> {
+    if (!result.meta?.challenge || result.meta.blockerState === "clear") {
+      return result;
+    }
+    if (!this.challengeOrchestrator || this.isChallengeAutomationSuppressed(sessionId)) {
+      return result;
+    }
+    try {
+      const orchestration = await this.challengeOrchestrator.orchestrate({
+        handle: this.createChallengeRuntimeHandle(),
+        sessionId,
+        targetId,
+        canImportCookies: true
+      });
+      const verification = orchestration.action.verification;
+      return {
+        ...result,
+        meta: {
+          ...result.meta,
+          blocker: verification.blocker,
+          blockerState: verification.blockerState,
+          blockerResolution: verification.bundle?.blockerResolution ?? result.meta.blockerResolution,
+          challenge: verification.challenge ?? verification.bundle?.challenge ?? result.meta.challenge,
+          challengeOrchestration: orchestration.outcome
+        }
+      };
+    } catch {
+      return result;
+    }
   }
 
   private withOpsMeta<T extends Record<string, unknown>>(

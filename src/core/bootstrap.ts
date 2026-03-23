@@ -12,6 +12,7 @@ import {
   createBrowserFallbackPort,
   createConfiguredProviderRuntime
 } from "../providers/runtime-factory";
+import { ChallengeOrchestrator } from "../challenges";
 import type { CoreOptions, OpenDevBrowserCore } from "./types";
 
 export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCore {
@@ -20,6 +21,13 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   const cacheRoot = options.worktree ?? options.directory;
   const baseManager = new BrowserManager(cacheRoot, config);
   const manager = new OpsBrowserManager(baseManager, config);
+  const challengeOrchestrator = config.providers?.challengeOrchestration
+    ? new ChallengeOrchestrator(config.providers.challengeOrchestration)
+    : undefined;
+  if (challengeOrchestrator) {
+    baseManager.setChallengeOrchestrator(challengeOrchestrator);
+    manager.setChallengeOrchestrator(challengeOrchestrator);
+  }
   const runner = new ScriptRunner(manager);
   const skills = new SkillLoader(cacheRoot, config.skillPaths);
   const agentInbox = new AgentInbox(cacheRoot);
@@ -28,12 +36,14 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     {},
     config.relayPort > 0 && config.relayToken !== false
       ? { extensionWsEndpoint: `ws://127.0.0.1:${config.relayPort}` }
-      : {}
+      : {},
+    challengeOrchestrator
   );
   const providerRuntime = createConfiguredProviderRuntime({
     config,
     manager,
-    browserFallbackPort
+    browserFallbackPort,
+    challengeOrchestrator
   });
   const relay = new RelayServer();
   relay.setToken(config.relayToken);

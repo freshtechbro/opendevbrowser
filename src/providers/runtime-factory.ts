@@ -3,6 +3,7 @@ import * as os from "os";
 import { readFile } from "fs/promises";
 import type { BrowserManagerLike } from "../browser/manager-types";
 import type { OpenDevBrowserConfig } from "../config";
+import { ChallengeOrchestrator } from "../challenges";
 import { createDefaultRuntime, type RuntimeDefaults, type RuntimeInit } from "./index";
 import { classifyBlockerSignal } from "./blocker";
 import { ProviderRuntimeError } from "./errors";
@@ -386,7 +387,8 @@ const detectFallbackPageBlocker = (
 export const createBrowserFallbackPort = (
   manager: BrowserManagerLike | undefined,
   cookieDefaults: Partial<BrowserFallbackCookieConfig> = {},
-  transportDefaults: BrowserFallbackTransportConfig = {}
+  transportDefaults: BrowserFallbackTransportConfig = {},
+  challengeOrchestrator?: ChallengeOrchestrator
 ): BrowserFallbackPort | undefined => {
   if (!manager) return undefined;
   const defaults: BrowserFallbackCookieConfig = {
@@ -568,6 +570,48 @@ export const createBrowserFallbackPort = (
               )
                 ? status.meta.challenge
                 : undefined;
+              let challengeOrchestrationRecord: Record<string, JsonValue> | undefined;
+              if (challengeOrchestrator) {
+                const orchestration = await challengeOrchestrator.orchestrate({
+                  handle: manager.createChallengeRuntimeHandle?.() ?? manager,
+                  sessionId,
+                  targetId: status.activeTargetId ?? undefined,
+                  canImportCookies: policy !== "off",
+                  fallbackDisposition: disposition
+                });
+                challengeOrchestrationRecord = toJsonRecord(orchestration.outcome);
+                const verifiedBundle = orchestration.action.verification.bundle;
+                if (verifiedBundle?.blockerState === "clear") {
+                  const refreshedStatus = await manager.status(sessionId);
+                  const refreshedUrl = refreshedStatus.url ?? resolvedUrl;
+                  const refreshedHtml = await captureFallbackHtml(
+                    manager,
+                    sessionId,
+                    request.source,
+                    sanitizeFallbackDelayMs(
+                      request.captureDelayMs,
+                      resolveFallbackCaptureDelayMs(request.source)
+                    )
+                  );
+                  return {
+                    ok: true,
+                    reasonCode,
+                    disposition: "completed",
+                    mode: toFallbackMode(refreshedStatus.mode),
+                    output: {
+                      html: refreshedHtml,
+                      url: refreshedUrl
+                    },
+                    details: {
+                      provider: request.provider,
+                      operation: request.operation,
+                      message: `Browser fallback resumed after bounded challenge orchestration at ${refreshedUrl}.`,
+                      cookieDiagnostics: toJsonRecord(cookieDiagnostics),
+                      challengeOrchestration: challengeOrchestrationRecord
+                    }
+                  };
+                }
+              }
               return {
                 ok: false,
                 reasonCode,
@@ -591,7 +635,8 @@ export const createBrowserFallbackPort = (
                   provider: request.provider,
                   operation: request.operation,
                   message: `Browser fallback preserved ${blocker.type} session at ${resolvedUrl}.`,
-                  cookieDiagnostics: toJsonRecord(cookieDiagnostics)
+                  cookieDiagnostics: toJsonRecord(cookieDiagnostics),
+                  ...(challengeOrchestrationRecord ? { challengeOrchestration: challengeOrchestrationRecord } : {})
                 }
               };
             }
@@ -718,12 +763,20 @@ export const createConfiguredProviderRuntime = (args: {
   defaults?: RuntimeDefaults;
   manager?: BrowserManagerLike;
   browserFallbackPort?: BrowserFallbackPort;
+  challengeOrchestrator?: ChallengeOrchestrator;
   init?: Omit<RuntimeInit, "providers">;
 }) => {
+  const challengeOrchestrator = args.challengeOrchestrator
+    ?? (args.config?.providers?.challengeOrchestration
+      ? new ChallengeOrchestrator(args.config.providers.challengeOrchestration)
+      : undefined);
+  if (challengeOrchestrator && typeof (args.manager as { setChallengeOrchestrator?: (value?: ChallengeOrchestrator) => void } | undefined)?.setChallengeOrchestrator === "function") {
+    (args.manager as { setChallengeOrchestrator?: (value?: ChallengeOrchestrator) => void }).setChallengeOrchestrator?.(challengeOrchestrator);
+  }
   const fallbackPort = args.browserFallbackPort ?? createBrowserFallbackPort(args.manager, {
     policy: args.config?.providers?.cookiePolicy,
     source: args.config?.providers?.cookieSource
-  });
+  }, {}, challengeOrchestrator);
   const runtimeInit = {
     ...buildRuntimeInitFromConfig(args.config, fallbackPort),
     ...(args.init ?? {})

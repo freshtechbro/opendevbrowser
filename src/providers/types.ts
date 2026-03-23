@@ -512,6 +512,13 @@ export interface BrowserFallbackResponse {
   preservedTargetId?: string;
 }
 
+export interface PreservedChallengeContext {
+  challenge: SessionChallengeSummary;
+  fallbackDisposition: BrowserFallbackDisposition;
+  preservedSessionId?: string;
+  preservedTargetId?: string;
+}
+
 export interface BrowserFallbackPort {
   resolve: (request: BrowserFallbackRequest) => Promise<BrowserFallbackResponse>;
 }

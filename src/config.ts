@@ -151,6 +151,33 @@ export type ProvidersAntiBotPolicyConfig = {
   allowBrowserEscalation: boolean;
 };
 
+export type ProvidersChallengeGovernedLanesConfig = {
+  allowOwnedEnvironmentFixtures: boolean;
+  allowSanctionedIdentity: boolean;
+  allowServiceAdapters: boolean;
+  requireAuditMetadata: boolean;
+};
+
+export type ProvidersChallengeOptionalBridgeConfig = {
+  enabled: boolean;
+  maxSuggestions: number;
+};
+
+export type ProvidersChallengeOrchestrationConfig = {
+  enabled: boolean;
+  attemptBudget: number;
+  noProgressLimit: number;
+  stepTimeoutMs: number;
+  minAttemptGapMs: number;
+  allowAuthNavigation: boolean;
+  allowSessionReuse: boolean;
+  allowCookieReuse: boolean;
+  allowNonSecretFormFill: boolean;
+  allowInteractionExploration: boolean;
+  governed: ProvidersChallengeGovernedLanesConfig;
+  optionalComputerUseBridge: ProvidersChallengeOptionalBridgeConfig;
+};
+
 export type ProvidersTranscriptConfig = {
   modeDefault: "auto" | "web" | "no-auto" | "yt-dlp" | "apify";
   strategyOrder: Array<
@@ -175,6 +202,7 @@ export type ProvidersConfig = {
   adaptiveConcurrency: ProvidersAdaptiveConcurrencyConfig;
   crawler: ProvidersCrawlerConfig;
   antiBotPolicy: ProvidersAntiBotPolicyConfig;
+  challengeOrchestration: ProvidersChallengeOrchestrationConfig;
   transcript: ProvidersTranscriptConfig;
   cookiePolicy?: ProviderCookiePolicy;
   cookieSource?: ProviderCookieSourceConfig;
@@ -330,6 +358,28 @@ const providersSchema = z.object({
     proxyHint: z.string().min(1).optional(),
     sessionHint: z.string().min(1).optional(),
     allowBrowserEscalation: z.boolean().default(true)
+  }).default({}),
+  challengeOrchestration: z.object({
+    enabled: z.boolean().default(true),
+    attemptBudget: z.number().int().min(1).max(20).default(6),
+    noProgressLimit: z.number().int().min(1).max(10).default(3),
+    stepTimeoutMs: z.number().int().min(250).max(120000).default(5000),
+    minAttemptGapMs: z.number().int().min(0).max(300000).default(10000),
+    allowAuthNavigation: z.boolean().default(true),
+    allowSessionReuse: z.boolean().default(true),
+    allowCookieReuse: z.boolean().default(true),
+    allowNonSecretFormFill: z.boolean().default(true),
+    allowInteractionExploration: z.boolean().default(true),
+    governed: z.object({
+      allowOwnedEnvironmentFixtures: z.boolean().default(true),
+      allowSanctionedIdentity: z.boolean().default(false),
+      allowServiceAdapters: z.boolean().default(false),
+      requireAuditMetadata: z.boolean().default(true)
+    }).default({}),
+    optionalComputerUseBridge: z.object({
+      enabled: z.boolean().default(false),
+      maxSuggestions: z.number().int().min(1).max(20).default(3)
+    }).default({})
   }).default({}),
   transcript: z.object({
     modeDefault: z.union([
