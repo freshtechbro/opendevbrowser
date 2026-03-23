@@ -31,7 +31,9 @@ const PNG_BYTES = Buffer.from(
   "base64"
 );
 
-function parseArgs(argv) {
+export const INVALID_BRANCH_SETTLE_MS = 250;
+
+export function parseArgs(argv) {
   const options = {
     out: defaultArtifactPath("odb-login-fixture-live-probe"),
     quiet: false
@@ -64,6 +66,10 @@ function parseArgs(argv) {
   }
 
   return options;
+}
+
+export function shouldWaitForLoadAfterSubmit(branch) {
+  return branch !== "invalid-credentials";
 }
 
 function renderLayout(content, { title = "Fixture Login", error = "", action = "/login" } = {}) {
@@ -466,7 +472,11 @@ async function runProbe(options) {
       await runCliAsync(["type", "--session-id", sessionId, "--ref", currentEmailRef, "--text", "wrong@example.com", "--clear"], { env });
       await runCliAsync(["type", "--session-id", sessionId, "--ref", currentPasswordRef, "--text", "bad-password", "--clear"], { env });
       await runCliAsync(["click", "--session-id", sessionId, "--ref", currentSubmitRef], { env });
-      await runCliAsync(["wait", "--session-id", sessionId, "--until", "load"], { env });
+      if (shouldWaitForLoadAfterSubmit("invalid-credentials")) {
+        await runCliAsync(["wait", "--session-id", sessionId, "--until", "load"], { env });
+      } else {
+        await sleep(INVALID_BRANCH_SETTLE_MS);
+      }
       const invalidSnapshot = await runCliAsync([
         "snapshot",
         "--session-id",
@@ -500,7 +510,7 @@ async function runProbe(options) {
       }, { prefix: "[login-fixture]", logProgress: !options.quiet });
 
       await runCliAsync(["goto", "--session-id", sessionId, "--url", `${baseUrl}/login`], { env });
-      await runCliAsync(["wait", "--session-id", sessionId, "--until", "load"], { env });
+      await sleep(INVALID_BRANCH_SETTLE_MS);
       const mfaActionables = await runCliAsync([
         "snapshot",
         "--session-id",
@@ -526,7 +536,7 @@ async function runProbe(options) {
       await runCliAsync(["type", "--session-id", sessionId, "--ref", mfaEmailRef, "--text", "mfa@example.com", "--clear"], { env });
       await runCliAsync(["type", "--session-id", sessionId, "--ref", mfaPasswordRef, "--text", "Secret123!", "--clear"], { env });
       await runCliAsync(["click", "--session-id", sessionId, "--ref", mfaSubmitRef], { env });
-      await runCliAsync(["wait", "--session-id", sessionId, "--until", "load"], { env });
+      await sleep(INVALID_BRANCH_SETTLE_MS);
       const otpActionables = await runCliAsync([
         "snapshot",
         "--session-id",
@@ -551,7 +561,7 @@ async function runProbe(options) {
 
       await runCliAsync(["type", "--session-id", sessionId, "--ref", codeRef, "--text", "123456", "--clear"], { env });
       await runCliAsync(["click", "--session-id", sessionId, "--ref", verifyRef], { env });
-      await runCliAsync(["wait", "--session-id", sessionId, "--until", "load"], { env });
+      await sleep(INVALID_BRANCH_SETTLE_MS);
       const dashboardSnapshot = await runCliAsync([
         "snapshot",
         "--session-id",
@@ -579,7 +589,7 @@ async function runProbe(options) {
       }, { prefix: "[login-fixture]", logProgress: !options.quiet });
 
       await runCliAsync(["goto", "--session-id", sessionId, "--url", `${baseUrl}/dashboard`], { env });
-      await runCliAsync(["wait", "--session-id", sessionId, "--until", "load"], { env });
+      await sleep(INVALID_BRANCH_SETTLE_MS);
       const persistenceSnapshot = await runCliAsync([
         "snapshot",
         "--session-id",
