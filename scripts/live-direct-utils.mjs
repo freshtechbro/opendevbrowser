@@ -272,6 +272,21 @@ export function defaultArtifactPath(prefix) {
   return `/tmp/${prefix}-${Date.now()}.json`;
 }
 
+export function readCliFlagValue(args, flag) {
+  if (!Array.isArray(args)) return null;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === flag) {
+      const next = args[index + 1];
+      return typeof next === "string" && !next.startsWith("--") ? next : null;
+    }
+    if (typeof arg === "string" && arg.startsWith(`${flag}=`)) {
+      return arg.slice(flag.length + 1) || null;
+    }
+  }
+  return null;
+}
+
 export function writeJson(targetPath, value) {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");

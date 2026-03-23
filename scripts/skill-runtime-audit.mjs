@@ -27,6 +27,7 @@ import {
   SKILL_RUNTIME_SHARED_LANES
 } from "./skill-runtime-scenarios.mjs";
 import {
+  withConfiguredDaemon,
   withTempHarness
 } from "./skill-runtime-probe-utils.mjs";
 
@@ -221,6 +222,10 @@ function countObservedExternalConstraints(counts) {
   return (counts.env_limited ?? 0) + (counts.expected_timeout ?? 0);
 }
 
+export function shouldUseConfiguredAuditEnv(laneId, options) {
+  return options.smoke !== true && (laneId === "provider-direct" || laneId === "live-regression");
+}
+
 function summarizeConstraintEntry(entry) {
   const constraintCount = countObservedExternalConstraints(entry.counts);
   if (constraintCount === 0) {
@@ -268,6 +273,7 @@ export function summarizeJsonLane(id, label, laneJson, fallbackArtifactPath = nu
     artifactPath: laneJson?.out ?? laneJson?.outPath ?? fallbackArtifactPath,
     counts,
     observedExternalConstraintCount: countObservedExternalConstraints(counts),
+    rerunMetadata: laneJson?.rerunMetadata ?? null,
     data: laneJson
   };
 }
@@ -617,7 +623,7 @@ async function runSharedLane(laneId, options, reportOut) {
     case "provider-direct": {
       logProgress(options, `lane provider-direct (${options.mode})`);
       const laneJsonPath = artifactPath;
-      return await withTempHarness("odb-provider-direct-audit", async ({ env }) => {
+      const runLane = async ({ env }) => {
         const child = runNodeAtCwd([
           path.join(ROOT, "scripts", "provider-direct-runs.mjs"),
           ...(options.smoke ? ["--smoke"] : ["--use-global-env", "--include-auth-gated", "--include-high-friction"]),
@@ -640,12 +646,15 @@ async function runSharedLane(laneId, options, reportOut) {
           },
           laneJsonPath
         );
-      });
+      };
+      return shouldUseConfiguredAuditEnv(laneId, options)
+        ? await withConfiguredDaemon(runLane)
+        : await withTempHarness("odb-provider-direct-audit", runLane);
     }
     case "live-regression": {
       logProgress(options, `lane live-regression (${options.mode})`);
       const laneJsonPath = artifactPath;
-      return await withTempHarness("odb-live-regression-audit", async ({ env }) => {
+      const runLane = async ({ env }) => {
         const child = runNodeAtCwd([
           path.join(ROOT, "scripts", "live-regression-direct.mjs"),
           "--out",
@@ -667,7 +676,10 @@ async function runSharedLane(laneId, options, reportOut) {
           },
           laneJsonPath
         );
-      });
+      };
+      return shouldUseConfiguredAuditEnv(laneId, options)
+        ? await withConfiguredDaemon(runLane)
+        : await withTempHarness("odb-live-regression-audit", runLane);
     }
     case "canvas-competitive": {
       logProgress(options, "lane canvas-competitive");

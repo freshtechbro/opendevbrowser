@@ -11,6 +11,7 @@ import {
   finalizeReport,
   normalizedCodesFromFailures,
   pushStep,
+  readCliFlagValue,
   runCli,
   summarizeFailures,
   writeJson
@@ -37,7 +38,7 @@ const SHOPPING_PROVIDER_TIMEOUT_MS = new Map([
   ["shopping/bestbuy", "120000"],
   ["shopping/ebay", "120000"],
   ["shopping/walmart", "120000"],
-  ["shopping/target", "120000"],
+  ["shopping/target", "180000"],
   ["shopping/costco", "120000"],
   ["shopping/temu", "120000"]
 ]);
@@ -46,32 +47,34 @@ const SOCIAL_POST_CASES = [
   { id: "provider.social.instagram.post", expression: '@social.post("instagram", "me", "ship realworld test", true, true)' },
   { id: "provider.social.facebook.post", expression: '@social.post("facebook", "me", "ship realworld test", true, true)' }
 ];
+const MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE = "browser_with_helper";
+const MACRO_CHALLENGE_ARGS = ["--challenge-automation-mode", MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE];
 
 const DIRECT_WEB_COMMUNITY_CASES = [
   {
     id: "provider.web.search.keyword",
     providerId: "web/default",
-    args: ["macro-resolve", "--execute", "--expression", '@web.search("site:developer.mozilla.org playwright locator", 4)', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@web.search("site:developer.mozilla.org playwright locator", 4)', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   },
   {
     id: "provider.web.search.url",
     providerId: "web/default",
-    args: ["macro-resolve", "--execute", "--expression", '@web.search("https://example.com", 2)', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@web.search("https://example.com", 2)', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   },
   {
     id: "provider.web.fetch.url",
     providerId: "web/default",
-    args: ["macro-resolve", "--execute", "--expression", '@web.fetch("https://example.com")', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@web.fetch("https://example.com")', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   },
   {
     id: "provider.community.search.keyword",
     providerId: "community/default",
-    args: ["macro-resolve", "--execute", "--expression", '@community.search("browser automation failures", 4)', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@community.search("browser automation failures", 4)', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   },
   {
     id: "provider.community.search.url",
     providerId: "community/default",
-    args: ["macro-resolve", "--execute", "--expression", '@community.search("https://www.reddit.com/r/programming", 2)', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@community.search("https://www.reddit.com/r/programming", 2)', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   }
 ];
 
@@ -115,18 +118,113 @@ function collectMacroExecution(result) {
   };
 }
 
+function isJsonRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readJsonRecordField(value, key) {
+  if (!isJsonRecord(value)) {
+    return null;
+  }
+  const candidate = value[key];
+  return isJsonRecord(candidate) ? candidate : null;
+}
+
+function readStringField(value, key) {
+  if (!isJsonRecord(value)) {
+    return null;
+  }
+  const candidate = value[key];
+  return typeof candidate === "string" && candidate.length > 0 ? candidate : null;
+}
+
+function firstJsonRecord(value) {
+  if (isJsonRecord(value)) {
+    return value;
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  for (const entry of value) {
+    if (isJsonRecord(entry)) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function collectRequestedChallengeMetadata(args) {
+  const requestedChallengeAutomationMode = readCliFlagValue(args, "--challenge-automation-mode");
+  return {
+    requestedChallengeAutomationMode,
+    helperCapableRequested: requestedChallengeAutomationMode === "browser_with_helper"
+  };
+}
+
+function collectMacroChallengeOrchestration(execution) {
+  for (const record of execution.records) {
+    const candidate = readJsonRecordField(record?.attributes, "browser_fallback_challenge_orchestration");
+    if (candidate) {
+      return candidate;
+    }
+  }
+  for (const failure of execution.failures) {
+    const candidate = readJsonRecordField(failure?.error?.details, "challengeOrchestration");
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return readJsonRecordField(execution.execution?.meta, "challengeOrchestration");
+}
+
+function collectMacroBrowserFallback(execution) {
+  for (const record of execution.records) {
+    const browserFallbackReasonCode = readStringField(record?.attributes, "browser_fallback_reason_code");
+    const browserFallbackMode = readStringField(record?.attributes, "browser_fallback_mode");
+    if (browserFallbackReasonCode || browserFallbackMode) {
+      return { browserFallbackReasonCode, browserFallbackMode };
+    }
+  }
+  for (const failure of execution.failures) {
+    const browserFallbackReasonCode = readStringField(failure?.error?.details, "browserFallbackReasonCode");
+    const browserFallbackMode = readStringField(failure?.error?.details, "browserFallbackMode");
+    if (browserFallbackReasonCode || browserFallbackMode) {
+      return { browserFallbackReasonCode, browserFallbackMode };
+    }
+  }
+  return {
+    browserFallbackReasonCode: null,
+    browserFallbackMode: null
+  };
+}
+
 function collectShoppingExecution(result) {
   const data = result.json?.data ?? {};
   const offers = Array.isArray(data.offers) ? data.offers : [];
   const failures = Array.isArray(data.meta?.failures) ? data.meta.failures : [];
   const firstFailure = failures[0] ?? null;
   const blocker = data.meta?.blocker ?? firstFailure?.error?.blocker ?? null;
+  const metrics = isJsonRecord(data.meta?.metrics) ? data.meta.metrics : {};
   return {
     data,
     offers,
     failures,
     firstFailure,
-    blocker
+    blocker,
+    metrics
+  };
+}
+
+function collectShoppingChallengeOrchestration(execution) {
+  return firstJsonRecord(execution.metrics.challenge_orchestration)
+    ?? firstJsonRecord(execution.metrics.challengeOrchestration)
+    ?? readJsonRecordField(execution.firstFailure?.error?.details, "challengeOrchestration");
+}
+
+function collectShoppingBrowserFallback(execution) {
+  return {
+    browserFallbackReasonCode: readStringField(execution.firstFailure?.error?.details, "browserFallbackReasonCode"),
+    browserFallbackMode: readStringField(execution.firstFailure?.error?.details, "browserFallbackMode")
   };
 }
 
@@ -152,7 +250,7 @@ function buildProviderCases(options) {
     cases.push({
       id: `provider.social.${platform}.search`,
       providerId: `social/${platform}`,
-      args: ["macro-resolve", "--execute", "--expression", `@media.search("browser automation ${platform}", "${platform}", 5)`, "--timeout-ms", options.releaseGate ? "180000" : "120000"]
+      args: ["macro-resolve", "--execute", "--expression", `@media.search("browser automation ${platform}", "${platform}", 5)`, "--timeout-ms", options.releaseGate ? "180000" : "120000", ...MACRO_CHALLENGE_ARGS]
     });
   }
 
@@ -161,7 +259,7 @@ function buildProviderCases(options) {
       cases.push({
         id: testCase.id,
         providerId: `social/${testCase.id.split(".")[2]}`,
-        args: ["macro-resolve", "--execute", "--expression", testCase.expression, "--timeout-ms", "120000"],
+        args: ["macro-resolve", "--execute", "--expression", testCase.expression, "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS],
         allowExpectedUnavailable: true
       });
     }
@@ -202,6 +300,7 @@ function buildProviderCases(options) {
         "json",
         "--timeout-ms",
         SHOPPING_PROVIDER_TIMEOUT_MS.get(provider) ?? "45000",
+        ...MACRO_CHALLENGE_ARGS,
         "--use-cookies"
       ]
     });
@@ -289,6 +388,9 @@ export function parseArgs(argv) {
 
 function evaluateMacroCase(testCase, result) {
   const execution = collectMacroExecution(result);
+  const challengeOrchestration = collectMacroChallengeOrchestration(execution);
+  const browserFallback = collectMacroBrowserFallback(execution);
+  const macroMetadata = collectRequestedChallengeMetadata(testCase.args);
   if (result.status === 0 && !execution.hasExecutionPayload) {
     return {
       id: testCase.id,
@@ -304,7 +406,11 @@ function evaluateMacroCase(testCase, result) {
         blockerType: null,
         failureSamples: [],
         linkedinAuthWall: false,
-        hasExecutionPayload: false
+        hasExecutionPayload: false,
+        challengeOrchestration,
+        browserFallbackMode: browserFallback.browserFallbackMode,
+        browserFallbackReasonCode: browserFallback.browserFallbackReasonCode,
+        ...macroMetadata
       }
     };
   }
@@ -338,17 +444,24 @@ function evaluateMacroCase(testCase, result) {
       blockerType: execution.execution?.meta?.blocker?.type ?? null,
       failureSamples: summarizeFailures(execution.failures),
       linkedinAuthWall,
-      hasExecutionPayload: execution.hasExecutionPayload
+      hasExecutionPayload: execution.hasExecutionPayload,
+      challengeOrchestration,
+      browserFallbackMode: browserFallback.browserFallbackMode,
+      browserFallbackReasonCode: browserFallback.browserFallbackReasonCode,
+      ...macroMetadata
     }
   };
 }
 
 function evaluateShoppingCase(testCase, result) {
   const execution = collectShoppingExecution(result);
+  const challengeOrchestration = collectShoppingChallengeOrchestration(execution);
+  const browserFallback = collectShoppingBrowserFallback(execution);
   const reasonCodes = normalizedCodesFromFailures(execution.failures);
   const classified = classifyRecords(execution.offers.length, execution.failures);
   const firstFailure = execution.firstFailure;
   const failureDetails = firstFailure?.error?.details ?? {};
+  const shoppingMetadata = collectRequestedChallengeMetadata(testCase.args);
   return {
     id: testCase.id,
     providerId: testCase.providerId,
@@ -367,7 +480,11 @@ function evaluateShoppingCase(testCase, result) {
       constraintKind: failureDetails.constraint?.kind ?? null,
       constraint: failureDetails.constraint ?? null,
       providerShell: firstFailure?.error?.providerShell ?? failureDetails.providerShell ?? null,
-      artifactPath: execution.data?.artifact_path ?? execution.data?.path ?? null
+      artifactPath: execution.data?.artifact_path ?? execution.data?.path ?? null,
+      challengeOrchestration,
+      browserFallbackMode: browserFallback.browserFallbackMode,
+      browserFallbackReasonCode: browserFallback.browserFallbackReasonCode,
+      ...shoppingMetadata
     }
   };
 }
@@ -385,6 +502,11 @@ async function main() {
     runAuthGated: options.runAuthGated,
     runHighFriction: options.runHighFriction,
     runSocialPostCases: options.runSocialPostCases,
+    rerunMetadata: {
+      requestedChallengeAutomationMode: MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE,
+      helperCapableRequested: true,
+      appliesTo: "macro_resolve_and_shopping_cases"
+    },
     steps: []
   };
 

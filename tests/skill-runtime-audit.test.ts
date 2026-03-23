@@ -5,6 +5,7 @@ import {
   deriveAuditDomainStatus,
   derivePackStatus,
   normalizeLaneStatus,
+  shouldUseConfiguredAuditEnv,
   summarizeJsonLane
 } from "../scripts/skill-runtime-audit.mjs";
 
@@ -215,5 +216,35 @@ describe("skill runtime audit status modeling", () => {
       "cli-tools-surface",
       "runtime-infrastructure"
     ]);
+  });
+
+  it("uses the current configured env for full provider and live regression lanes", () => {
+    expect(shouldUseConfiguredAuditEnv("provider-direct", { smoke: false })).toBe(true);
+    expect(shouldUseConfiguredAuditEnv("live-regression", { smoke: false })).toBe(true);
+    expect(shouldUseConfiguredAuditEnv("provider-direct", { smoke: true })).toBe(false);
+    expect(shouldUseConfiguredAuditEnv("live-regression", { smoke: true })).toBe(false);
+    expect(shouldUseConfiguredAuditEnv("cli-smoke", { smoke: false })).toBe(false);
+  });
+
+  it("preserves rerun metadata from JSON lanes", () => {
+    const lane = summarizeJsonLane("provider-direct", "Direct provider runs", {
+      ok: true,
+      counts: {
+        pass: 1,
+        fail: 0,
+        env_limited: 0,
+        expected_timeout: 0,
+        skipped: 0
+      },
+      rerunMetadata: {
+        requestedChallengeAutomationMode: "browser_with_helper",
+        helperCapableRequested: true
+      }
+    });
+
+    expect(lane.rerunMetadata).toEqual({
+      requestedChallengeAutomationMode: "browser_with_helper",
+      helperCapableRequested: true
+    });
   });
 });

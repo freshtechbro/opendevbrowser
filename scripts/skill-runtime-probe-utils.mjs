@@ -154,12 +154,46 @@ export async function startDaemon(env, daemonPort) {
   throw new Error(detail ? `Daemon did not become ready in time. ${detail}` : "Daemon did not become ready in time.");
 }
 
-export async function stopDaemon(daemon, env) {
-  runCli(["daemon", "uninstall"], {
+export async function startConfiguredDaemon(env) {
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const daemon = spawn(process.execPath, [CLI, "serve", "--output-format", "json"], {
+    cwd: ROOT,
     env,
-    allowFailure: true,
-    timeoutMs: 15_000
+    stdio: ["ignore", "pipe", "pipe"]
   });
+  daemon.stdout?.on("data", (chunk) => appendLogChunk(stdoutChunks, chunk));
+  daemon.stderr?.on("data", (chunk) => appendLogChunk(stderrChunks, chunk));
+  daemon.on("error", (error) => appendLogChunk(stderrChunks, error instanceof Error ? error.stack ?? error.message : String(error)));
+
+  const timeoutAt = Date.now() + 15_000;
+  while (Date.now() < timeoutAt) {
+    const status = runCli(["status", "--daemon"], {
+      env,
+      allowFailure: true,
+      timeoutMs: 10_000
+    });
+    if (status.status === 0 && status.json?.success) {
+      return daemon;
+    }
+    await sleep(250);
+  }
+
+  await terminateChild(daemon);
+  const stderr = tailLog(stderrChunks);
+  const stdout = tailLog(stdoutChunks);
+  const detail = stderr || stdout;
+  throw new Error(detail ? `Configured daemon did not become ready in time. ${detail}` : "Configured daemon did not become ready in time.");
+}
+
+export async function stopDaemon(daemon, env, { uninstallAutostart = false } = {}) {
+  if (uninstallAutostart) {
+    runCli(["daemon", "uninstall"], {
+      env,
+      allowFailure: true,
+      timeoutMs: 15_000
+    });
+  }
   runCli(["serve", "--stop"], {
     env,
     allowFailure: true,
@@ -194,6 +228,33 @@ export async function withTempHarness(prefix, task) {
   } finally {
     await stopDaemon(daemon, harness.env);
     await cleanupHarness(harness.tempRoot);
+  }
+}
+
+export async function withConfiguredDaemon(task, env = process.env) {
+  ensureCliBuilt();
+  const status = runCli(["status", "--daemon"], {
+    env,
+    allowFailure: true,
+    timeoutMs: 10_000
+  });
+  if (status.status === 0 && status.json?.success) {
+    return await task({
+      env,
+      daemon: null,
+      startedDaemon: false
+    });
+  }
+
+  const daemon = await startConfiguredDaemon(env);
+  try {
+    return await task({
+      env,
+      daemon,
+      startedDaemon: true
+    });
+  } finally {
+    await stopDaemon(daemon, env);
   }
 }
 
