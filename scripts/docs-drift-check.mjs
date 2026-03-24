@@ -98,8 +98,11 @@ export function runDocsDriftChecks() {
   const commandChannelReference = read("skills/opendevbrowser-best-practices/artifacts/command-channel-reference.md");
   const surfaceAuditChecklist = JSON.parse(read("skills/opendevbrowser-best-practices/assets/templates/surface-audit-checklist.json"));
   const designSkill = read("skills/opendevbrowser-design-agent/SKILL.md");
+  const continuitySkill = read("skills/opendevbrowser-continuity-ledger/SKILL.md");
+  const dataExtractionSkill = read("skills/opendevbrowser-data-extraction/SKILL.md");
   const loginSkill = read("skills/opendevbrowser-login-automation/SKILL.md");
   const formSkill = read("skills/opendevbrowser-form-testing/SKILL.md");
+  const productPresentationAssetSkill = read("skills/opendevbrowser-product-presentation-asset/SKILL.md");
   const researchSkill = read("skills/opendevbrowser-research/SKILL.md");
   const shoppingSkill = read("skills/opendevbrowser-shopping/SKILL.md");
 
@@ -259,6 +262,23 @@ export function runDocsDriftChecks() {
   });
 
   checks.push({
+    id: "doc.readme.skill_discovery_fallback_documented",
+    ok: publicReadme.includes("Bundled package fallback")
+      && publicReadme.includes("after `skillPaths`")
+      && publicReadme.includes("when no installed copy matches"),
+    detail: "README.md must document the bundled skill fallback after skillPaths."
+  });
+
+  checks.push({
+    id: "doc.readme.skill_inventory_split_documented",
+    ok: publicReadme.includes("copy all 11 bundled directories")
+      && publicReadme.includes("9 canonical `opendevbrowser-*` packs")
+      && publicReadme.includes("`research/` and `shopping/`")
+      && publicReadme.includes("Only directories with `SKILL.md` are discoverable at runtime"),
+    detail: "README.md must explain copied-versus-discoverable skill inventory."
+  });
+
+  checks.push({
     id: "doc.cli.challenge_override_contract_documented",
     ok: cliDoc.includes("challengeAutomationMode")
       && cliDoc.includes("browser_with_helper")
@@ -266,6 +286,23 @@ export function runDocsDriftChecks() {
       && cliDoc.includes("browser-scoped")
       && cliDoc.includes("not a desktop agent"),
     detail: "docs/CLI.md must document challengeAutomationMode, enum values, precedence, and the browser-scoped helper boundary."
+  });
+
+  checks.push({
+    id: "doc.cli.skill_discovery_fallback_documented",
+    ok: cliDoc.includes("Bundled package fallback")
+      && cliDoc.includes("after `skillPaths`")
+      && cliDoc.includes("when no installed copy matches"),
+    detail: "docs/CLI.md must document the bundled skill fallback after skillPaths."
+  });
+
+  checks.push({
+    id: "doc.cli.skill_inventory_split_documented",
+    ok: cliDoc.includes("copy all 11 bundled directories")
+      && cliDoc.includes("9 canonical `opendevbrowser-*` packs")
+      && cliDoc.includes("`research/` and `shopping/`")
+      && cliDoc.includes("Only directories with `SKILL.md` are discoverable at runtime"),
+    detail: "docs/CLI.md must explain copied-versus-discoverable skill inventory."
   });
 
   checks.push({
@@ -410,6 +447,22 @@ export function runDocsDriftChecks() {
   });
 
   checks.push({
+    id: "skill.continuity_ledger.core_markers_documented",
+    ok: continuitySkill.includes("CONTINUITY.md")
+      && continuitySkill.includes("sub_continuity.md")
+      && continuitySkill.includes("Reply Pattern"),
+    detail: "continuity-ledger skill must document ledger files and the reply pattern."
+  });
+
+  checks.push({
+    id: "skill.data_extraction.core_markers_documented",
+    ok: dataExtractionSkill.includes("source_url")
+      && dataExtractionSkill.includes("assets/templates/quality-gates.json")
+      && dataExtractionSkill.includes("ISSUE-09"),
+    detail: "data-extraction skill must document provenance, quality gates, and pagination drift coverage."
+  });
+
+  checks.push({
     id: "skill.login_and_form_session_reuse_documented",
     ok: loginSkill.includes("Chrome-family cookie bootstrap")
       && loginSkill.toLowerCase().includes("direct-run release evidence policy")
@@ -423,6 +476,14 @@ export function runDocsDriftChecks() {
     ok: researchSkill.includes("canonical direct-run evidence policy")
       && shoppingSkill.includes("canonical direct-run evidence policy"),
     detail: "research/shopping skills must point to the canonical direct-run policy."
+  });
+
+  checks.push({
+    id: "skill.product_presentation_asset.core_markers_documented",
+    ok: productPresentationAssetSkill.includes("metadata-first")
+      && productPresentationAssetSkill.includes("scripts/render-video-brief.sh")
+      && productPresentationAssetSkill.includes("claims-evidence-map.md"),
+    detail: "product-presentation-asset skill must document metadata-first output handling and generated evidence maps."
   });
 
   checks.push({

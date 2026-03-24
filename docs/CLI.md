@@ -69,6 +69,10 @@ export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 
 By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations (legacy `claude`/`amp` labels are still synchronized for compatibility). Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
+Installer inventory:
+- `--skills-global` and `--skills-local` copy all 11 bundled directories under `skills/`: 9 canonical `opendevbrowser-*` packs plus the empty compatibility alias directories `research/` and `shopping/`.
+- Only directories with `SKILL.md` are discoverable at runtime, so the packaged fallback exposes the 9 canonical `opendevbrowser-*` packs. The copied `research/` and `shopping/` directories stay non-discoverable compatibility aliases unless a verified migration adds `SKILL.md`.
+
 `OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
 
 ### Skill discovery order
@@ -84,6 +88,7 @@ The skill loader discovers skills in this order (first match wins):
 7. Compatibility (project): `./.amp/skills`
 8. Compatibility (global): `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
 9. Extra paths from `skillPaths` (advanced)
+10. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
 
 ---
 
