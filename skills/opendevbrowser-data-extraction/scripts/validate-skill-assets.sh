@@ -15,6 +15,16 @@ required=(
 )
 
 status=0
+
+require_marker() {
+  local label="$1"
+  local output="$2"
+  local marker="$3"
+  if [[ "$output" != *"$marker"* ]]; then
+    echo "$label missing marker: $marker" >&2
+    status=1
+  fi
+}
 for rel in "${required[@]}"; do
   if [[ ! -f "$root/$rel" ]]; then
     echo "Missing required asset: $rel" >&2
@@ -41,6 +51,22 @@ for rel in assets/templates/extraction-schema.json assets/templates/pagination-s
     fi
   fi
 done
+
+list_output="$("$root/scripts/run-extraction-workflow.sh" list)"
+require_marker "list workflow" "$list_output" "opendevbrowser_snapshot"
+require_marker "list workflow" "$list_output" "opendevbrowser_get_attr"
+
+pagination_output="$("$root/scripts/run-extraction-workflow.sh" pagination)"
+require_marker "pagination workflow" "$pagination_output" "opendevbrowser_click"
+require_marker "pagination workflow" "$pagination_output" "networkidle"
+
+infinite_scroll_output="$("$root/scripts/run-extraction-workflow.sh" infinite-scroll)"
+require_marker "infinite-scroll workflow" "$infinite_scroll_output" "opendevbrowser_scroll"
+require_marker "infinite-scroll workflow" "$infinite_scroll_output" "opendevbrowser_wait"
+
+anti_bot_output="$("$root/scripts/run-extraction-workflow.sh" anti-bot-pressure)"
+require_marker "anti-bot-pressure workflow" "$anti_bot_output" "403/429/challenge"
+require_marker "anti-bot-pressure workflow" "$anti_bot_output" "Retry-After"
 
 if [[ $status -ne 0 ]]; then
   exit $status

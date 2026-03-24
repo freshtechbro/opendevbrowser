@@ -15,6 +15,16 @@ required=(
 )
 
 status=0
+
+require_marker() {
+  local label="$1"
+  local output="$2"
+  local marker="$3"
+  if [[ "$output" != *"$marker"* ]]; then
+    echo "$label missing marker: $marker" >&2
+    status=1
+  fi
+}
 for rel in "${required[@]}"; do
   if [[ ! -f "$root/$rel" ]]; then
     echo "Missing required asset: $rel" >&2
@@ -41,6 +51,18 @@ for rel in assets/templates/validation-matrix.json assets/templates/challenge-de
     fi
   fi
 done
+
+validation_output="$("$root/scripts/run-form-workflow.sh" validation)"
+require_marker "validation workflow" "$validation_output" "aria-invalid"
+require_marker "validation workflow" "$validation_output" "opendevbrowser_dom_get_text"
+
+multi_step_output="$("$root/scripts/run-form-workflow.sh" multi-step)"
+require_marker "multi-step workflow" "$multi_step_output" "next-step-ref"
+require_marker "multi-step workflow" "$multi_step_output" "state=\"visible\""
+
+challenge_output="$("$root/scripts/run-form-workflow.sh" challenge-checkpoint)"
+require_marker "challenge-checkpoint workflow" "$challenge_output" "pause automation"
+require_marker "challenge-checkpoint workflow" "$challenge_output" "opendevbrowser_snapshot"
 
 if [[ $status -ne 0 ]]; then
   exit $status

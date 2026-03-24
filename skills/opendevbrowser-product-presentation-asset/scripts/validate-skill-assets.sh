@@ -24,6 +24,16 @@ required=(
 )
 
 status=0
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+metadata_manifest="$tmpdir/metadata-only-manifest.json"
+node -e '
+const fs = require("fs");
+const input = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+input.assets = { images: [], screenshots: [], raw: input.assets?.raw || [] };
+fs.writeFileSync(process.argv[2], JSON.stringify(input, null, 2));
+' "$root/examples/sample-manifest.json" "$metadata_manifest"
 for rel in "${required[@]}"; do
   if [[ ! -f "$root/$rel" ]]; then
     echo "Missing required asset: $rel" >&2
@@ -60,6 +70,22 @@ if [[ -f "$root/assets/templates/manifest.schema.json" ]]; then
     echo "Invalid JSON template: assets/templates/manifest.schema.json" >&2
     status=1
   fi
+fi
+
+"$root/scripts/render-video-brief.sh" "$metadata_manifest" "$tmpdir/brief" >/dev/null
+for generated in video-brief.md shot-list.md ugc-brief.md claims-evidence-map.md; do
+  if [[ ! -f "$tmpdir/brief/$generated" ]]; then
+    echo "render-video-brief.sh missing generated file: $generated" >&2
+    status=1
+  fi
+done
+if [[ -f "$tmpdir/brief/video-brief.md" ]] && ! grep -Fq "metadata-first" "$tmpdir/brief/video-brief.md"; then
+  echo "render-video-brief.sh did not preserve metadata-first output when visuals are absent." >&2
+  status=1
+fi
+if [[ -f "$tmpdir/brief/claims-evidence-map.md" ]] && ! grep -Fq "metadata-only-pack:no-captured-visual" "$tmpdir/brief/claims-evidence-map.md"; then
+  echo "render-video-brief.sh did not emit the metadata-only evidence placeholder." >&2
+  status=1
 fi
 
 if [[ $status -ne 0 ]]; then

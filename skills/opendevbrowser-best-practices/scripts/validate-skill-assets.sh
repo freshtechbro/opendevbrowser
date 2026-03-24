@@ -38,7 +38,8 @@ const requiredPaths = [
 ];
 
 const internalPaths = [
-  "scripts/resolve-odb-cli.sh"
+  "scripts/resolve-odb-cli.sh",
+  "scripts/validator-fixture-cli.sh"
 ];
 
 const jsonTemplates = [
@@ -58,7 +59,8 @@ const executableScripts = [
   "scripts/odb-workflow.sh",
   "scripts/run-robustness-audit.sh",
   "scripts/validate-skill-assets.sh",
-  "scripts/resolve-odb-cli.sh"
+  "scripts/resolve-odb-cli.sh",
+  "scripts/validator-fixture-cli.sh"
 ];
 
 const workflowMarkers = [

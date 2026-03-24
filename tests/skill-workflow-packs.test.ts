@@ -230,6 +230,45 @@ describe("workflow skill packs", () => {
     }
   });
 
+  it("uses the validator override before local CLI discovery", async () => {
+    if (process.platform === "win32") return;
+
+    const tempRoot = await mkdtemp(join(os.tmpdir(), "odb-cli-validator-override-"));
+    const overridePath = join(tempRoot, "fixture-cli.sh");
+
+    try {
+      await writeFile(overridePath, "#!/bin/sh\nprintf '%s\\n' override-cli\n");
+      await chmod(overridePath, 0o755);
+
+      const result = spawnSync(
+        "/bin/bash",
+        [
+          "-lc",
+          [
+            "source \"$1\"",
+            "printf '%s\\n' \"${ODB_CLI[@]}\""
+          ].join("\n"),
+          "bash",
+          join(bundledSkillsDir, "opendevbrowser-best-practices", "scripts", "resolve-odb-cli.sh")
+        ],
+        {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            ODB_CLI_VALIDATOR_OVERRIDE: overridePath
+          }
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout.trim()).toBe(overridePath);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("uses the shared CLI resolver for router workflows across agent packs", async () => {
     const routerScriptPaths = [
       "opendevbrowser-best-practices/scripts/odb-workflow.sh",
@@ -294,6 +333,29 @@ describe("workflow skill packs", () => {
       expect(parts).toEqual(["node", await realpath(cliEntry)]);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("runs deterministic validator checks for workflow skill packs", () => {
+    if (process.platform === "win32") return;
+
+    const validatorPaths = [
+      "skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-login-automation/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-research/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-shopping/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-product-presentation-asset/scripts/validate-skill-assets.sh"
+    ];
+
+    for (const relativePath of validatorPaths) {
+      const result = spawnSync("/bin/bash", [join(repoRoot, relativePath)], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: process.env
+      });
+      expect(result.status, `${relativePath}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
     }
   });
 });
