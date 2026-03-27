@@ -18,7 +18,7 @@ const DEFAULT_FALLBACK_MODES: Record<ProviderSource, BrowserFallbackMode[]> = {
   web: ["managed_headed"],
   community: ["managed_headed"],
   social: ["managed_headed"],
-  shopping: ["managed_headed"]
+  shopping: ["extension", "managed_headed"]
 };
 
 const DEFAULT_SUSPENDED_INTENT_KIND: Record<ProviderOperation, SuspendedIntentKind> = {
@@ -118,6 +118,7 @@ export const toProviderFallbackError = (args: {
       details: {
         url: args.url,
         disposition: fallback.disposition,
+        ...(fallback.mode ? { browserFallbackMode: fallback.mode } : {}),
         ...(fallback.challenge ? { challenge: toJsonRecord(fallback.challenge) } : {}),
         ...(fallback.preservedSessionId ? { preservedSessionId: fallback.preservedSessionId } : {}),
         ...(fallback.preservedTargetId ? { preservedTargetId: fallback.preservedTargetId } : {}),
@@ -243,7 +244,9 @@ export const resolveProviderBrowserFallback = async (args: {
     preferredModes: resolveProviderFallbackModes({
       source: args.source,
       recoveryHints: args.recoveryHints,
-      preferredModes: args.preferredModes
+      preferredModes: args.preferredModes?.length
+        ? args.preferredModes
+        : args.context?.preferredFallbackModes
     }),
     ...(typeof args.context?.useCookies === "boolean" ? { useCookies: args.context.useCookies } : {}),
     ...(args.context?.challengeAutomationMode

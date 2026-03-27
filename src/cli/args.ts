@@ -136,7 +136,7 @@ export const VALID_FLAGS = [
   "--screenshot-mode", "--debug", "--context",
   "--stored",
   "--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source",
-  "--query", "--providers", "--budget", "--region", "--sort",
+  "--query", "--providers", "--budget", "--region", "--browser-mode", "--sort",
   "--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy",
   "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy",
   "--output-dir", "--ttl-hours", "--expired-only"
@@ -199,6 +199,7 @@ export const VALID_EQUALS_FLAGS = [
   "--include-all-images",
   "--include-copy",
   "--use-cookies",
+  "--browser-mode",
   "--challenge-automation-mode",
   "--cookie-policy-override",
   "--cookie-policy",

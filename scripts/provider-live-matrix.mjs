@@ -430,13 +430,15 @@ function summarizeCliDetail(result) {
   return 'unknown failure';
 }
 
-const REQUIRED_PLAYWRIGHT_CORE_FILES = [
+export const REQUIRED_PLAYWRIGHT_CORE_FILES = [
   'lib/inprocess.js',
   'lib/inProcessFactory.js',
   'lib/androidServerImpl.js',
   'lib/browserServerImpl.js',
   'lib/client/connection.js',
-  'lib/utilsBundle.js'
+  'lib/utilsBundle.js',
+  'lib/server/index.js',
+  'lib/server/registry/index.js'
 ];
 
 let playwrightCoreIntegrityChecked = false;

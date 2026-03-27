@@ -220,4 +220,54 @@ describe("provider runtime coverage seams", () => {
     expect(result.failures).toEqual([]);
     expect(result.providerOrder).toEqual(["web/ghost"]);
   });
+
+  it("passes browser transport run options through provider context", async () => {
+    vi.resetModules();
+    const { ProviderRuntime } = await import("../src/providers");
+    const runtime = new ProviderRuntime();
+    let capturedContext: Record<string, unknown> | undefined;
+
+    runtime.register({
+      id: "web/context-hints",
+      source: "web",
+      search: vi.fn(async (_input, context) => {
+        capturedContext = context as unknown as Record<string, unknown>;
+        return [];
+      }),
+      capabilities: () => ({
+        providerId: "web/context-hints",
+        source: "web" as const,
+        operations: {
+          search: { op: "search" as const, supported: true },
+          fetch: { op: "fetch" as const, supported: false },
+          crawl: { op: "crawl" as const, supported: false },
+          post: { op: "post" as const, supported: false }
+        },
+        policy: {
+          posting: "unsupported" as const,
+          riskNoticeRequired: false,
+          confirmationRequired: false
+        },
+        metadata: {}
+      })
+    });
+
+    const result = await runtime.search(
+      { query: "context" },
+      {
+        source: "web",
+        providerIds: ["web/context-hints"],
+        preferredFallbackModes: ["extension"],
+        forceBrowserTransport: true,
+        challengeAutomationMode: "browser_with_helper"
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(capturedContext).toMatchObject({
+      preferredFallbackModes: ["extension"],
+      forceBrowserTransport: true,
+      challengeAutomationMode: "browser_with_helper"
+    });
+  });
 });

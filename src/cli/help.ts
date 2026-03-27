@@ -193,11 +193,12 @@ export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
     "--cookie-policy"
   ),
   shopping: commandHelp(
-    "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+    "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--browser-mode <mode>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
     "--query",
     "--providers",
     "--budget",
     "--region",
+    "--browser-mode",
     "--sort",
     "--mode",
     "--timeout-ms",
@@ -428,6 +429,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--include-all-images", description: "Include all discovered product images." },
       { flag: "--include-copy", description: "Include product marketing copy metadata." },
       { flag: "--use-cookies", description: "Enable or disable provider cookie injection for workflow runs; a bare flag means true.", example: "opendevbrowser shopping run --query 'usb hub' --use-cookies" },
+      { flag: "--browser-mode", description: "Shopping browser-fallback preference: auto, extension, or managed. Use extension to require the connected relay when browser recovery is needed.", example: "opendevbrowser shopping run --query 'macbook pro m4 32gb ram' --browser-mode extension" },
       { flag: "--challenge-automation-mode", description: "Per-run challenge automation mode for workflow runs and macro-resolve execute: off, browser, or browser_with_helper. Precedence is run > session > config, and the helper remains browser-scoped only.", example: "opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute --challenge-automation-mode browser_with_helper" },
       { flag: "--cookie-policy-override", description: "Per-run workflow cookie policy override: off, auto, or required.", example: "opendevbrowser research run --topic 'agent workflows' --cookie-policy-override required" },
       { flag: "--cookie-policy", description: "Alias of --cookie-policy-override." },

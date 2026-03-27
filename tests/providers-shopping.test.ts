@@ -123,7 +123,7 @@ describe("shopping providers", () => {
     expect(() => createShoppingProviderById("shopping/unknown")).toThrow(ProviderRuntimeError);
   });
 
-  it("exposes extension-first recovery hints only for the high-friction shopping profiles", () => {
+  it("exposes extension-first recovery hints for shopping providers", () => {
     expect(createShoppingProviderById("shopping/target").recoveryHints?.()).toMatchObject({
       preferredFallbackModes: ["extension", "managed_headed"]
     });
@@ -131,7 +131,7 @@ describe("shopping providers", () => {
       preferredFallbackModes: ["extension", "managed_headed"]
     });
     expect(createShoppingProviderById("shopping/amazon").recoveryHints?.()).toMatchObject({
-      preferredFallbackModes: ["managed_headed", "extension"]
+      preferredFallbackModes: ["extension", "managed_headed"]
     });
   });
 
@@ -1703,6 +1703,7 @@ describe("shopping providers", () => {
         {
           timeoutMs: 1000,
           attempt: 1,
+          preferredFallbackModes: ["managed_headed"],
           useCookies: true,
           cookiePolicyOverride: "required",
           browserFallbackPort: {
@@ -1718,13 +1719,127 @@ describe("shopping providers", () => {
         reasonCode: "env_limited",
         useCookies: true,
         cookiePolicyOverride: "required",
-        preferredModes: ["managed_headed", "extension"],
+        preferredModes: ["managed_headed"],
         settleTimeoutMs: 15000,
         captureDelayMs: 2000,
         trace: expect.objectContaining({
           provider: "shopping/amazon",
           requestId: expect.stringMatching(/^provider-fallback-/)
         })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses browser transport immediately when explicit browser mode is forced", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async (request: { url?: string }) => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.amazon.com/dp/macbook-pro-force-browser",
+        html: `
+          <html>
+            <head>
+              <title>Apple MacBook Pro 14</title>
+              <script type="application/ld+json">
+                {
+                  "@context": "https://schema.org",
+                  "@type": "Product",
+                  "name": "Apple MacBook Pro 14",
+                  "offers": {
+                    "@type": "Offer",
+                    "price": 1999,
+                    "priceCurrency": "USD"
+                  }
+                }
+              </script>
+            </head>
+            <body>
+              <main>Apple MacBook Pro 14 with M4 and 32GB unified memory.</main>
+            </body>
+          </html>
+        `
+      },
+      details: {}
+    }));
+    const fetchMock = vi.fn(async () => {
+      throw new Error("raw fetch should not run when browser transport is forced");
+    });
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.fetch?.(
+        { url: "https://www.amazon.com/dp/macbook-pro-force-browser" },
+        {
+          ...context,
+          preferredFallbackModes: ["extension"],
+          forceBrowserTransport: true,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        } as never
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/amazon",
+        operation: "fetch",
+        reasonCode: "env_limited",
+        preferredModes: ["extension"],
+        url: "https://www.amazon.com/dp/macbook-pro-force-browser"
+      }));
+      expect(rows?.[0]?.attributes.browser_fallback_mode).toBe("extension");
+      expect(rows?.[0]?.title).toContain("Apple MacBook Pro 14");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves deferred fallback failure details when explicit browser mode cannot complete", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "env_limited" as const,
+      disposition: "deferred" as const,
+      mode: "extension" as const,
+      details: {
+        message: "Extension relay connection failed: Relay /cdp connectOverCDP failed after 512ms."
+      }
+    }));
+    const fetchMock = vi.fn(async () => {
+      throw new Error("raw fetch should not run when browser transport is forced");
+    });
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    try {
+      await expect(provider.fetch?.(
+        { url: "https://www.amazon.com/dp/macbook-pro-force-browser-failure" },
+        {
+          ...context,
+          preferredFallbackModes: ["extension"],
+          forceBrowserTransport: true,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        } as never
+      )).rejects.toMatchObject({
+        message: "Extension relay connection failed: Relay /cdp connectOverCDP failed after 512ms.",
+        reasonCode: "env_limited",
+        details: {
+          disposition: "deferred",
+          browserFallbackMode: "extension",
+          url: "https://www.amazon.com/dp/macbook-pro-force-browser-failure"
+        }
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        preferredModes: ["extension"]
       }));
     } finally {
       vi.unstubAllGlobals();

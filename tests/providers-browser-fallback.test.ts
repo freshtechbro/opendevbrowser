@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  browserFallbackObservationDetails,
   fallbackDispositionMessage,
   readFallbackString,
   resolveProviderBrowserFallback,
@@ -48,6 +49,7 @@ describe("provider browser fallback helpers", () => {
       ok: false,
       reasonCode: "rate_limited",
       disposition: "challenge_preserved",
+      mode: "extension",
       preservedSessionId: "session-1",
       preservedTargetId: "target-1",
       challenge: {
@@ -90,6 +92,7 @@ describe("provider browser fallback helpers", () => {
     expect(error.details).toMatchObject({
       url: "https://example.com/item",
       disposition: "challenge_preserved",
+      browserFallbackMode: "extension",
       preservedSessionId: "session-1",
       preservedTargetId: "target-1",
       challenge: {
@@ -112,6 +115,7 @@ describe("provider browser fallback helpers", () => {
         ok: false,
         reasonCode: "auth_required",
         disposition: "failed",
+        mode: "managed_headed",
         details: {}
       }
     });
@@ -120,6 +124,7 @@ describe("provider browser fallback helpers", () => {
     expect(error.reasonCode).toBe("auth_required");
     expect(error.details).toMatchObject({
       disposition: "failed",
+      browserFallbackMode: "managed_headed",
       url: "https://example.com/video"
     });
   });
@@ -146,6 +151,14 @@ describe("provider browser fallback helpers", () => {
     });
   });
 
+  it("omits browser fallback mode details when the observation has no mode", () => {
+    expect(browserFallbackObservationDetails({
+      reasonCode: "env_limited"
+    })).toEqual({
+      browserFallbackReasonCode: "env_limited"
+    });
+  });
+
   it("resolves fallback modes and normalizes explicit dispositions", async () => {
     expect(resolveProviderFallbackModes({
       source: "web",
@@ -162,6 +175,10 @@ describe("provider browser fallback helpers", () => {
     expect(resolveProviderFallbackModes({
       source: "community"
     })).toEqual(["managed_headed"]);
+
+    expect(resolveProviderFallbackModes({
+      source: "shopping"
+    })).toEqual(["extension", "managed_headed"]);
 
     const context: ProviderContext = {
       trace: {

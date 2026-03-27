@@ -8,6 +8,7 @@ import { filterByTimebox, resolveTimebox } from "./timebox";
 import {
   SHOPPING_PROVIDER_IDS,
   SHOPPING_PROVIDER_PROFILES,
+  getShoppingRegionSupportDiagnostics,
   validateShoppingLegalReviewChecklist
 } from "./shopping";
 import { createLogger, redactSensitive } from "../core/logging";
@@ -18,6 +19,7 @@ import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, extractText, toSnippet } from "./web/extract";
 import type { ProviderAntiBotSnapshot } from "./registry";
 import type {
+  BrowserFallbackMode,
   JsonValue,
   NormalizedRecord,
   ProviderAggregateResult,
@@ -28,7 +30,8 @@ import type {
   ProviderReasonCode,
   ProviderRunOptions,
   ProviderSelection,
-  ProviderSource
+  ProviderSource,
+  WorkflowBrowserMode
 } from "./types";
 
 export interface ProviderExecutor {
@@ -65,6 +68,7 @@ export interface ShoppingRunInput {
   providers?: string[];
   budget?: number;
   region?: string;
+  browserMode?: WorkflowBrowserMode;
   sort?: "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping";
   mode: RenderMode;
   timeoutMs?: number;
@@ -487,6 +491,34 @@ const withChallengeAutomationOverride = (
   };
 };
 
+const resolveWorkflowBrowserModeFallbackModes = (
+  browserMode?: WorkflowBrowserMode
+): BrowserFallbackMode[] | undefined => {
+  if (browserMode === "extension") {
+    return ["extension"];
+  }
+  if (browserMode === "managed") {
+    return ["managed_headed"];
+  }
+  return undefined;
+};
+
+const shouldForceWorkflowBrowserTransport = (
+  browserMode?: WorkflowBrowserMode
+): boolean => browserMode === "extension" || browserMode === "managed";
+
+const withBrowserModeOverride = (
+  options: ProviderRunOptions,
+  input: { browserMode?: WorkflowBrowserMode }
+): ProviderRunOptions => {
+  const preferredFallbackModes = resolveWorkflowBrowserModeFallbackModes(input.browserMode);
+  return {
+    ...options,
+    ...(preferredFallbackModes ? { preferredFallbackModes } : {}),
+    ...(shouldForceWorkflowBrowserTransport(input.browserMode) ? { forceBrowserTransport: true } : {})
+  };
+};
+
 const withWorkflowResumeIntent = (
   options: ProviderRunOptions,
   kind: "workflow.research" | "workflow.shopping" | "workflow.product_video",
@@ -649,6 +681,29 @@ const summarizeChallengeOrchestration = (
   }
 
   return diagnostics;
+};
+
+const summarizeBrowserFallbackModes = (
+  failures: ProviderFailureEntry[],
+  records: NormalizedRecord[]
+): BrowserFallbackMode[] => {
+  const observed = new Set<BrowserFallbackMode>();
+
+  for (const failure of failures) {
+    const mode = failure.error.details?.browserFallbackMode;
+    if (mode === "extension" || mode === "managed_headed") {
+      observed.add(mode);
+    }
+  }
+
+  for (const record of records) {
+    const mode = record.attributes.browser_fallback_mode;
+    if (mode === "extension" || mode === "managed_headed") {
+      observed.add(mode);
+    }
+  }
+
+  return [...observed];
 };
 
 const hasTranscriptSuccess = (record: NormalizedRecord): boolean => {
@@ -823,6 +878,77 @@ const PRODUCT_COPY_CUTOFF_PATTERNS = [
 const PRODUCT_FEATURE_NOISE_RE = /\b(?:frequently asked questions|footnote|carrier deals|connect to any carrier later|at&t|t-mobile|verizon|boost mobile|applecare|privacy policy|terms of use|returns?|refunds?|bill credits?|trade[- ]?in|required|monthly|\/mo\b|deductible|service fee|more ways to shop)\b/i;
 const PRODUCT_PRICE_NEGATIVE_CONTEXT_RE = /\b(?:save(?: up to)?|trade[- ]?in|bill credits?|credit|credits|off\b|monthly|per month|\/mo\b|deductible|service fee|activation fee)\b/i;
 const PRODUCT_PRICE_POSITIVE_CONTEXT_RE = /\b(?:starting at|starts at|starting from|from|connect to any carrier later|buy now|buy for|unlocked)\b/i;
+const SHOPPING_INTENT_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "best",
+  "buy",
+  "deal",
+  "deals",
+  "for",
+  "from",
+  "new",
+  "on",
+  "sale",
+  "shop",
+  "shopping",
+  "the",
+  "to",
+  "with"
+]);
+const SHOPPING_ACCESSORY_KEYWORDS = new Set([
+  "accessory",
+  "adapter",
+  "adapters",
+  "bag",
+  "bags",
+  "cable",
+  "cables",
+  "case",
+  "cases",
+  "charger",
+  "chargers",
+  "cover",
+  "covers",
+  "dock",
+  "docks",
+  "hub",
+  "hubs",
+  "keyboard",
+  "protector",
+  "protectors",
+  "screenprotector",
+  "skin",
+  "skins",
+  "sleeve",
+  "sleeves",
+  "stand",
+  "stands"
+]);
+const RESEARCH_ALWAYS_SANITIZED_PATHS = new Set<string>([
+  "community:search:index",
+  "social:search:index"
+]);
+const RESEARCH_CONDITIONAL_SANITIZED_PATHS = new Set<string>([
+  "community:fetch:url",
+  "social:fetch:url",
+  "web:search:index"
+]);
+const RESEARCH_WEB_SEARCH_FETCH_PATHS = new Set<string>([
+  "web:search:index",
+  "web:search:url"
+]);
+const RESEARCH_WEB_SEARCH_FETCH_LIMIT = 3;
+const RESEARCH_LOGIN_SHELL_RE = /\b(?:log in|login|sign in|sign-in|please log in|continue with google|continue with apple)\b/i;
+const RESEARCH_JS_REQUIRED_RE = /\b(?:enable javascript|javascript required|javascript is not available|javascript is disabled|you need to enable javascript)\b/i;
+const RESEARCH_GENERIC_SHELL_RE = /\b(?:skip to main content|the heart of the internet|open navigation|get the app|view in app|please wait for verification|verify you are human|security check)\b/i;
+const RESEARCH_NOT_FOUND_SHELL_RE = /\b(?:error 404|page not found|not found|can['’]t seem to find the page)\b/i;
+const RESEARCH_SEARCH_SHELL_RE = /\b(?:duckduckgo|search results|all posts|communities|comments|try another search|no relevant content found|unable to load answer|search page)\b/i;
+const PRODUCT_TARGET_NOT_FOUND_RE = /\b(?:error 404|page not found|not found|we can['’]t seem to find the page|can['’]t seem to find the page|return to homepage)\b/i;
+const DEFAULT_SHOPPING_PROVIDER_IDS = SHOPPING_PROVIDER_PROFILES
+  .filter((profile) => profile.tier === "tier1")
+  .map((profile) => profile.id);
 const KNOWN_BRAND_BY_HOST_SUFFIX: Record<string, string> = {
   "aliexpress.com": "AliExpress",
   "amazon.com": "Amazon",
@@ -841,6 +967,28 @@ const normalizePlainText = (value: string | undefined): string => {
   if (!value) return "";
   return extractText(value).replace(/\s+/g, " ").trim();
 };
+
+const normalizeShoppingIntentText = (value: string | undefined): string => {
+  return normalizePlainText(value)
+    .toLowerCase()
+    .replace(/(\d+)\s+(gb|tb|inch|in)\b/g, "$1$2")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+};
+
+const tokenizeShoppingIntent = (value: string | undefined): string[] => {
+  const normalized = normalizeShoppingIntentText(value);
+  if (!normalized) return [];
+  return normalized
+    .split(/\s+/)
+    .filter((token) => token.length >= 2 && !SHOPPING_INTENT_STOP_WORDS.has(token));
+};
+
+const hasAccessoryMarker = (value: string | undefined): boolean => {
+  return tokenizeShoppingIntent(value).some((token) => SHOPPING_ACCESSORY_KEYWORDS.has(token));
+};
+
+const isAccessoryQuery = (query: string): boolean => hasAccessoryMarker(query);
 
 const normalizeFeatureEntry = (value: string): string | null => {
   const normalized = normalizePlainText(value);
@@ -973,6 +1121,48 @@ const parsePriceFromContent = (content: string | undefined): { amount: number; c
   };
 };
 
+const scoreShoppingOfferIntent = (
+  query: string,
+  offer: ShoppingOffer
+): { intentScore: number; accessoryPenalty: number; directMatch: boolean } => {
+  const queryTokens = tokenizeShoppingIntent(query);
+  if (queryTokens.length === 0) {
+    return {
+      intentScore: 0,
+      accessoryPenalty: 0,
+      directMatch: false
+    };
+  }
+
+  let offerUrlIntentText = "";
+  try {
+    const parsed = new URL(offer.url);
+    offerUrlIntentText = `${parsed.hostname} ${parsed.pathname}`;
+  } catch {
+    offerUrlIntentText = "";
+  }
+  const offerText = `${offer.title} ${offerUrlIntentText}`.trim();
+  const offerTokens = new Set(tokenizeShoppingIntent(offerText));
+  const normalizedQuery = normalizeShoppingIntentText(query);
+  const normalizedOffer = normalizeShoppingIntentText(offerText);
+  const matchedTokens = queryTokens.filter((token) => offerTokens.has(token));
+  const importantMatches = matchedTokens.filter((token) => token.length > 2 || /\d/.test(token));
+  const exactPhrase = normalizedQuery.length > 0 && normalizedOffer.includes(normalizedQuery);
+  const directMatch = exactPhrase || importantMatches.length >= Math.min(queryTokens.length, 3);
+  const accessoryPenalty = !isAccessoryQuery(query) && hasAccessoryMarker(offerText) ? 6 : 0;
+  const intentScore = (importantMatches.length * 3)
+    + ((matchedTokens.length - importantMatches.length) * 1.5)
+    + (exactPhrase ? 4 : 0)
+    + (directMatch ? 2 : 0)
+    - accessoryPenalty;
+
+  return {
+    intentScore,
+    accessoryPenalty,
+    directMatch
+  };
+};
+
 const availabilityRank = (availability: ShoppingOffer["availability"]): number => {
   switch (availability) {
     case "in_stock":
@@ -988,7 +1178,7 @@ const availabilityRank = (availability: ShoppingOffer["availability"]): number =
 
 const computeDealScore = (offer: ShoppingOffer, now: Date): number => {
   const total = Math.max(0, offer.price.amount + offer.shipping.amount);
-  const priceScore = total > 0 ? 1 / (1 + total / 100) : 0.5;
+  const priceScore = total > 0 ? 1 / (1 + total / 100) : 0;
   const availabilityScore = availabilityRank(offer.availability);
   const ratingScore = Math.max(0, Math.min(1, offer.rating / 5));
   const recencyHours = Math.max(0, (now.getTime() - new Date(offer.price.retrieved_at).getTime()) / (60 * 60 * 1000));
@@ -999,7 +1189,9 @@ const computeDealScore = (offer: ShoppingOffer, now: Date): number => {
 
 const resolveShoppingProviders = (providers?: string[]): string[] => {
   if (!providers || providers.length === 0) {
-    return [...SHOPPING_PROVIDER_IDS];
+    return DEFAULT_SHOPPING_PROVIDER_IDS.length > 0
+      ? [...DEFAULT_SHOPPING_PROVIDER_IDS]
+      : [...SHOPPING_PROVIDER_IDS];
   }
 
   const normalized = providers
@@ -1117,7 +1309,8 @@ const dedupeOffers = (offers: ShoppingOffer[]): ShoppingOffer[] => {
 
 const rankOffers = (
   offers: ShoppingOffer[],
-  sort: ShoppingRunInput["sort"]
+  sort: ShoppingRunInput["sort"],
+  query?: string
 ): ShoppingOffer[] => {
   const ordered = [...offers];
   switch (sort) {
@@ -1133,7 +1326,18 @@ const rankOffers = (
       return ordered.sort((left, right) => left.shipping.amount - right.shipping.amount || right.deal_score - left.deal_score);
     case "best_deal":
     default:
-      return ordered.sort((left, right) => right.deal_score - left.deal_score || (left.price.amount + left.shipping.amount) - (right.price.amount + right.shipping.amount));
+      return ordered.sort((left, right) => {
+        const leftIntent = scoreShoppingOfferIntent(query ?? "", left);
+        const rightIntent = scoreShoppingOfferIntent(query ?? "", right);
+        if (leftIntent.directMatch !== rightIntent.directMatch) {
+          return rightIntent.directMatch ? 1 : -1;
+        }
+        if (leftIntent.intentScore !== rightIntent.intentScore) {
+          return rightIntent.intentScore - leftIntent.intentScore;
+        }
+        return right.deal_score - left.deal_score
+          || (left.price.amount + left.shipping.amount) - (right.price.amount + right.shipping.amount);
+      });
   }
 };
 
@@ -1471,6 +1675,198 @@ const resolveShoppingSourceForUrl = (url: string): ProviderSource => {
   }
 };
 
+type ResearchSanitizeReason =
+  | "js_required_shell"
+  | "login_shell"
+  | "not_found_shell"
+  | "search_index_shell"
+  | "search_results_shell";
+
+const classifyResearchShellRecord = (record: NormalizedRecord): ResearchSanitizeReason | null => {
+  const retrievalPath = typeof record.attributes.retrievalPath === "string"
+    ? record.attributes.retrievalPath
+    : "";
+
+  const url = typeof record.url === "string" ? record.url.trim().toLowerCase() : "";
+  const title = normalizePlainText(record.title).toLowerCase();
+  const content = normalizePlainText(record.content).toLowerCase();
+  const combined = `${title} ${content}`.trim();
+
+  if (RESEARCH_LOGIN_SHELL_RE.test(combined) || url.includes("/login")) {
+    return "login_shell";
+  }
+  if (RESEARCH_JS_REQUIRED_RE.test(combined)) {
+    return "js_required_shell";
+  }
+  if (RESEARCH_NOT_FOUND_SHELL_RE.test(combined)) {
+    return "not_found_shell";
+  }
+  if (!retrievalPath) {
+    return null;
+  }
+  if (RESEARCH_ALWAYS_SANITIZED_PATHS.has(retrievalPath)) {
+    return "search_index_shell";
+  }
+  if (!RESEARCH_CONDITIONAL_SANITIZED_PATHS.has(retrievalPath)) {
+    return null;
+  }
+  if (retrievalPath === "web:search:index" && (/duckduckgo\.com/.test(url) || LOOKS_LIKE_URL_RE.test(title))) {
+    return "search_index_shell";
+  }
+  if (LOOKS_LIKE_URL_RE.test(title) && RESEARCH_GENERIC_SHELL_RE.test(combined)) {
+    return "search_results_shell";
+  }
+  if (
+    RESEARCH_SEARCH_SHELL_RE.test(combined)
+    || url.includes("/search")
+    || url.includes("duckduckgo.com/l?")
+    || url.includes("html.duckduckgo.com/html")
+  ) {
+    return "search_results_shell";
+  }
+  return null;
+};
+
+const sanitizeResearchRecords = (
+  records: NormalizedRecord[]
+): {
+  records: NormalizedRecord[];
+  sanitizedCount: number;
+  reasonDistribution: Record<string, number>;
+} => {
+  const reasonDistribution: Record<string, number> = {};
+  const sanitizedRecords = records.filter((record) => {
+    const reason = classifyResearchShellRecord(record);
+    if (!reason) return true;
+    reasonDistribution[reason] = (reasonDistribution[reason] ?? 0) + 1;
+    return false;
+  });
+
+  return {
+    records: sanitizedRecords,
+    sanitizedCount: records.length - sanitizedRecords.length,
+    reasonDistribution
+  };
+};
+
+const isValidHttpUrl = (url: string): boolean => {
+  try {
+    const parsed = new URL(url.trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const resolveResearchWebFetchCandidates = (
+  records: NormalizedRecord[],
+  limit: number
+): string[] => {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  for (const record of records) {
+    const retrievalPath = typeof record.attributes.retrievalPath === "string"
+      ? record.attributes.retrievalPath
+      : "";
+    if (!RESEARCH_WEB_SEARCH_FETCH_PATHS.has(retrievalPath)) {
+      continue;
+    }
+    const rawUrl = typeof record.url === "string" ? canonicalizeUrl(record.url) : "";
+    if (!rawUrl) {
+      continue;
+    }
+    let resolvedUrl = rawUrl;
+    try {
+      const parsed = new URL(rawUrl);
+      if (/duckduckgo\.com$/i.test(parsed.hostname) && parsed.pathname === "/l") {
+        const redirect = parsed.searchParams.get("uddg");
+        if (typeof redirect === "string" && redirect.length > 0) {
+          resolvedUrl = canonicalizeUrl(redirect);
+        }
+      }
+    } catch {
+      continue;
+    }
+    if (!resolvedUrl || !isValidHttpUrl(resolvedUrl) || /duckduckgo\.com/i.test(resolvedUrl) || seen.has(resolvedUrl)) {
+      continue;
+    }
+    seen.add(resolvedUrl);
+    candidates.push(resolvedUrl);
+    if (candidates.length >= limit) {
+      break;
+    }
+  }
+
+  return candidates;
+};
+
+const fetchResearchWebRecords = async (
+  runtime: ProviderExecutor,
+  input: ResearchRunInput,
+  records: NormalizedRecord[]
+): Promise<{
+  records: NormalizedRecord[];
+  failures: ProviderFailureEntry[];
+}> => {
+  const candidates = resolveResearchWebFetchCandidates(
+    records,
+    Math.max(1, Math.min(input.limitPerSource ?? 10, RESEARCH_WEB_SEARCH_FETCH_LIMIT))
+  );
+  if (candidates.length === 0) {
+    return {
+      records: [],
+      failures: []
+    };
+  }
+
+  const fetchOptions = withWorkflowResumeIntent(
+    withChallengeAutomationOverride(
+      withCookieOverrides({
+        source: "web"
+      }, input),
+      input
+    ),
+    "workflow.research",
+    input as unknown as JsonValue
+  );
+  const runs = await Promise.all(candidates.map(async (url) => {
+    const result = await runtime.fetch({
+      url
+    }, fetchOptions);
+    observeWorkflowSignals(runtime, result);
+    return result;
+  }));
+
+  return {
+    records: runs.flatMap((run) => run.records),
+    failures: runs.flatMap((run) => run.failures)
+  };
+};
+
+const classifyInvalidProductTarget = (
+  record: NormalizedRecord
+): { reason: "http_status" | "not_found_shell"; message: string } | null => {
+  const status = asNumber(record.attributes.status);
+  if (status === 404 || status === 410) {
+    return {
+      reason: "http_status",
+      message: "Product target appears to be a not-found page"
+    };
+  }
+
+  const title = normalizePlainText(record.title);
+  const content = normalizePlainText(record.content);
+  const combined = `${title} ${content}`.trim();
+  if ((/\b404\b/i.test(title) || /\bnot found\b/i.test(title) || /\b404\b/i.test(content)) && PRODUCT_TARGET_NOT_FOUND_RE.test(combined)) {
+    return {
+      reason: "not_found_shell",
+      message: "Product target appears to be a not-found page"
+    };
+  }
+  return null;
+};
+
 export const runResearchWorkflow = async (
   runtime: ProviderExecutor,
   input: ResearchRunInput
@@ -1513,18 +1909,24 @@ export const runResearchWorkflow = async (
     };
   }));
 
+  const fetchedWebRecords = await fetchResearchWebRecords(
+    runtime,
+    input,
+    runs.flatMap((run) => run.result.records)
+  );
   const mergedRecords = removeExcludedProviders(
-    runs.flatMap((run) => run.result.records),
+    [...runs.flatMap((run) => run.result.records), ...fetchedWebRecords.records],
     excludedProviderSet
   );
+  const sanitizedRecords = sanitizeResearchRecords(mergedRecords);
   const mergedFailures = removeExcludedProviders(
-    runs.flatMap((run) => run.result.failures),
+    [...runs.flatMap((run) => run.result.failures), ...fetchedWebRecords.failures],
     excludedProviderSet
   );
   const reasonCodeDistribution = summarizeReasonCodeDistribution(mergedFailures);
   const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(mergedFailures);
   const evaluationNow = new Date();
-  const withinTimebox = filterByTimebox(mergedRecords, timebox, evaluationNow);
+  const withinTimebox = filterByTimebox(sanitizedRecords.records, timebox, evaluationNow);
   const enriched = enrichResearchRecords(withinTimebox, timebox, evaluationNow);
   const deduped = dedupeResearchRecords(enriched);
   const ranked = rankResearchRecords(deduped);
@@ -1547,6 +1949,9 @@ export const runResearchWorkflow = async (
     }, excludedProviders),
     metrics: {
       total_records: mergedRecords.length,
+      sanitized_records: sanitizedRecords.sanitizedCount,
+      sanitized_reason_distribution: sanitizedRecords.reasonDistribution,
+      sanitizedReasonDistribution: sanitizedRecords.reasonDistribution,
       within_timebox: withinTimebox.length,
       final_records: ranked.length,
       failed_sources: runs.filter((run) => !run.result.ok).map((run) => run.source),
@@ -1638,11 +2043,11 @@ export const runShoppingWorkflow = async (
         ...(typeof input.budget === "number" ? { budget: input.budget } : {}),
         ...(input.region ? { region: input.region } : {})
       }
-    }, withWorkflowResumeIntent(withChallengeAutomationOverride(withCookieOverrides({
+    }, withWorkflowResumeIntent(withBrowserModeOverride(withChallengeAutomationOverride(withCookieOverrides({
       source: "shopping",
       providerIds: [providerId],
       ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {})
-    }, input), input), "workflow.shopping", input as unknown as JsonValue));
+    }, input), input), input), "workflow.shopping", input as unknown as JsonValue));
     observeWorkflowSignals(runtime, result);
     return {
       providerId,
@@ -1654,18 +2059,22 @@ export const runShoppingWorkflow = async (
     ...run,
     offerRecords: run.result.records.filter((record) => isLikelyOfferRecord(record))
   }));
-
+  const regionDiagnostics = input.region
+    ? getShoppingRegionSupportDiagnostics(effectiveProviderIds, input.region)
+    : [];
   const extractedOffers = runsWithOfferRecords
     .flatMap((run) => run.offerRecords)
-    .map((record) => extractShoppingOffer(record, now))
-    .filter((offer) => {
-      if (typeof input.budget !== "number") return true;
-      return offer.price.amount > 0 && offer.price.amount <= input.budget;
-    });
+    .map((record) => extractShoppingOffer(record, now));
+  const zeroPriceExcluded = extractedOffers.filter((offer) => offer.price.amount <= 0).length;
 
   const offers = rankOffers(
-    dedupeOffers(extractedOffers),
-    input.sort ?? "best_deal"
+    dedupeOffers(extractedOffers.filter((offer) => {
+      if (offer.price.amount <= 0) return false;
+      if (typeof input.budget !== "number") return true;
+      return offer.price.amount <= input.budget;
+    })),
+    input.sort ?? "best_deal",
+    query
   );
 
   const failures = runsWithOfferRecords.flatMap((run) => {
@@ -1684,11 +2093,31 @@ export const runShoppingWorkflow = async (
   const transcriptDurability = summarizeTranscriptDurability(records, failures);
   const cookieDiagnostics = summarizeCookieDiagnostics(failures, records);
   const challengeOrchestration = summarizeChallengeOrchestration(failures, records);
+  const browserFallbackModesObserved = summarizeBrowserFallbackModes(failures, records);
   const antiBotPressure = summarizeAntiBotPressure(failures);
+  const alerts = buildWorkflowAlerts(runtime, failures, effectiveProviderIds);
+  if (regionDiagnostics.length > 0) {
+    alerts.push({
+      signal: "region_unenforced",
+      reasonCode: "region_unenforced",
+      state: "warning",
+      reason: "Default shopping adapters currently use provider default storefronts and do not enforce requested region filters.",
+      providers: regionDiagnostics.map((entry) => entry.provider),
+      requested_region: input.region ?? regionDiagnostics[0]?.requestedRegion ?? ""
+    });
+  }
   const meta = withPrimaryConstraintMeta({
     selection: {
       providers: effectiveProviderIds,
-      ...(autoExcludedProviders.length > 0 ? { excluded_providers: autoExcludedProviders } : {})
+      ...(autoExcludedProviders.length > 0 ? { excluded_providers: autoExcludedProviders } : {}),
+      ...(input.browserMode ? { requested_browser_mode: input.browserMode } : {}),
+      ...(input.region
+        ? {
+          requested_region: input.region,
+          region_enforced: regionDiagnostics.every((entry) => entry.enforced),
+          region_support: regionDiagnostics
+        }
+        : {})
     },
     metrics: {
       total_offers: offers.length,
@@ -1707,11 +2136,14 @@ export const runShoppingWorkflow = async (
       cookieDiagnostics,
       challenge_orchestration: challengeOrchestration,
       challengeOrchestration,
+      browser_fallback_modes_observed: browserFallbackModesObserved,
+      browserFallbackModesObserved,
       anti_bot_pressure: antiBotPressure,
-      antiBotPressure
+      antiBotPressure,
+      zero_price_excluded: zeroPriceExcluded
     },
     failures,
-    alerts: buildWorkflowAlerts(runtime, failures, effectiveProviderIds)
+    alerts
   } as Record<string, unknown>, failures);
 
   const rendered = renderShopping({
@@ -1811,6 +2243,9 @@ export const runProductVideoWorkflow = async (
   if (!productUrl) {
     throw new Error("Unable to resolve product URL");
   }
+  if (!isValidHttpUrl(productUrl)) {
+    throw new Error("product_url must be an http(s) URL");
+  }
 
   const source = resolveShoppingSourceForUrl(productUrl);
   const shoppingProviderId = source === "shopping"
@@ -1841,6 +2276,10 @@ export const runProductVideoWorkflow = async (
   }
 
   const primary = details.records[0] as NormalizedRecord;
+  const invalidTarget = classifyInvalidProductTarget(primary);
+  if (invalidTarget) {
+    throw new Error(invalidTarget.message);
+  }
   const refreshedMetadata = needsProductMetadataRefresh(primary, productUrl)
     ? await refreshProductMetadata(productUrl, remainingTimeoutMs())
     : null;

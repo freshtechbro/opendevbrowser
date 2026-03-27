@@ -1173,6 +1173,10 @@ export class ProviderRuntime {
               timeoutMs,
               attempt,
               signal,
+              ...(runOptions.preferredFallbackModes?.length
+                ? { preferredFallbackModes: runOptions.preferredFallbackModes }
+                : {}),
+              ...(runOptions.forceBrowserTransport ? { forceBrowserTransport: true } : {}),
               suspendedIntent: this.buildSuspendedIntent(provider.id, provider.source, operation, input, runOptions),
               ...(typeof runOptions.useCookies === "boolean" ? { useCookies: runOptions.useCookies } : {}),
               ...(runOptions.challengeAutomationMode

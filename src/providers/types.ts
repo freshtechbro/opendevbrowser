@@ -240,6 +240,8 @@ export interface ProviderContext {
   timeoutMs: number;
   attempt: number;
   signal?: AbortSignal;
+  preferredFallbackModes?: BrowserFallbackMode[];
+  forceBrowserTransport?: boolean;
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
@@ -411,6 +413,8 @@ export interface ProviderRunOptions {
   providerIds?: string[];
   timeoutMs?: number;
   trace?: Partial<TraceContext>;
+  preferredFallbackModes?: BrowserFallbackMode[];
+  forceBrowserTransport?: boolean;
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
@@ -486,6 +490,8 @@ export interface ProviderRecoveryHints {
   settleTimeoutMs?: number;
   captureDelayMs?: number;
 }
+
+export type WorkflowBrowserMode = "auto" | "extension" | "managed";
 
 export interface BrowserFallbackRequest {
   provider: string;

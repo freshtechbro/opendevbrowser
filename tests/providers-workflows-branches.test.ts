@@ -1073,6 +1073,30 @@ describe("workflow branch coverage", () => {
     })).rejects.toThrow("All default shopping providers are temporarily excluded");
   });
 
+  it("limits default shopping routing to tier1 providers unless the caller opts into specific providers", async () => {
+    const search = vi.fn(async (_input, options) => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: [options?.providerIds?.[0] ?? "shopping/amazon"],
+      records: []
+    }));
+
+    await runShoppingWorkflow(toRuntime({ search }), {
+      query: "macbook air m4 32gb",
+      mode: "json"
+    });
+
+    const requestedProviders = search.mock.calls
+      .map(([, options]) => options?.providerIds?.[0])
+      .filter((value): value is string => typeof value === "string");
+    expect(requestedProviders).toEqual(
+      SHOPPING_PROVIDER_PROFILES
+        .filter((profile) => profile.tier === "tier1")
+        .map((profile) => profile.id)
+    );
+    expect(requestedProviders).not.toContain("shopping/target");
+    expect(requestedProviders).not.toContain("shopping/temu");
+  });
+
   it("resolves explicit single-source research selection", async () => {
     const runtime = toRuntime({
       search: async (_input, _options) => makeAggregate({
@@ -1093,6 +1117,106 @@ describe("workflow branch coverage", () => {
     expect(meta.selection).toEqual({
       source_selection: "social",
       resolved_sources: ["social"]
+    });
+  });
+
+  it("fetches top web research result URLs before sanitizing search-index shells", async () => {
+    const fetch = vi.fn(async (input) => {
+      const url = input.url;
+      if (url === "https://design.example.com/inspiration") {
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [makeRecord({
+            id: "fetched-design-page",
+            source: "web",
+            provider: "web/default",
+            url,
+            title: "Coffee shop inspiration",
+            content: "Cafe design systems, visual references, and photography direction.",
+            attributes: {
+              retrievalPath: "web:fetch:url"
+            }
+          })]
+        });
+      }
+      if (url === "https://dribbble.com/tags/coffee-shop-website") {
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [makeRecord({
+            id: "fetched-js-shell",
+            source: "web",
+            provider: "web/default",
+            url,
+            title: url,
+            content: "JavaScript is disabled. In order to continue, we need to verify that you're not a robot.",
+            attributes: {}
+          })]
+        });
+      }
+      return makeAggregate();
+    });
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source !== "web") {
+          return makeAggregate({
+            sourceSelection: source,
+            providerOrder: [`${source}/default`],
+            records: []
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [
+            makeRecord({
+              id: "duckduckgo-search-result",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdesign.example.com%2Finspiration",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdesign.example.com%2Finspiration",
+              content: "coffee shop website design inspiration at DuckDuckGo",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "duckduckgo-js-shell-result",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdribbble.com%2Ftags%2Fcoffee-shop-website",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdribbble.com%2Ftags%2Fcoffee-shop-website",
+              content: "coffee shop website design inspiration at DuckDuckGo",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            })
+          ]
+        });
+      },
+      fetch
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "coffee shop website design inspiration",
+      sourceSelection: "auto",
+      days: 30,
+      mode: "json"
+    });
+
+    expect(fetch).toHaveBeenCalledWith({
+      url: "https://design.example.com/inspiration"
+    }, expect.objectContaining({
+      source: "web"
+    }));
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual(["fetched-design-page"]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        sanitized_records: 3,
+        final_records: 1
+      }
     });
   });
 
@@ -1595,6 +1719,151 @@ describe("workflow branch coverage", () => {
     })).rejects.toThrow("No valid shopping providers were requested");
   });
 
+  it("prefers direct product matches over accessories for best-deal shopping queries", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [
+            makeRecord({
+              id: "macbook-direct",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0DIRECTM4",
+              title: "Apple MacBook Air Laptop 13-inch M4 32GB 1TB",
+              content: "$1899.00",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "macbook-direct",
+                  title: "Apple MacBook Air Laptop 13-inch M4 32GB 1TB",
+                  url: "https://www.amazon.com/dp/B0DIRECTM4",
+                  price: { amount: 1899, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.8,
+                  reviews_count: 129
+                }
+              }
+            }),
+            makeRecord({
+              id: "macbook-accessory",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0CASEM4001",
+              title: "Protective Case for MacBook Air 13-inch M4",
+              content: "$29.99",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "macbook-accessory",
+                  title: "Protective Case for MacBook Air 13-inch M4",
+                  url: "https://www.amazon.com/dp/B0CASEM4001",
+                  price: { amount: 29.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 5,
+                  reviews_count: 999
+                }
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const bestDeal = await runShoppingWorkflow(runtime, {
+      query: "macbook air m4 32gb",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+    expect((bestDeal.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual([
+      "Apple MacBook Air Laptop 13-inch M4 32GB 1TB",
+      "Protective Case for MacBook Air 13-inch M4"
+    ]);
+
+    const lowestPrice = await runShoppingWorkflow(runtime, {
+      query: "macbook air m4 32gb",
+      providers: ["shopping/amazon"],
+      sort: "lowest_price",
+      mode: "json"
+    });
+    expect((lowestPrice.offers as Array<{ title: string }>)[0]?.title).toBe("Protective Case for MacBook Air 13-inch M4");
+  });
+
+  it("does not treat echoed search query params as product-intent matches", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/ebay";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [
+            makeRecord({
+              id: "wrong-spec-query-echo",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.ebay.com/itm/111?_skw=macbook+air+m4+32gb",
+              title: "Apple MacBook Air 15-inch M3 8GB 256GB Midnight",
+              content: "$775.00",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "wrong-spec-query-echo",
+                  title: "Apple MacBook Air 15-inch M3 8GB 256GB Midnight",
+                  url: "https://www.ebay.com/itm/111?_skw=macbook+air+m4+32gb",
+                  price: { amount: 775, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.8,
+                  reviews_count: 32
+                }
+              }
+            }),
+            makeRecord({
+              id: "requested-spec-match",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.ebay.com/itm/222",
+              title: "Apple MacBook Air 15-inch M4 32GB 1TB Midnight",
+              content: "$1329.99",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "requested-spec-match",
+                  title: "Apple MacBook Air 15-inch M4 32GB 1TB Midnight",
+                  url: "https://www.ebay.com/itm/222",
+                  price: { amount: 1329.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.6,
+                  reviews_count: 14
+                }
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const bestDeal = await runShoppingWorkflow(runtime, {
+      query: "macbook air m4 32gb",
+      providers: ["shopping/ebay"],
+      mode: "json"
+    });
+
+    expect((bestDeal.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual([
+      "Apple MacBook Air 15-inch M4 32GB 1TB Midnight",
+      "Apple MacBook Air 15-inch M3 8GB 256GB Midnight"
+    ]);
+  });
+
   it("applies shopping budget/region filters and tie-break sort branches", async () => {
     const search = vi.fn(async (input, options) => {
       const providerId = options?.providerIds?.[0] ?? "shopping/others";
@@ -1668,6 +1937,26 @@ describe("workflow branch coverage", () => {
     expect((highest.offers as Array<{ provider: string }>)[0]?.provider).toBe("shopping/others");
     expect(search.mock.calls[0]?.[0]).toMatchObject({
       filters: { budget: 100, region: "us" }
+    });
+    expect(highest.meta).toMatchObject({
+      selection: {
+        requested_region: "us",
+        region_enforced: false,
+        region_support: expect.arrayContaining([
+          expect.objectContaining({
+            provider: "shopping/amazon",
+            requestedRegion: "us",
+            enforced: false,
+            reason: "provider_search_path_ignores_region"
+          })
+        ])
+      },
+      alerts: expect.arrayContaining([
+        expect.objectContaining({
+          signal: "region_unenforced",
+          reasonCode: "region_unenforced"
+        })
+      ])
     });
 
     const fastest = await runShoppingWorkflow(runtime, {
@@ -1766,6 +2055,77 @@ describe("workflow branch coverage", () => {
     });
 
     expect((output.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual(["Under Budget Monitor"]);
+  });
+
+  it("drops zero-price shopping offers even without a budget and reports the exclusion count", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [
+            makeRecord({
+              id: "priced-offer",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0PRICE0001",
+              title: "Priced Dock",
+              content: "$89.99",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "priced-offer",
+                  title: "Priced Dock",
+                  url: "https://www.amazon.com/dp/B0PRICE0001",
+                  price: { amount: 89.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.6,
+                  reviews_count: 18
+                }
+              }
+            }),
+            makeRecord({
+              id: "zero-offer",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0ZERO00001",
+              title: "Zero Price Dock",
+              content: "Price unavailable",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "zero-offer",
+                  title: "Zero Price Dock",
+                  url: "https://www.amazon.com/dp/B0ZERO00001",
+                  price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 5,
+                  reviews_count: 999
+                }
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "usb-c dock",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+
+    expect((output.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual(["Priced Dock"]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        zero_price_excluded: 1
+      }
+    });
   });
 
   it("covers shopping offer extraction fallbacks and availability mapping branches", async () => {
@@ -1872,8 +2232,11 @@ describe("workflow branch coverage", () => {
     }>;
 
     expect(offers.some((offer) => offer.availability === "limited")).toBe(true);
-    expect(offers.some((offer) => offer.availability === "out_of_stock")).toBe(true);
-    expect(offers.some((offer) => offer.availability === "unknown")).toBe(true);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        zero_price_excluded: 2
+      }
+    });
     const limitedOffer = offers.find((offer) => offer.provider === "shopping/amazon");
     expect(limitedOffer?.price.currency).toBe("GBP");
     expect(limitedOffer?.shipping.currency).toBe("GBP");
@@ -2568,6 +2931,225 @@ describe("workflow branch coverage", () => {
     ]));
   });
 
+  it("sanitizes shell research records before enrichment and ranking", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source === "web") {
+          return makeAggregate({
+            sourceSelection: "web",
+            providerOrder: ["web/default"],
+            records: [makeRecord({
+              id: "duckduckgo-shell",
+              source: "web",
+              provider: "web/default",
+              url: "https://html.duckduckgo.com/html",
+              title: "https://html.duckduckgo.com/html",
+              content: "coffee shop website design inspiration at DuckDuckGo",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            })]
+          });
+        }
+        if (source === "community") {
+          return makeAggregate({
+            sourceSelection: "community",
+            providerOrder: ["community/default"],
+            records: [
+              makeRecord({
+                id: "reddit-search-shell",
+                source: "community",
+                provider: "community/default",
+                url: "https://www.reddit.com/search/?q=coffee+shop+website+design+inspiration",
+                title: "Community search: coffee shop website design inspiration",
+                content: "All Posts Communities Comments Search results",
+                attributes: {
+                  retrievalPath: "community:search:index"
+                }
+              }),
+              makeRecord({
+                id: "reddit-login-shell",
+                source: "community",
+                provider: "community/default",
+                url: "https://www.reddit.com/login",
+                title: "https://www.reddit.com/login",
+                content: "Welcome to Reddit. Log in to continue.",
+                attributes: {
+                  retrievalPath: "community:fetch:url"
+                }
+              })
+            ]
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "social",
+          providerOrder: ["social/default"],
+          records: [
+            makeRecord({
+              id: "bluesky-js-shell",
+              source: "social",
+              provider: "social/default",
+              url: "https://bsky.app/search?q=coffee+shop+website+design+inspiration",
+              title: "Bluesky search",
+              content: "JavaScript is not available.",
+              attributes: {
+                retrievalPath: "social:fetch:url"
+              }
+            }),
+            makeRecord({
+              id: "reddit-generic-shell",
+              source: "social",
+              provider: "social/default",
+              url: "https://www.reddit.com/answers/example?q=coffee+shop+website+design+inspiration",
+              title: "https://www.reddit.com/answers/example?q=coffee+shop+website+design+inspiration",
+              content: "Reddit - The heart of the internet. Please wait for verification. Skip to main content.",
+              attributes: {
+                retrievalPath: "social:fetch:url"
+              }
+            }),
+            makeRecord({
+              id: "clean-inspiration-record",
+              source: "social",
+              provider: "social/default",
+              url: "https://studio.example.com/inspiration/coffee-shop",
+              title: "Coffee shop website design inspiration",
+              content: "A warm editorial coffee shop website with strong typography and photography.",
+              attributes: {
+                retrievalPath: "social:post:url"
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "coffee shop website design inspiration",
+      sourceSelection: "auto",
+      days: 30,
+      mode: "json"
+    });
+
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual(["clean-inspiration-record"]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        sanitized_records: 5,
+        sanitized_reason_distribution: {
+          search_index_shell: 2,
+          login_shell: 1,
+          js_required_shell: 1,
+          search_results_shell: 1
+        }
+      }
+    });
+  });
+
+  it("caps research web follow-up fetches and ignores malformed search redirect urls", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [makeRecord({
+        id: input.url,
+        source: "web",
+        provider: "web/default",
+        url: input.url,
+        title: `Resolved ${input.url}`,
+        content: "Coffee shop design inspiration with strong photography and typography.",
+        attributes: {
+          retrievalPath: "web:fetch:url"
+        }
+      })]
+    }));
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source !== "web") {
+          return makeAggregate({
+            sourceSelection: source,
+            providerOrder: [`${source}/default`],
+            records: []
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [
+            makeRecord({
+              id: "bad-redirect-url",
+              source: "web",
+              provider: "web/default",
+              url: "://bad",
+              title: "https://duckduckgo.com/l?uddg=%3A%2F%2Fbad",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "ddg-1",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fone",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fone",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "ddg-2",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ftwo",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ftwo",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "ddg-3",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fthree",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fthree",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "ddg-4",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ffour",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ffour",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            })
+          ]
+        });
+      },
+      fetch
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "coffee shop website design inspiration",
+      sourceSelection: "auto",
+      days: 30,
+      mode: "json"
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenNthCalledWith(1, { url: "https://example.com/one" }, expect.any(Object));
+    expect(fetch).toHaveBeenNthCalledWith(2, { url: "https://example.com/two" }, expect.any(Object));
+    expect(fetch).toHaveBeenNthCalledWith(3, { url: "https://example.com/three" }, expect.any(Object));
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toHaveLength(3);
+  });
+
   it("sorts multiple auto-excluded providers across social and shopping sources", async () => {
     const runtime = toRuntime({
       search: async (_input, options) => {
@@ -2826,10 +3408,11 @@ describe("workflow branch coverage", () => {
       providers: ["shopping/others"],
       mode: "json"
     });
-    const offer = (output.offers as Array<{ price: { amount: number; currency: string } }>)[0];
-    expect(offer?.price).toMatchObject({
-      amount: 0,
-      currency: "USD"
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        zero_price_excluded: 1
+      }
     });
   });
 
@@ -2872,6 +3455,167 @@ describe("workflow branch coverage", () => {
       providerIds: ["shopping/amazon"],
       timeoutMs: 4321
     }));
+  });
+
+  it("forwards explicit shopping browser-mode overrides into provider run options", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "browser-mode-forwarded",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/browser-mode-forwarded",
+        title: "Browser Mode Forwarded",
+        content: "$49.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "browser-mode-forwarded",
+            title: "Browser Mode Forwarded",
+            url: "https://www.amazon.com/dp/browser-mode-forwarded",
+            price: { amount: 49.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.4,
+            reviews_count: 12
+          }
+        }
+      })]
+    }));
+
+    const extensionOutput = await runShoppingWorkflow(toRuntime({ search }), {
+      query: "browser mode extension",
+      providers: ["shopping/amazon"],
+      browserMode: "extension",
+      mode: "json"
+    });
+    const managedOutput = await runShoppingWorkflow(toRuntime({ search }), {
+      query: "browser mode managed",
+      providers: ["shopping/amazon"],
+      browserMode: "managed",
+      mode: "json"
+    });
+    const autoOutput = await runShoppingWorkflow(toRuntime({ search }), {
+      query: "browser mode auto",
+      providers: ["shopping/amazon"],
+      browserMode: "auto",
+      mode: "json"
+    });
+
+    expect(search).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      preferredFallbackModes: ["extension"],
+      forceBrowserTransport: true
+    }));
+    expect(search).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      preferredFallbackModes: ["managed_headed"],
+      forceBrowserTransport: true
+    }));
+    const autoCall = search.mock.calls[2]?.[1] as Record<string, unknown> | undefined;
+    expect(autoCall).toBeDefined();
+    expect(autoCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"]
+    });
+    expect(autoCall).not.toHaveProperty("preferredFallbackModes");
+    expect(autoCall).not.toHaveProperty("forceBrowserTransport");
+    expect(extensionOutput.meta).toMatchObject({
+      selection: {
+        requested_browser_mode: "extension"
+      },
+      metrics: {
+        browser_fallback_modes_observed: []
+      }
+    });
+    expect(managedOutput.meta).toMatchObject({
+      selection: {
+        requested_browser_mode: "managed"
+      },
+      metrics: {
+        browser_fallback_modes_observed: []
+      }
+    });
+    expect(autoOutput.meta).toMatchObject({
+      selection: {
+        requested_browser_mode: "auto"
+      },
+      metrics: {
+        browser_fallback_modes_observed: []
+      }
+    });
+  });
+
+  it("keeps auto shopping preserved extension challenges as single-run manual-yield outcomes", async () => {
+    const search = vi.fn(async (_input, options) => {
+      const providerId = options?.providerIds?.[0] ?? "shopping/walmart";
+      return makeAggregate({
+        ok: false,
+        sourceSelection: "shopping",
+        providerOrder: [providerId],
+        failures: [makeFailure(providerId, "shopping", {
+          code: "unavailable",
+          message: "challenge remains active",
+          reasonCode: "challenge_detected",
+          provider: providerId,
+          source: "shopping",
+          details: {
+            disposition: "challenge_preserved",
+            browserFallbackMode: "extension",
+            browserFallbackReasonCode: "challenge_detected",
+            preservedSessionId: "preserved-session-1",
+            preservedTargetId: "tab-123",
+            challengeOrchestration: {
+              mode: "browser_with_helper",
+              source: "config",
+              status: "deferred"
+            }
+          }
+        })],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      });
+    });
+
+    const output = await runShoppingWorkflow(toRuntime({ search }), {
+      query: "macbook pro m4 32gb ram",
+      providers: ["shopping/walmart"],
+      browserMode: "auto",
+      mode: "json"
+    });
+
+    expect(search).toHaveBeenCalledTimes(1);
+    const autoCall = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(autoCall).toBeDefined();
+    expect(autoCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/walmart"]
+    });
+    expect(autoCall).not.toHaveProperty("preferredFallbackModes");
+    expect(autoCall).not.toHaveProperty("forceBrowserTransport");
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      selection: {
+        requested_browser_mode: "auto"
+      },
+      metrics: {
+        browser_fallback_modes_observed: ["extension"]
+      },
+      failures: [{
+        provider: "shopping/walmart",
+        error: {
+          reasonCode: "challenge_detected",
+          details: {
+            disposition: "challenge_preserved",
+            browserFallbackMode: "extension",
+            preservedSessionId: "preserved-session-1",
+            preservedTargetId: "tab-123"
+          }
+        }
+      }]
+    });
   });
 
   it("forwards explicit timeout overrides through product-video search and fetch", async () => {
@@ -2981,6 +3725,10 @@ describe("workflow branch coverage", () => {
       "Amazon requires manual browser follow-up; this run did not determine whether login or page rendering is required."
     );
 
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "not-a-url"
+    })).rejects.toThrow("product_url must be an http(s) URL");
+
     const missingUrlRuntime = toRuntime({
       search: async () => makeAggregate({
         sourceSelection: "shopping",
@@ -3041,6 +3789,70 @@ describe("workflow branch coverage", () => {
       product_name: "ergonomic wireless mouse",
       provider_hint: "shopping/target"
     })).rejects.toThrow("Target requires a live browser-rendered page.");
+  });
+
+  it("rejects obvious 404 product targets before metadata refresh or asset fetches", async () => {
+    const auxiliaryFetch = vi.fn(async () => ({
+      ok: true,
+      url: "https://www.shoott.com/headshots",
+      text: async () => "<html></html>",
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+    }));
+    vi.stubGlobal("fetch", auxiliaryFetch as unknown as typeof fetch);
+
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "shoott-404",
+          source: "web",
+          provider: "web/default",
+          url: "https://www.shoott.com/headshots",
+          title: "Shoott | 404",
+          content: "Error 404 We can’t seem to find the page you were looking for.",
+          attributes: {
+            status: 404,
+            links: ["https://cdn.example.com/404-image.jpg"]
+          }
+        })]
+      })
+    });
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "https://www.shoott.com/headshots",
+      include_screenshots: true,
+      include_all_images: true,
+      include_copy: true
+    })).rejects.toThrow("Product target appears to be a not-found page");
+    expect(auxiliaryFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects strong not-found product targets even when the fetch response omits status metadata", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "shoott-not-found-copy",
+          source: "web",
+          provider: "web/default",
+          url: "https://www.shoott.com/headshots",
+          title: "Shoott | 404",
+          content: "We can’t seem to find the page you were looking for. Return to homepage.",
+          attributes: {
+            links: ["https://cdn.example.com/404-image.jpg"]
+          }
+        })]
+      })
+    });
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "https://www.shoott.com/headshots",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    })).rejects.toThrow("Product target appears to be a not-found page");
   });
 
   it("threads provider hints into product-name shopping resolution before fetching the product page", async () => {
@@ -3146,7 +3958,7 @@ describe("workflow branch coverage", () => {
           id: "product-1",
           source: "web",
           provider: "web/default",
-          url: "not-a-url",
+          url: "https://example.com/fallback-product",
           title: "Fallback Product",
           content: "Feature alpha with good detail. Feature beta with enough text for extraction.",
           attributes: {
@@ -3159,7 +3971,7 @@ describe("workflow branch coverage", () => {
               provider: "shopping/others",
               product_id: "p1",
               title: "Fallback Product",
-              url: "not-a-url",
+              url: "https://example.com/fallback-product",
               price: { amount: 22.5, currency: "USD", retrieved_at: isoHoursAgo(1) },
               shipping: { amount: 0, currency: "USD", notes: "std" },
               availability: "in_stock",
@@ -3184,7 +3996,7 @@ describe("workflow branch coverage", () => {
     }) as unknown as typeof fetch);
 
     const output = await runProductVideoWorkflow(toRuntime({ fetch }), {
-      product_url: "not-a-url",
+      product_url: "https://example.com/fallback-product",
       include_screenshots: true,
       include_all_images: false,
       include_copy: false
@@ -3775,7 +4587,7 @@ describe("workflow branch coverage", () => {
     });
 
     const output = await runProductVideoWorkflow(runtime, {
-      product_url: "not-a-url",
+      product_url: "https://example.com/design-monitor",
       include_screenshots: false,
       include_all_images: false,
       include_copy: true
@@ -3801,7 +4613,7 @@ describe("workflow branch coverage", () => {
           id: "negative-only-pricing",
           source: "web",
           provider: "web/default",
-          url: "not-a-url",
+          url: "https://example.com/negative-only-pricing",
           title: "Negative Only Pricing Example",
           content: [
             "12345",
@@ -3817,7 +4629,7 @@ describe("workflow branch coverage", () => {
     });
 
     const output = await runProductVideoWorkflow(runtime, {
-      product_url: "not-a-url",
+      product_url: "https://example.com/negative-only-pricing",
       include_screenshots: false,
       include_all_images: false,
       include_copy: false

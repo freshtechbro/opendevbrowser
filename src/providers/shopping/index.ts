@@ -32,9 +32,7 @@ import type {
 const SHOPPING_SOURCE = "shopping" as const;
 const DEFAULT_CURRENCY = "USD";
 const DEFAULT_RECOVERABLE_SHOPPING_FETCH_TIMEOUT_MS = 15_000;
-const DEFAULT_SHOPPING_FALLBACK_MODES: BrowserFallbackMode[] = ["managed_headed", "extension"];
-const EXTENSION_FIRST_SHOPPING_FALLBACK_MODES: BrowserFallbackMode[] = ["extension", "managed_headed"];
-const EXTENSION_FIRST_SHOPPING_RECOVERY_PROFILES = new Set<ShoppingProviderName>(["costco", "target", "temu"]);
+const DEFAULT_SHOPPING_FALLBACK_MODES: BrowserFallbackMode[] = ["extension", "managed_headed"];
 
 export type ShoppingProviderName =
   | "amazon"
@@ -60,6 +58,15 @@ export interface ShoppingProviderProfile {
   extractionFocus: string;
   legalReview: ProviderLegalReviewChecklist;
   searchPath: (query: string) => string;
+}
+
+export interface ShoppingRegionSupportDiagnostic {
+  provider: string;
+  requestedRegion: string;
+  enforced: boolean;
+  strategy: "default_storefront";
+  storefrontDomain: string | null;
+  reason: "provider_search_path_ignores_region";
 }
 
 export interface ProviderLegalReviewChecklist {
@@ -282,6 +289,27 @@ export const SHOPPING_PROVIDER_PROFILES: ShoppingProviderProfile[] = [
 
 export const SHOPPING_PROVIDER_IDS = SHOPPING_PROVIDER_PROFILES.map((profile) => profile.id);
 
+export const getShoppingRegionSupportDiagnostics = (
+  providerIds: string[],
+  region: string
+): ShoppingRegionSupportDiagnostic[] => {
+  const requestedRegion = region.trim().toLowerCase();
+  if (!requestedRegion) {
+    return [];
+  }
+  return providerIds.map((providerId) => {
+    const profile = SHOPPING_PROVIDER_PROFILES.find((entry) => entry.id === providerId);
+    return {
+      provider: providerId,
+      requestedRegion,
+      enforced: false,
+      strategy: "default_storefront",
+      storefrontDomain: profile?.domains[0] ?? null,
+      reason: "provider_search_path_ignores_region"
+    };
+  });
+};
+
 const hasValues = (values: string[]): boolean => values.some((value) => value.trim().length > 0);
 
 const parseIsoDate = (value: string): number => {
@@ -344,9 +372,7 @@ const bindRecoverableFetchSignal = (
 };
 
 const buildShoppingRecoveryHints = (profile: ShoppingProviderProfile): ProviderRecoveryHints => ({
-  preferredFallbackModes: EXTENSION_FIRST_SHOPPING_RECOVERY_PROFILES.has(profile.name)
-    ? EXTENSION_FIRST_SHOPPING_FALLBACK_MODES
-    : DEFAULT_SHOPPING_FALLBACK_MODES,
+  preferredFallbackModes: DEFAULT_SHOPPING_FALLBACK_MODES,
   highFrictionTarget: profile.name === "temu" || profile.name === "target",
   challengeProne: profile.name === "temu" || profile.name === "target" || profile.name === "bestbuy",
   settleTimeoutMs: 15000,
@@ -360,7 +386,10 @@ const resolveBrowserFallback = async (args: {
   operation: "search" | "fetch";
   recoveryHints: ProviderRecoveryHints;
   context?: ProviderContext;
-}): Promise<ShoppingFetchRecord | null> => {
+}): Promise<{
+  record: ShoppingFetchRecord | null;
+  failure?: ProviderRuntimeError;
+}> => {
   const normalized = toProviderError(args.error, {
     provider: args.provider,
     source: SHOPPING_SOURCE
@@ -383,26 +412,32 @@ const resolveBrowserFallback = async (args: {
     recoveryHints: args.recoveryHints
   });
   if (!fallback) {
-    return null;
+    return { record: null };
   }
   if (fallback.disposition !== "completed") {
+    const failure = toProviderFallbackError({
+      provider: args.provider,
+      source: SHOPPING_SOURCE,
+      url: args.url,
+      fallback
+    });
     if (fallback.reasonCode !== "env_limited") {
-      throw toProviderFallbackError({
-        provider: args.provider,
-        source: SHOPPING_SOURCE,
-        url: args.url,
-        fallback
-      });
+      throw failure;
     }
-    return null;
+    return {
+      record: null,
+      failure
+    };
   }
 
   const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? args.url);
   return {
-    status: 200,
-    url: resolvedUrl,
-    html: readFallbackString(fallback.output, "html") ?? "",
-    browserFallback: toBrowserFallbackObservation(fallback)
+    record: {
+      status: 200,
+      url: resolvedUrl,
+      html: readFallbackString(fallback.output, "html") ?? "",
+      browserFallback: toBrowserFallbackObservation(fallback)
+    }
   };
 };
 
@@ -537,7 +572,10 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
       ...(requirement.message ? { message: requirement.message } : {})
     }, browserFallback);
   };
-  const resolveFallbackOrThrow = async (error: ProviderRuntimeError): Promise<ShoppingFetchRecord> => {
+  const resolveFallbackOrThrow = async (
+    error: ProviderRuntimeError,
+    options?: { preserveFallbackFailure?: boolean }
+  ): Promise<ShoppingFetchRecord> => {
     const fallback = await resolveBrowserFallback({
       error,
       url,
@@ -546,15 +584,43 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
       recoveryHints,
       context
     });
-    if (fallback) {
-      const fallbackError = detectFetchedPageError(fallback.url, fallback.status, fallback.html, fallback.browserFallback);
+    if (fallback.record) {
+      const fallbackError = detectFetchedPageError(
+        fallback.record.url,
+        fallback.record.status,
+        fallback.record.html,
+        fallback.record.browserFallback
+      );
       if (fallbackError) {
         throw fallbackError;
       }
-      return fallback;
+      return fallback.record;
+    }
+    if (options?.preserveFallbackFailure && fallback.failure) {
+      throw fallback.failure;
     }
     throw error;
   };
+
+  if (context?.forceBrowserTransport) {
+    return resolveFallbackOrThrow(
+      new ProviderRuntimeError(
+        "unavailable",
+        `Explicit browser transport requested for ${url}`,
+        {
+          provider: providerId,
+          source: SHOPPING_SOURCE,
+          retryable: true,
+          reasonCode: "env_limited",
+          details: {
+            url,
+            stage: `${operation}:forced_browser_transport`
+          }
+        }
+      ),
+      { preserveFallbackFailure: true }
+    );
+  }
 
   let response: Response;
   const rawFetchSignal = bindRecoverableFetchSignal(signal, resolveRecoverableFetchTimeoutMs(context));

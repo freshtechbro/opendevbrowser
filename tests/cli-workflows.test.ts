@@ -144,9 +144,40 @@ describe("workflow CLI commands", () => {
       ttlHours: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
-    }, {
-      timeoutMs: 45000
     });
+  });
+
+  it("forwards explicit shopping browser-mode overrides", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=macbook pro m4 32gb ram",
+      "--browser-mode=extension"
+    ]));
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=macbook pro m4 32gb ram",
+      "--browser-mode=managed"
+    ]));
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=macbook pro m4 32gb ram",
+      "--browser-mode=auto"
+    ]));
+
+    expect(callDaemon).toHaveBeenNthCalledWith(1, "shopping.run", expect.objectContaining({
+      query: "macbook pro m4 32gb ram",
+      browserMode: "extension"
+    }));
+    expect(callDaemon).toHaveBeenNthCalledWith(2, "shopping.run", expect.objectContaining({
+      query: "macbook pro m4 32gb ram",
+      browserMode: "managed"
+    }));
+    expect(callDaemon).toHaveBeenNthCalledWith(3, "shopping.run", expect.objectContaining({
+      query: "macbook pro m4 32gb ram",
+      browserMode: "auto"
+    }));
   });
 
   it("surfaces provider follow-up requirements in workflow completion messages", async () => {
@@ -331,6 +362,7 @@ describe("workflow CLI commands", () => {
   it("enforces run subcommand and required input", async () => {
     await expect(runResearchCommand(makeArgs("research", ["status"]))).rejects.toThrow("Usage: opendevbrowser research run");
     await expect(runShoppingCommand(makeArgs("shopping", ["run"]))).rejects.toThrow("Missing --query");
+    await expect(runShoppingCommand(makeArgs("shopping", ["run", "--query=macbook", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
     await expect(runProductVideoCommand(makeArgs("product-video", ["run"]))).rejects.toThrow("Missing --product-url or --product-name");
   });
 });

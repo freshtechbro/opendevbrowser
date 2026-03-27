@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildLiveRegressionEnv, parseArgs } from "../scripts/provider-live-matrix.mjs";
+import {
+  buildLiveRegressionEnv,
+  parseArgs,
+  REQUIRED_PLAYWRIGHT_CORE_FILES
+} from "../scripts/provider-live-matrix.mjs";
 
 describe("provider-live-matrix parseArgs", () => {
   it("enables strict release defaults with --release-gate", () => {
@@ -33,5 +37,10 @@ describe("provider-live-matrix parseArgs", () => {
 
     expect(env.LIVE_MATRIX_USE_GLOBAL).toBe("0");
     expect(env.LIVE_MATRIX_STOP_DAEMON).toBe("0");
+  });
+
+  it("treats Playwright server registry files as integrity sentinels", () => {
+    expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/index.js");
+    expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/registry/index.js");
   });
 });
