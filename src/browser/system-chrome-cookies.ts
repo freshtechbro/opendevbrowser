@@ -3,8 +3,8 @@ import { createDecipheriv, createHash, pbkdf2Sync } from "node:crypto";
 import { cp, mkdtemp, mkdir, rm, stat } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { chromium } from "playwright-core";
 import { discoverSystemChromeProfileSource, type ChromeUserDataSource } from "../cache/chrome-user-data";
+import { loadChromium } from "./playwright-runtime";
 
 export type BootstrapCookieRecord = {
   name: string;
@@ -332,6 +332,7 @@ export async function loadSystemChromeCookies(
       };
     }
 
+    const chromium = await loadChromium();
     const context = await chromium.launchPersistentContext(stagingRoot, {
       headless: true,
       executablePath: executablePath ?? undefined,
