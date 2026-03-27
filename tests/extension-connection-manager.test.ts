@@ -501,6 +501,23 @@ describe("ConnectionManager", () => {
     expect(relayInstances.length).toBeGreaterThan(1);
   });
 
+  it("skips a timed reconnect when another path already restored the relay", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const first = relayInstances[0];
+    first.triggerClose();
+
+    const managerState = manager as { status: string };
+    managerState.status = "connected";
+
+    await vi.advanceTimersByTimeAsync(13_000);
+
+    expect(relayInstances).toHaveLength(1);
+  });
+
   it("reconnects after heartbeat timeout", async () => {
     vi.useFakeTimers();
     const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");

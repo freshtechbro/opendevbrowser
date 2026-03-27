@@ -7,6 +7,7 @@ import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type Challenge
 import { createDefaultRuntime, type RuntimeDefaults, type RuntimeInit } from "./index";
 import { classifyBlockerSignal } from "./blocker";
 import { ProviderRuntimeError } from "./errors";
+import { canonicalizeUrl } from "./web/crawler";
 import { toSnippet, extractStructuredContent } from "./web/extract";
 import type {
   BrowserFallbackMode,
@@ -21,6 +22,7 @@ import type {
 } from "./types";
 
 type RuntimeConfig = Pick<OpenDevBrowserConfig, "blockerDetectionThreshold" | "security" | "providers">;
+type BrowserFallbackRequest = Parameters<NonNullable<BrowserFallbackPort>["resolve"]>[0];
 
 type BrowserFallbackCookieConfig = {
   policy: ProviderCookiePolicy;
@@ -57,9 +59,86 @@ const DEFAULT_FALLBACK_DEFAULT_SETTLE_TIMEOUT_MS = 5000;
 const DEFAULT_FALLBACK_SHOPPING_CAPTURE_DELAY_MS = 2000;
 const DEFAULT_FALLBACK_DEFAULT_CAPTURE_DELAY_MS = 500;
 const SHOPPING_FALLBACK_FLAGS = ["--disable-http2"];
+const SHOPPING_INTERSTITIAL_DIALOG_RE = /\b(?:role\s*=\s*["'](?:dialog|alertdialog)["']|aria-modal\s*=\s*["']true["'])/i;
+const SHOPPING_INTERSTITIAL_TEXT_RE = /\b(?:choose where (?:you(?:'|’)d|you would|to) like to shop|how do you want your items|set your location|confirm your location|choose a store)\b/i;
 
 const toFallbackMode = (mode: unknown): BrowserFallbackMode => {
   return mode === "extension" ? "extension" : "managed_headed";
+};
+
+const isExplicitShoppingExtensionRequest = (request: BrowserFallbackRequest): boolean => {
+  return request.source === "shopping"
+    && request.preferredModes?.length === 1
+    && request.preferredModes[0] === "extension";
+};
+
+const normalizeComparableUrl = (value: string | undefined): string | undefined => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? canonicalizeUrl(trimmed) : undefined;
+};
+
+const matchesRequestedShoppingTarget = (requestedUrl: string, currentUrl?: string): boolean => {
+  const normalizedRequested = normalizeComparableUrl(requestedUrl);
+  const normalizedCurrent = normalizeComparableUrl(currentUrl);
+  return typeof normalizedRequested === "string"
+    && typeof normalizedCurrent === "string"
+    && normalizedRequested === normalizedCurrent;
+};
+
+const isRestrictedExtensionAttachUrl = (value?: string): boolean => {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return true;
+  }
+  const normalized = trimmed.toLowerCase();
+  if (normalized === "about:blank") {
+    return true;
+  }
+  if (
+    normalized.startsWith("chrome://")
+    || normalized.startsWith("chrome-extension://")
+    || normalized.startsWith("devtools://")
+  ) {
+    return true;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol !== "http:" && parsed.protocol !== "https:";
+  } catch {
+    return true;
+  }
+};
+
+const isRestrictedExtensionNavigationError = (error: unknown): boolean => {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : (typeof error === "object" && error && "message" in error && typeof error.message === "string")
+        ? error.message
+        : "";
+  const lowered = message.toLowerCase();
+  return lowered.includes("restricted_url")
+    || lowered.includes("restricted url")
+    || lowered.includes("restricted tab")
+    || lowered.includes("active tab uses a restricted url scheme");
+};
+
+const reconnectExplicitShoppingExtensionSession = async (args: {
+  manager: BrowserManagerLike;
+  sessionId: string;
+  extensionWsEndpoint: string;
+  requestUrl: string;
+}): Promise<{ sessionId: string; navigatedDuringAttach: true }> => {
+  await args.manager.disconnect(args.sessionId, true).catch(() => {
+    // Best effort cleanup before reconnecting a fresh extension attach session.
+  });
+  const attached = await args.manager.connectRelay(args.extensionWsEndpoint, { startUrl: args.requestUrl });
+  return {
+    sessionId: attached.sessionId,
+    navigatedDuringAttach: true
+  };
 };
 
 const expandHomePath = (filePath: string): string => {
@@ -368,16 +447,28 @@ const sanitizeFallbackDelayMs = (value: number | undefined, fallback: number): n
   return Math.max(0, Math.floor(value));
 };
 
+const readClonePageHtml = (component: string): string | null => {
+  try {
+    const match = component.match(/__html:\s*("(?:\\.|[^"])*")\s*}}/s);
+    if (!match?.[1]) {
+      return null;
+    }
+    const parsed = JSON.parse(match[1]) as unknown;
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
 const waitForFallbackPageToSettle = async (
   manager: BrowserManagerLike,
   sessionId: string,
-  source: "social" | "shopping" | "web" | "community",
-  timeoutMs?: number
+  _source: "social" | "shopping" | "web" | "community",
+  timeoutMs: number
 ): Promise<void> => {
   if (typeof manager.waitForLoad !== "function") return;
-  const networkIdleTimeoutMs = timeoutMs ?? resolveFallbackSettleTimeoutMs(source);
   try {
-    await manager.waitForLoad(sessionId, "networkidle", networkIdleTimeoutMs);
+    await manager.waitForLoad(sessionId, "networkidle", timeoutMs);
   } catch {
     // Some sites never reach a clean networkidle state. Fall through to
     // best-effort DOM capture instead of failing the entire recovery path.
@@ -387,23 +478,36 @@ const waitForFallbackPageToSettle = async (
 const captureFallbackHtml = async (
   manager: BrowserManagerLike,
   sessionId: string,
-  source: "social" | "shopping" | "web" | "community",
-  captureDelayMs?: number
+  _source: "social" | "shopping" | "web" | "community",
+  captureDelayMs: number
 ): Promise<string> => {
-  return await manager.withPage(sessionId, null, async (page: unknown) => {
-    const candidate = page as {
-      waitForTimeout?: (ms: number) => Promise<void>;
-      content?: () => Promise<string>;
-    };
-    if (typeof candidate.waitForTimeout === "function") {
-      await candidate.waitForTimeout(captureDelayMs ?? resolveFallbackCaptureDelayMs(source));
+  try {
+    return await manager.withPage(sessionId, null, async (page: unknown) => {
+      const candidate = page as {
+        waitForTimeout?: (ms: number) => Promise<void>;
+        content?: () => Promise<string>;
+      };
+      if (typeof candidate.waitForTimeout === "function") {
+        await candidate.waitForTimeout(captureDelayMs);
+      }
+      if (typeof candidate.content !== "function") return "";
+      return await candidate.content();
+    });
+  } catch (error) {
+    if (typeof manager.clonePage !== "function") {
+      throw error;
     }
-    if (typeof candidate.content !== "function") return "";
-    return await candidate.content();
-  });
+    const fallbackExport = await manager.clonePage(sessionId, null);
+    const html = readClonePageHtml(fallbackExport.component);
+    if (html !== null) {
+      return html;
+    }
+    throw error;
+  }
 };
 
 const detectFallbackPageBlocker = (
+  source: "social" | "shopping" | "web" | "community",
   html: string,
   url: string
 ) => {
@@ -426,6 +530,16 @@ const detectFallbackPageBlocker = (
     || htmlLower.includes("verify that you're human")
     || htmlLower.includes("checking your browser")
     || (htmlLower.includes("challenge") && /function _0x[a-z0-9]+\(/i.test(html))
+  ) {
+    return {
+      type: "anti_bot_challenge" as const,
+      reasonCode: "challenge_detected" as const
+    };
+  }
+  if (
+    source === "shopping"
+    && SHOPPING_INTERSTITIAL_DIALOG_RE.test(html)
+    && SHOPPING_INTERSTITIAL_TEXT_RE.test(htmlLower)
   ) {
     return {
       type: "anti_bot_challenge" as const,
@@ -511,11 +625,16 @@ export const createBrowserFallbackPort = (
       const preferredModes = request.preferredModes?.length
         ? [...new Set(request.preferredModes)]
         : ["managed_headed"];
-      let lastFailure: BrowserFallbackResponse | null = null;
+      let lastFailure: BrowserFallbackResponse = fallbackFailure(
+        "env_limited",
+        "Browser fallback exhausted all preferred modes."
+      );
 
       for (const preferredMode of preferredModes) {
         let sessionId: string | null = null;
         let preserveSession = false;
+        let navigatedDuringAttach = false;
+        let attachedUrl: string | undefined;
         const policy = resolveEffectiveCookiePolicy(defaults, request);
         const cookieDiagnostics = baseCookieDiagnostics(policy, defaults.source);
         const abortListener = () => {
@@ -533,8 +652,25 @@ export const createBrowserFallbackPort = (
               lastFailure = fallbackFailure("env_limited", "Extension fallback requires a relay endpoint.", cookieDiagnostics);
               continue;
             }
-            const attached = await manager.connectRelay(transportDefaults.extensionWsEndpoint);
+            const attachOptions = request.source === "shopping" && !isExplicitShoppingExtensionRequest(request)
+              ? { startUrl: requestUrl }
+              : undefined;
+            const attached = await manager.connectRelay(transportDefaults.extensionWsEndpoint, attachOptions);
             sessionId = attached.sessionId;
+            navigatedDuringAttach = Boolean(attachOptions?.startUrl);
+            if (isExplicitShoppingExtensionRequest(request)) {
+              attachedUrl = (await manager.status(sessionId)).url;
+              if (isRestrictedExtensionAttachUrl(attachedUrl)) {
+                const recovered = await reconnectExplicitShoppingExtensionSession({
+                  manager,
+                  sessionId,
+                  extensionWsEndpoint: transportDefaults.extensionWsEndpoint,
+                  requestUrl
+                });
+                sessionId = recovered.sessionId;
+                navigatedDuringAttach = recovered.navigatedDuringAttach;
+              }
+            }
           } else {
             const launched = await manager.launch({
               noExtension: true,
@@ -589,12 +725,39 @@ export const createBrowserFallbackPort = (
             }
           }
 
-          await manager.goto(
-            sessionId,
-            requestUrl,
-            "load",
-            clampStepTimeoutMs(DEFAULT_FALLBACK_NAVIGATION_TIMEOUT_MS, "goto")
-          );
+          if (!navigatedDuringAttach) {
+            const skipGoto = isExplicitShoppingExtensionRequest(request)
+              && matchesRequestedShoppingTarget(requestUrl, attachedUrl);
+            if (!skipGoto) {
+              try {
+                await manager.goto(
+                  sessionId,
+                  requestUrl,
+                  "load",
+                  clampStepTimeoutMs(DEFAULT_FALLBACK_NAVIGATION_TIMEOUT_MS, "goto")
+                );
+              } catch (error) {
+                if (
+                  preferredMode === "extension"
+                  && isExplicitShoppingExtensionRequest(request)
+                  && transportDefaults.extensionWsEndpoint
+                  && isRestrictedExtensionAttachUrl(attachedUrl)
+                  && isRestrictedExtensionNavigationError(error)
+                ) {
+                  const recovered = await reconnectExplicitShoppingExtensionSession({
+                    manager,
+                    sessionId,
+                    extensionWsEndpoint: transportDefaults.extensionWsEndpoint,
+                    requestUrl
+                  });
+                  sessionId = recovered.sessionId;
+                  navigatedDuringAttach = recovered.navigatedDuringAttach;
+                } else {
+                  throw error;
+                }
+              }
+            }
+          }
           await waitForFallbackPageToSettle(
             manager,
             sessionId,
@@ -635,7 +798,7 @@ export const createBrowserFallbackPort = (
           const status = await manager.status(sessionId);
           ensureNotAborted("status");
           const resolvedUrl = status.url ?? requestUrl;
-          const blocker = detectFallbackPageBlocker(html, resolvedUrl);
+          const blocker = detectFallbackPageBlocker(request.source, html, resolvedUrl);
           if (blocker) {
             const reasonCode = blocker.reasonCode ?? request.reasonCode;
             cookieDiagnostics.reasonCode = reasonCode;
@@ -805,7 +968,7 @@ export const createBrowserFallbackPort = (
         }
       }
 
-      return lastFailure ?? fallbackFailure("env_limited", "Browser fallback exhausted all preferred modes.");
+      return lastFailure;
     }
   };
 };

@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { mkdir, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { freemem, totalmem } from "os";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import type { Browser, BrowserContext, Page } from "playwright-core";
 import { Mutex } from "async-mutex";
 import type { OpenDevBrowserConfig } from "../config";
 import { resolveCachePaths } from "../cache/paths";
@@ -60,6 +60,7 @@ import {
   type RuntimePreviewBridgeInput,
   type RuntimePreviewBridgeResult
 } from "./canvas-runtime-preview-bridge";
+import { loadChromium } from "./playwright-runtime";
 import { loadSystemChromeCookies } from "./system-chrome-cookies";
 import { GlobalChallengeCoordinator } from "./global-challenge-coordinator";
 
@@ -419,6 +420,7 @@ export class BrowserManager {
     let context: BrowserContext | null = null;
 
     try {
+      const chromium = await loadChromium();
       context = await chromium.launchPersistentContext(profileDir, {
         headless: resolvedHeadless,
         executablePath: executablePath ?? undefined,
@@ -2959,7 +2961,7 @@ export class BrowserManager {
   private getManaged(sessionId: string): ManagedSession {
     const managed = this.sessions.get(sessionId);
     if (!managed) {
-      throw new Error(`Unknown sessionId: ${sessionId}`);
+      throw new Error(`[invalid_session] Unknown sessionId: ${sessionId}`);
     }
     return managed;
   }
@@ -3428,6 +3430,7 @@ export class BrowserManager {
     let browser: Browser | null = null;
     const previousBrowser = managed.browser;
     try {
+      const chromium = await loadChromium();
       const { connectEndpoint, relayPort } = await this.resolveRelayEndpoints(managed.relayWsEndpoint);
       await previousBrowser.close().catch(() => {});
       await this.waitForRelayCdpSlot(managed.relayWsEndpoint, relayPort, Math.min(timeoutMs, 5000));
@@ -3875,6 +3878,7 @@ export class BrowserManager {
     let browser: Browser | null = null;
     const connectAttempts = mode === "extension" ? 3 : 1;
     const sanitizedEndpoint = this.sanitizeWsEndpointForOutput(connectWsEndpoint);
+    const chromium = await loadChromium();
     for (let attempt = 1; attempt <= connectAttempts; attempt += 1) {
       const connectStart = Date.now();
       try {

@@ -693,6 +693,9 @@ export class ConnectionManager {
     }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
+      if (!this.shouldReconnect || this.status === "connected" || this.relay?.isConnected()) {
+        return;
+      }
       this.reconnectAttempts += 1;
       this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, this.maxReconnectDelayMs);
       this.reconnectRelay().catch((error) => {
@@ -703,7 +706,7 @@ export class ConnectionManager {
   }
 
   private async reconnectRelay(): Promise<void> {
-    if (!this.shouldReconnect) {
+    if (!this.shouldReconnect || this.status === "connected" || this.relay?.isConnected()) {
       return;
     }
     const primaryId = this.cdp.getPrimaryTabId();

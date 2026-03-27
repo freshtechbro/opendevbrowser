@@ -66,6 +66,7 @@ let autoConnectInFlight = false;
 let statusNoteOverride: string | null = null;
 let retryScheduled = false;
 let retryDelayMs = 5000;
+let autoConnectEnabled = DEFAULT_AUTO_CONNECT;
 let nativeEnabled = DEFAULT_NATIVE_ENABLED;
 
 const RETRY_ALARM_NAME = "opendevbrowser-auto-connect";
@@ -1467,6 +1468,7 @@ const attemptAutoConnect = async (): Promise<void> => {
   });
 
   const autoConnect = typeof data.autoConnect === "boolean" ? data.autoConnect : DEFAULT_AUTO_CONNECT;
+  autoConnectEnabled = autoConnect;
   if (!autoConnect || connection.getStatus() === "connected") {
     clearRetry();
     return;
@@ -1595,6 +1597,9 @@ connection.onStatus((status) => {
       clearTimeout(session.timeoutId);
     }
     annotationSessions.clear();
+    if (autoConnectEnabled) {
+      scheduleRetry();
+    }
   }
 });
 updateBadge(getEffectiveStatus());
@@ -1682,10 +1687,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
     updateBadge(getEffectiveStatus());
   }
+  if (changes.autoConnect) {
+    autoConnectEnabled =
+      typeof changes.autoConnect.newValue === "boolean" ? changes.autoConnect.newValue : DEFAULT_AUTO_CONNECT;
+  }
   if (changes.autoConnect?.newValue === true) {
     autoConnect().catch((error) => {
       logError("auto_connect.setting", error, { code: "auto_connect_failed" });
     });
+  } else if (changes.autoConnect?.newValue === false) {
+    clearRetry();
   }
   if (changes.pairingToken) {
     autoConnect().catch((error) => {

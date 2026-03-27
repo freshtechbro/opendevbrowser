@@ -3807,7 +3807,7 @@ describe("BrowserManager", () => {
   it("throws on unknown session ids", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
-    await expect(manager.status("missing")).rejects.toThrow("Unknown sessionId");
+    await expect(manager.status("missing")).rejects.toThrow("[invalid_session] Unknown sessionId");
   });
 
   it("uses textContent and empty fallbacks for domGetText", async () => {

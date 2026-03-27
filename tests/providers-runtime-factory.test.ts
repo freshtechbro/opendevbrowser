@@ -112,7 +112,7 @@ describe("provider runtime factory", () => {
       provider: "shopping/target",
       source: "shopping",
       operation: "search",
-      reasonCode: "env_limited",
+      reasonCode: "rate_limited",
       trace: { requestId: "rf-shopping-settle", ts: "2026-02-16T00:00:00.000Z" },
       url: "https://example.com/search"
     });
@@ -130,6 +130,535 @@ describe("provider runtime factory", () => {
     }));
     expect(manager.waitForLoad).toHaveBeenCalledWith("shopping-fallback-session", "networkidle", 15000);
     expect(waitForTimeout).toHaveBeenCalledWith(2000);
+  });
+
+  it("reuses the connected shopping extension tab when it already matches the requested URL", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-fallback" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePage: vi.fn(async () => ({
+        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension fallback</body></html>\" }} />); }",
+        css: ""
+      })),
+      status: vi.fn(async () => ({ mode: "extension", url: "https://example.com/search?q=macbook" })),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-shopping-extension-start-url", ts: "2026-02-16T00:00:00.000Z" },
+      url: "https://example.com/search?q=macbook",
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><body>shopping extension fallback</body></html>",
+        url: "https://example.com/search?q=macbook"
+      }
+    });
+    expect(manager.connectRelay).toHaveBeenCalledWith(
+      "ws://127.0.0.1:8787/ops",
+      undefined
+    );
+    expect(manager.clonePage).toHaveBeenCalledWith("shopping-extension-fallback", null);
+    expect(manager.goto).not.toHaveBeenCalled();
+    expect(manager.launch).not.toHaveBeenCalled();
+    expect(manager.waitForLoad).toHaveBeenCalledWith("shopping-extension-fallback", "networkidle", 15000);
+  });
+
+  it("treats trimmed shopping extension URLs as exact matches and skips a second navigation", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-trimmed" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePage: vi.fn(async () => ({
+        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension fallback</body></html>\" }} />); }",
+        css: ""
+      })),
+      status: vi.fn(async () => ({ mode: "extension", url: "   https://example.com/search?q=macbook   " })),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-shopping-extension-trimmed", ts: "2026-02-16T00:00:00.000Z" },
+      url: "https://example.com/search?q=macbook",
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension"
+    });
+    expect(manager.goto).not.toHaveBeenCalled();
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it("navigates the connected shopping extension tab in place when it does not already match the requested URL", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-fallback-mismatch" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePage: vi.fn(async () => ({
+        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension fallback</body></html>\" }} />); }",
+        css: ""
+      })),
+      status: vi.fn(async () => ({ mode: "extension", url: "https://example.com/home" })),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-shopping-extension-in-place-goto", ts: "2026-02-16T00:00:00.000Z" },
+      url: "https://example.com/search?q=macbook",
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><body>shopping extension fallback</body></html>",
+        url: "https://example.com/home"
+      }
+    });
+    expect(manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops", undefined);
+    expect(manager.goto).toHaveBeenCalledWith(
+      "shopping-extension-fallback-mismatch",
+      "https://example.com/search?q=macbook",
+      "load",
+      45000
+    );
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it("navigates explicit shopping extension sessions when target comparison trims the attached url to empty", async () => {
+    const requestUrl = "https://example.com/search?q=macbook";
+    let trimCall = 0;
+    let statusCall = 0;
+    const stagedUrl = {
+      trim: () => {
+        trimCall += 1;
+        return trimCall === 1 ? "https://example.com/home" : "   ";
+      }
+    } as unknown as string;
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-empty-comparable" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePage: vi.fn(async () => ({
+        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension fallback</body></html>\" }} />); }",
+        css: ""
+      })),
+      status: vi.fn(async () => {
+        statusCall += 1;
+        return statusCall === 1
+          ? { mode: "extension", url: stagedUrl }
+          : { mode: "extension", url: requestUrl };
+      }),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-shopping-extension-empty-comparable", ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl,
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><body>shopping extension fallback</body></html>",
+        url: requestUrl
+      }
+    });
+    expect(manager.goto).toHaveBeenCalledWith(
+      "shopping-extension-empty-comparable",
+      requestUrl,
+      "load",
+      45000
+    );
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "blank",
+      requestId: "rf-shopping-extension-blank",
+      firstSessionId: "shopping-extension-blank-1",
+      secondSessionId: "shopping-extension-blank-2",
+      firstStatus: { mode: "extension", url: "   " }
+    },
+    {
+      label: "missing",
+      requestId: "rf-shopping-extension-missing",
+      firstSessionId: "shopping-extension-missing-1",
+      secondSessionId: "shopping-extension-missing-2",
+      firstStatus: { mode: "extension" }
+    },
+    {
+      label: "restricted",
+      requestId: "rf-shopping-extension-restricted",
+      firstSessionId: "shopping-extension-restricted-1",
+      secondSessionId: "shopping-extension-restricted-2",
+      firstStatus: { mode: "extension", url: "chrome://newtab/" }
+    }
+  ])("reattaches explicit shopping extension sessions with startUrl when the attached url is $label", async ({
+    requestId,
+    firstSessionId,
+    secondSessionId,
+    firstStatus
+  }) => {
+    const requestUrl = "https://example.com/search?q=macbook";
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+      connectRelay: vi
+        .fn()
+        .mockResolvedValueOnce({ sessionId: firstSessionId })
+        .mockResolvedValueOnce({ sessionId: secondSessionId }),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePage: vi.fn(async (sessionId: string) => ({
+        component: `export default function OpenDevBrowserComponent() { return (<div className="opendevbrowser-root" dangerouslySetInnerHTML={{ __html: "<html><body>${sessionId}</body></html>" }} />); }`,
+        css: ""
+      })),
+      status: vi.fn(async (sessionId: string) => (
+        sessionId === firstSessionId
+          ? firstStatus
+          : { mode: "extension", url: requestUrl }
+      )),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId, ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl,
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: `<html><body>${secondSessionId}</body></html>`,
+        url: requestUrl
+      }
+    });
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(1, "ws://127.0.0.1:8787/ops", undefined);
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(2, "ws://127.0.0.1:8787/ops", { startUrl: requestUrl });
+    expect(manager.goto).not.toHaveBeenCalled();
+    expect(manager.waitForLoad).toHaveBeenCalledWith(secondSessionId, "networkidle", 15000);
+    expect(manager.clonePage).toHaveBeenCalledWith(secondSessionId, null);
+    expect(manager.disconnect).toHaveBeenNthCalledWith(1, firstSessionId, true);
+    expect(manager.disconnect).toHaveBeenNthCalledWith(2, secondSessionId, true);
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  const createMidNavigationRestrictedAttachManager = (errorToThrow: unknown) => {
+    const requestUrl = "https://example.com/search?q=macbook";
+    let trimCall = 0;
+    const stagedUrl = {
+      trim: () => {
+        trimCall += 1;
+        return trimCall === 1 ? "https://example.com/home" : "about:blank";
+      }
+    } as unknown as string;
+
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+      connectRelay: vi
+        .fn()
+        .mockResolvedValueOnce({ sessionId: "shopping-extension-mid-navigation-1" })
+        .mockResolvedValueOnce({ sessionId: "shopping-extension-mid-navigation-2" }),
+      goto: vi.fn(async () => {
+        throw errorToThrow;
+      }),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePage: vi.fn(async (sessionId: string) => ({
+        component: `export default function OpenDevBrowserComponent() { return (<div className="opendevbrowser-root" dangerouslySetInnerHTML={{ __html: "<html><body>${sessionId}</body></html>" }} />); }`,
+        css: ""
+      })),
+      status: vi.fn(async (sessionId: string) => (
+        sessionId === "shopping-extension-mid-navigation-1"
+          ? { mode: "extension", url: stagedUrl }
+          : { mode: "extension", url: requestUrl }
+      )),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    return { manager, requestUrl };
+  };
+
+  it.each([
+    {
+      label: "Error instances",
+      errorToThrow: new Error("[restricted_url] Active tab uses a restricted URL scheme. Focus a normal http(s) tab and retry.")
+    },
+    {
+      label: "string errors",
+      errorToThrow: "restricted url"
+    },
+    {
+      label: "object message errors",
+      errorToThrow: { message: "restricted tab" }
+    }
+  ])("reattaches explicit shopping extension sessions when mid-navigation restriction errors surface as $label", async ({
+    errorToThrow
+  }) => {
+    const { manager, requestUrl } = createMidNavigationRestrictedAttachManager(errorToThrow);
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-shopping-extension-mid-navigation-restricted", ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl,
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><body>shopping-extension-mid-navigation-2</body></html>",
+        url: requestUrl
+      }
+    });
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(1, "ws://127.0.0.1:8787/ops", undefined);
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(2, "ws://127.0.0.1:8787/ops", { startUrl: requestUrl });
+    expect(manager.goto).toHaveBeenCalledTimes(1);
+    expect(manager.goto).toHaveBeenCalledWith(
+      "shopping-extension-mid-navigation-1",
+      requestUrl,
+      "load",
+      45000
+    );
+    expect(manager.waitForLoad).toHaveBeenCalledWith("shopping-extension-mid-navigation-2", "networkidle", 15000);
+    expect(manager.clonePage).toHaveBeenCalledWith("shopping-extension-mid-navigation-2", null);
+    expect(manager.disconnect).toHaveBeenNthCalledWith(1, "shopping-extension-mid-navigation-1", true);
+    expect(manager.disconnect).toHaveBeenNthCalledWith(2, "shopping-extension-mid-navigation-2", true);
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the original failure when the attached tab turns restricted mid-navigation but the goto error is not restriction-specific", async () => {
+    const { manager, requestUrl } = createMidNavigationRestrictedAttachManager({ message: 123 });
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-shopping-extension-mid-navigation-non-restricted", ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl,
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "env_limited",
+      details: {
+        message: "[object Object]"
+      }
+    });
+    expect(manager.connectRelay).toHaveBeenCalledTimes(1);
+    expect(manager.goto).toHaveBeenCalledTimes(1);
+    expect(manager.disconnect).toHaveBeenCalledTimes(1);
+    expect(manager.disconnect).toHaveBeenCalledWith("shopping-extension-mid-navigation-1", true);
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it("still uses startUrl during shopping auto extension attach", async () => {
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-auto" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePage: vi.fn(async () => ({
+        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension fallback</body></html>\" }} />); }",
+        css: ""
+      })),
+      status: vi.fn(async () => ({ mode: "extension", url: "https://example.com/search?q=macbook" })),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-shopping-extension-auto-start-url", ts: "2026-02-16T00:00:00.000Z" },
+      url: "https://example.com/search?q=macbook",
+      preferredModes: ["extension", "managed_headed"]
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><body>shopping extension fallback</body></html>",
+        url: "https://example.com/search?q=macbook"
+      }
+    });
+    expect(manager.connectRelay).toHaveBeenCalledWith(
+      "ws://127.0.0.1:8787/ops",
+      { startUrl: "https://example.com/search?q=macbook" }
+    );
+    expect(manager.goto).not.toHaveBeenCalled();
+  });
+
+  it("keeps extension fallback goto for non-shopping requests that do not attach with startUrl", async () => {
+    const waitForTimeout = vi.fn(async () => undefined);
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "social-extension-fallback" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout,
+          content: async () => "<html><body>social extension fallback</body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "extension", url: "https://example.com/post/123" })),
+      cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, {
+      extensionWsEndpoint: "ws://127.0.0.1:8787"
+    });
+    const response = await port?.resolve({
+      provider: "social/linkedin",
+      source: "social",
+      operation: "fetch",
+      reasonCode: "auth_required",
+      preferredModes: ["extension"],
+      trace: { requestId: "rf-social-extension-goto", ts: "2026-02-16T00:00:00.000Z" },
+      url: "https://example.com/post/123"
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><body>social extension fallback</body></html>",
+        url: "https://example.com/post/123"
+      }
+    });
+    expect(manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787", undefined);
+    expect(manager.goto).toHaveBeenCalledWith(
+      "social-extension-fallback",
+      "https://example.com/post/123",
+      "load",
+      45000
+    );
+    expect(manager.waitForLoad).toHaveBeenCalledWith("social-extension-fallback", "networkidle", 5000);
+    expect(waitForTimeout).toHaveBeenCalledWith(500);
+  });
+
+  it("treats shopping dialog interstitials as preserve-eligible blocker pages", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "shopping-popup-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 20 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => [
+            "<html><body>",
+            "<div role=\"dialog\" aria-modal=\"true\">",
+            "<h1>Choose where you'd like to shop</h1>",
+            "<button>Pickup</button>",
+            "<button>Delivery</button>",
+            "</div>",
+            "</body></html>"
+          ].join("")
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "managed",
+        url: "https://www.walmart.com/search?q=macbook",
+        activeTargetId: "popup-tab"
+      })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "shopping/walmart",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-shopping-dialog", ts: "2026-02-16T00:00:00.000Z" },
+      url: "https://www.walmart.com/search?q=macbook"
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "challenge_detected",
+      disposition: "challenge_preserved",
+      preservedSessionId: "shopping-popup-session",
+      preservedTargetId: "popup-tab"
+    });
   });
 
   it("caps shopping fallback step timeouts to the remaining request budget", async () => {
@@ -458,7 +987,10 @@ describe("provider runtime factory", () => {
         url: "https://example.com/watch"
       }
     });
-    expect(manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787");
+    expect(manager.connectRelay).toHaveBeenCalledWith(
+      "ws://127.0.0.1:8787",
+      { startUrl: "https://example.com/watch" }
+    );
     expect(manager.launch).not.toHaveBeenCalled();
     expect(manager.cookieList).toHaveBeenCalledWith("extension-fallback-session", ["https://example.com/watch"]);
   });
@@ -498,7 +1030,10 @@ describe("provider runtime factory", () => {
         url: "https://example.com/watch"
       }
     });
-    expect(manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787");
+    expect(manager.connectRelay).toHaveBeenCalledWith(
+      "ws://127.0.0.1:8787",
+      { startUrl: "https://example.com/watch" }
+    );
     expect(manager.launch).toHaveBeenCalledWith(expect.objectContaining({
       noExtension: true,
       headless: false,
@@ -581,7 +1116,10 @@ describe("provider runtime factory", () => {
         message: "Provider cookies were not observable in the live extension session."
       }
     });
-    expect(manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787");
+    expect(manager.connectRelay).toHaveBeenCalledWith(
+      "ws://127.0.0.1:8787",
+      undefined
+    );
     expect(manager.launch).not.toHaveBeenCalled();
     expect(manager.cookieList).toHaveBeenCalledWith("extension-required-cookie-miss", ["https://example.com/protected"]);
     expect(manager.disconnect).toHaveBeenCalledWith("extension-required-cookie-miss", true);
@@ -924,6 +1462,208 @@ describe("provider runtime factory", () => {
     expect(manager.disconnect).not.toHaveBeenCalled();
   });
 
+  it("keeps the preserved blocker URL when challenge orchestration clears but refreshed status omits url", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "challenge-orchestration-no-url" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => {
+        throw new Error("networkidle never settled");
+      }),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><h1>Security verification</h1></body></html>"
+        });
+      }),
+      status: vi.fn()
+        .mockResolvedValueOnce({
+          mode: "extension",
+          activeTargetId: "tab-8",
+          url: "https://example.com/challenge"
+        })
+        .mockResolvedValueOnce({
+          mode: "extension",
+          activeTargetId: "tab-8",
+          url: undefined
+        }),
+      disconnect: vi.fn(async () => undefined),
+      createChallengeRuntimeHandle: vi.fn().mockReturnValue({
+        status: vi.fn(),
+        snapshot: vi.fn(),
+        debugTraceSnapshot: vi.fn(),
+        cookieList: vi.fn()
+      })
+    } as unknown as BrowserManagerLike;
+    const challengeOrchestrator = {
+      orchestrate: vi.fn(async () => ({
+        action: {
+          status: "resolved",
+          attempts: 1,
+          noProgressCount: 0,
+          executedSteps: [],
+          verification: {
+            status: "clear",
+            blockerState: "clear",
+            changed: true,
+            reason: "Manager verification cleared the blocker.",
+            bundle: {
+              blockerState: "clear"
+            }
+          },
+          reusedExistingSession: true,
+          reusedCookies: false
+        },
+        outcome: {
+          status: "resolved"
+        }
+      }))
+    };
+
+    const port = createBrowserFallbackPort(manager, {}, {}, challengeOrchestrator as never);
+    const response = await port?.resolve({
+      provider: "shopping/temu",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "challenge_detected",
+      trace: { requestId: "rf-challenge-orchestrated-no-url", ts: "2026-03-22T00:00:00.000Z" },
+      url: "https://example.com/challenge"
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      disposition: "completed",
+      output: {
+        url: "https://example.com/challenge"
+      }
+    });
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("omits preserve-path challenge orchestration details when the original request reason is not challenge-eligible", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "preserved-auth-no-meta" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => {
+        throw new Error("networkidle never settled");
+      }),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><h1>Login</h1><p>Please sign in to continue.</p></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "extension",
+        activeTargetId: "tab-2",
+        url: "https://example.com/login"
+      })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "shopping/temu",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-preserved-auth-no-meta", ts: "2026-03-22T00:00:00.000Z" },
+      url: "https://example.com/search?q=temu"
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "token_required",
+      disposition: "challenge_preserved",
+      details: {
+        message: "Browser fallback preserved auth_required session at https://example.com/login."
+      }
+    });
+    expect((response?.details as Record<string, unknown>)?.challengeOrchestration).toBeUndefined();
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("merges orchestration outcomes even when the original request reason is not challenge-meta eligible", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "challenge-rate-limited-preserve" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => {
+        throw new Error("networkidle unavailable");
+      }),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><h1>Security verification</h1></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "extension",
+        url: "https://example.com/challenge",
+        activeTargetId: undefined
+      })),
+      disconnect: vi.fn(async () => undefined),
+      createChallengeRuntimeHandle: vi.fn().mockReturnValue({
+        status: vi.fn(),
+        snapshot: vi.fn(),
+        debugTraceSnapshot: vi.fn(),
+        cookieList: vi.fn()
+      })
+    } as unknown as BrowserManagerLike;
+    const challengeOrchestrator = {
+      orchestrate: vi.fn(async () => ({
+        action: {
+          status: "deferred",
+          attempts: 0,
+          noProgressCount: 0,
+          executedSteps: [],
+          verification: {
+            status: "still_blocked",
+            blockerState: "active",
+            changed: false,
+            reason: "Challenge still active.",
+            bundle: {
+              blockerState: "active"
+            }
+          },
+          reusedExistingSession: false,
+          reusedCookies: false
+        },
+        outcome: {
+          lane: "generic_browser_autonomy",
+          status: "deferred",
+          reason: "Challenge still active."
+        }
+      }))
+    };
+
+    const port = createBrowserFallbackPort(manager, {}, {}, challengeOrchestrator as never);
+    const response = await port?.resolve({
+      provider: "shopping/temu",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-rate-limited-preserve", ts: "2026-03-23T00:00:00.000Z" },
+      url: "https://example.com/challenge"
+    });
+
+    expect(challengeOrchestrator.orchestrate).toHaveBeenCalledWith(expect.objectContaining({
+      targetId: undefined
+    }));
+    expect(response).toMatchObject({
+      ok: false,
+      disposition: "challenge_preserved",
+      details: {
+        challengeOrchestration: {
+          lane: "generic_browser_autonomy",
+          status: "deferred",
+          reason: "Challenge still active."
+        }
+      }
+    });
+    expect((response as { details?: { challengeOrchestration?: Record<string, unknown> } }).details?.challengeOrchestration)
+      .not.toHaveProperty("mode");
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
   it("resolves challenge automation precedence as run then session then config during fallback orchestration", async () => {
     const cases = [
       {
@@ -1259,6 +1999,38 @@ describe("provider runtime factory", () => {
     expect(manager.disconnect).toHaveBeenCalledWith("no-helper-session", true);
   });
 
+  it("captures fallback HTML when waitForLoad and waitForTimeout helpers are absent", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "no-settle-helper-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          content: async () => "<html><body>no settle helper</body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "managed", url: "https://example.com/no-settle-helper" })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "web/default",
+      source: "web",
+      operation: "fetch",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-no-settle-helper", ts: "2026-03-22T00:00:00.000Z" },
+      url: "https://example.com/no-settle-helper"
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      output: {
+        html: "<html><body>no settle helper</body></html>",
+        url: "https://example.com/no-settle-helper"
+      }
+    });
+  });
+
   it("marks helper-capable auth fallback recoveries as not-invoked when the recovered page is already clear", async () => {
     const manager = {
       launch: vi.fn(async () => ({ sessionId: "clear-auth-session" })),
@@ -1418,6 +2190,178 @@ describe("provider runtime factory", () => {
       }
     });
     expect(manager.disconnect).toHaveBeenCalledWith("fallback-session", true);
+  });
+
+  it("falls back to env_limited when clonePage cannot recover a string html payload", async () => {
+    const invalidComponentManager = {
+      launch: vi.fn(async () => ({ sessionId: "clone-invalid-component" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      withPage: vi.fn(async () => {
+        throw new Error("primary capture failed");
+      }),
+      clonePage: vi.fn(async () => ({
+        component: "export default function Broken() { return null; }",
+        css: ""
+      })),
+      status: vi.fn(async () => ({ mode: "managed", url: "https://example.com/clone-invalid" })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+    const nonStringComponentManager = {
+      ...invalidComponentManager,
+      launch: vi.fn(async () => ({ sessionId: "clone-non-string-component" })),
+      clonePage: vi.fn(async () => ({
+        component: "export default function Broken() { return (<div dangerouslySetInnerHTML={{ __html: { html: \"bad\" } }} />); }",
+        css: ""
+      })),
+      status: vi.fn(async () => ({ mode: "managed", url: "https://example.com/clone-non-string" }))
+    } as unknown as BrowserManagerLike;
+
+    const malformedJsonManager = {
+      ...invalidComponentManager,
+      launch: vi.fn(async () => ({ sessionId: "clone-malformed-json" })),
+      clonePage: vi.fn(async () => ({
+        component: "export default function Broken() { return (<div dangerouslySetInnerHTML={{ __html: \"\\x\" }} />); }",
+        css: ""
+      })),
+      status: vi.fn(async () => ({ mode: "managed", url: "https://example.com/clone-malformed" }))
+    } as unknown as BrowserManagerLike;
+
+    const invalidPort = createBrowserFallbackPort(invalidComponentManager);
+    const nonStringPort = createBrowserFallbackPort(nonStringComponentManager);
+    const malformedPort = createBrowserFallbackPort(malformedJsonManager);
+
+    await expect(invalidPort?.resolve({
+      provider: "web/default",
+      source: "web",
+      operation: "fetch",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-clone-invalid-component", ts: "2026-03-23T00:00:00.000Z" },
+      url: "https://example.com/clone-invalid"
+    })).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "env_limited",
+      details: {
+        message: "primary capture failed"
+      }
+    });
+    await expect(nonStringPort?.resolve({
+      provider: "web/default",
+      source: "web",
+      operation: "fetch",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-clone-non-string-component", ts: "2026-03-23T00:00:00.000Z" },
+      url: "https://example.com/clone-non-string"
+    })).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "env_limited",
+      details: {
+        message: "primary capture failed"
+      }
+    });
+    await expect(malformedPort?.resolve({
+      provider: "web/default",
+      source: "web",
+      operation: "fetch",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-clone-malformed-json", ts: "2026-03-23T00:00:00.000Z" },
+      url: "https://example.com/clone-malformed"
+    })).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "env_limited",
+      details: {
+        message: "primary capture failed"
+      }
+    });
+  });
+
+  it("omits non-record orchestrator outcomes and treats empty session ids as missing session mode", async () => {
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body>Security verification</body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "extension", url: "https://example.com/challenge" })),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined),
+      getSessionChallengeAutomationMode: vi.fn(() => "session-mode-should-not-apply")
+    } as unknown as BrowserManagerLike;
+    const challengeOrchestrator = {
+      orchestrate: vi.fn(async () => ({
+        outcome: ["ignored-array-payload"],
+        action: {
+          verification: {
+            bundle: undefined
+          }
+        }
+      }))
+    } as never;
+
+    const port = createBrowserFallbackPort(
+      manager,
+      {},
+      { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" },
+      challengeOrchestrator
+    );
+    const response = await port?.resolve({
+      provider: "social/linkedin",
+      source: "social",
+      operation: "fetch",
+      reasonCode: "challenge_detected",
+      trace: { requestId: "rf-empty-session-id", ts: "2026-03-26T00:00:00.000Z" },
+      url: "https://example.com/challenge",
+      preferredModes: ["extension"],
+      challengeAutomationMode: "browser_with_helper"
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      disposition: "challenge_preserved"
+    });
+    expect(challengeOrchestrator.orchestrate).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: ""
+    }));
+    expect((response as { details?: { challengeOrchestration?: Record<string, unknown> } }).details?.challengeOrchestration)
+      .toMatchObject({
+        mode: "browser_with_helper",
+        source: "run",
+        invoked: true
+      });
+  });
+
+  it("marks non-preserve restricted targets as failed instead of deferred", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "restricted-target-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body>Chrome settings</body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "managed", url: "chrome://settings" })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "web/default",
+      source: "web",
+      operation: "fetch",
+      reasonCode: "transcript_unavailable",
+      trace: { requestId: "rf-restricted-target", ts: "2026-03-26T00:00:00.000Z" },
+      url: "https://example.com/redirected"
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      disposition: "failed"
+    });
   });
 
   it("maps non-Error fallback failures and tolerates disconnect cleanup failures", async () => {

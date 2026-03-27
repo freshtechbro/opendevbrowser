@@ -182,6 +182,19 @@ export const releaseSessionLease = (sessionId: string): void => {
   sessionLeases.delete(sessionId);
 };
 
+export const releaseOwnedSessionLease = (sessionId: string, clientId: string, leaseId?: string): boolean => {
+  if (!sessionId || !sessionId.trim()) return false;
+  if (!clientId || !clientId.trim()) return false;
+  const lease = sessionLeases.get(sessionId);
+  if (!lease) return false;
+  const normalizedClientId = clientId.trim();
+  const normalizedLeaseId = leaseId?.trim() ?? "";
+  if (lease.clientId !== normalizedClientId) return false;
+  if (normalizedLeaseId && lease.leaseId !== normalizedLeaseId) return false;
+  sessionLeases.delete(sessionId);
+  return true;
+};
+
 export const clearSessionLeases = (): void => {
   sessionLeases.clear();
 };

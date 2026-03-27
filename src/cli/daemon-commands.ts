@@ -21,6 +21,7 @@ import {
   getSessionLease,
   requireSessionLease,
   releaseSessionLease,
+  releaseOwnedSessionLease,
   getBindingRenewConfig,
   getHubInstanceId
 } from "./daemon-state";
@@ -31,11 +32,19 @@ export type DaemonCommandRequest = {
   params?: Record<string, unknown>;
 };
 
+const createDaemonWorkflowRuntime = (core: OpenDevBrowserCore) => createConfiguredProviderRuntime({
+  config: core.config,
+  manager: core.manager,
+  browserFallbackPort: core.browserFallbackPort
+});
+
 export async function handleDaemonCommand(core: OpenDevBrowserCore, request: DaemonCommandRequest): Promise<unknown> {
   const params = request.params ?? {};
   const bindingId = optionalString(params.bindingId);
 
-  switch (request.name) {
+  try {
+    return await (async () => {
+      switch (request.name) {
     case "relay.status":
       return core.relay.status();
     case "relay.cdpUrl":
@@ -631,10 +640,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       );
     case "research.run":
       return runResearchWorkflow(
-        createConfiguredProviderRuntime({
-          config: core.config,
-          manager: core.manager
-        }),
+        createDaemonWorkflowRuntime(core),
         {
           topic: requireString(params.topic, "topic"),
           days: optionalNumber(params.days, "days"),
@@ -654,15 +660,13 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       );
     case "shopping.run":
       return runShoppingWorkflow(
-        createConfiguredProviderRuntime({
-          config: core.config,
-          manager: core.manager
-        }),
+        createDaemonWorkflowRuntime(core),
         {
           query: requireString(params.query, "query"),
           providers: optionalStringArray(params.providers),
           budget: optionalNumber(params.budget, "budget"),
           region: optionalString(params.region),
+          browserMode: optionalWorkflowBrowserMode(params.browserMode),
           sort: optionalShoppingSort(params.sort),
           mode: optionalRenderMode(params.mode) ?? "compact",
           timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
@@ -676,10 +680,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     case "product.video.run": {
       const productVideoTimeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
       return runProductVideoWorkflow(
-        createConfiguredProviderRuntime({
-          config: core.config,
-          manager: core.manager
-        }),
+        createDaemonWorkflowRuntime(core),
         {
           product_url: optionalString(params.product_url),
           product_name: optionalString(params.product_name),
@@ -724,8 +725,12 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         }
       );
     }
-    default:
-      throw new Error(`Unknown daemon command: ${request.name}`);
+      default:
+        throw new Error(`Unknown daemon command: ${request.name}`);
+      }
+    })();
+  } catch (error) {
+    throw coerceDaemonSessionError(params, error);
   }
 }
 
@@ -799,6 +804,9 @@ async function launchWithRelay(
         ? await core.manager.connectRelay(relayUrl, { startUrl })
         : await core.manager.connectRelay(relayUrl);
       const leaseId = extractLeaseId(result);
+      if (result.mode === "extension" && !extensionLegacy && !leaseId) {
+        throw new Error("[invalid_session] Extension relay session missing leaseId.");
+      }
       if (result.mode === "extension" && leaseId) {
         registerSessionLease(result.sessionId, leaseId, clientId);
       }
@@ -892,6 +900,9 @@ async function connectWithRelayRouting(
       ? await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "", { startUrl })
       : await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
     const leaseId = extractLeaseId(result);
+    if (result.mode === "extension" && !extensionLegacy && !leaseId) {
+      throw new Error("[invalid_session] Extension relay session missing leaseId.");
+    }
     if (result.mode === "extension" && leaseId) {
       registerSessionLease(result.sessionId, leaseId, clientId);
     }
@@ -1035,10 +1046,40 @@ function unsupportedModeError(message: string): Error {
   return new Error(`[unsupported_mode] ${message}`);
 }
 
+function coerceDaemonSessionError(params: Record<string, unknown>, error: unknown): Error {
+  const sessionId = optionalString(params.sessionId);
+  const clientId = optionalString(params.clientId);
+  const baseError = error instanceof Error ? error : new Error(String(error ?? ""));
+  if (!sessionId || !clientId) {
+    return baseError;
+  }
+  if (!isStaleExtensionSessionError(baseError.message)) {
+    return baseError;
+  }
+  const released = releaseOwnedSessionLease(sessionId, clientId, optionalString(params.leaseId));
+  if (!released) {
+    return baseError;
+  }
+  return new Error([
+    `[relaunch_required] Extension session ${sessionId} is no longer valid.`,
+    "Relaunch the extension-backed session and retry the command.",
+    `Previous error: ${baseError.message}`
+  ].join(" "));
+}
+
 function isIgnorableDisconnectStatusError(message: string): boolean {
   return message.includes("[invalid_session]")
     || message.includes("Unknown ops session")
     || message.includes("Ops client not connected");
+}
+
+function isStaleExtensionSessionError(message: string): boolean {
+  return message.includes("[invalid_session]")
+    || message.includes("Unknown sessionId:")
+    || message.includes("Unknown ops session")
+    || message.includes("[not_owner]")
+    || message.includes("Client does not own session")
+    || message.includes("Lease does not match session owner");
 }
 
 async function attachBlockerMetaForNavigation(
@@ -1452,6 +1493,14 @@ function optionalShoppingSort(value: unknown): "best_deal" | "lowest_price" | "h
     return value;
   }
   throw new Error("Invalid shopping sort");
+}
+
+function optionalWorkflowBrowserMode(value: unknown): "auto" | "extension" | "managed" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "auto" || value === "extension" || value === "managed") {
+    return value;
+  }
+  throw new Error("Invalid browserMode");
 }
 
 function requireWaitUntil(value: unknown): "domcontentloaded" | "load" | "networkidle" {

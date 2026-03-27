@@ -6,7 +6,16 @@ import { AgentInbox } from "../src/annotate/agent-inbox";
 import type { OpenDevBrowserConfig } from "../src/config";
 import type { OpenDevBrowserCore } from "../src/core";
 import { handleDaemonCommand } from "../src/cli/daemon-commands";
-import { bindRelay, clearBinding, clearSessionLeases, getBindingState, registerSessionLease, releaseRelay, waitForBinding } from "../src/cli/daemon-state";
+import {
+  bindRelay,
+  clearBinding,
+  clearSessionLeases,
+  getBindingState,
+  getSessionLease,
+  registerSessionLease,
+  releaseRelay,
+  waitForBinding
+} from "../src/cli/daemon-state";
 import * as macroExecuteModule from "../src/macros/execute";
 import * as providerRuntimeFactoryModule from "../src/providers/runtime-factory";
 import * as workflowModule from "../src/providers/workflows";
@@ -175,6 +184,34 @@ describe("daemon-commands integration", () => {
     });
 
     expect(explicitLeaseResponse).toEqual({ activeTargetId: null, targets: [] });
+  });
+
+  it("clears stale extension leases and returns relaunch guidance for invalid session errors", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "extension", activeTargetId: null });
+    core.manager.listTargets.mockRejectedValue(new Error("[invalid_session] Unknown sessionId: session-1"));
+    registerSessionLease("session-1", "lease-1", "client-1");
+
+    await expect(handleDaemonCommand(core, {
+      name: "targets.list",
+      params: { sessionId: "session-1", clientId: "client-1", leaseId: "lease-1" }
+    })).rejects.toThrow("[relaunch_required]");
+
+    expect(getSessionLease("session-1")).toBeNull();
+  });
+
+  it("clears stale extension leases when upstream ownership no longer matches", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "extension", activeTargetId: null });
+    core.manager.listTargets.mockRejectedValue(new Error("[not_owner] Lease does not match session owner"));
+    registerSessionLease("session-1", "lease-1", "client-1");
+
+    await expect(handleDaemonCommand(core, {
+      name: "targets.list",
+      params: { sessionId: "session-1", clientId: "client-1", leaseId: "lease-1" }
+    })).rejects.toThrow("[relaunch_required]");
+
+    expect(getSessionLease("session-1")).toBeNull();
   });
 
   it("requires binding for annotate when extension mode", async () => {
@@ -555,6 +592,55 @@ describe("daemon-commands integration", () => {
     }));
   });
 
+  it("rejects non-legacy extension connect results that do not return a lease", async () => {
+    const core = makeCore();
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-ops",
+      mode: "extension",
+      activeTargetId: "target-1",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-1"
+      }
+    })).rejects.toThrow("[invalid_session] Extension relay session missing leaseId.");
+  });
+
+  it("rejects non-legacy extension launch results that do not return a lease", async () => {
+    const core = makeCore({
+      relayStatus: {
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      }
+    });
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-ops",
+      mode: "extension",
+      activeTargetId: "target-1",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.launch",
+      params: {
+        clientId: "client-1"
+      }
+    })).rejects.toThrow("[invalid_session] Extension relay session missing leaseId.");
+  });
+
   it("routes debug trace snapshot to manager capability when available", async () => {
     const core = makeCore();
     core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1", url: "https://example.com", title: "Example" });
@@ -904,6 +990,39 @@ describe("daemon-commands integration", () => {
         timeoutMs: 45000
       }),
       expect.any(Object)
+    );
+  });
+
+  it("threads browserFallbackPort into daemon shopping workflows", async () => {
+    const core = makeCore();
+    const browserFallbackPort = { resolve: vi.fn() };
+    (core as OpenDevBrowserCore & { browserFallbackPort?: typeof browserFallbackPort }).browserFallbackPort = browserFallbackPort as never;
+    const runtimeSpy = vi.spyOn(providerRuntimeFactoryModule, "createConfiguredProviderRuntime").mockReturnValue({} as never);
+    const workflowSpy = vi.spyOn(workflowModule, "runShoppingWorkflow").mockResolvedValue({
+      mode: "json",
+      offers: [],
+      meta: {}
+    } as never);
+
+    await handleDaemonCommand(core, {
+      name: "shopping.run",
+      params: {
+        query: "macbook pro m4 32gb ram",
+        browserMode: "extension"
+      }
+    });
+
+    expect(runtimeSpy).toHaveBeenCalledWith(expect.objectContaining({
+      config: core.config,
+      manager: core.manager,
+      browserFallbackPort
+    }));
+    expect(workflowSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        query: "macbook pro m4 32gb ram",
+        browserMode: "extension"
+      })
     );
   });
 
