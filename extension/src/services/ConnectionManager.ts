@@ -437,7 +437,7 @@ export class ConnectionManager {
         logWarn("Active tab not found.");
         throw new ConnectionError(
           "no_active_tab",
-          "No active browser tab found. Focus a normal tab (not the popup) and retry."
+          "No active browser page found. Focus the site tab or popup window you want to automate, not the extension popup, and retry."
         );
       }
     }
@@ -477,7 +477,7 @@ export class ConnectionManager {
       if (!parsedUrl) {
         throw new ConnectionError(
           "tab_url_restricted",
-          "Active tab URL is unsupported. Focus a normal http(s) tab and retry."
+          "Active browser page URL is unsupported. Focus an http(s) page or site popup window, not the extension popup, and retry."
         );
       }
     }
@@ -508,7 +508,7 @@ export class ConnectionManager {
       this.setStatus("disconnected");
       throw new ConnectionError(
         "no_active_tab",
-        "No active browser tab found. Focus a normal tab (not the popup) and retry."
+        "No active browser page found. Focus the site tab or popup window you want to automate, not the extension popup, and retry."
       );
     }
 
@@ -831,7 +831,7 @@ export class ConnectionManager {
     }
     return {
       code: "unknown",
-      message: "Connection failed. Focus a normal tab and retry."
+      message: "Connection failed. Focus the site tab or popup window you want to automate, not the extension popup, and retry."
     };
   }
 

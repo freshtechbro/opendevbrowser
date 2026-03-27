@@ -7,6 +7,7 @@ const hasProgress = (previous: ChallengeEvidenceBundle, next: ChallengeEvidenceB
   return previous.blockerState !== next.blockerState
     || previous.blocker?.type !== next.blocker?.type
     || previous.activeTargetId !== next.activeTargetId
+    || previous.snapshotId !== next.snapshotId
     || previous.url !== next.url
     || previous.title !== next.title
     || previous.continuity.cookieCount !== next.continuity.cookieCount
@@ -50,6 +51,7 @@ export const verifyChallengeProgress = async (args: {
   const bundle = buildChallengeEvidenceBundle({
     status,
     snapshot: {
+      snapshotId: snapshot.snapshotId,
       content: snapshot.content,
       warnings: snapshot.warnings
     },

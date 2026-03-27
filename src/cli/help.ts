@@ -87,7 +87,7 @@ export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = [
   {
     title: "Navigation",
     summary: "Move through pages and capture fresh refs.",
-    commands: ["goto", "wait", "snapshot"]
+    commands: ["goto", "wait", "snapshot", "review"]
   },
   {
     title: "Interaction",
@@ -229,6 +229,7 @@ export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
   goto: commandHelp("npx opendevbrowser goto --session-id <id> --url <url> [--wait-until <state>] [--timeout-ms <ms>]", "--session-id", "--url", "--wait-until", "--timeout-ms"),
   wait: commandHelp("npx opendevbrowser wait --session-id <id> [--ref <ref>] [--state <state>|--until <condition>] [--timeout-ms <ms>]", "--session-id", "--ref", "--state", "--until", "--timeout-ms"),
   snapshot: commandHelp("npx opendevbrowser snapshot --session-id <id> [--mode <mode>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]", "--session-id", "--mode", "--max-chars", "--cursor", "--timeout-ms"),
+  review: commandHelp("npx opendevbrowser review --session-id <id> [--target-id <id>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]", "--session-id", "--target-id", "--max-chars", "--cursor", "--timeout-ms"),
   click: commandHelp("npx opendevbrowser click --session-id <id> --ref <ref>", "--session-id", "--ref"),
   hover: commandHelp("npx opendevbrowser hover --session-id <id> --ref <ref>", "--session-id", "--ref"),
   press: commandHelp("npx opendevbrowser press --session-id <id> --key <key> [--ref <ref>]", "--session-id", "--key", "--ref"),

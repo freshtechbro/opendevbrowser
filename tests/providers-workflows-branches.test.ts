@@ -1281,13 +1281,7 @@ describe("workflow branch coverage", () => {
   });
 
   it("threads cookie overrides and aggregates cookie diagnostics across failures, records, and attempt chains", async () => {
-    const search = vi.fn(async (_input, options) => {
-      expect(options).toMatchObject({
-        source: "web",
-        useCookies: true,
-        cookiePolicyOverride: "required"
-      });
-
+    const search = vi.fn(async () => {
       return makeAggregate({
         sourceSelection: "web",
         providerOrder: ["web/default"],
@@ -1406,6 +1400,18 @@ describe("workflow branch coverage", () => {
       useCookies: true,
       cookiePolicyOverride: "required"
     });
+
+    const searchOptions = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(searchOptions).toBeDefined();
+    expect(searchOptions).toMatchObject({
+      source: "web",
+      runtimePolicy: {
+        useCookies: true,
+        cookiePolicyOverride: "required"
+      }
+    });
+    expect(searchOptions).not.toHaveProperty("useCookies");
+    expect(searchOptions).not.toHaveProperty("cookiePolicyOverride");
 
     const metrics = (output.meta as {
       metrics: {
@@ -3503,26 +3509,38 @@ describe("workflow branch coverage", () => {
       mode: "json"
     });
 
-    expect(search).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
-      source: "shopping",
-      providerIds: ["shopping/amazon"],
-      preferredFallbackModes: ["extension"],
-      forceBrowserTransport: true
-    }));
-    expect(search).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
-      source: "shopping",
-      providerIds: ["shopping/amazon"],
-      preferredFallbackModes: ["managed_headed"],
-      forceBrowserTransport: true
-    }));
+    const extensionCall = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    const managedCall = search.mock.calls[1]?.[1] as Record<string, unknown> | undefined;
     const autoCall = search.mock.calls[2]?.[1] as Record<string, unknown> | undefined;
+
+    expect(extensionCall).toBeDefined();
+    expect(extensionCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      runtimePolicy: {
+        browserMode: "extension"
+      }
+    });
+    expect(managedCall).toBeDefined();
+    expect(managedCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      runtimePolicy: {
+        browserMode: "managed"
+      }
+    });
     expect(autoCall).toBeDefined();
     expect(autoCall).toMatchObject({
       source: "shopping",
-      providerIds: ["shopping/amazon"]
+      providerIds: ["shopping/amazon"],
+      runtimePolicy: {
+        browserMode: "auto"
+      }
     });
-    expect(autoCall).not.toHaveProperty("preferredFallbackModes");
-    expect(autoCall).not.toHaveProperty("forceBrowserTransport");
+    for (const callOptions of [extensionCall, managedCall, autoCall]) {
+      expect(callOptions).not.toHaveProperty("preferredFallbackModes");
+      expect(callOptions).not.toHaveProperty("forceBrowserTransport");
+    }
     expect(extensionOutput.meta).toMatchObject({
       selection: {
         requested_browser_mode: "extension"

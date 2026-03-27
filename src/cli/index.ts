@@ -28,6 +28,7 @@ import { runStatus } from "./commands/status";
 import { runGoto } from "./commands/nav/goto";
 import { runWait } from "./commands/nav/wait";
 import { runSnapshot } from "./commands/nav/snapshot";
+import { runReview } from "./commands/nav/review";
 import { runAnnotate } from "./commands/annotate";
 import { runCanvas } from "./commands/canvas";
 import { runRpc } from "./commands/rpc";
@@ -431,6 +432,12 @@ async function main(): Promise<void> {
       name: "snapshot",
       description: "Capture a snapshot of the active page",
       run: async () => runSnapshot(args)
+    });
+
+    registerCommand({
+      name: "review",
+      description: "Capture a first-class review payload for the active page",
+      run: async () => runReview(args)
     });
 
     registerCommand({

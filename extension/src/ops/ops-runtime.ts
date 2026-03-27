@@ -15,14 +15,20 @@ import {
   type OpsResponse,
   type OpsChunk
 } from "../types.js";
-import { CDPRouter } from "../services/CDPRouter.js";
+import { CDPRouter, type CDPRouterEvent } from "../services/CDPRouter.js";
 import { TabManager } from "../services/TabManager.js";
 import { getRestrictionMessage, isRestrictedUrl } from "../services/url-restrictions.js";
 import { logError } from "../logging.js";
 import type { CanvasPageElementAction, CanvasPageState } from "../canvas/model.js";
 import { DomBridge, type DomCapture } from "./dom-bridge.js";
 import { buildSnapshot, type SnapshotMode } from "./snapshot-builder.js";
-import { OpsSessionStore, type OpsSession, type OpsConsoleEvent, type OpsNetworkEvent } from "./ops-session-store.js";
+import {
+  OpsSessionStore,
+  type OpsSession,
+  type OpsConsoleEvent,
+  type OpsNetworkEvent,
+  type OpsSyntheticTargetRecord
+} from "./ops-session-store.js";
 import {
   DEFAULT_OPS_PARALLELISM_POLICY,
   evaluateOpsGovernor,
@@ -36,6 +42,184 @@ const MAX_NETWORK_EVENTS = 300;
 const SESSION_TTL_MS = 20_000;
 const SCREENSHOT_TIMEOUT_MS = 8000;
 const TAB_CLOSE_TIMEOUT_MS = 5000;
+const STALE_REF_ERROR_SUFFIX = "Take a new snapshot first.";
+
+const DOM_OUTER_HTML_DECLARATION = `
+  function() {
+    if (!(this instanceof Element)) return "";
+    return this.outerHTML;
+  }
+`;
+
+const DOM_INNER_TEXT_DECLARATION = `
+  function() {
+    if (!(this instanceof Element)) return "";
+    return this instanceof HTMLElement ? (this.innerText || this.textContent || "") : (this.textContent || "");
+  }
+`;
+
+const DOM_GET_ATTR_DECLARATION = `
+  function(name) {
+    if (!(this instanceof Element)) return null;
+    const value = this.getAttribute(name);
+    return value === null ? null : String(value);
+  }
+`;
+
+const DOM_GET_VALUE_DECLARATION = `
+  function() {
+    if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement || this instanceof HTMLSelectElement) {
+      return this.value;
+    }
+    if (!(this instanceof Element)) return null;
+    const value = this.getAttribute("value");
+    return value === null ? null : String(value);
+  }
+`;
+
+const DOM_IS_VISIBLE_DECLARATION = `
+  function() {
+    if (!(this instanceof Element)) return false;
+    const style = window.getComputedStyle(this);
+    if (!style || style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+      return false;
+    }
+    const rect = this.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+`;
+
+const DOM_IS_ENABLED_DECLARATION = `
+  function() {
+    if (!(this instanceof Element)) return false;
+    return !this.hasAttribute("disabled") && this.getAttribute("aria-disabled") !== "true";
+  }
+`;
+
+const DOM_IS_CHECKED_DECLARATION = `
+  function() {
+    if (this instanceof HTMLInputElement && (this.type === "checkbox" || this.type === "radio")) {
+      return this.checked;
+    }
+    if (!(this instanceof Element)) return false;
+    return this.getAttribute("aria-checked") === "true";
+  }
+`;
+
+const DOM_SELECTOR_STATE_DECLARATION = `
+  function() {
+    if (!(this instanceof Element)) {
+      return { attached: false, visible: false };
+    }
+    const style = window.getComputedStyle(this);
+    const rect = this.getBoundingClientRect();
+    return {
+      attached: true,
+      visible: Boolean(style && style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0)
+    };
+  }
+`;
+
+const DOM_CLICK_DECLARATION = `
+  function() {
+    if (!(this instanceof HTMLElement)) return;
+    this.click();
+  }
+`;
+
+const DOM_HOVER_DECLARATION = `
+  function() {
+    if (!(this instanceof Element)) return;
+    const init = { bubbles: true, cancelable: true, view: window };
+    this.dispatchEvent(new MouseEvent("mouseenter", init));
+    this.dispatchEvent(new MouseEvent("mouseover", init));
+    this.dispatchEvent(new MouseEvent("mousemove", init));
+  }
+`;
+
+const DOM_FOCUS_DECLARATION = `
+  function() {
+    if (this instanceof HTMLElement) {
+      this.focus();
+    }
+  }
+`;
+
+const DOM_SET_CHECKED_DECLARATION = `
+  function(checked) {
+    if (this instanceof HTMLInputElement && (this.type === "checkbox" || this.type === "radio")) {
+      this.checked = Boolean(checked);
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+      return;
+    }
+    if (this instanceof Element) {
+      this.setAttribute("aria-checked", checked ? "true" : "false");
+    }
+  }
+`;
+
+const DOM_TYPE_DECLARATION = `
+  function(value, clear, submit) {
+    if (!(this instanceof Element)) return;
+    if (this instanceof HTMLElement) {
+      this.focus();
+    }
+    if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
+      this.value = clear ? "" : this.value;
+      this.value = String(value);
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+      if (submit) {
+        this.form?.requestSubmit?.();
+      }
+      return;
+    }
+    if (this instanceof HTMLSelectElement) {
+      this.value = String(value);
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+`;
+
+const DOM_SELECT_DECLARATION = `
+  function(values) {
+    if (!(this instanceof HTMLSelectElement)) return;
+    const nextValues = Array.isArray(values) ? values.map((value) => String(value)) : [];
+    for (const option of Array.from(this.options)) {
+      option.selected = nextValues.includes(option.value);
+    }
+    this.dispatchEvent(new Event("input", { bubbles: true }));
+    this.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+`;
+
+const DOM_SCROLL_BY_DECLARATION = `
+  function(dy) {
+    if (!(this instanceof HTMLElement)) return;
+    this.scrollBy(0, Number(dy) || 0);
+  }
+`;
+
+const DOM_SCROLL_INTO_VIEW_DECLARATION = `
+  function() {
+    if (this instanceof Element) {
+      this.scrollIntoView({ block: "center", inline: "center", behavior: "auto" });
+    }
+  }
+`;
+
+const DOM_REF_POINT_DECLARATION = `
+  function() {
+    if (!(this instanceof Element)) return null;
+    const rect = this.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
+  }
+`;
 
 const TARGET_SCOPED_COMMANDS = new Set<string>([
   "storage.setCookies",
@@ -43,6 +227,7 @@ const TARGET_SCOPED_COMMANDS = new Set<string>([
   "nav.goto",
   "nav.wait",
   "nav.snapshot",
+  "nav.review",
   "interact.click",
   "interact.hover",
   "interact.press",
@@ -63,6 +248,7 @@ const TARGET_SCOPED_COMMANDS = new Set<string>([
   "dom.isVisible",
   "dom.isEnabled",
   "dom.isChecked",
+  "dom.refPoint",
   "canvas.overlay.mount",
   "canvas.overlay.unmount",
   "canvas.overlay.select",
@@ -81,6 +267,29 @@ type OpsParallelWaiter = {
   resolve: () => void;
   reject: (error: Error) => void;
   timer: number | null;
+};
+
+type ResolvedOpsTarget = {
+  targetId: string;
+  tabId: number;
+  type: string;
+  synthetic: boolean;
+  url?: string;
+  title?: string;
+  sessionId?: string;
+  openerTargetId?: string;
+  debuggee: chrome.debugger.Debuggee & { sessionId?: string };
+};
+
+type ResolvedOpsRef = {
+  target: ResolvedOpsTarget;
+  ref: string;
+  selector: string;
+  backendNodeId: number;
+  snapshotId: string;
+  frameId?: string;
+  role?: string;
+  name?: string;
 };
 
 export type OpsRuntimeOptions = {
@@ -111,6 +320,9 @@ export class OpsRuntime {
     chrome.tabs.onUpdated.addListener(this.handleTabUpdated);
     chrome.debugger.onEvent.addListener(this.handleDebuggerEvent);
     chrome.debugger.onDetach.addListener(this.handleDebuggerDetach);
+    if (typeof this.cdp.addEventListener === "function") {
+      this.cdp.addEventListener(this.handleCdpRouterEvent);
+    }
   }
 
   async registerCanvasTargetForSession(
@@ -301,6 +513,112 @@ export class OpsRuntime {
     }
   };
 
+  private handleCdpRouterEvent = (event: CDPRouterEvent): void => {
+    const session = this.sessions.getByTabId(event.tabId);
+    if (!session) {
+      return;
+    }
+    switch (event.method) {
+      case "Target.targetCreated":
+        this.handleSyntheticTargetCreated(session, event);
+        return;
+      case "Target.attachedToTarget":
+        this.handleSyntheticTargetAttached(session, event);
+        return;
+      case "Target.targetDestroyed":
+        this.handleSyntheticTargetDestroyed(session, event);
+        return;
+      case "Target.detachedFromTarget":
+        this.handleSyntheticTargetDetached(session, event);
+        return;
+      default:
+        return;
+    }
+  };
+
+  private handleSyntheticTargetCreated(session: OpsSession, event: CDPRouterEvent): void {
+    const targetInfo = extractTargetInfo(event.params);
+    if (!targetInfo || !isSyntheticPageTarget(session, targetInfo.targetId, targetInfo.type)) {
+      return;
+    }
+    this.sessions.upsertSyntheticTarget(session.id, {
+      targetId: targetInfo.targetId,
+      tabId: event.tabId,
+      type: targetInfo.type,
+      ...(typeof targetInfo.url === "string" ? { url: targetInfo.url } : {}),
+      ...(typeof targetInfo.title === "string" ? { title: targetInfo.title } : {}),
+      ...(typeof targetInfo.openerId === "string" ? { openerTargetId: targetInfo.openerId } : {}),
+      attachedAt: Date.now()
+    });
+  }
+
+  private handleSyntheticTargetAttached(session: OpsSession, event: CDPRouterEvent): void {
+    const payload = isRecord(event.params) ? event.params : null;
+    const targetInfo = extractTargetInfo(payload);
+    const childSessionId = payload && typeof payload.sessionId === "string" ? payload.sessionId : undefined;
+    if (!targetInfo || !isSyntheticPageTarget(session, targetInfo.targetId, targetInfo.type)) {
+      return;
+    }
+    const synthetic = this.sessions.upsertSyntheticTarget(session.id, {
+      targetId: targetInfo.targetId,
+      tabId: event.tabId,
+      type: targetInfo.type,
+      ...(typeof targetInfo.url === "string" ? { url: targetInfo.url } : {}),
+      ...(typeof targetInfo.title === "string" ? { title: targetInfo.title } : {}),
+      ...(childSessionId ? { sessionId: childSessionId } : {}),
+      ...(typeof targetInfo.openerId === "string" ? { openerTargetId: targetInfo.openerId } : {}),
+      attachedAt: Date.now()
+    });
+    if (
+      !session.activeTargetId
+      || session.activeTargetId === session.targetId
+      || session.activeTargetId === synthetic.openerTargetId
+    ) {
+      session.activeTargetId = synthetic.targetId;
+    }
+  }
+
+  private handleSyntheticTargetDestroyed(session: OpsSession, event: CDPRouterEvent): void {
+    const payload = isRecord(event.params) ? event.params : null;
+    const targetId = payload && typeof payload.targetId === "string" ? payload.targetId : null;
+    if (!targetId) {
+      return;
+    }
+    const removed = this.sessions.removeSyntheticTarget(session.id, targetId);
+    if (!removed) {
+      return;
+    }
+    this.restoreSyntheticFallbackTarget(session, removed);
+  }
+
+  private handleSyntheticTargetDetached(session: OpsSession, event: CDPRouterEvent): void {
+    const payload = isRecord(event.params) ? event.params : null;
+    const targetId = payload && typeof payload.targetId === "string" ? payload.targetId : null;
+    const sessionId = payload && typeof payload.sessionId === "string" ? payload.sessionId : null;
+    const removed = targetId
+      ? this.sessions.removeSyntheticTarget(session.id, targetId)
+      : (sessionId ? this.sessions.findSyntheticTargetBySessionId(session.id, sessionId) : null);
+    if (!removed) {
+      return;
+    }
+    if (!targetId && sessionId) {
+      this.sessions.removeSyntheticTarget(session.id, removed.targetId);
+    }
+    this.restoreSyntheticFallbackTarget(session, removed);
+  }
+
+  private restoreSyntheticFallbackTarget(session: OpsSession, removed: OpsSyntheticTargetRecord): void {
+    if (session.activeTargetId !== removed.targetId) {
+      return;
+    }
+    if (removed.openerTargetId && this.hasOpsTarget(session, removed.openerTargetId)) {
+      session.activeTargetId = removed.openerTargetId;
+      return;
+    }
+    const firstSynthetic = this.sessions.listSyntheticTargets(session.id)[0];
+    session.activeTargetId = firstSynthetic?.targetId ?? session.targetId;
+  }
+
   private async handleRequest(message: OpsRequest): Promise<void> {
     const clientId = message.clientId;
     if (!clientId) {
@@ -357,6 +675,9 @@ export class OpsRuntime {
         return;
       case "nav.snapshot":
         await this.withSession(message, clientId, (session) => this.handleSnapshot(message, session));
+        return;
+      case "nav.review":
+        await this.withSession(message, clientId, (session) => this.handleReview(message, session));
         return;
       case "interact.click":
         await this.withSession(message, clientId, (session) => this.handleClick(message, session));
@@ -417,6 +738,9 @@ export class OpsRuntime {
         return;
       case "dom.isChecked":
         await this.withSession(message, clientId, (session) => this.handleDomIsChecked(message, session));
+        return;
+      case "dom.refPoint":
+        await this.withSession(message, clientId, (session) => this.handleDomRefPoint(message, session));
         return;
       case "canvas.overlay.mount":
         await this.withSession(message, clientId, (session) => this.handleCanvasOverlayMount(message, session));
@@ -569,16 +893,14 @@ export class OpsRuntime {
   private async handleSessionStatus(message: OpsRequest, clientId: string): Promise<void> {
     const session = this.getSessionForMessage(message, clientId);
     if (!session) return;
-    const activeTarget = (session.activeTargetId ? session.targets.get(session.activeTargetId) : null)
-      ?? session.targets.get(session.targetId)
-      ?? null;
-    const tab = await this.tabs.getTab(activeTarget?.tabId ?? session.tabId);
-    const synthetic = activeTarget ? session.syntheticTargets.get(activeTarget.targetId) : undefined;
+    const activeTarget = this.resolveTargetContext(session, session.activeTargetId ?? session.targetId)
+      ?? this.resolveTargetContext(session, session.targetId);
+    const tab = activeTarget ? await this.tabs.getTab(activeTarget.tabId) : null;
     this.sendResponse(message, {
       mode: "extension",
       activeTargetId: session.activeTargetId || null,
-      url: resolveReportedTargetUrl(activeTarget, tab?.url, synthetic),
-      title: resolveReportedTargetTitle(activeTarget, tab?.title, synthetic),
+      url: resolveReportedTargetUrl(activeTarget, tab?.url),
+      title: resolveReportedTargetTitle(activeTarget, tab?.title),
       leaseId: session.leaseId,
       state: session.state
     });
@@ -587,14 +909,26 @@ export class OpsRuntime {
   private async handleTargetsList(message: OpsRequest, session: OpsSession): Promise<void> {
     const payload = isRecord(message.payload) ? message.payload : {};
     const includeUrls = payload.includeUrls === true;
-    const targets = await Promise.all(Array.from(session.targets.values()).map(async (target) => {
-      const tab = await this.tabs.getTab(target.tabId);
-      const synthetic = session.syntheticTargets.get(target.targetId);
-      return {
+    const targetContexts = [
+      ...Array.from(session.targets.values()).map((target) => ({
         targetId: target.targetId,
+        tabId: target.tabId
+      })),
+      ...this.sessions.listSyntheticTargets(session.id)
+        .filter((target) => !session.targets.has(target.targetId))
+        .map((target) => ({
+        targetId: target.targetId,
+        tabId: target.tabId
+        }))
+    ];
+    const targets = await Promise.all(targetContexts.map(async ({ targetId, tabId }) => {
+      const target = this.resolveTargetContext(session, targetId);
+      const tab = await this.tabs.getTab(tabId);
+      return {
+        targetId,
         type: "page" as const,
-        title: resolveReportedTargetTitle(target, tab?.title, synthetic),
-        url: includeUrls ? resolveReportedTargetUrl(target, tab?.url, synthetic) : undefined
+        title: resolveReportedTargetTitle(target, tab?.title),
+        url: includeUrls ? resolveReportedTargetUrl(target, tab?.url) : undefined
       };
     }));
     this.sendResponse(message, { activeTargetId: session.activeTargetId || null, targets });
@@ -603,12 +937,12 @@ export class OpsRuntime {
   private async handleTargetsUse(message: OpsRequest, session: OpsSession): Promise<void> {
     const payload = isRecord(message.payload) ? message.payload : {};
     const targetId = typeof payload.targetId === "string" ? payload.targetId : null;
-    if (!targetId || !session.targets.has(targetId)) {
+    if (!targetId || !this.hasOpsTarget(session, targetId)) {
       this.sendError(message, buildError("invalid_request", "Unknown targetId", false));
       return;
     }
-    const target = session.targets.get(targetId) ?? null;
-    if (target) {
+    const target = this.resolveTargetContext(session, targetId);
+    if (target && !target.synthetic) {
       await this.tabs.activateTab(target.tabId).catch(() => undefined);
       try {
         await this.cdp.attach(target.tabId);
@@ -621,11 +955,10 @@ export class OpsRuntime {
     }
     session.activeTargetId = targetId;
     const tab = target ? await this.tabs.getTab(target.tabId) : null;
-    const synthetic = target ? session.syntheticTargets.get(target.targetId) : undefined;
     this.sendResponse(message, {
       activeTargetId: targetId,
-      url: target ? resolveReportedTargetUrl(target, tab?.url, synthetic) : undefined,
-      title: target ? resolveReportedTargetTitle(target, tab?.title, synthetic) : undefined
+      url: target ? resolveReportedTargetUrl(target, tab?.url) : undefined,
+      title: target ? resolveReportedTargetTitle(target, tab?.title) : undefined
     });
   }
 
@@ -737,7 +1070,21 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Missing targetId", false));
       return;
     }
-    const target = session.targets.get(targetId);
+    const target = session.targets.get(targetId) ?? null;
+    const synthetic = this.sessions.getSyntheticTarget(session.id, targetId);
+    if (!target && !synthetic) {
+      this.sendError(message, buildError("invalid_request", "Unknown targetId", false));
+      return;
+    }
+    if (synthetic) {
+      this.sessions.removeSyntheticTarget(session.id, targetId);
+      await this.cdp.sendCommand(synthetic.sessionId ? { tabId: synthetic.tabId, sessionId: synthetic.sessionId } : { tabId: synthetic.tabId }, "Target.closeTarget", {
+        targetId: synthetic.targetId
+      }).catch(() => undefined);
+      this.restoreSyntheticFallbackTarget(session, synthetic);
+      this.sendResponse(message, { ok: true });
+      return;
+    }
     if (!target) {
       this.sendError(message, buildError("invalid_request", "Unknown targetId", false));
       return;
@@ -787,14 +1134,13 @@ export class OpsRuntime {
 
   private async handlePageList(message: OpsRequest, session: OpsSession): Promise<void> {
     const pages = await Promise.all(this.sessions.listNamedTargets(session.id).map(async ({ name, targetId }) => {
-      const target = session.targets.get(targetId);
+      const target = this.resolveTargetContext(session, targetId);
       const tab = target ? await this.tabs.getTab(target.tabId) : null;
-      const synthetic = session.syntheticTargets.get(targetId);
       return {
         name,
         targetId,
-        url: resolveReportedTargetUrl(target, tab?.url, synthetic),
-        title: resolveReportedTargetTitle(target, tab?.title, synthetic)
+        url: resolveReportedTargetUrl(target, tab?.url),
+        title: resolveReportedTargetTitle(target, tab?.title)
       };
     }));
     this.sendResponse(message, { pages });
@@ -854,11 +1200,15 @@ export class OpsRuntime {
     if (syntheticHtml !== null) {
       const result = await executeInTab(target.tabId, replaceDocumentWithHtmlScript, [{ html: syntheticHtml }]);
       session.refStore.clearTarget(target.targetId);
-      session.syntheticTargets.set(target.targetId, {
+      this.sessions.upsertSyntheticTarget(session.id, {
+        targetId: target.targetId,
+        tabId: target.tabId,
+        type: "page",
         url,
         title: typeof result?.title === "string" && result.title.trim().length > 0
           ? result.title
-          : targetRecord?.title
+          : targetRecord?.title,
+        attachedAt: Date.now()
       });
       this.sendResponse(message, {
         finalUrl: url,
@@ -874,7 +1224,7 @@ export class OpsRuntime {
     });
     await this.tabs.waitForTabComplete(target.tabId, timeoutMs).catch(() => undefined);
     const refreshed = await this.tabs.getTab(target.tabId);
-    session.syntheticTargets.delete(target.targetId);
+    this.sessions.removeSyntheticTarget(session.id, target.targetId);
     if (targetRecord) {
       session.targets.set(target.targetId, {
         ...targetRecord,
@@ -898,10 +1248,14 @@ export class OpsRuntime {
 
     if (typeof payload.ref === "string") {
       const state = payload.state === "visible" || payload.state === "hidden" ? payload.state : "attached";
-      const selector = this.resolveSelector(session, payload.ref, message);
-      if (!selector) return;
+      const resolved = this.resolveRefFromPayload(session, payload.ref, message);
+      if (!resolved) return;
       try {
-        await this.waitForSelector(target, selector, state, timeoutMs);
+        if (this.isAllowedCanvasTargetUrl(target.url)) {
+          await this.waitForSelector(target, resolved.selector, state, timeoutMs);
+        } else {
+          await this.waitForRefState(resolved, state, timeoutMs);
+        }
         this.sendResponse(message, { timingMs: Date.now() - start });
       } catch (error) {
         this.sendError(message, buildError("timeout", error instanceof Error ? error.message : "Timeout", true));
@@ -919,68 +1273,75 @@ export class OpsRuntime {
 
   private async handleSnapshot(message: OpsRequest, session: OpsSession): Promise<void> {
     const payload = isRecord(message.payload) ? message.payload : {};
-    const mode = payload.mode === "actionables" ? "actionables" : "outline";
-    const maxChars = typeof payload.maxChars === "number" ? payload.maxChars : 16000;
-    const cursor = typeof payload.cursor === "string" ? payload.cursor : undefined;
-    const maxNodes = typeof payload.maxNodes === "number" ? payload.maxNodes : undefined;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
-
-    const start = Date.now();
-    const entriesData = await buildSnapshot(
-      (method, params) => this.cdp.sendCommand({ tabId: target.tabId }, method, params as Record<string, unknown>),
-      mode as SnapshotMode,
-      true,
-      maxNodes
-    );
-    const snapshot = session.refStore.setSnapshot(target.targetId, entriesData.entries);
-    const startIndex = parseCursor(cursor);
-    const { content, truncated, nextCursor } = paginate(entriesData.lines, startIndex, maxChars);
-    const contentBytes = this.encoder.encode(content).length;
-    if (contentBytes > MAX_SNAPSHOT_BYTES) {
-      this.sendError(message, buildError("snapshot_too_large", "Snapshot exceeded max size.", false, {
-        maxSnapshotBytes: MAX_SNAPSHOT_BYTES,
-        actualBytes: contentBytes
-      }));
-      return;
-    }
-
-    const tab = await this.tabs.getTab(target.tabId);
-    const targetRecord = session.targets.get(target.targetId);
-    const synthetic = session.syntheticTargets.get(target.targetId);
+    const snapshot = await this.captureSnapshotPayload(message, session, {
+      mode: payload.mode === "actionables" ? "actionables" : "outline",
+      maxChars: typeof payload.maxChars === "number" ? payload.maxChars : 16000,
+      cursor: typeof payload.cursor === "string" ? payload.cursor : undefined,
+      maxNodes: typeof payload.maxNodes === "number" ? payload.maxNodes : undefined
+    });
+    if (!snapshot) return;
     this.sendResponse(message, {
       snapshotId: snapshot.snapshotId,
-      url: resolveReportedTargetUrl(targetRecord ?? null, tab?.url, synthetic),
-      title: resolveReportedTargetTitle(targetRecord ?? null, tab?.title, synthetic),
-      content,
-      truncated,
-      nextCursor,
-      refCount: snapshot.count,
-      timingMs: Date.now() - start,
-      warnings: entriesData.warnings
+      url: snapshot.url,
+      title: snapshot.title,
+      content: snapshot.content,
+      truncated: snapshot.truncated,
+      ...(snapshot.nextCursor ? { nextCursor: snapshot.nextCursor } : {}),
+      refCount: snapshot.refCount,
+      timingMs: snapshot.timingMs,
+      warnings: snapshot.warnings
+    });
+  }
+
+  private async handleReview(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const snapshot = await this.captureSnapshotPayload(message, session, {
+      mode: "actionables",
+      maxChars: typeof payload.maxChars === "number" ? payload.maxChars : 16000,
+      cursor: typeof payload.cursor === "string" ? payload.cursor : undefined,
+      maxNodes: typeof payload.maxNodes === "number" ? payload.maxNodes : undefined
+    });
+    if (!snapshot) return;
+    this.sendResponse(message, {
+      sessionId: session.id,
+      targetId: snapshot.target.targetId,
+      mode: "extension",
+      snapshotId: snapshot.snapshotId,
+      url: snapshot.url,
+      title: snapshot.title,
+      content: snapshot.content,
+      truncated: snapshot.truncated,
+      ...(snapshot.nextCursor ? { nextCursor: snapshot.nextCursor } : {}),
+      refCount: snapshot.refCount,
+      timingMs: snapshot.timingMs,
+      ...(snapshot.warnings.length > 0 ? { warnings: snapshot.warnings } : {})
     });
   }
 
   private async handleClick(message: OpsRequest, session: OpsSession): Promise<void> {
-    const selector = this.resolveSelector(session, message.payload, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
+    const resolved = this.resolveRefFromPayload(session, message.payload, message);
+    if (!resolved) return;
     const start = Date.now();
-    const before = await this.tabs.getTab(target.tabId);
-    await this.runElementAction(target, selector, { type: "click" }, () => this.dom.click(target.tabId, selector));
-    const after = await this.tabs.getTab(target.tabId);
+    const before = await this.tabs.getTab(resolved.target.tabId);
+    if (this.isAllowedCanvasTargetUrl(resolved.target.url)) {
+      await this.runElementAction(resolved.target, resolved.selector, { type: "click" }, () => this.dom.click(resolved.target.tabId, resolved.selector));
+    } else {
+      await this.callFunctionOnRef<void>(resolved, DOM_CLICK_DECLARATION);
+    }
+    const after = await this.tabs.getTab(resolved.target.tabId);
     const navigated = Boolean(before?.url && after?.url && before.url !== after.url);
     this.sendResponse(message, { timingMs: Date.now() - start, navigated });
   }
 
   private async handleHover(message: OpsRequest, session: OpsSession): Promise<void> {
-    const selector = this.resolveSelector(session, message.payload, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
+    const resolved = this.resolveRefFromPayload(session, message.payload, message);
+    if (!resolved) return;
     const start = Date.now();
-    await this.runElementAction(target, selector, { type: "hover" }, () => this.dom.hover(target.tabId, selector));
+    if (this.isAllowedCanvasTargetUrl(resolved.target.url)) {
+      await this.runElementAction(resolved.target, resolved.selector, { type: "hover" }, () => this.dom.hover(resolved.target.tabId, resolved.selector));
+    } else {
+      await this.callFunctionOnRef<void>(resolved, DOM_HOVER_DECLARATION);
+    }
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -993,30 +1354,39 @@ export class OpsRuntime {
     }
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    const selector = typeof payload.ref === "string" ? this.resolveSelector(session, payload.ref, message) : null;
-    if (payload.ref && !selector) return;
+    const resolved = typeof payload.ref === "string" ? this.resolveRefFromPayload(session, payload.ref, message) : null;
+    if (payload.ref && !resolved) return;
     const start = Date.now();
-    await this.runCanvasPageAction(
-      target,
-      { type: "press", key },
-      selector,
-      () => this.dom.press(target.tabId, selector, key)
-    );
+    if (resolved && this.isAllowedCanvasTargetUrl(target.url)) {
+      await this.runCanvasPageAction(
+        target,
+        { type: "press", key },
+        resolved.selector,
+        () => this.dom.press(target.tabId, resolved.selector, key)
+      );
+    } else if (resolved) {
+      await this.callFunctionOnRef<void>(resolved, DOM_FOCUS_DECLARATION);
+      await this.dispatchKeyPress(target.debuggee, key);
+    } else {
+      await this.dispatchKeyPress(target.debuggee, key);
+    }
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
   private async handleCheck(message: OpsRequest, session: OpsSession, checked: boolean): Promise<void> {
-    const selector = this.resolveSelector(session, message.payload, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
+    const resolved = this.resolveRefFromPayload(session, message.payload, message);
+    if (!resolved) return;
     const start = Date.now();
-    await this.runElementAction(
-      target,
-      selector,
-      { type: "setChecked", checked },
-      () => this.dom.setChecked(target.tabId, selector, checked)
-    );
+    if (this.isAllowedCanvasTargetUrl(resolved.target.url)) {
+      await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "setChecked", checked },
+        () => this.dom.setChecked(resolved.target.tabId, resolved.selector, checked)
+      );
+    } else {
+      await this.callFunctionOnRef<void>(resolved, DOM_SET_CHECKED_DECLARATION, [checked]);
+    }
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -1028,17 +1398,23 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Missing ref or text", false));
       return;
     }
-    const selector = this.resolveSelector(session, ref, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
+    const resolved = this.resolveRefFromPayload(session, ref, message);
+    if (!resolved) return;
     const start = Date.now();
-    await this.runElementAction(
-      target,
-      selector,
-      { type: "type", value: text, clear: payload.clear === true, submit: payload.submit === true },
-      () => this.dom.type(target.tabId, selector, text, payload.clear === true, payload.submit === true)
-    );
+    if (this.isAllowedCanvasTargetUrl(resolved.target.url)) {
+      await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "type", value: text, clear: payload.clear === true, submit: payload.submit === true },
+        () => this.dom.type(resolved.target.tabId, resolved.selector, text, payload.clear === true, payload.submit === true)
+      );
+    } else {
+      await this.callFunctionOnRef<void>(
+        resolved,
+        DOM_TYPE_DECLARATION,
+        [text, payload.clear === true, payload.submit === true]
+      );
+    }
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -1050,16 +1426,18 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Missing ref or values", false));
       return;
     }
-    const selector = this.resolveSelector(session, ref, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
-    await this.runElementAction(
-      target,
-      selector,
-      { type: "select", values: values as string[] },
-      () => this.dom.select(target.tabId, selector, values as string[])
-    );
+    const resolved = this.resolveRefFromPayload(session, ref, message);
+    if (!resolved) return;
+    if (this.isAllowedCanvasTargetUrl(resolved.target.url)) {
+      await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "select", values: values as string[] },
+        () => this.dom.select(resolved.target.tabId, resolved.selector, values as string[])
+      );
+    } else {
+      await this.callFunctionOnRef<void>(resolved, DOM_SELECT_DECLARATION, [values as string[]]);
+    }
     this.sendResponse(message, {});
   }
 
@@ -1067,31 +1445,38 @@ export class OpsRuntime {
     const payload = isRecord(message.payload) ? message.payload : {};
     const dy = typeof payload.dy === "number" ? payload.dy : 0;
     const ref = typeof payload.ref === "string" ? payload.ref : undefined;
-    const selector = ref ? this.resolveSelector(session, ref, message) ?? undefined : undefined;
-    if (ref && !selector) return;
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    await this.runCanvasPageAction(
-      target,
-      { type: "scroll", dy },
-      selector ?? null,
-      () => this.dom.scroll(target.tabId, dy, selector)
-    );
+    const resolved = ref ? this.resolveRefFromPayload(session, ref, message) : null;
+    if (ref && !resolved) return;
+    if (resolved && !this.isAllowedCanvasTargetUrl(target.url)) {
+      await this.callFunctionOnRef<void>(resolved, DOM_SCROLL_BY_DECLARATION, [dy]);
+    } else {
+      const selector = resolved?.selector;
+      await this.runCanvasPageAction(
+        target,
+        { type: "scroll", dy },
+        selector ?? null,
+        () => this.dom.scroll(target.tabId, dy, selector)
+      );
+    }
     this.sendResponse(message, {});
   }
 
   private async handleScrollIntoView(message: OpsRequest, session: OpsSession): Promise<void> {
-    const selector = this.resolveSelector(session, message.payload, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
+    const resolved = this.resolveRefFromPayload(session, message.payload, message);
+    if (!resolved) return;
     const start = Date.now();
-    await this.runElementAction(
-      target,
-      selector,
-      { type: "scrollIntoView" },
-      () => this.dom.scrollIntoView(target.tabId, selector)
-    );
+    if (this.isAllowedCanvasTargetUrl(resolved.target.url)) {
+      await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "scrollIntoView" },
+        () => this.dom.scrollIntoView(resolved.target.tabId, resolved.selector)
+      );
+    } else {
+      await this.callFunctionOnRef<void>(resolved, DOM_SCROLL_INTO_VIEW_DECLARATION);
+    }
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -1105,7 +1490,7 @@ export class OpsRuntime {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
     const start = Date.now();
-    await this.dispatchMouseEvent(target.tabId, "mouseMoved", coords.x, coords.y, {
+    await this.dispatchMouseEvent(target.debuggee, "mouseMoved", coords.x, coords.y, {
       steps: typeof payload.steps === "number" && Number.isFinite(payload.steps)
         ? Math.max(1, Math.floor(payload.steps))
         : undefined
@@ -1123,8 +1508,8 @@ export class OpsRuntime {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
     const start = Date.now();
-    await this.dispatchMouseEvent(target.tabId, "mouseMoved", coords.x, coords.y);
-    await this.dispatchMouseEvent(target.tabId, "mousePressed", coords.x, coords.y, {
+    await this.dispatchMouseEvent(target.debuggee, "mouseMoved", coords.x, coords.y);
+    await this.dispatchMouseEvent(target.debuggee, "mousePressed", coords.x, coords.y, {
       button: this.parsePointerButton(payload.button),
       clickCount: typeof payload.clickCount === "number" && Number.isFinite(payload.clickCount)
         ? Math.max(1, Math.floor(payload.clickCount))
@@ -1143,8 +1528,8 @@ export class OpsRuntime {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
     const start = Date.now();
-    await this.dispatchMouseEvent(target.tabId, "mouseMoved", coords.x, coords.y);
-    await this.dispatchMouseEvent(target.tabId, "mouseReleased", coords.x, coords.y, {
+    await this.dispatchMouseEvent(target.debuggee, "mouseMoved", coords.x, coords.y);
+    await this.dispatchMouseEvent(target.debuggee, "mouseReleased", coords.x, coords.y, {
       button: this.parsePointerButton(payload.button),
       clickCount: typeof payload.clickCount === "number" && Number.isFinite(payload.clickCount)
         ? Math.max(1, Math.floor(payload.clickCount))
@@ -1167,10 +1552,10 @@ export class OpsRuntime {
     const steps = typeof payload.steps === "number" && Number.isFinite(payload.steps)
       ? Math.max(1, Math.floor(payload.steps))
       : 1;
-    await this.dispatchMouseEvent(target.tabId, "mouseMoved", from.x, from.y);
-    await this.dispatchMouseEvent(target.tabId, "mousePressed", from.x, from.y);
-    await this.dispatchMouseEvent(target.tabId, "mouseMoved", to.x, to.y, { steps });
-    await this.dispatchMouseEvent(target.tabId, "mouseReleased", to.x, to.y);
+    await this.dispatchMouseEvent(target.debuggee, "mouseMoved", from.x, from.y);
+    await this.dispatchMouseEvent(target.debuggee, "mousePressed", from.x, from.y);
+    await this.dispatchMouseEvent(target.debuggee, "mouseMoved", to.x, to.y, { steps });
+    await this.dispatchMouseEvent(target.debuggee, "mouseReleased", to.x, to.y);
     this.sendResponse(message, { timingMs: Date.now() - start });
   }
 
@@ -1182,16 +1567,16 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Missing ref", false));
       return;
     }
-    const selector = this.resolveSelector(session, ref, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
-    const html = await this.runElementAction(
-      target,
-      selector,
-      { type: "outerHTML" },
-      () => this.dom.getOuterHtml(target.tabId, selector)
-    );
+    const resolved = this.resolveRefFromPayload(session, ref, message);
+    if (!resolved) return;
+    const html = this.isAllowedCanvasTargetUrl(resolved.target.url)
+      ? await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "outerHTML" },
+        () => this.dom.getOuterHtml(resolved.target.tabId, resolved.selector)
+      )
+      : await this.callFunctionOnRef<string>(resolved, DOM_OUTER_HTML_DECLARATION);
     const truncated = html.length > maxChars;
     const outerHTML = truncated ? html.slice(0, maxChars) : html;
     this.sendResponse(message, { outerHTML, truncated });
@@ -1205,16 +1590,16 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Missing ref", false));
       return;
     }
-    const selector = this.resolveSelector(session, ref, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
-    const text = await this.runElementAction(
-      target,
-      selector,
-      { type: "innerText" },
-      () => this.dom.getInnerText(target.tabId, selector)
-    );
+    const resolved = this.resolveRefFromPayload(session, ref, message);
+    if (!resolved) return;
+    const text = this.isAllowedCanvasTargetUrl(resolved.target.url)
+      ? await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "innerText" },
+        () => this.dom.getInnerText(resolved.target.tabId, resolved.selector)
+      )
+      : await this.callFunctionOnRef<string>(resolved, DOM_INNER_TEXT_DECLARATION);
     const truncated = text.length > maxChars;
     this.sendResponse(message, { text: truncated ? text.slice(0, maxChars) : text, truncated });
   }
@@ -1227,16 +1612,16 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Missing ref or name", false));
       return;
     }
-    const selector = this.resolveSelector(session, ref, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
-    const value = await this.runElementAction(
-      target,
-      selector,
-      { type: "getAttr", name },
-      () => this.dom.getAttr(target.tabId, selector, name)
-    );
+    const resolved = this.resolveRefFromPayload(session, ref, message);
+    if (!resolved) return;
+    const value = this.isAllowedCanvasTargetUrl(resolved.target.url)
+      ? await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "getAttr", name },
+        () => this.dom.getAttr(resolved.target.tabId, resolved.selector, name)
+      )
+      : await this.callFunctionOnRef<string | null>(resolved, DOM_GET_ATTR_DECLARATION, [name]);
     this.sendResponse(message, { value });
   }
 
@@ -1247,30 +1632,30 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Missing ref", false));
       return;
     }
-    const selector = this.resolveSelector(session, ref, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
-    const value = await this.runElementAction(
-      target,
-      selector,
-      { type: "getValue" },
-      () => this.dom.getValue(target.tabId, selector)
-    );
+    const resolved = this.resolveRefFromPayload(session, ref, message);
+    if (!resolved) return;
+    const value = this.isAllowedCanvasTargetUrl(resolved.target.url)
+      ? await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "getValue" },
+        () => this.dom.getValue(resolved.target.tabId, resolved.selector)
+      )
+      : await this.callFunctionOnRef<string | null>(resolved, DOM_GET_VALUE_DECLARATION);
     this.sendResponse(message, { value });
   }
 
   private async handleDomIsVisible(message: OpsRequest, session: OpsSession): Promise<void> {
-    const selector = this.resolveSelector(session, message.payload, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
-    const visible = await this.runElementAction(
-      target,
-      selector,
-      { type: "getSelectorState" },
-      async () => await this.dom.getSelectorState(target.tabId, selector)
-    );
+    const resolved = this.resolveRefFromPayload(session, message.payload, message);
+    if (!resolved) return;
+    const visible = this.isAllowedCanvasTargetUrl(resolved.target.url)
+      ? await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "getSelectorState" },
+        async () => await this.dom.getSelectorState(resolved.target.tabId, resolved.selector)
+      )
+      : await this.callFunctionOnRef<boolean>(resolved, DOM_IS_VISIBLE_DECLARATION);
     const isVisible = typeof visible === "object" && visible !== null && "visible" in visible
       ? Boolean((visible as { visible?: unknown }).visible)
       : Boolean(visible);
@@ -1278,31 +1663,38 @@ export class OpsRuntime {
   }
 
   private async handleDomIsEnabled(message: OpsRequest, session: OpsSession): Promise<void> {
-    const selector = this.resolveSelector(session, message.payload, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
-    const enabled = await this.runElementAction(
-      target,
-      selector,
-      { type: "isEnabled" },
-      () => this.dom.isEnabled(target.tabId, selector)
-    );
+    const resolved = this.resolveRefFromPayload(session, message.payload, message);
+    if (!resolved) return;
+    const enabled = this.isAllowedCanvasTargetUrl(resolved.target.url)
+      ? await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "isEnabled" },
+        () => this.dom.isEnabled(resolved.target.tabId, resolved.selector)
+      )
+      : await this.callFunctionOnRef<boolean>(resolved, DOM_IS_ENABLED_DECLARATION);
     this.sendResponse(message, { value: enabled });
   }
 
   private async handleDomIsChecked(message: OpsRequest, session: OpsSession): Promise<void> {
-    const selector = this.resolveSelector(session, message.payload, message);
-    if (!selector) return;
-    const target = this.requireActiveTarget(session, message);
-    if (!target) return;
-    const checked = await this.runElementAction(
-      target,
-      selector,
-      { type: "isChecked" },
-      () => this.dom.isChecked(target.tabId, selector)
-    );
+    const resolved = this.resolveRefFromPayload(session, message.payload, message);
+    if (!resolved) return;
+    const checked = this.isAllowedCanvasTargetUrl(resolved.target.url)
+      ? await this.runElementAction(
+        resolved.target,
+        resolved.selector,
+        { type: "isChecked" },
+        () => this.dom.isChecked(resolved.target.tabId, resolved.selector)
+      )
+      : await this.callFunctionOnRef<boolean>(resolved, DOM_IS_CHECKED_DECLARATION);
     this.sendResponse(message, { value: checked });
+  }
+
+  private async handleDomRefPoint(message: OpsRequest, session: OpsSession): Promise<void> {
+    const resolved = this.resolveRefFromPayload(session, message.payload, message);
+    if (!resolved) return;
+    const point = await this.resolveRefPoint(resolved);
+    this.sendResponse(message, point);
   }
 
   private async handleCanvasOverlayMount(message: OpsRequest, session: OpsSession): Promise<void> {
@@ -1457,7 +1849,7 @@ export class OpsRuntime {
   private async handlePerf(message: OpsRequest, session: OpsSession): Promise<void> {
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
-    const result = await this.cdp.sendCommand({ tabId: target.tabId }, "Performance.getMetrics", {}) as { metrics?: Array<{ name: string; value: number }> };
+    const result = await this.cdp.sendCommand(target.debuggee, "Performance.getMetrics", {}) as { metrics?: Array<{ name: string; value: number }> };
     this.sendResponse(message, { metrics: Array.isArray(result.metrics) ? result.metrics : [] });
   }
 
@@ -1466,7 +1858,7 @@ export class OpsRuntime {
     if (!target) return;
     try {
       const result = await withTimeout(
-        this.cdp.sendCommand({ tabId: target.tabId }, "Page.captureScreenshot", { format: "png" }),
+        this.cdp.sendCommand(target.debuggee, "Page.captureScreenshot", { format: "png" }),
         SCREENSHOT_TIMEOUT_MS,
         "Ops screenshot timed out"
       ) as { data?: string };
@@ -1543,7 +1935,7 @@ export class OpsRuntime {
       if (!target) return;
       try {
         await this.cdp.sendCommand(
-          { tabId: target.tabId },
+          target.debuggee,
           "Network.setCookies",
           { cookies: normalized }
         );
@@ -1582,7 +1974,7 @@ export class OpsRuntime {
     let rawCookies: unknown[] = [];
     try {
       const response = await this.cdp.sendCommand(
-        { tabId: target.tabId },
+        target.debuggee,
         "Network.getCookies",
         urls ? { urls } : {}
       ) as { cookies?: unknown[] };
@@ -1610,6 +2002,12 @@ export class OpsRuntime {
 
   private async enableTargetDomains(tabId: number): Promise<void> {
     try {
+      await this.cdp.setDiscoverTargetsEnabled?.(true);
+      await this.cdp.configureAutoAttach?.({
+        autoAttach: true,
+        waitForDebuggerOnStart: false,
+        flatten: true
+      });
       await this.cdp.sendCommand({ tabId }, "Runtime.enable", {});
       await this.cdp.sendCommand({ tabId }, "Network.enable", {});
       await this.cdp.sendCommand({ tabId }, "Performance.enable", {});
@@ -1629,7 +2027,7 @@ export class OpsRuntime {
   }
 
   private async dispatchMouseEvent(
-    tabId: number,
+    debuggee: chrome.debugger.Debuggee,
     type: "mouseMoved" | "mousePressed" | "mouseReleased",
     x: number,
     y: number,
@@ -1643,7 +2041,7 @@ export class OpsRuntime {
       const stepCount = Math.max(1, options.steps);
       for (let index = 1; index <= stepCount; index += 1) {
         await this.cdp.sendCommand(
-          { tabId },
+          debuggee,
           "Input.dispatchMouseEvent",
           {
             type,
@@ -1657,7 +2055,7 @@ export class OpsRuntime {
       return;
     }
     await this.cdp.sendCommand(
-      { tabId },
+      debuggee,
       "Input.dispatchMouseEvent",
       {
         type,
@@ -1667,6 +2065,19 @@ export class OpsRuntime {
         clickCount: options.clickCount ?? (type === "mouseMoved" ? 0 : 1)
       }
     );
+  }
+
+  private async dispatchKeyPress(debuggee: chrome.debugger.Debuggee, key: string): Promise<void> {
+    const text = key.length === 1 ? key : undefined;
+    await this.cdp.sendCommand(debuggee, "Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key,
+      ...(text ? { text } : {})
+    });
+    await this.cdp.sendCommand(debuggee, "Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key
+    });
   }
 
   private async withSession(message: OpsRequest, clientId: string, handler: (session: OpsSession) => Promise<void>): Promise<void> {
@@ -1906,13 +2317,40 @@ export class OpsRuntime {
     return session.activeTargetId || null;
   }
 
-  private requireActiveTarget(session: OpsSession, message: OpsRequest): { tabId: number; targetId: string; url?: string } | null {
+  private hasOpsTarget(session: OpsSession, targetId: string): boolean {
+    return session.targets.has(targetId) || this.sessions.getSyntheticTarget(session.id, targetId) !== null;
+  }
+
+  private resolveTargetContext(session: OpsSession, targetId: string): ResolvedOpsTarget | null {
+    const target = session.targets.get(targetId) ?? null;
+    const synthetic = this.sessions.getSyntheticTarget(session.id, targetId);
+    if (!target && !synthetic) {
+      return null;
+    }
+    const baseTabId = synthetic?.tabId ?? target?.tabId ?? session.tabId;
+    const baseType = synthetic?.type ?? "page";
+    return {
+      targetId,
+      tabId: baseTabId,
+      type: baseType,
+      synthetic: synthetic !== null && !session.targets.has(targetId),
+      ...(synthetic?.url ? { url: synthetic.url } : target?.url ? { url: target.url } : {}),
+      ...(synthetic?.title ? { title: synthetic.title } : target?.title ? { title: target.title } : {}),
+      ...(synthetic?.sessionId ? { sessionId: synthetic.sessionId } : {}),
+      ...(synthetic?.openerTargetId ? { openerTargetId: synthetic.openerTargetId } : {}),
+      debuggee: synthetic?.sessionId
+        ? { tabId: baseTabId, sessionId: synthetic.sessionId }
+        : { tabId: baseTabId }
+    };
+  }
+
+  private requireActiveTarget(session: OpsSession, message: OpsRequest): ResolvedOpsTarget | null {
     const targetId = this.requestedTargetId(session, message);
     if (!targetId) {
       this.sendError(message, buildError("invalid_request", "No active target", false));
       return null;
     }
-    const target = session.targets.get(targetId);
+    const target = this.resolveTargetContext(session, targetId);
     if (!target) {
       this.sendError(message, buildError("invalid_request", "Active target missing", false));
       return null;
@@ -1924,7 +2362,11 @@ export class OpsRuntime {
         return null;
       }
     }
-    return { tabId: target.tabId, targetId: target.targetId, url: target.url };
+    if (target.synthetic && !target.sessionId) {
+      this.sendError(message, buildError("execution_failed", "Popup target has not finished attaching yet. Take a new review or snapshot and retry.", true));
+      return null;
+    }
+    return target;
   }
 
   private isAllowedCanvasTargetUrl(rawUrl: string | undefined): boolean {
@@ -2027,7 +2469,91 @@ export class OpsRuntime {
     }
   }
 
-  private resolveSelector(session: OpsSession, refOrPayload: unknown, message: OpsRequest): string | null {
+  private resolveRefContext(session: OpsSession, ref: string, targetId: string): ResolvedOpsRef | null {
+    const target = this.resolveTargetContext(session, targetId);
+    if (!target) {
+      return null;
+    }
+    const entry = session.refStore.resolve(targetId, ref);
+    if (!entry) {
+      return null;
+    }
+    const snapshotId = session.refStore.getSnapshotId(targetId);
+    if (!snapshotId || entry.snapshotId !== snapshotId) {
+      return null;
+    }
+    return {
+      target,
+      ref,
+      selector: entry.selector,
+      backendNodeId: entry.backendNodeId,
+      snapshotId: entry.snapshotId,
+      ...(entry.frameId ? { frameId: entry.frameId } : {}),
+      ...(entry.role ? { role: entry.role } : {}),
+      ...(entry.name ? { name: entry.name } : {})
+    };
+  }
+
+  private async captureSnapshotPayload(
+    message: OpsRequest,
+    session: OpsSession,
+    options: {
+      mode: SnapshotMode;
+      maxChars: number;
+      cursor?: string;
+      maxNodes?: number;
+    }
+  ): Promise<{
+    target: ResolvedOpsTarget;
+    snapshotId: string;
+    url: string | undefined;
+    title: string | undefined;
+    content: string;
+    truncated: boolean;
+    nextCursor?: string;
+    refCount: number;
+    timingMs: number;
+    warnings: string[];
+  } | null> {
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return null;
+
+    const start = Date.now();
+    const entriesData = await buildSnapshot(
+      (method, params) => this.cdp.sendCommand(target.debuggee, method, params as Record<string, unknown>),
+      options.mode,
+      () => session.refStore.nextRef(target.targetId),
+      options.mode !== "actionables",
+      options.maxNodes
+    );
+    const snapshot = session.refStore.setSnapshot(target.targetId, entriesData.entries);
+    const startIndex = parseCursor(options.cursor);
+    const { content, truncated, nextCursor } = paginate(entriesData.lines, startIndex, options.maxChars);
+    const contentBytes = this.encoder.encode(content).length;
+    if (contentBytes > MAX_SNAPSHOT_BYTES) {
+      this.sendError(message, buildError("snapshot_too_large", "Snapshot exceeded max size.", false, {
+        maxSnapshotBytes: MAX_SNAPSHOT_BYTES,
+        actualBytes: contentBytes
+      }));
+      return null;
+    }
+
+    const tab = await this.tabs.getTab(target.tabId);
+    return {
+      target,
+      snapshotId: snapshot.snapshotId,
+      url: resolveReportedTargetUrl(target, tab?.url),
+      title: resolveReportedTargetTitle(target, tab?.title),
+      content,
+      truncated,
+      ...(nextCursor ? { nextCursor } : {}),
+      refCount: snapshot.count,
+      timingMs: Date.now() - start,
+      warnings: entriesData.warnings
+    };
+  }
+
+  private resolveRefFromPayload(session: OpsSession, refOrPayload: unknown, message: OpsRequest): ResolvedOpsRef | null {
     const ref = typeof refOrPayload === "string"
       ? refOrPayload
       : (isRecord(refOrPayload) && typeof refOrPayload.ref === "string" ? refOrPayload.ref : null);
@@ -2040,16 +2566,86 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "No active target", false));
       return null;
     }
-    const entry = session.refStore.resolve(targetId, ref);
-    if (!entry) {
-      this.sendError(message, buildError("invalid_request", `Unknown ref: ${ref}`, false));
+    const resolved = this.resolveRefContext(session, ref, targetId);
+    if (!resolved) {
+      this.sendError(message, buildError("invalid_request", `Unknown ref: ${ref}. Take a new snapshot first.`, false));
       return null;
     }
-    return entry.selector;
+    if (resolved.target.synthetic && !resolved.target.sessionId) {
+      this.sendError(message, buildError("execution_failed", "Popup target has not finished attaching yet. Take a new review or snapshot and retry.", true));
+      return null;
+    }
+    return resolved;
+  }
+
+  private resolveSelector(session: OpsSession, refOrPayload: unknown, message: OpsRequest): string | null {
+    return this.resolveRefFromPayload(session, refOrPayload, message)?.selector ?? null;
+  }
+
+  private async callFunctionOnRef<T>(
+    resolved: ResolvedOpsRef,
+    functionDeclaration: string,
+    args: unknown[] = [],
+    ref: string = resolved.ref
+  ): Promise<T> {
+    try {
+      const resolvedNode = await this.cdp.sendCommand(resolved.target.debuggee, "DOM.resolveNode", {
+        backendNodeId: resolved.backendNodeId
+      }) as { object?: { objectId?: string } };
+      const objectId = resolvedNode.object?.objectId;
+      if (!objectId) {
+        throw buildStaleSnapshotError(ref);
+      }
+      const result = await this.cdp.sendCommand(resolved.target.debuggee, "Runtime.callFunctionOn", {
+        objectId,
+        functionDeclaration,
+        arguments: args.map((value) => ({ value })),
+        returnByValue: true
+      }) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
+      if (result.exceptionDetails) {
+        throw new Error(result.exceptionDetails.text ?? "Runtime.callFunctionOn failed");
+      }
+      return result.result?.value as T;
+    } catch (error) {
+      if (isSnapshotStaleMessage(error)) {
+        throw buildStaleSnapshotError(ref);
+      }
+      throw error;
+    }
+  }
+
+  private async resolveRefPoint(resolved: ResolvedOpsRef): Promise<{ x: number; y: number }> {
+    try {
+      const box = await this.cdp.sendCommand(resolved.target.debuggee, "DOM.getBoxModel", {
+        backendNodeId: resolved.backendNodeId
+      }) as { model?: { content?: number[] } };
+      const quad = Array.isArray(box.model?.content) ? box.model?.content : [];
+      if (quad.length >= 8) {
+        const xs = [quad[0], quad[2], quad[4], quad[6]].filter((value): value is number => typeof value === "number");
+        const ys = [quad[1], quad[3], quad[5], quad[7]].filter((value): value is number => typeof value === "number");
+        if (xs.length === 4 && ys.length === 4) {
+          return {
+            x: Math.round((Math.min(...xs) + Math.max(...xs)) / 2),
+            y: Math.round((Math.min(...ys) + Math.max(...ys)) / 2)
+          };
+        }
+      }
+    } catch (error) {
+      if (isSnapshotStaleMessage(error)) {
+        throw buildStaleSnapshotError(resolved.ref);
+      }
+    }
+    const point = await this.callFunctionOnRef<{ x?: unknown; y?: unknown }>(resolved, DOM_REF_POINT_DECLARATION);
+    const x = typeof point?.x === "number" && Number.isFinite(point.x) ? Math.round(point.x) : null;
+    const y = typeof point?.y === "number" && Number.isFinite(point.y) ? Math.round(point.y) : null;
+    if (x === null || y === null) {
+      throw new Error(`Could not resolve a clickable point for ref: ${resolved.ref}`);
+    }
+    return { x, y };
   }
 
   private async waitForSelector(
-    target: { tabId: number; targetId: string; url?: string },
+    target: ResolvedOpsTarget,
     selector: string,
     state: "attached" | "visible" | "hidden",
     timeoutMs: number
@@ -2065,6 +2661,27 @@ export class OpsRuntime {
       if (state === "attached" && snapshot.attached) return;
       if (state === "visible" && snapshot.visible) return;
       if (state === "hidden" && (!snapshot.attached || !snapshot.visible)) return;
+      await delay(200);
+    }
+    throw new Error("Wait for selector timed out");
+  }
+
+  private async waitForRefState(
+    resolved: ResolvedOpsRef,
+    state: "attached" | "visible" | "hidden",
+    timeoutMs: number
+  ): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const snapshot = await this.callFunctionOnRef<{ attached?: unknown; visible?: unknown }>(
+        resolved,
+        DOM_SELECTOR_STATE_DECLARATION
+      );
+      const attached = snapshot?.attached === true;
+      const visible = snapshot?.visible === true;
+      if (state === "attached" && attached) return;
+      if (state === "visible" && visible) return;
+      if (state === "hidden" && (!attached || !visible)) return;
       await delay(200);
     }
     throw new Error("Wait for selector timed out");
@@ -2869,14 +3486,52 @@ const escapeCanvasAttribute = (value: string): string => {
 
 const CANVAS_CAPTURE_UNITLESS_STYLES = new Set(["fontWeight", "lineHeight", "opacity", "zIndex"]);
 
+const buildStaleSnapshotError = (ref: string): Error => (
+  new Error(`Unknown ref: ${ref}. ${STALE_REF_ERROR_SUFFIX}`)
+);
+
+const isSnapshotStaleMessage = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (message.includes(STALE_REF_ERROR_SUFFIX)) {
+    return true;
+  }
+  const normalized = message.toLowerCase();
+  return normalized.includes("no node with given id")
+    || normalized.includes("could not find node with given id")
+    || normalized.includes("cannot find object with id")
+    || normalized.includes("cannot find context with specified id")
+    || normalized.includes("execution context was destroyed")
+    || normalized.includes("inspected target navigated or closed");
+};
+
+const extractTargetInfo = (params: unknown): {
+  targetId: string;
+  type: string;
+  url?: string;
+  title?: string;
+  openerId?: string;
+} | null => {
+  const payload = isRecord(params) && isRecord(params.targetInfo) ? params.targetInfo : params;
+  if (!isRecord(payload) || typeof payload.targetId !== "string" || typeof payload.type !== "string") {
+    return null;
+  }
+  return {
+    targetId: payload.targetId,
+    type: payload.type,
+    ...(typeof payload.url === "string" ? { url: payload.url } : {}),
+    ...(typeof payload.title === "string" ? { title: payload.title } : {}),
+    ...(typeof payload.openerId === "string" ? { openerId: payload.openerId } : {})
+  };
+};
+
+const isSyntheticPageTarget = (session: OpsSession, targetId: string, type: string): boolean => {
+  return type === "page" && !session.targets.has(targetId) && parseTabTargetId(targetId) === null;
+};
+
 const resolveReportedTargetUrl = (
   target: { url?: string; title?: string } | null | undefined,
-  liveUrl?: string,
-  synthetic?: { url: string; title?: string }
+  liveUrl?: string
 ): string | undefined => {
-  if (typeof synthetic?.url === "string" && isHtmlDataUrl(synthetic.url)) {
-    return synthetic.url;
-  }
   if (typeof target?.url === "string" && isHtmlDataUrl(target.url)) {
     return target.url;
   }
@@ -2888,12 +3543,8 @@ const resolveReportedTargetUrl = (
 
 const resolveReportedTargetTitle = (
   target: { url?: string; title?: string } | null | undefined,
-  liveTitle?: string,
-  synthetic?: { url: string; title?: string }
+  liveTitle?: string
 ): string | undefined => {
-  if (typeof synthetic?.title === "string" && synthetic.title.length > 0) {
-    return synthetic.title;
-  }
   if (typeof target?.url === "string" && isHtmlDataUrl(target.url) && typeof target.title === "string" && target.title.length > 0) {
     return target.title;
   }

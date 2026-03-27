@@ -1,4 +1,8 @@
 import { ProviderRuntimeError, providerErrorCodeFromReasonCode } from "./errors";
+import {
+  resolveProviderFallbackModes,
+  resolveProviderRuntimePolicy
+} from "./runtime-policy";
 import type {
   BrowserFallbackObservation,
   BrowserFallbackMode,
@@ -14,12 +18,7 @@ import type {
   SuspendedIntentSummary
 } from "./types";
 
-const DEFAULT_FALLBACK_MODES: Record<ProviderSource, BrowserFallbackMode[]> = {
-  web: ["managed_headed"],
-  community: ["managed_headed"],
-  social: ["managed_headed"],
-  shopping: ["extension", "managed_headed"]
-};
+export { resolveProviderFallbackModes } from "./runtime-policy";
 
 const DEFAULT_SUSPENDED_INTENT_KIND: Record<ProviderOperation, SuspendedIntentKind> = {
   search: "provider.search",
@@ -171,19 +170,6 @@ export const browserFallbackObservationAttributes = (
     : {}
 );
 
-export const resolveProviderFallbackModes = (args: {
-  source: ProviderSource;
-  recoveryHints?: ProviderRecoveryHints;
-  preferredModes?: BrowserFallbackMode[];
-}): BrowserFallbackMode[] => {
-  const candidates = args.preferredModes?.length
-    ? args.preferredModes
-    : args.recoveryHints?.preferredFallbackModes?.length
-      ? args.recoveryHints.preferredFallbackModes
-      : DEFAULT_FALLBACK_MODES[args.source];
-  return [...new Set(candidates)];
-};
-
 const buildSuspendedIntentSummary = (args: {
   provider: string;
   source: ProviderSource;
@@ -227,6 +213,11 @@ export const resolveProviderBrowserFallback = async (args: {
     return null;
   }
 
+  const runtimePolicy = args.context?.runtimePolicy ?? resolveProviderRuntimePolicy({
+    source: args.source,
+    recoveryHints: args.recoveryHints
+  });
+
   const fallback = await args.browserFallbackPort.resolve({
     provider: args.provider,
     source: args.source,
@@ -241,18 +232,16 @@ export const resolveProviderBrowserFallback = async (args: {
     ...(typeof args.context?.timeoutMs === "number" ? { timeoutMs: args.context.timeoutMs } : {}),
     ...(args.context?.signal ? { signal: args.context.signal } : {}),
     ...(args.details ? { details: args.details } : {}),
-    preferredModes: resolveProviderFallbackModes({
-      source: args.source,
-      recoveryHints: args.recoveryHints,
-      preferredModes: args.preferredModes?.length
-        ? args.preferredModes
-        : args.context?.preferredFallbackModes
-    }),
-    ...(typeof args.context?.useCookies === "boolean" ? { useCookies: args.context.useCookies } : {}),
-    ...(args.context?.challengeAutomationMode
-      ? { challengeAutomationMode: args.context.challengeAutomationMode }
+    runtimePolicy,
+    ...(args.preferredModes?.length
+      ? {
+        preferredModes: resolveProviderFallbackModes({
+          source: args.source,
+          recoveryHints: args.recoveryHints,
+          preferredModes: args.preferredModes
+        })
+      }
       : {}),
-    ...(args.context?.cookiePolicyOverride ? { cookiePolicyOverride: args.context.cookiePolicyOverride } : {}),
     ownerSurface: "provider_fallback",
     resumeMode: "auto",
     suspendedIntent: buildSuspendedIntentSummary({

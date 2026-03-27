@@ -137,6 +137,9 @@ const createPage = (nodes: LegacyNode[]) => {
         const declaration = typeof params?.functionDeclaration === "string"
           ? params.functionDeclaration
           : "";
+        const args = Array.isArray(params?.arguments)
+          ? params.arguments.map((entry) => (isRecord(entry) ? entry.value : undefined))
+          : [];
         if (declaration.includes("odb-dom-get-attr")) {
           return { result: { value: "attr" } };
         }
@@ -151,6 +154,66 @@ const createPage = (nodes: LegacyNode[]) => {
         }
         if (declaration.includes("odb-dom-is-checked")) {
           return { result: { value: false } };
+        }
+        if (declaration.includes("odb-dom-selector-state")) {
+          return { result: { value: { attached: true, visible: true } } };
+        }
+        if (declaration.includes("odb-dom-outer-html")) {
+          return { result: { value: "<div>ok</div>" } };
+        }
+        if (declaration.includes("odb-dom-inner-text")) {
+          return { result: { value: "text" } };
+        }
+        if (declaration.includes("odb-dom-click")) {
+          await locator.click();
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-hover")) {
+          await locator.hover();
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-focus")) {
+          await locator.focus();
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-set-checked")) {
+          if (args[0] === true) {
+            await locator.check();
+          } else {
+            await locator.uncheck();
+          }
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-type")) {
+          const value = typeof args[0] === "string" ? args[0] : String(args[0] ?? "");
+          const clear = args[1] === true;
+          const submit = args[2] === true;
+          if (clear) {
+            await locator.fill("");
+          }
+          await locator.fill(value);
+          if (submit) {
+            await locator.press("Enter");
+          }
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-select")) {
+          const values = Array.isArray(args[0]) ? args[0].map((value) => String(value)) : [];
+          await locator.selectOption(values);
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-scroll-into-view")) {
+          await locator.scrollIntoViewIfNeeded();
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-scroll-by")) {
+          await locator.evaluate((el, delta) => {
+            el.scrollBy(0, delta as number);
+          }, typeof args[0] === "number" ? args[0] : 0);
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-ref-point")) {
+          return { result: { value: { x: 320, y: 240 } } };
         }
         const selector = selectorByBackendId.get(lastBackendNodeId) ?? `#node-${lastBackendNodeId}`;
         return { result: { value: selector } };
@@ -3814,7 +3877,7 @@ describe("BrowserManager", () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
-    const { context, page } = createBrowserBundle(nodes);
+    const { context } = createBrowserBundle(nodes);
 
     findChromeExecutable.mockResolvedValue("/bin/chrome");
     launchPersistentContext.mockResolvedValue(context);
@@ -3824,13 +3887,43 @@ describe("BrowserManager", () => {
     const result = await manager.launch({ profile: "default" });
     await manager.snapshot(result.sessionId, "outline", 500);
 
-    page.$eval
-      .mockImplementationOnce(async (_selector: string, fn: (el: { outerHTML: string; innerText: string; textContent: string }) => unknown) => {
-        return fn({ outerHTML: "<div>ok</div>", innerText: "", textContent: "from textContent" });
-      })
-      .mockImplementationOnce(async (_selector: string, fn: (el: { outerHTML: string; innerText: string; textContent: string }) => unknown) => {
-        return fn({ outerHTML: "<div>ok</div>", innerText: "", textContent: "" });
-      });
+    const textSession = {
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "obj-r1" } };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof params?.functionDeclaration === "string"
+            ? params.functionDeclaration
+            : "";
+          if (declaration.includes("odb-dom-inner-text")) {
+            return { result: { value: "from textContent" } };
+          }
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    };
+    const emptySession = {
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "obj-r1" } };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof params?.functionDeclaration === "string"
+            ? params.functionDeclaration
+            : "";
+          if (declaration.includes("odb-dom-inner-text")) {
+            return { result: { value: "" } };
+          }
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    };
+    context.newCDPSession = vi.fn()
+      .mockResolvedValueOnce(textSession)
+      .mockResolvedValueOnce(emptySession);
 
     const textContent = await manager.domGetText(result.sessionId, "r1", 1000);
     expect(textContent.text).toBe("from textContent");
@@ -4059,7 +4152,7 @@ describe("BrowserManager", () => {
     expect(locator.isChecked).not.toHaveBeenCalled();
   });
 
-  it("uses locator-based DOM-state reads for extension sessions", async () => {
+  it("uses backend-node DOM-state reads for extension sessions", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
@@ -4087,11 +4180,11 @@ describe("BrowserManager", () => {
     expect(visible.value).toBe(true);
     expect(enabled.value).toBe(true);
     expect(checked.value).toBe(false);
-    expect(locator.getAttribute).toHaveBeenCalledTimes(1);
-    expect(locator.inputValue).toHaveBeenCalledTimes(1);
-    expect(locator.isVisible).toHaveBeenCalledTimes(1);
-    expect(locator.isEnabled).toHaveBeenCalledTimes(1);
-    expect(locator.isChecked).toHaveBeenCalledTimes(1);
+    expect(locator.getAttribute).not.toHaveBeenCalled();
+    expect(locator.inputValue).not.toHaveBeenCalled();
+    expect(locator.isVisible).not.toHaveBeenCalled();
+    expect(locator.isEnabled).not.toHaveBeenCalled();
+    expect(locator.isChecked).not.toHaveBeenCalled();
   });
 
   it("coerces managed backend DOM-state values without selector fallback", async () => {
@@ -6054,6 +6147,319 @@ describe("BrowserManager", () => {
       }
     };
     expect(() => managerAny.resolveSelector(managedWithoutSelectorTarget, "r1")).toThrow("No active target for ref resolution");
+  });
+
+  it("covers resolved ref wait helpers for visible and hidden states", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      waitForResolvedRefState: (
+        managed: unknown,
+        ref: string,
+        state: "attached" | "visible" | "hidden",
+        timeoutMs: number,
+        targetId?: string
+      ) => Promise<void>;
+      callFunctionOnResolvedRef: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.callFunctionOnResolvedRef = vi.fn()
+      .mockResolvedValueOnce({ attached: true, visible: true })
+      .mockResolvedValueOnce({ attached: false, visible: false })
+      .mockResolvedValueOnce({ attached: true, visible: false }) as never;
+
+    await managerAny.waitForResolvedRefState({} as never, "r1", "visible", 100, "target-1");
+    await managerAny.waitForResolvedRefState({} as never, "r1", "hidden", 100, "target-1");
+    await managerAny.waitForResolvedRefState({} as never, "r1", "hidden", 100, "target-1");
+
+    expect(managerAny.callFunctionOnResolvedRef).toHaveBeenCalledTimes(3);
+  });
+
+  it("covers ref-point resolution from content and border box models", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      resolveRefPointForTarget: (managed: unknown, ref: string, targetId?: string) => Promise<{ x: number; y: number }>;
+      resolveRefEntryForTarget: ReturnType<typeof vi.fn>;
+      withResolvedRefSession: ReturnType<typeof vi.fn>;
+    };
+    const resolvedRef = {
+      targetId: "tab-main",
+      ref: "r1",
+      selector: "#node-main",
+      backendNodeId: 11,
+      snapshotId: "snap-1"
+    };
+    managerAny.resolveRefEntryForTarget = vi.fn(() => resolvedRef) as never;
+    const managed = {
+      targets: {
+        getActiveTargetId: vi.fn(() => "tab-main")
+      }
+    };
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => ({
+          model: {
+            content: [10, 20, 30, 20, 30, 40, 10, 40]
+          }
+        }))
+      };
+      return await execute(session as never);
+    }) as never;
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1", "tab-explicit")).resolves.toEqual({ x: 20, y: 30 });
+    expect(managerAny.resolveRefEntryForTarget).toHaveBeenCalledWith(managed, "r1", "tab-explicit");
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => ({
+          model: {
+            content: [10, 20],
+            border: [5, 15, 25, 15, 25, 35, 5, 35]
+          }
+        }))
+      };
+      return await execute(session as never);
+    }) as never;
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1")).resolves.toEqual({ x: 15, y: 25 });
+    expect(managerAny.resolveRefEntryForTarget).toHaveBeenCalledWith(managed, "r1", "tab-main");
+  });
+
+  it("covers ref-point resolution fallback, stale snapshot mapping, and invalid point errors", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      resolveRefPointForTarget: (managed: unknown, ref: string, targetId?: string) => Promise<{ x: number; y: number }>;
+      resolveRefEntryForTarget: ReturnType<typeof vi.fn>;
+      withResolvedRefSession: ReturnType<typeof vi.fn>;
+      callFunctionOnRefContextWithSession: ReturnType<typeof vi.fn>;
+    };
+    const resolvedRef = {
+      targetId: "tab-main",
+      ref: "r1",
+      selector: "#node-main",
+      backendNodeId: 11,
+      snapshotId: "snap-1"
+    };
+    managerAny.resolveRefEntryForTarget = vi.fn(() => resolvedRef) as never;
+    const managed = {
+      targets: {
+        getActiveTargetId: vi.fn(() => "tab-main")
+      }
+    };
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => ({
+          model: {}
+        }))
+      };
+      return await execute(session as never);
+    }) as never;
+    managerAny.callFunctionOnRefContextWithSession = vi.fn(async () => ({ x: 11.6, y: 18.2 })) as never;
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1")).resolves.toEqual({ x: 12, y: 18 });
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => {
+          throw new Error("No node with given id");
+        })
+      };
+      return await execute(session as never);
+    }) as never;
+    managerAny.callFunctionOnRefContextWithSession.mockClear();
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1")).rejects.toThrow("Unknown ref: r1. Take a new snapshot first.");
+    expect(managerAny.callFunctionOnRefContextWithSession).not.toHaveBeenCalled();
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => ({
+          model: {}
+        }))
+      };
+      return await execute(session as never);
+    }) as never;
+    managerAny.callFunctionOnRefContextWithSession = vi.fn(async () => ({ x: null, y: "bad" })) as never;
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1")).rejects.toThrow(
+      "Could not resolve a clickable point for ref: r1"
+    );
+  });
+
+  it("covers runtime html document write rethrows for non-navigation errors", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      writeHtmlDocument: (managed: unknown, page: PageLike, html: string) => Promise<void>;
+    };
+    const nextPage = createPage([
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ]);
+    nextPage.page.evaluate.mockRejectedValueOnce(new Error("boom"));
+
+    await expect(managerAny.writeHtmlDocument(undefined, nextPage.page as never, "<main>Broken</main>")).rejects.toThrow("boom");
+  });
+
+  it("covers extension target ready closed-page handling", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      waitForExtensionTargetReady: (page: PageLike, context: string, timeoutMs?: number) => Promise<void>;
+    };
+    const nextPage = createPage([
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ]);
+    nextPage.page.isClosed.mockReturnValue(true);
+
+    await expect(managerAny.waitForExtensionTargetReady(nextPage.page as never, "goto", 300)).rejects.toThrow(
+      "EXTENSION_TARGET_READY_CLOSED: goto page closed before navigation."
+    );
+  });
+
+  it("covers frame-detach ref invalidation for top-level and child frames", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const nextPage = createPage(nodes);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const internal = manager as unknown as {
+      attachRefInvalidationForPage: (
+        managed: { refStore: { clearTarget: (targetId: string) => void } },
+        targetId: string,
+        page: PageLike
+      ) => void;
+    };
+    const refStore = { clearTarget: vi.fn() };
+
+    internal.attachRefInvalidationForPage({ refStore }, "target-1", nextPage.page as never);
+    nextPage.page.emit("framedetached", { parentFrame: () => ({}) });
+    expect(refStore.clearTarget).not.toHaveBeenCalled();
+
+    nextPage.page.emit("framedetached", { parentFrame: () => null });
+    expect(refStore.clearTarget).toHaveBeenCalledWith("target-1");
+  });
+
+  it("covers page-title probe skipping for legacy relay pages", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      shouldSkipPageTitleProbe: (
+        managed: { extensionLegacy: boolean } | undefined,
+        page: { isClosed: () => boolean } | null
+      ) => boolean;
+    };
+
+    expect(managerAny.shouldSkipPageTitleProbe({ extensionLegacy: true }, { isClosed: () => false })).toBe(true);
+    expect(managerAny.shouldSkipPageTitleProbe({ extensionLegacy: true }, { isClosed: () => true })).toBe(false);
+    expect(managerAny.shouldSkipPageTitleProbe(undefined, null)).toBe(false);
+  });
+
+  it("covers legacy extension page recovery after replacement page sync", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const replacement = createPage(nodes);
+    const synced = createPage(nodes);
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      recoverLegacyExtensionPage: (
+        managed: unknown,
+        timeoutMs: number,
+        createExtensionPage: () => Promise<PageLike>,
+        failedPage?: PageLike
+      ) => Promise<PageLike | null>;
+      selectExistingExtensionEntry: ReturnType<typeof vi.fn>;
+      attachRefInvalidation: ReturnType<typeof vi.fn>;
+      attachTrackers: ReturnType<typeof vi.fn>;
+      reconnectLegacyExtensionSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.selectExistingExtensionEntry = vi.fn()
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce({ page: synced.page }) as never;
+    managerAny.attachRefInvalidation = vi.fn() as never;
+    managerAny.attachTrackers = vi.fn() as never;
+    managerAny.reconnectLegacyExtensionSession = vi.fn().mockResolvedValue(null) as never;
+
+    const managed = {
+      context: {
+        pages: vi.fn(() => [replacement.page]),
+        waitForEvent: vi.fn()
+      },
+      targets: {
+        syncPages: vi.fn()
+      }
+    };
+
+    await expect(
+      managerAny.recoverLegacyExtensionPage(managed as never, 500, vi.fn(async () => synced.page), replacement.page as never)
+    ).resolves.toBe(synced.page);
+    expect(managed.targets.syncPages).toHaveBeenCalledWith([replacement.page]);
+    expect(managerAny.attachRefInvalidation).toHaveBeenCalledWith(managed);
+    expect(managerAny.attachTrackers).toHaveBeenCalledWith(managed);
+  });
+
+  it("covers legacy extension page recovery create-page failure branches", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const recovered = createPage(nodes);
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      recoverLegacyExtensionPage: (
+        managed: unknown,
+        timeoutMs: number,
+        createExtensionPage: () => Promise<PageLike>,
+        failedPage?: PageLike
+      ) => Promise<PageLike | null>;
+      selectExistingExtensionEntry: ReturnType<typeof vi.fn>;
+      reconnectLegacyExtensionSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.selectExistingExtensionEntry = vi.fn(() => undefined) as never;
+
+    const managed = {
+      extensionLegacy: true,
+      relayWsEndpoint: "ws://127.0.0.1:8787/relay",
+      context: {
+        pages: vi.fn(() => []),
+        waitForEvent: vi.fn(async () => {
+          throw new Error("timeout");
+        })
+      }
+    };
+
+    managerAny.reconnectLegacyExtensionSession = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(recovered.page) as never;
+    await expect(
+      managerAny.recoverLegacyExtensionPage(
+        managed as never,
+        500,
+        async () => {
+          throw new Error("Target.createTarget Not allowed");
+        }
+      )
+    ).resolves.toBe(recovered.page);
+
+    managerAny.reconnectLegacyExtensionSession = vi.fn().mockResolvedValue(null) as never;
+    await expect(
+      managerAny.recoverLegacyExtensionPage(
+        managed as never,
+        500,
+        async () => {
+          throw new Error("boom");
+        }
+      )
+    ).rejects.toThrow("boom");
   });
 
   it("covers wakeWaiters corner branches and missing release state", async () => {

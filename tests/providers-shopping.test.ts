@@ -10,6 +10,7 @@ import {
   type ShoppingProviderProfile
 } from "../src/providers/shopping";
 import { ProviderRuntimeError } from "../src/providers/errors";
+import { resolveProviderRuntimePolicy } from "../src/providers/runtime-policy";
 
 const context = {
   trace: { requestId: "shopping-test", ts: "2026-02-16T00:00:00.000Z" },
@@ -1287,7 +1288,12 @@ describe("shopping providers", () => {
         provider: "shopping/target",
         operation: "search",
         reasonCode: "env_limited",
-        preferredModes: ["extension", "managed_headed"],
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension", "managed_headed"],
+            forceTransport: false
+          }
+        }),
         details: expect.objectContaining({
           browserRequired: true,
           providerShell: "target_shell_page",
@@ -1383,7 +1389,12 @@ describe("shopping providers", () => {
         provider: "shopping/target",
         operation: "search",
         reasonCode: "env_limited",
-        preferredModes: ["extension", "managed_headed"],
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension", "managed_headed"],
+            forceTransport: false
+          }
+        }),
         details: expect.objectContaining({
           browserRequired: true,
           providerShell: "target_shell_page",
@@ -1703,9 +1714,12 @@ describe("shopping providers", () => {
         {
           timeoutMs: 1000,
           attempt: 1,
-          preferredFallbackModes: ["managed_headed"],
-          useCookies: true,
-          cookiePolicyOverride: "required",
+          runtimePolicy: resolveProviderRuntimePolicy({
+            source: "shopping",
+            preferredFallbackModes: ["managed_headed"],
+            useCookies: true,
+            cookiePolicyOverride: "required"
+          }),
           browserFallbackPort: {
             resolve: fallbackResolve
           }
@@ -1717,9 +1731,16 @@ describe("shopping providers", () => {
         provider: "shopping/amazon",
         operation: "search",
         reasonCode: "env_limited",
-        useCookies: true,
-        cookiePolicyOverride: "required",
-        preferredModes: ["managed_headed"],
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["managed_headed"],
+            forceTransport: false
+          },
+          cookies: {
+            requested: true,
+            policy: "required"
+          }
+        }),
         settleTimeoutMs: 15000,
         captureDelayMs: 2000,
         trace: expect.objectContaining({
@@ -1776,8 +1797,12 @@ describe("shopping providers", () => {
         { url: "https://www.amazon.com/dp/macbook-pro-force-browser" },
         {
           ...context,
-          preferredFallbackModes: ["extension"],
-          forceBrowserTransport: true,
+          runtimePolicy: resolveProviderRuntimePolicy({
+            source: "shopping",
+            runtimePolicy: {
+              browserMode: "extension"
+            }
+          }),
           browserFallbackPort: {
             resolve: fallbackResolve
           }
@@ -1789,7 +1814,12 @@ describe("shopping providers", () => {
         provider: "shopping/amazon",
         operation: "fetch",
         reasonCode: "env_limited",
-        preferredModes: ["extension"],
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension"],
+            forceTransport: true
+          }
+        }),
         url: "https://www.amazon.com/dp/macbook-pro-force-browser"
       }));
       expect(rows?.[0]?.attributes.browser_fallback_mode).toBe("extension");
@@ -1821,8 +1851,12 @@ describe("shopping providers", () => {
         { url: "https://www.amazon.com/dp/macbook-pro-force-browser-failure" },
         {
           ...context,
-          preferredFallbackModes: ["extension"],
-          forceBrowserTransport: true,
+          runtimePolicy: resolveProviderRuntimePolicy({
+            source: "shopping",
+            runtimePolicy: {
+              browserMode: "extension"
+            }
+          }),
           browserFallbackPort: {
             resolve: fallbackResolve
           }
@@ -1839,7 +1873,12 @@ describe("shopping providers", () => {
 
       expect(fetchMock).not.toHaveBeenCalled();
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
-        preferredModes: ["extension"]
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension"],
+            forceTransport: true
+          }
+        })
       }));
     } finally {
       vi.unstubAllGlobals();

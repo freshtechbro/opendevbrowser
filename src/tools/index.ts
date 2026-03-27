@@ -14,6 +14,7 @@ import { createCloseTool } from "./close";
 import { createGotoTool } from "./goto";
 import { createWaitTool } from "./wait";
 import { createSnapshotTool } from "./snapshot";
+import { createReviewTool } from "./review";
 import { createClickTool } from "./click";
 import { createHoverTool } from "./hover";
 import { createPressTool } from "./press";
@@ -93,6 +94,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_goto: wrap("opendevbrowser_goto", createGotoTool(deps)),
     opendevbrowser_wait: wrap("opendevbrowser_wait", createWaitTool(deps)),
     opendevbrowser_snapshot: wrap("opendevbrowser_snapshot", createSnapshotTool(deps)),
+    opendevbrowser_review: wrap("opendevbrowser_review", createReviewTool(deps)),
     opendevbrowser_click: wrap("opendevbrowser_click", createClickTool(deps)),
     opendevbrowser_hover: wrap("opendevbrowser_hover", createHoverTool(deps)),
     opendevbrowser_press: wrap("opendevbrowser_press", createPressTool(deps)),

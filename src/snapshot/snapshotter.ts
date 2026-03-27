@@ -37,6 +37,7 @@ export class Snapshotter {
       lines: string[];
       warnings: string[];
     };
+    const mainFrameOnly = options.mainFrameOnly ?? (options.mode !== "actionables");
     try {
       snapshotData = await buildSnapshotFromCdp(
         (method, params) => session.send(
@@ -44,7 +45,8 @@ export class Snapshotter {
           params as Parameters<typeof session.send>[1]
         ),
         options.mode,
-        options.mainFrameOnly ?? true,
+        () => this.refStore.nextRef(targetId),
+        mainFrameOnly,
         options.maxNodes
       );
     } finally {

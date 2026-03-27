@@ -4,6 +4,7 @@ export type TargetInfo = {
   browserContextId?: string;
   title?: string;
   url?: string;
+  openerId?: string;
 };
 
 export type DebuggerSession = chrome.debugger.Debuggee & { sessionId?: string };

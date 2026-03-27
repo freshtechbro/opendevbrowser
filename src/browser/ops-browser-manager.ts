@@ -130,6 +130,9 @@ export class OpsBrowserManager implements BrowserManagerLike {
       drag: (sessionId, from, to, targetId, steps) => (
         this.withChallengeAutomationSuppressed(sessionId, () => this.drag(sessionId, from, to, targetId, steps))
       ),
+      resolveRefPoint: (sessionId, ref, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.resolveRefPoint(sessionId, ref, targetId))
+      ),
       cookieList: (sessionId, urls) => this.withChallengeAutomationSuppressed(sessionId, () => this.cookieList(sessionId, urls)),
       cookieImport: (sessionId, cookies, replaceExisting) => (
         this.withChallengeAutomationSuppressed(sessionId, () => this.cookieImport(sessionId, cookies, replaceExisting))
@@ -716,6 +719,27 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.base.domIsChecked(sessionId, ref, targetId);
     }
     return await this.requestOps(sessionId, "dom.isChecked", this.withTarget({ ref }, targetId));
+  }
+
+  async resolveRefPoint(
+    sessionId: string,
+    ref: string,
+    targetId?: string | null
+  ): Promise<{ x: number; y: number }> {
+    if (!this.opsSessions.has(sessionId)) {
+      const resolver = (this.base as BrowserManagerLike & {
+        resolveRefPoint?: (
+          sessionId: string,
+          ref: string,
+          targetId?: string | null
+        ) => Promise<{ x: number; y: number }>;
+      }).resolveRefPoint;
+      if (!resolver) {
+        throw new Error("Base browser manager does not support ref-point resolution.");
+      }
+      return await resolver(sessionId, ref, targetId);
+    }
+    return await this.requestOps(sessionId, "dom.refPoint", this.withTarget({ ref }, targetId));
   }
 
   async clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {

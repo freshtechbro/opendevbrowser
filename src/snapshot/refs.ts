@@ -4,6 +4,7 @@ export type RefEntry = {
   ref: string;
   selector: string;
   backendNodeId: number;
+  snapshotId: string;
   frameId?: string;
   role?: string;
   name?: string;
@@ -15,17 +16,28 @@ export type RefSnapshot = {
   count: number;
 };
 
+type PendingRefEntry = Omit<RefEntry, "snapshotId">;
+
 export class RefStore {
   private refsByTarget = new Map<string, Map<string, RefEntry>>();
   private snapshotByTarget = new Map<string, string>();
+  private refCounterByTarget = new Map<string, number>();
 
-  setSnapshot(targetId: string, entries: RefEntry[]): RefSnapshot {
+  nextRef(targetId: string): string {
+    const next = (this.refCounterByTarget.get(targetId) ?? 0) + 1;
+    this.refCounterByTarget.set(targetId, next);
+    return `r${next}`;
+  }
+
+  setSnapshot(targetId: string, entries: PendingRefEntry[]): RefSnapshot {
     const map = new Map<string, RefEntry>();
-    for (const entry of entries) {
-      map.set(entry.ref, entry);
-    }
-
     const snapshotId = randomUUID();
+    for (const entry of entries) {
+      map.set(entry.ref, {
+        ...entry,
+        snapshotId
+      });
+    }
     this.refsByTarget.set(targetId, map);
     this.snapshotByTarget.set(targetId, snapshotId);
 

@@ -240,11 +240,7 @@ export interface ProviderContext {
   timeoutMs: number;
   attempt: number;
   signal?: AbortSignal;
-  preferredFallbackModes?: BrowserFallbackMode[];
-  forceBrowserTransport?: boolean;
-  useCookies?: boolean;
-  challengeAutomationMode?: ChallengeAutomationMode;
-  cookiePolicyOverride?: ProviderCookiePolicy;
+  runtimePolicy?: ResolvedProviderRuntimePolicy;
   browserFallbackPort?: BrowserFallbackPort;
   suspendedIntent?: SuspendedIntentSummary;
 }
@@ -413,6 +409,7 @@ export interface ProviderRunOptions {
   providerIds?: string[];
   timeoutMs?: number;
   trace?: Partial<TraceContext>;
+  runtimePolicy?: ProviderRuntimePolicyInput;
   preferredFallbackModes?: BrowserFallbackMode[];
   forceBrowserTransport?: boolean;
   useCookies?: boolean;
@@ -493,6 +490,25 @@ export interface ProviderRecoveryHints {
 
 export type WorkflowBrowserMode = "auto" | "extension" | "managed";
 
+export interface ProviderRuntimePolicyInput {
+  browserMode?: WorkflowBrowserMode;
+  useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
+  cookiePolicyOverride?: ProviderCookiePolicy;
+}
+
+export interface ResolvedProviderRuntimePolicy {
+  browser: {
+    preferredModes: BrowserFallbackMode[];
+    forceTransport: boolean;
+  };
+  cookies: {
+    requested?: boolean;
+    policy: ProviderCookiePolicy;
+  };
+  challenge: ChallengeAutomationResolutionMetadata;
+}
+
 export interface BrowserFallbackRequest {
   provider: string;
   source: ProviderSource;
@@ -506,9 +522,7 @@ export interface BrowserFallbackRequest {
   preferredModes?: BrowserFallbackMode[];
   settleTimeoutMs?: number;
   captureDelayMs?: number;
-  useCookies?: boolean;
-  challengeAutomationMode?: ChallengeAutomationMode;
-  cookiePolicyOverride?: ProviderCookiePolicy;
+  runtimePolicy?: ResolvedProviderRuntimePolicy;
   ownerSurface?: ChallengeOwnerSurface;
   ownerLeaseId?: string;
   resumeMode?: ResumeMode;

@@ -143,6 +143,7 @@ export class ChallengeOrchestrator {
     return buildChallengeEvidenceBundle({
       status,
       snapshot: {
+        snapshotId: snapshot.snapshotId,
         content: snapshot.content,
         warnings: snapshot.warnings
       },

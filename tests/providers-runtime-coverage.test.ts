@@ -257,17 +257,24 @@ describe("provider runtime coverage seams", () => {
       {
         source: "web",
         providerIds: ["web/context-hints"],
-        preferredFallbackModes: ["extension"],
-        forceBrowserTransport: true,
-        challengeAutomationMode: "browser_with_helper"
+        runtimePolicy: {
+          browserMode: "extension",
+          challengeAutomationMode: "browser_with_helper"
+        }
       }
     );
 
     expect(result.ok).toBe(true);
     expect(capturedContext).toMatchObject({
-      preferredFallbackModes: ["extension"],
-      forceBrowserTransport: true,
-      challengeAutomationMode: "browser_with_helper"
+      runtimePolicy: {
+        browser: {
+          preferredModes: ["extension"],
+          forceTransport: true
+        },
+        challenge: expect.objectContaining({
+          mode: "browser_with_helper"
+        })
+      }
     });
   });
 });

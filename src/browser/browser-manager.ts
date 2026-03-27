@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { mkdir, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { freemem, totalmem } from "os";
-import type { Browser, BrowserContext, Page } from "playwright-core";
+import type { Browser, BrowserContext, CDPSession, Page } from "playwright-core";
 import { Mutex } from "async-mutex";
 import type { OpenDevBrowserConfig } from "../config";
 import { resolveCachePaths } from "../cache/paths";
@@ -229,6 +229,158 @@ const DOM_IS_CHECKED_DECLARATION = `
   }
 `;
 
+const DOM_SELECTOR_STATE_DECLARATION = `
+  function() {
+    /* odb-dom-selector-state */
+    if (!(this instanceof Element)) {
+      return { attached: false, visible: false };
+    }
+    const style = window.getComputedStyle(this);
+    const rect = this.getBoundingClientRect();
+    return {
+      attached: true,
+      visible: Boolean(style && style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0)
+    };
+  }
+`;
+
+const DOM_OUTER_HTML_DECLARATION = `
+  function() {
+    /* odb-dom-outer-html */
+    if (!(this instanceof Element)) return "";
+    return this.outerHTML;
+  }
+`;
+
+const DOM_INNER_TEXT_DECLARATION = `
+  function() {
+    /* odb-dom-inner-text */
+    if (!(this instanceof Element)) return "";
+    return this instanceof HTMLElement ? (this.innerText || this.textContent || "") : (this.textContent || "");
+  }
+`;
+
+const DOM_CLICK_DECLARATION = `
+  function() {
+    /* odb-dom-click */
+    if (this instanceof HTMLElement) {
+      this.click();
+    }
+  }
+`;
+
+const DOM_HOVER_DECLARATION = `
+  function() {
+    /* odb-dom-hover */
+    if (!(this instanceof Element)) return;
+    const init = { bubbles: true, cancelable: true, view: window };
+    this.dispatchEvent(new MouseEvent("mouseenter", init));
+    this.dispatchEvent(new MouseEvent("mouseover", init));
+    this.dispatchEvent(new MouseEvent("mousemove", init));
+  }
+`;
+
+const DOM_FOCUS_DECLARATION = `
+  function() {
+    /* odb-dom-focus */
+    if (this instanceof HTMLElement) {
+      this.focus();
+    }
+  }
+`;
+
+const DOM_SET_CHECKED_DECLARATION = `
+  function(checked) {
+    /* odb-dom-set-checked */
+    if (this instanceof HTMLInputElement && (this.type === "checkbox" || this.type === "radio")) {
+      this.checked = Boolean(checked);
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+      return;
+    }
+    if (this instanceof Element) {
+      this.setAttribute("aria-checked", checked ? "true" : "false");
+    }
+  }
+`;
+
+const DOM_TYPE_DECLARATION = `
+  function(value, clear, submit) {
+    /* odb-dom-type */
+    if (!(this instanceof Element)) return;
+    if (this instanceof HTMLElement) {
+      this.focus();
+    }
+    if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
+      this.value = clear ? "" : this.value;
+      this.value = String(value);
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+      if (submit) {
+        this.form?.requestSubmit?.();
+      }
+      return;
+    }
+    if (this instanceof HTMLSelectElement) {
+      this.value = String(value);
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+`;
+
+const DOM_SELECT_DECLARATION = `
+  function(values) {
+    /* odb-dom-select */
+    if (!(this instanceof HTMLSelectElement)) return;
+    const nextValues = Array.isArray(values) ? values.map((value) => String(value)) : [];
+    for (const option of Array.from(this.options)) {
+      option.selected = nextValues.includes(option.value);
+    }
+    this.dispatchEvent(new Event("input", { bubbles: true }));
+    this.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+`;
+
+const DOM_SCROLL_BY_DECLARATION = `
+  function(dy) {
+    /* odb-dom-scroll-by */
+    if (this instanceof HTMLElement) {
+      this.scrollBy(0, Number(dy) || 0);
+    }
+  }
+`;
+
+const DOM_SCROLL_INTO_VIEW_DECLARATION = `
+  function() {
+    /* odb-dom-scroll-into-view */
+    if (this instanceof Element) {
+      this.scrollIntoView({ block: "center", inline: "center", behavior: "auto" });
+    }
+  }
+`;
+
+const DOM_REF_POINT_DECLARATION = `
+  function() {
+    /* odb-dom-ref-point */
+    if (!(this instanceof Element)) return null;
+    const rect = this.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
+  }
+`;
+
+type ResolvedManagedRef = {
+  targetId: string;
+  ref: string;
+  selector: string;
+  backendNodeId: number;
+  snapshotId: string;
+  frameId?: string;
+};
+
 export class BrowserManager {
   private store = new SessionStore();
   private sessions = new Map<string, ManagedSession>();
@@ -302,6 +454,9 @@ export class BrowserManager {
       ),
       drag: (sessionId, from, to, targetId, steps) => (
         this.withChallengeAutomationSuppressed(sessionId, () => this.drag(sessionId, from, to, targetId, steps))
+      ),
+      resolveRefPoint: (sessionId, ref, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.resolveRefPoint(sessionId, ref, targetId))
       ),
       cookieList: (sessionId, urls) => this.withChallengeAutomationSuppressed(sessionId, () => this.cookieList(sessionId, urls)),
       cookieImport: (sessionId, cookies, replaceExisting) => (
@@ -1264,8 +1419,7 @@ export class BrowserManager {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
       try {
-        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-        await page.locator(selector).waitFor({ state, timeout: timeoutMs });
+        await this.waitForResolvedRefState(managed, ref, state, timeoutMs, resolvedTargetId);
         const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
           source: "navigation",
           finalUrl: this.safePageUrl(page, "BrowserManager.waitForRef"),
@@ -1304,19 +1458,19 @@ export class BrowserManager {
   async click(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number; navigated: boolean }> {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
       const previousUrl = page.url();
-      await page.locator(selector).click();
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_CLICK_DECLARATION, [], resolvedTargetId);
       const navigated = page.url() !== previousUrl;
       return { timingMs: Date.now() - startTime, navigated };
     });
   }
 
   async hover(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).hover();
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_HOVER_DECLARATION, [], resolvedTargetId);
       return { timingMs: Date.now() - startTime };
     });
   }
@@ -1325,8 +1479,8 @@ export class BrowserManager {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
       if (ref) {
-        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-        await page.locator(selector).focus();
+        await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+        await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_FOCUS_DECLARATION, [], resolvedTargetId);
       }
       await page.keyboard.press(key);
       return { timingMs: Date.now() - startTime };
@@ -1334,19 +1488,19 @@ export class BrowserManager {
   }
 
   async check(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).check();
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SET_CHECKED_DECLARATION, [true], resolvedTargetId);
       return { timingMs: Date.now() - startTime };
     });
   }
 
   async uncheck(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).uncheck();
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SET_CHECKED_DECLARATION, [false], resolvedTargetId);
       return { timingMs: Date.now() - startTime };
     });
   }
@@ -1359,35 +1513,35 @@ export class BrowserManager {
     submit = false,
     targetId?: string | null
   ): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      if (clear) {
-        await locator.fill("");
-      }
-      await locator.fill(text);
-      if (submit) {
-        await locator.press("Enter");
-      }
+      await this.callFunctionOnResolvedRef<void>(
+        managed,
+        ref,
+        DOM_TYPE_DECLARATION,
+        [text, clear, submit],
+        resolvedTargetId
+      );
       return { timingMs: Date.now() - startTime };
     });
   }
 
   async select(sessionId: string, ref: string, values: string[], targetId?: string | null): Promise<void> {
-    await this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).selectOption(values);
+    await this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      await this.callFunctionOnResolvedRef<void>(
+        managed,
+        ref,
+        DOM_SELECT_DECLARATION,
+        [values],
+        resolvedTargetId
+      );
     });
   }
 
   async scroll(sessionId: string, dy: number, ref?: string, targetId?: string | null): Promise<void> {
     await this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
       if (ref) {
-        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-        await page.locator(selector).evaluate((el, delta) => {
-          (el as HTMLElement).scrollBy(0, delta as number);
-        }, dy);
+        await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_BY_DECLARATION, [dy], resolvedTargetId);
       } else {
         await page.mouse.wheel(0, dy);
       }
@@ -1457,11 +1611,20 @@ export class BrowserManager {
     });
   }
 
+  async resolveRefPoint(
+    sessionId: string,
+    ref: string,
+    targetId?: string | null
+  ): Promise<{ x: number; y: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      return await this.resolveRefPointForTarget(managed, ref, resolvedTargetId);
+    });
+  }
+
   async scrollIntoView(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).scrollIntoViewIfNeeded();
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
       return { timingMs: Date.now() - startTime };
     });
   }
@@ -1472,9 +1635,14 @@ export class BrowserManager {
     maxChars = 8000,
     targetId?: string | null
   ): Promise<{ outerHTML: string; truncated: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const html = await page.$eval(selector, (el) => (el as Element).outerHTML);
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      const html = await this.callFunctionOnResolvedRef<string>(
+        managed,
+        ref,
+        DOM_OUTER_HTML_DECLARATION,
+        [],
+        resolvedTargetId
+      );
       return truncateHtml(html, maxChars);
     });
   }
@@ -1485,9 +1653,14 @@ export class BrowserManager {
     maxChars = 8000,
     targetId?: string | null
   ): Promise<{ text: string; truncated: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const text = await page.$eval(selector, (el) => (el as HTMLElement).innerText || el.textContent || "");
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      const text = await this.callFunctionOnResolvedRef<string>(
+        managed,
+        ref,
+        DOM_INNER_TEXT_DECLARATION,
+        [],
+        resolvedTargetId
+      );
       return truncateText(text, maxChars);
     });
   }
@@ -1498,125 +1671,117 @@ export class BrowserManager {
     name: string,
     targetId?: string | null
   ): Promise<{ value: string | null }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_GET_ATTR_DECLARATION,
-            [name],
-            resolvedTargetId
-          );
-          if (typeof value === "string") {
-            return { value };
-          }
-          return { value: null };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: string | null;
+      try {
+        value = await this.evaluateDomStateByBackendNode<string | null>(
+          managed,
+          ref,
+          DOM_GET_ATTR_DECLARATION,
+          [name],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).getAttribute(name);
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.getAttribute(name) };
+      return { value: typeof value === "string" ? value : null };
     });
   }
 
   async domGetValue(sessionId: string, ref: string, targetId?: string | null): Promise<{ value: string }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_GET_VALUE_DECLARATION,
-            [],
-            resolvedTargetId
-          );
-          return { value: typeof value === "string" ? value : "" };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: string | null;
+      try {
+        value = await this.evaluateDomStateByBackendNode<string | null>(
+          managed,
+          ref,
+          DOM_GET_VALUE_DECLARATION,
+          [],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).inputValue();
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.inputValue() };
+      return { value: typeof value === "string" ? value : "" };
     });
   }
 
   async domIsVisible(sessionId: string, ref: string, targetId?: string | null): Promise<{ value: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_IS_VISIBLE_DECLARATION,
-            [],
-            resolvedTargetId
-          );
-          return { value: value === true };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: boolean;
+      try {
+        value = await this.evaluateDomStateByBackendNode<boolean>(
+          managed,
+          ref,
+          DOM_IS_VISIBLE_DECLARATION,
+          [],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).isVisible();
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.isVisible() };
+      return { value: value === true };
     });
   }
 
   async domIsEnabled(sessionId: string, ref: string, targetId?: string | null): Promise<{ value: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_IS_ENABLED_DECLARATION,
-            [],
-            resolvedTargetId
-          );
-          return { value: value === true };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: boolean;
+      try {
+        value = await this.evaluateDomStateByBackendNode<boolean>(
+          managed,
+          ref,
+          DOM_IS_ENABLED_DECLARATION,
+          [],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).isEnabled();
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.isEnabled() };
+      return { value: value === true };
     });
   }
 
   async domIsChecked(sessionId: string, ref: string, targetId?: string | null): Promise<{ value: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_IS_CHECKED_DECLARATION,
-            [],
-            resolvedTargetId
-          );
-          return { value: value === true };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: boolean;
+      try {
+        value = await this.evaluateDomStateByBackendNode<boolean>(
+          managed,
+          ref,
+          DOM_IS_CHECKED_DECLARATION,
+          [],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).isChecked();
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.isChecked() };
+      return { value: value === true };
     });
   }
 
@@ -3198,10 +3363,7 @@ export class BrowserManager {
     return state.structural.runExclusive(execute);
   }
 
-  private resolveRefEntry(managed: ManagedSession, ref: string): {
-    selector: string;
-    backendNodeId: number;
-  } {
+  private resolveRefEntry(managed: ManagedSession, ref: string): ResolvedManagedRef {
     const targetId = managed.targets.getActiveTargetId();
     if (!targetId) {
       throw new Error("No active target for ref resolution");
@@ -3213,17 +3375,18 @@ export class BrowserManager {
     managed: ManagedSession,
     ref: string,
     targetId: string
-  ): {
-    selector: string;
-    backendNodeId: number;
-  } {
+  ): ResolvedManagedRef {
     const entry = managed.refStore.resolve(targetId, ref);
     if (!entry) {
       throw this.buildStaleSnapshotError(ref);
     }
     return {
+      targetId,
+      ref,
       selector: entry.selector,
-      backendNodeId: entry.backendNodeId
+      backendNodeId: entry.backendNodeId,
+      snapshotId: entry.snapshotId,
+      ...(entry.frameId ? { frameId: entry.frameId } : {})
     };
   }
 
@@ -3254,47 +3417,18 @@ export class BrowserManager {
     );
   }
 
-  private async evaluateDomStateByBackendNode(
+  private async withResolvedRefSession<T>(
     managed: ManagedSession,
-    ref: string,
-    functionDeclaration: string,
-    args: unknown[] = [],
-    targetId?: string
-  ): Promise<unknown> {
-    const resolvedTargetId = targetId ?? managed.targets.getActiveTargetId();
-    if (!resolvedTargetId) {
-      throw new Error("No active target for ref resolution");
-    }
-    const entry = this.resolveRefEntryForTarget(managed, ref, resolvedTargetId);
-    const page = managed.targets.getPage(resolvedTargetId);
+    resolved: ResolvedManagedRef,
+    execute: (session: CDPSession) => Promise<T>
+  ): Promise<T> {
+    const page = managed.targets.getPage(resolved.targetId);
     const session = await managed.context.newCDPSession(page);
     try {
-      const resolved = await session.send("DOM.resolveNode", {
-        backendNodeId: entry.backendNodeId
-      }) as { object?: { objectId?: string } };
-      const objectId = resolved.object?.objectId;
-      if (!objectId) {
-        throw this.buildStaleSnapshotError(ref);
-      }
-
-      const evaluated = await session.send("Runtime.callFunctionOn", {
-        objectId,
-        functionDeclaration,
-        arguments: args.map((value) => ({ value })),
-        returnByValue: true
-      }) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
-
-      if (evaluated.exceptionDetails) {
-        const message = typeof evaluated.exceptionDetails.text === "string"
-          ? evaluated.exceptionDetails.text
-          : "Runtime.callFunctionOn failed";
-        throw new Error(message);
-      }
-
-      return evaluated.result?.value;
+      return await execute(session);
     } catch (error) {
       if (this.isSnapshotStaleError(error)) {
-        throw this.buildStaleSnapshotError(ref);
+        throw this.buildStaleSnapshotError(resolved.ref);
       }
       throw error;
     } finally {
@@ -3304,6 +3438,150 @@ export class BrowserManager {
         // Best-effort cleanup.
       }
     }
+  }
+
+  private async callFunctionOnResolvedRef<T>(
+    managed: ManagedSession,
+    ref: string,
+    functionDeclaration: string,
+    args: unknown[] = [],
+    targetId?: string
+  ): Promise<T> {
+    const resolvedTargetId = targetId ?? managed.targets.getActiveTargetId();
+    if (!resolvedTargetId) {
+      throw new Error("No active target for ref resolution");
+    }
+    const resolved = this.resolveRefEntryForTarget(managed, ref, resolvedTargetId);
+    return await this.withResolvedRefSession(
+      managed,
+      resolved,
+      async (session) => await this.callFunctionOnRefContextWithSession<T>(session, resolved, functionDeclaration, args)
+    );
+  }
+
+  private async evaluateDomStateByBackendNode<T>(
+    managed: ManagedSession,
+    ref: string,
+    functionDeclaration: string,
+    args: unknown[] = [],
+    targetId?: string
+  ): Promise<T> {
+    return await this.callFunctionOnResolvedRef<T>(managed, ref, functionDeclaration, args, targetId);
+  }
+
+  private async callFunctionOnRefContextWithSession<T>(
+    session: CDPSession,
+    resolved: ResolvedManagedRef,
+    functionDeclaration: string,
+    args: unknown[] = []
+  ): Promise<T> {
+    const node = await session.send("DOM.resolveNode", {
+      backendNodeId: resolved.backendNodeId
+    }) as { object?: { objectId?: string } };
+    const objectId = node.object?.objectId;
+    if (!objectId) {
+      throw this.buildStaleSnapshotError(resolved.ref);
+    }
+
+    const evaluated = await session.send("Runtime.callFunctionOn", {
+      objectId,
+      functionDeclaration,
+      arguments: args.map((value) => ({ value })),
+      returnByValue: true
+    }) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
+
+    if (evaluated.exceptionDetails) {
+      const message = typeof evaluated.exceptionDetails.text === "string"
+        ? evaluated.exceptionDetails.text
+        : "Runtime.callFunctionOn failed";
+      throw new Error(message);
+    }
+
+    return evaluated.result?.value as T;
+  }
+
+  private async waitForResolvedRefState(
+    managed: ManagedSession,
+    ref: string,
+    state: "attached" | "visible" | "hidden",
+    timeoutMs: number,
+    targetId?: string
+  ): Promise<void> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const snapshot = await this.callFunctionOnResolvedRef<{ attached?: unknown; visible?: unknown }>(
+        managed,
+        ref,
+        DOM_SELECTOR_STATE_DECLARATION,
+        [],
+        targetId
+      );
+      const attached = snapshot?.attached === true;
+      const visible = snapshot?.visible === true;
+      if (state === "attached" && attached) {
+        return;
+      }
+      if (state === "visible" && visible) {
+        return;
+      }
+      if (state === "hidden" && (!attached || !visible)) {
+        return;
+      }
+      await delay(200);
+    }
+    throw new Error("Wait for selector timed out");
+  }
+
+  private async resolveRefPointForTarget(
+    managed: ManagedSession,
+    ref: string,
+    targetId?: string
+  ): Promise<{ x: number; y: number }> {
+    const resolvedTargetId = targetId ?? managed.targets.getActiveTargetId();
+    if (!resolvedTargetId) {
+      throw new Error("No active target for ref resolution");
+    }
+    const resolved = this.resolveRefEntryForTarget(managed, ref, resolvedTargetId);
+    return await this.withResolvedRefSession(managed, resolved, async (session) => {
+      try {
+        const boxModel = await session.send("DOM.getBoxModel", {
+          backendNodeId: resolved.backendNodeId
+        }) as { model?: { content?: number[]; border?: number[] } };
+        const quad = Array.isArray(boxModel.model?.content) && boxModel.model.content.length >= 8
+          ? boxModel.model.content
+          : (Array.isArray(boxModel.model?.border) && boxModel.model.border.length >= 8
+            ? boxModel.model.border
+            : null);
+        if (quad) {
+          const [x1, y1, x2, y2, x3, y3, x4, y4] = quad;
+          const coordinates = [x1, y1, x2, y2, x3, y3, x4, y4];
+          if (coordinates.every((value): value is number => typeof value === "number" && Number.isFinite(value))) {
+            const xs: [number, number, number, number] = [coordinates[0]!, coordinates[2]!, coordinates[4]!, coordinates[6]!];
+            const ys: [number, number, number, number] = [coordinates[1]!, coordinates[3]!, coordinates[5]!, coordinates[7]!];
+            return {
+              x: Math.round((Math.min(...xs) + Math.max(...xs)) / 2),
+              y: Math.round((Math.min(...ys) + Math.max(...ys)) / 2)
+            };
+          }
+        }
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw this.buildStaleSnapshotError(ref);
+        }
+      }
+
+      const point = await this.callFunctionOnRefContextWithSession<{ x?: unknown; y?: unknown }>(
+        session,
+        resolved,
+        DOM_REF_POINT_DECLARATION
+      );
+      const x = typeof point?.x === "number" && Number.isFinite(point.x) ? Math.round(point.x) : null;
+      const y = typeof point?.y === "number" && Number.isFinite(point.y) ? Math.round(point.y) : null;
+      if (x === null || y === null) {
+        throw new Error(`Could not resolve a clickable point for ref: ${ref}`);
+      }
+      return { x, y };
+    });
   }
 
   private buildProfileLockLaunchMessage(launchMessage: string, profileDir: string): string | null {
@@ -3562,7 +3840,6 @@ export class BrowserManager {
       }
     }
 
-    let lastError: unknown;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       try {
         await page.evaluate((nextHtml) => {
@@ -3572,14 +3849,12 @@ export class BrowserManager {
         }, html);
         return;
       } catch (error) {
-        lastError = error;
         if (!this.isExecutionContextDestroyedError(error) || attempt === 4) {
           throw error;
         }
         await delay(250);
       }
     }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
 
   private async waitForExtensionTargetReady(page: Page, context: string, timeoutMs = 5000): Promise<void> {
@@ -3824,21 +4099,35 @@ export class BrowserManager {
   private attachRefInvalidationForPage(managed: ManagedSession, targetId: string, page: Page): void {
     if (this.pageListeners.has(page)) return;
 
-    const onNavigate = (frame: { parentFrame: () => unknown }) => {
-      if (frame.parentFrame() === null) {
-        managed.refStore.clearTarget(targetId);
-      }
-    };
-
-    const onClose = () => {
+    const clearTargetRefs = () => {
       managed.refStore.clearTarget(targetId);
     };
 
+    const onNavigate = (frame?: { parentFrame?: () => unknown }) => {
+      if (typeof frame?.parentFrame === "function" && frame.parentFrame()) {
+        return;
+      }
+      clearTargetRefs();
+    };
+
+    const onClose = () => {
+      clearTargetRefs();
+    };
+
+    const onFrameDetached = (frame?: { parentFrame?: () => unknown }) => {
+      if (typeof frame?.parentFrame === "function" && frame.parentFrame()) {
+        return;
+      }
+      clearTargetRefs();
+    };
+
     page.on("framenavigated", onNavigate);
+    page.on("framedetached", onFrameDetached);
     page.on("close", onClose);
 
     this.pageListeners.set(page, () => {
       page.off("framenavigated", onNavigate);
+      page.off("framedetached", onFrameDetached);
       page.off("close", onClose);
     });
   }

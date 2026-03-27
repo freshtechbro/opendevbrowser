@@ -602,7 +602,7 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
     throw error;
   };
 
-  if (context?.forceBrowserTransport) {
+  if (context?.runtimePolicy?.browser.forceTransport) {
     return resolveFallbackOrThrow(
       new ProviderRuntimeError(
         "unavailable",

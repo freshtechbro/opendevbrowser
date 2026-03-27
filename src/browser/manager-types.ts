@@ -1,5 +1,6 @@
 /* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
+import type { BrowserMode } from "./session-store";
 import type { BlockerSignalV1, SessionChallengeSummary } from "../providers/types";
 import type { ChallengeAutomationMode, ChallengeOrchestrationSnapshot } from "../challenges";
 import type {
@@ -59,6 +60,22 @@ export type BrowserResponseMeta = {
   blockerResolution?: BrowserBlockerResolutionMeta;
   challenge?: BrowserChallengeMeta;
   challengeOrchestration?: ChallengeOrchestrationSnapshot;
+};
+
+export type BrowserReviewResult = {
+  sessionId: string;
+  targetId: string | null;
+  mode: BrowserMode;
+  snapshotId: string;
+  url?: string;
+  title?: string;
+  content: string;
+  truncated: boolean;
+  nextCursor?: string;
+  refCount: number;
+  timingMs: number;
+  warnings?: string[];
+  meta?: BrowserResponseMeta;
 };
 
 export type BrowserManagerLike = Pick<BrowserManager,
@@ -172,4 +189,10 @@ export type ChallengeRuntimeHandle = Pick<BrowserManagerLike,
   | "cookieList"
   | "cookieImport"
   | "debugTraceSnapshot"
->;
+> & {
+  resolveRefPoint: (
+    sessionId: string,
+    ref: string,
+    targetId?: string | null
+  ) => Promise<{ x: number; y: number }>;
+};

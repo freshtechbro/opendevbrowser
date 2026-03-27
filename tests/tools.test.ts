@@ -199,7 +199,8 @@ describe("tools", () => {
       ["opendevbrowser_goto", { sessionId: "s1", url: "https://" }, { ok: true, meta: { blockerState: "active", blocker: { type: "auth_required" } } }],
       ["opendevbrowser_wait", { sessionId: "s1", until: "load" }, { ok: true, meta: { blockerState: "clear" } }],
       ["opendevbrowser_wait", { sessionId: "s1", ref: "r1" }, { ok: true, meta: { blockerState: "clear" } }],
-      ["opendevbrowser_snapshot", { sessionId: "s1" }, { ok: true }]
+      ["opendevbrowser_snapshot", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_review", { sessionId: "s1" }, { ok: true }]
     ];
 
     await expectToolCases(tools, cases);
@@ -308,6 +309,9 @@ describe("tools", () => {
     await runTool(tools, "opendevbrowser_snapshot", { sessionId: "s1", targetId: "tab-9" });
     expect(deps.manager.snapshot).toHaveBeenLastCalledWith("s1", "outline", defaultMaxChars, undefined, "tab-9");
 
+    await runTool(tools, "opendevbrowser_review", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.snapshot).toHaveBeenLastCalledWith("s1", "actionables", defaultMaxChars, undefined, "tab-9");
+
     await runTool(tools, "opendevbrowser_click", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
     expect(deps.manager.click).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
 
@@ -368,6 +372,71 @@ describe("tools", () => {
     await runTool(tools, "opendevbrowser_screenshot", { sessionId: "s1", targetId: "tab-9" });
     expect(deps.manager.screenshot).toHaveBeenLastCalledWith("s1", undefined, "tab-9");
   }, 30000);
+
+  it("builds review output from status and actionables snapshots", async () => {
+    const { deps, tools } = await loadTools();
+    deps.manager.status.mockResolvedValueOnce({
+      mode: "extension",
+      activeTargetId: "tab-9",
+      url: "https://example.com/status",
+      title: "Status Title",
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0",
+          type: "anti_bot_challenge",
+          source: "navigation",
+          reasonCode: "challenge_detected",
+          confidence: 0.9,
+          retryable: true,
+          detectedAt: "2026-03-26T00:00:00.000Z",
+          evidence: { matchedPatterns: [], networkHosts: [] },
+          actionHints: []
+        }
+      }
+    });
+    deps.manager.snapshot.mockResolvedValueOnce({
+      snapshotId: "snap-review",
+      url: "https://example.com/review",
+      title: "Review Title",
+      content: "[r1] button \"Continue\"",
+      truncated: true,
+      nextCursor: "1",
+      refCount: 1,
+      timingMs: 12,
+      warnings: ["review warning"]
+    });
+
+    const result = parse(await tools.opendevbrowser_review.execute({
+      sessionId: "s1",
+      targetId: "tab-9",
+      maxChars: 1200,
+      cursor: "0"
+    } as never));
+
+    expect(deps.manager.snapshot).toHaveBeenLastCalledWith("s1", "actionables", 1200, "0", "tab-9");
+    expect(result).toMatchObject({
+      ok: true,
+      sessionId: "s1",
+      targetId: "tab-9",
+      mode: "extension",
+      snapshotId: "snap-review",
+      url: "https://example.com/review",
+      title: "Review Title",
+      content: "[r1] button \"Continue\"",
+      truncated: true,
+      nextCursor: "1",
+      refCount: 1,
+      timingMs: 12,
+      warnings: ["review warning"],
+      meta: {
+        blockerState: "active",
+        blocker: {
+          type: "anti_bot_challenge"
+        }
+      }
+    });
+  });
 
   it("wraps tool execution with ensureHub when provided", async () => {
     const deps = createDeps();

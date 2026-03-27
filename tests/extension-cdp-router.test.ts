@@ -1597,6 +1597,13 @@ describe("CDPRouter", () => {
       params: { method: "Target.setDiscoverTargets", params: { discover: true } }
     });
 
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ targetId: expect.any(String) }),
+      "Target.setDiscoverTargets",
+      { discover: true },
+      expect.any(Function)
+    );
+
     await router.handleCommand({
       id: 20,
       method: "forwardCDPCommand",
@@ -1620,6 +1627,35 @@ describe("CDPRouter", () => {
     expect(chrome.tabs.remove).toHaveBeenCalled();
     const closeResponse = onResponse.mock.calls.find((call) => call[0]?.id === 21);
     expect(closeResponse?.[0]?.result).toEqual({ success: true });
+  });
+
+  it("applies discover-target state through the direct helper and on later root attaches", async () => {
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    router.setCallbacks({ onEvent: vi.fn(), onResponse: vi.fn(), onDetach: vi.fn() });
+    await router.attach(1);
+
+    chrome.debugger.sendCommand.mockClear();
+    await router.setDiscoverTargetsEnabled(true);
+
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ targetId: expect.any(String) }),
+      "Target.setDiscoverTargets",
+      { discover: true },
+      expect.any(Function)
+    );
+
+    chrome.debugger.sendCommand.mockClear();
+    await router.attach(2);
+
+    expect(chrome.debugger.sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 2 }),
+      "Target.setDiscoverTargets",
+      { discover: true },
+      expect.any(Function)
+    );
   });
 
   it("reissues auto-attach for child sessions", async () => {

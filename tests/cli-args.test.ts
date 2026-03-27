@@ -88,6 +88,20 @@ describe("parseArgs", () => {
     expect(parsed.command).toBe("debug-trace-snapshot");
   });
 
+  it("accepts review command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "review",
+      "--session-id",
+      "s1",
+      "--target-id",
+      "tab-9",
+      "--max-chars=1200"
+    ]);
+    expect(parsed.command).toBe("review");
+  });
+
   it("accepts cookie-import command", () => {
     const parsed = parseArgs([
       "node",

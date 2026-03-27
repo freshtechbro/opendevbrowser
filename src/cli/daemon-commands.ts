@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
+import { buildBrowserReviewResult } from "../browser/review-surface";
 import { createConfiguredProviderRuntime } from "../providers/runtime-factory";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
@@ -276,6 +277,15 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           targetId
       );
       }
+    case "nav.review":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return buildBrowserReviewResult({
+        manager: core.manager,
+        sessionId: requireString(params.sessionId, "sessionId"),
+        targetId: optionalString(params.targetId),
+        maxChars: optionalNumber(params.maxChars, "maxChars") ?? core.config.snapshot.maxChars,
+        cursor: optionalString(params.cursor)
+      });
     case "interact.click":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.click(

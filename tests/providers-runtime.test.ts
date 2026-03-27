@@ -1359,9 +1359,19 @@ describe("provider runtime branches", () => {
         source: "web",
         operation: "search",
         reasonCode: "env_limited",
-        useCookies: true,
-        cookiePolicyOverride: "required"
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["managed_headed"],
+            forceTransport: false
+          },
+          cookies: {
+            requested: true,
+            policy: "required"
+          }
+        })
       }));
+      expect(fallbackResolve.mock.calls[0]?.[0]).not.toHaveProperty("useCookies");
+      expect(fallbackResolve.mock.calls[0]?.[0]).not.toHaveProperty("cookiePolicyOverride");
     } finally {
       vi.unstubAllGlobals();
     }

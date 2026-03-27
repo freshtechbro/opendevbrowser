@@ -487,6 +487,197 @@ describe("OpsRuntime target teardown", () => {
     );
   });
 
+  it("captures first-class review payloads over the ops surface", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async (_debuggee: chrome.debugger.Debuggee, method: string, params?: Record<string, unknown>) => {
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          return {};
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          return {
+            nodes: [{
+              nodeId: "ax-1",
+              backendDOMNodeId: 1,
+              role: { value: "button" },
+              name: { value: "Review CTA" }
+            }]
+          };
+        }
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "node-1" } };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof params?.functionDeclaration === "string"
+            ? params.functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            return { result: { value: "#review-cta" } };
+          }
+          return { result: { value: null } };
+        }
+        return {};
+      })
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", {
+      url: "https://example.com/review",
+      title: "Review Page"
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockResolvedValue({
+      id: 101,
+      url: "https://example.com/review",
+      title: "Review Page",
+      status: "complete"
+    } as chrome.tabs.Tab);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-nav-review",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "nav.review",
+      payload: {
+        maxChars: 4096
+      }
+    });
+    await vi.waitFor(() => {
+      expect(cdp.sendCommand).toHaveBeenCalledWith({ tabId: 101 }, "Accessibility.getFullAXTree", {});
+    });
+
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-nav-review",
+          payload: expect.objectContaining({
+            sessionId: session.id,
+            targetId: "tab-101",
+            mode: "extension",
+            snapshotId: expect.any(String),
+            url: "https://example.com/review",
+            title: "Review Page",
+            refCount: 1,
+            content: expect.stringContaining('Review CTA')
+          })
+        })
+      ])
+    );
+  });
+
+  it("captures review payloads for the active popup target over the ops surface", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async (_debuggee: chrome.debugger.Debuggee, method: string, params?: Record<string, unknown>) => {
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          return {};
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          return {
+            nodes: [{
+              nodeId: "ax-popup-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          };
+        }
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "popup-node-1" } };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof params?.functionDeclaration === "string"
+            ? params.functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            return { result: { value: "#popup-cta" } };
+          }
+          return { result: { value: null } };
+        }
+        return {};
+      })
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", {
+      url: "https://example.com/root",
+      title: "Root Page"
+    });
+    sessions.upsertSyntheticTarget(session.id, {
+      targetId: "popup-202",
+      tabId: 202,
+      type: "page",
+      url: "https://popup.example.com/challenge",
+      title: "Popup Challenge",
+      sessionId: "popup-session-202",
+      openerTargetId: "tab-101",
+      attachedAt: Date.now()
+    });
+    session.activeTargetId = "popup-202";
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/challenge" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Challenge" : "Root Page",
+      status: "complete"
+    } as chrome.tabs.Tab));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-nav-review-popup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "nav.review",
+      payload: {
+        maxChars: 4096
+      }
+    });
+    await vi.waitFor(() => {
+      expect(cdp.sendCommand).toHaveBeenCalledWith(
+        { tabId: 202, sessionId: "popup-session-202" },
+        "Accessibility.getFullAXTree",
+        {}
+      );
+    });
+
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-nav-review-popup",
+          payload: expect.objectContaining({
+            sessionId: session.id,
+            targetId: "popup-202",
+            mode: "extension",
+            snapshotId: expect.any(String),
+            url: "https://popup.example.com/challenge",
+            title: "Popup Challenge",
+            refCount: 1,
+            content: expect.stringContaining("Popup CTA")
+          })
+        })
+      ])
+    );
+  });
+
   it("prefers stored canvas target metadata in session.status when live tab lookup disagrees", async () => {
     const sent: Array<{ type?: string; requestId?: string; payload?: unknown }> = [];
     const cdp = {
@@ -1239,6 +1430,62 @@ describe("OpsRuntime target teardown", () => {
     );
   });
 
+  it("enables target discovery and auto-attach during session.launch", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
+    const cdp = {
+      attach: vi.fn(async () => undefined),
+      detachTab: vi.fn(async () => undefined),
+      setDiscoverTargetsEnabled: vi.fn(async () => undefined),
+      configureAutoAttach: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 202,
+      status: "complete",
+      url: "https://example.com/recovered",
+      title: "Recovered Tab"
+    } as chrome.tabs.Tab);
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }),
+      cdp: cdp as never
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-session-target-tracking",
+      clientId: "client-1",
+      command: "session.launch",
+      payload: {
+        tabId: 202
+      }
+    });
+    await vi.waitFor(() => {
+      expect(cdp.attach).toHaveBeenCalledWith(202);
+      expect(cdp.setDiscoverTargetsEnabled).toHaveBeenCalledWith(true);
+      expect(cdp.configureAutoAttach).toHaveBeenCalledWith({
+        autoAttach: true,
+        waitForDebuggerOnStart: false,
+        flatten: true
+      });
+    });
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-session-target-tracking",
+          payload: expect.objectContaining({
+            activeTargetId: "tab-202",
+            url: "https://example.com/recovered",
+            title: "Recovered Tab"
+          })
+        })
+      ])
+    );
+  });
+
   it("falls back to the first attachable http tab when session.launch sees a restricted active tab", async () => {
     const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
     const cdp = {
@@ -1539,6 +1786,70 @@ describe("OpsRuntime target teardown", () => {
                 title: "Synthetic Preview"
               })
             ])
+          })
+        })
+      ])
+    );
+  });
+
+  it("returns retry guidance when a popup target has not finished attaching", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", {
+      url: "https://example.com/root",
+      title: "Root Page"
+    });
+    sessions.upsertSyntheticTarget(session.id, {
+      targetId: "popup-303",
+      tabId: 303,
+      type: "page",
+      url: "https://popup.example.com/attach",
+      title: "Popup Pending",
+      openerTargetId: "tab-101",
+      attachedAt: Date.now()
+    });
+    session.refStore.setSnapshot("popup-303", [{
+      ref: "r1",
+      selector: "#popup-cta",
+      backendNodeId: 3,
+      role: "button",
+      name: "Popup CTA"
+    }]);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-click-pending",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "interact.click",
+      payload: {
+        ref: "r1",
+        targetId: "popup-303"
+      }
+    });
+    await flushMicrotasks();
+
+    expect(cdp.sendCommand).not.toHaveBeenCalled();
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_error",
+          requestId: "req-popup-click-pending",
+          error: expect.objectContaining({
+            code: "execution_failed",
+            retryable: true,
+            message: "Popup target has not finished attaching yet. Take a new review or snapshot and retry."
           })
         })
       ])

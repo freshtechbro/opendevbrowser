@@ -7,6 +7,7 @@ import {
   resolveProviderFallbackModes,
   toProviderFallbackError
 } from "../src/providers/browser-fallback";
+import { resolveProviderRuntimePolicy } from "../src/providers/runtime-policy";
 import type { BrowserFallbackPort, BrowserFallbackResponse, ProviderContext } from "../src/providers/types";
 
 describe("provider browser fallback helpers", () => {
@@ -188,8 +189,13 @@ describe("provider browser fallback helpers", () => {
       },
       timeoutMs: 321,
       attempt: 1,
-      useCookies: true,
-      cookiePolicyOverride: "required"
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: {
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      })
     };
 
     const port: BrowserFallbackPort = {
@@ -260,9 +266,13 @@ describe("provider browser fallback helpers", () => {
       reasonCode: "auth_required",
       url: "https://example.com/video",
       timeoutMs: 321,
-      useCookies: true,
-      cookiePolicyOverride: "required",
       preferredModes: ["extension"],
+      runtimePolicy: expect.objectContaining({
+        cookies: {
+          requested: true,
+          policy: "required"
+        }
+      }),
       ownerSurface: "provider_fallback",
       resumeMode: "auto",
       suspendedIntent: {
@@ -283,7 +293,12 @@ describe("provider browser fallback helpers", () => {
     });
     expect(deferred?.disposition).toBe("deferred");
     expect(port.resolve).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      preferredModes: ["managed_headed"],
+      runtimePolicy: expect.objectContaining({
+        browser: {
+          preferredModes: ["managed_headed"],
+          forceTransport: false
+        }
+      }),
       suspendedIntent: {
         kind: "provider.search",
         provider: "web/default",
@@ -291,6 +306,8 @@ describe("provider browser fallback helpers", () => {
         operation: "search"
       }
     }));
+    expect(port.resolve.mock.calls[1]?.[0]).not.toHaveProperty("useCookies");
+    expect(port.resolve.mock.calls[1]?.[0]).not.toHaveProperty("cookiePolicyOverride");
 
     const failed = await resolveProviderBrowserFallback({
       browserFallbackPort: port,
@@ -333,7 +350,12 @@ describe("provider browser fallback helpers", () => {
           ts: "2026-03-23T00:00:00.000Z"
         },
         attempt: 1,
-        challengeAutomationMode: "browser_with_helper"
+        runtimePolicy: resolveProviderRuntimePolicy({
+          source: "shopping",
+          runtimePolicy: {
+            challengeAutomationMode: "browser_with_helper"
+          }
+        })
       },
       suspendedIntent: {
         kind: "provider.search",
@@ -356,7 +378,11 @@ describe("provider browser fallback helpers", () => {
     });
 
     expect(port.resolve).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      challengeAutomationMode: "browser_with_helper",
+      runtimePolicy: expect.objectContaining({
+        challenge: expect.objectContaining({
+          mode: "browser_with_helper"
+        })
+      }),
       suspendedIntent: {
         kind: "provider.search",
         note: "resume target",
@@ -365,6 +391,7 @@ describe("provider browser fallback helpers", () => {
         }
       }
     }));
+    expect(port.resolve.mock.calls[0]?.[0]).not.toHaveProperty("challengeAutomationMode");
     expect(port.resolve).toHaveBeenNthCalledWith(2, expect.objectContaining({
       suspendedIntent: {
         kind: "provider.fetch",

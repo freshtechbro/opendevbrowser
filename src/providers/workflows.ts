@@ -29,6 +29,7 @@ import type {
   ProviderFailureEntry,
   ProviderReasonCode,
   ProviderRunOptions,
+  ProviderRuntimePolicyInput,
   ProviderSelection,
   ProviderSource,
   WorkflowBrowserMode
@@ -470,53 +471,46 @@ const withPrimaryConstraintMeta = (
     : meta;
 };
 
+const mergeRuntimePolicyInput = (
+  options: ProviderRunOptions,
+  input: Partial<ProviderRuntimePolicyInput>
+): ProviderRunOptions => {
+  const runtimePolicy: ProviderRuntimePolicyInput = {
+    ...(options.runtimePolicy ?? {}),
+    ...input
+  };
+  return {
+    ...options,
+    runtimePolicy
+  };
+};
+
 const withCookieOverrides = (
   options: ProviderRunOptions,
   input: { useCookies?: boolean; cookiePolicyOverride?: ProviderCookiePolicy }
 ): ProviderRunOptions => {
-  return {
-    ...options,
+  return mergeRuntimePolicyInput(options, {
     ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
     ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
-  };
+  });
 };
 
 const withChallengeAutomationOverride = (
   options: ProviderRunOptions,
   input: { challengeAutomationMode?: ChallengeAutomationMode }
 ): ProviderRunOptions => {
-  return {
-    ...options,
+  return mergeRuntimePolicyInput(options, {
     ...(input.challengeAutomationMode ? { challengeAutomationMode: input.challengeAutomationMode } : {})
-  };
+  });
 };
-
-const resolveWorkflowBrowserModeFallbackModes = (
-  browserMode?: WorkflowBrowserMode
-): BrowserFallbackMode[] | undefined => {
-  if (browserMode === "extension") {
-    return ["extension"];
-  }
-  if (browserMode === "managed") {
-    return ["managed_headed"];
-  }
-  return undefined;
-};
-
-const shouldForceWorkflowBrowserTransport = (
-  browserMode?: WorkflowBrowserMode
-): boolean => browserMode === "extension" || browserMode === "managed";
 
 const withBrowserModeOverride = (
   options: ProviderRunOptions,
   input: { browserMode?: WorkflowBrowserMode }
 ): ProviderRunOptions => {
-  const preferredFallbackModes = resolveWorkflowBrowserModeFallbackModes(input.browserMode);
-  return {
-    ...options,
-    ...(preferredFallbackModes ? { preferredFallbackModes } : {}),
-    ...(shouldForceWorkflowBrowserTransport(input.browserMode) ? { forceBrowserTransport: true } : {})
-  };
+  return mergeRuntimePolicyInput(options, {
+    ...(input.browserMode ? { browserMode: input.browserMode } : {})
+  });
 };
 
 const withWorkflowResumeIntent = (

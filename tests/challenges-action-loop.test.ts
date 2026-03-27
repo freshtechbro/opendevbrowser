@@ -96,6 +96,7 @@ const makeHandle = (
     deferred?: boolean;
     throwKinds?: ChallengeActionStep["kind"][];
     advanceOnKinds?: ChallengeActionStep["kind"][];
+    resolveRefPoints?: Record<string, { x: number; y: number }>;
   } = {}
 ): ChallengeRuntimeHandle => {
   let cleared = false;
@@ -227,7 +228,10 @@ const makeHandle = (
         network: { events: [] },
         exception: { events: [] }
       }
-    }))
+    })),
+    resolveRefPoint: vi.fn(async (_sessionId: string, ref: string) => (
+      options.resolveRefPoints?.[ref] ?? { x: 640, y: 360 }
+    ))
   };
 };
 
@@ -308,7 +312,10 @@ describe("challenge action loop", () => {
     vi.useFakeTimers();
     try {
       const handle = makeHandle("[r30] button \"Press and hold for 1 second\"", {
-        advanceOnKinds: ["pointer"]
+        advanceOnKinds: ["pointer"],
+        resolveRefPoints: {
+          r30: { x: 450, y: 275 }
+        }
       });
       const pending = runChallengeActionLoop({
         handle,
@@ -329,8 +336,9 @@ describe("challenge action loop", () => {
         ref: "r30",
         holdMs: 1000
       });
-      expect(handle.pointerDown).toHaveBeenCalledWith("session-hold", 640, 360, "tab-1", "left", 1);
-      expect(handle.pointerUp).toHaveBeenCalledWith("session-hold", 640, 360, "tab-1", "left", 1);
+      expect(handle.resolveRefPoint).toHaveBeenCalledWith("session-hold", "r30", "tab-1");
+      expect(handle.pointerDown).toHaveBeenCalledWith("session-hold", 450, 275, "tab-1", "left", 1);
+      expect(handle.pointerUp).toHaveBeenCalledWith("session-hold", 450, 275, "tab-1", "left", 1);
     } finally {
       vi.useRealTimers();
     }
@@ -481,7 +489,10 @@ describe("challenge action loop", () => {
 
   it("chooses drag first when the visible challenge requests a slider-style action", async () => {
     const handle = makeHandle("[r31] button \"Drag the slider\"", {
-      advanceOnKinds: ["drag"]
+      advanceOnKinds: ["drag"],
+      resolveRefPoints: {
+        r31: { x: 520, y: 210 }
+      }
     });
     const result = await runChallengeActionLoop({
       handle,
@@ -499,7 +510,14 @@ describe("challenge action loop", () => {
       kind: "drag",
       ref: "r31"
     });
-    expect(handle.drag).toHaveBeenCalled();
+    expect(handle.resolveRefPoint).toHaveBeenCalledWith("session-drag", "r31", "tab-1");
+    expect(handle.drag).toHaveBeenCalledWith(
+      "session-drag",
+      { x: 520, y: 210 },
+      { x: 520, y: 470 },
+      "tab-1",
+      16
+    );
   });
 
   it("explores checkpoint, hover, scroll, press, pointer, and drag paths in bounded order", async () => {
@@ -903,12 +921,69 @@ describe("challenge action loop", () => {
     expect(handle.pointerMove).toHaveBeenCalledWith("session-defaults", 640, 360, "tab-1", 12);
     expect(handle.drag).toHaveBeenCalledWith(
       "session-defaults",
-      { x: 640, y: 240 },
-      { x: 640, y: 500 },
+      { x: 640, y: 360 },
+      { x: 640, y: 620 },
       "tab-1",
       16
     );
     expect(result.executedSteps).toHaveLength(10);
+  });
+
+  it("executes cookie, snapshot, and debug-trace suggested steps directly", async () => {
+    const cookies = [{
+      name: "session",
+      value: "abc123",
+      domain: ".example.com",
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "Lax" as const
+    }];
+    const handle = makeHandle("[r11] button \"Continue\"", {
+      advanceOnKinds: ["wait"]
+    });
+    const suggestedSteps: ChallengeActionStep[] = [
+      {
+        kind: "cookie_list",
+        url: "https://example.com/challenge",
+        reason: "Inspect current cookies first."
+      },
+      {
+        kind: "cookie_import",
+        cookies,
+        reason: "Import a bounded cookie set."
+      },
+      {
+        kind: "snapshot",
+        snapshotChars: 1800,
+        reason: "Capture a fresh actionables snapshot."
+      },
+      {
+        kind: "debug_trace",
+        traceMax: 12,
+        reason: "Capture a bounded debug trace."
+      }
+    ];
+
+    const result = await runChallengeActionLoop({
+      handle,
+      sessionId: "session-supported-suggestions",
+      initialBundle: makeBundle({
+        snapshot: "[r11] button \"Continue\""
+      }),
+      decision: makeDecision(["verification"], {
+        attemptBudget: 4,
+        noProgressLimit: 8
+      }),
+      suggestedSteps,
+      config
+    });
+
+    expect(handle.cookieList).toHaveBeenCalledWith("session-supported-suggestions", ["https://example.com/challenge"]);
+    expect(handle.cookieImport).toHaveBeenCalledWith("session-supported-suggestions", cookies, true);
+    expect(handle.snapshot).toHaveBeenCalledWith("session-supported-suggestions", "actionables", 1800, undefined, "tab-1");
+    expect(handle.debugTraceSnapshot).toHaveBeenCalledWith("session-supported-suggestions", { max: 12 });
+    expect(result.executedSteps).toEqual(suggestedSteps);
   });
 
   it("stops after bounded no-progress attempts", async () => {

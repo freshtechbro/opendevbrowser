@@ -222,6 +222,19 @@ const planGenericStep = (
   return undefined;
 };
 
+const resolveStepPoint = async (args: {
+  handle: ChallengeRuntimeHandle;
+  sessionId: string;
+  step: ChallengeActionStep;
+  targetId?: string | null;
+  fallback: { x: number; y: number };
+}): Promise<{ x: number; y: number }> => {
+  if (!args.step.ref) {
+    return args.step.coordinates ?? args.fallback;
+  }
+  return await args.handle.resolveRefPoint(args.sessionId, args.step.ref, args.targetId);
+};
+
 const executeStep = async (args: {
   handle: ChallengeRuntimeHandle;
   sessionId: string;
@@ -242,12 +255,17 @@ const executeStep = async (args: {
       }
       return;
     case "click_and_hold": {
-      const x = args.step.coordinates?.x ?? 640;
-      const y = args.step.coordinates?.y ?? 360;
-      await args.handle.pointerMove(args.sessionId, x, y, args.targetId, 12);
-      await args.handle.pointerDown(args.sessionId, x, y, args.targetId, "left", 1);
+      const point = await resolveStepPoint({
+        handle: args.handle,
+        sessionId: args.sessionId,
+        step: args.step,
+        targetId: args.targetId,
+        fallback: { x: 640, y: 360 }
+      });
+      await args.handle.pointerMove(args.sessionId, point.x, point.y, args.targetId, 12);
+      await args.handle.pointerDown(args.sessionId, point.x, point.y, args.targetId, "left", 1);
       await new Promise((resolve) => setTimeout(resolve, Math.max(250, args.step.holdMs ?? DEFAULT_HOLD_MS)));
-      await args.handle.pointerUp(args.sessionId, x, y, args.targetId, "left", 1);
+      await args.handle.pointerUp(args.sessionId, point.x, point.y, args.targetId, "left", 1);
       return;
     }
     case "hover":
@@ -281,13 +299,43 @@ const executeStep = async (args: {
       );
       return;
     case "drag":
-      await args.handle.drag(
+      {
+        const point = await resolveStepPoint({
+          handle: args.handle,
+          sessionId: args.sessionId,
+          step: args.step,
+          targetId: args.targetId,
+          fallback: args.step.coordinates ?? { x: 640, y: 360 }
+        });
+        await args.handle.drag(
+          args.sessionId,
+          point,
+          {
+            x: point.x,
+            y: point.y + 260
+          },
+          args.targetId,
+          16
+        );
+      }
+      return;
+    case "cookie_list":
+      await args.handle.cookieList(args.sessionId, args.step.url ? [args.step.url] : undefined);
+      return;
+    case "cookie_import":
+      await args.handle.cookieImport(args.sessionId, args.step.cookies ?? [], true);
+      return;
+    case "snapshot":
+      await args.handle.snapshot(
         args.sessionId,
-        { x: args.step.coordinates?.x ?? 640, y: args.step.coordinates?.y ?? 240 },
-        { x: args.step.coordinates?.x ?? 640, y: (args.step.coordinates?.y ?? 240) + 260 },
-        args.targetId,
-        16
+        "actionables",
+        args.step.snapshotChars ?? 2400,
+        undefined,
+        args.targetId
       );
+      return;
+    case "debug_trace":
+      await args.handle.debugTraceSnapshot(args.sessionId, { max: args.step.traceMax ?? 50 });
       return;
     case "wait":
       await args.handle.waitForLoad(args.sessionId, "networkidle", Math.min(timeoutMs, 3000), args.targetId);

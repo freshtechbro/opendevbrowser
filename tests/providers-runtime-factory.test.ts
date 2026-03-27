@@ -2,13 +2,41 @@ import { describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { BrowserManagerLike } from "../src/browser/manager-types";
+import type { BrowserManagerLike, ChallengeRuntimeHandle } from "../src/browser/manager-types";
 import { ProviderRuntimeError } from "../src/providers/errors";
+import { resolveProviderRuntimePolicy } from "../src/providers/runtime-policy";
 import {
   buildRuntimeInitFromConfig,
   createBrowserFallbackPort,
   createConfiguredProviderRuntime
 } from "../src/providers/runtime-factory";
+
+const makeChallengeRuntimeHandle = (): ChallengeRuntimeHandle => ({
+  status: vi.fn(async () => ({ mode: "extension", activeTargetId: "target-1" })),
+  goto: vi.fn(async () => ({ timingMs: 1 })),
+  waitForLoad: vi.fn(async () => ({ timingMs: 1 })),
+  snapshot: vi.fn(async () => ({ content: "", warnings: [] })),
+  click: vi.fn(async () => ({ timingMs: 1, navigated: false })),
+  hover: vi.fn(async () => ({ timingMs: 1 })),
+  press: vi.fn(async () => ({ timingMs: 1 })),
+  type: vi.fn(async () => ({ timingMs: 1 })),
+  select: vi.fn(async () => undefined),
+  scroll: vi.fn(async () => undefined),
+  pointerMove: vi.fn(async () => ({ timingMs: 1 })),
+  pointerDown: vi.fn(async () => ({ timingMs: 1 })),
+  pointerUp: vi.fn(async () => ({ timingMs: 1 })),
+  drag: vi.fn(async () => ({ timingMs: 1 })),
+  cookieList: vi.fn(async () => ({ count: 0, cookies: [] })),
+  cookieImport: vi.fn(async () => ({ imported: 0, rejected: [] })),
+  debugTraceSnapshot: vi.fn(async () => ({
+    channels: {
+      console: { events: [] },
+      network: { events: [] },
+      exception: { events: [] }
+    }
+  })),
+  resolveRefPoint: vi.fn(async () => ({ x: 640, y: 360 }))
+});
 
 describe("provider runtime factory", () => {
   it("returns undefined fallback port when manager is missing", () => {
@@ -973,10 +1001,13 @@ describe("provider runtime factory", () => {
       source: "shopping",
       operation: "search",
       reasonCode: "challenge_detected",
-      preferredModes: ["extension", "managed_headed"],
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "shopping",
+        preferredFallbackModes: ["extension", "managed_headed"],
+        useCookies: true
+      }),
       trace: { requestId: "rf-extension-first", ts: "2026-02-16T00:00:00.000Z" },
-      url: "https://example.com/watch",
-      useCookies: true
+      url: "https://example.com/watch"
     });
 
     expect(response).toMatchObject({
@@ -1378,12 +1409,7 @@ describe("provider runtime factory", () => {
           url: "https://example.com/account"
         }),
       disconnect: vi.fn(async () => undefined),
-      createChallengeRuntimeHandle: vi.fn().mockReturnValue({
-        status: vi.fn(),
-        snapshot: vi.fn(),
-        debugTraceSnapshot: vi.fn(),
-        cookieList: vi.fn()
-      })
+      createChallengeRuntimeHandle: vi.fn().mockReturnValue(makeChallengeRuntimeHandle())
     } as unknown as BrowserManagerLike;
     const challengeOrchestrator = {
       orchestrate: vi.fn(async () => ({
@@ -1487,12 +1513,7 @@ describe("provider runtime factory", () => {
           url: undefined
         }),
       disconnect: vi.fn(async () => undefined),
-      createChallengeRuntimeHandle: vi.fn().mockReturnValue({
-        status: vi.fn(),
-        snapshot: vi.fn(),
-        debugTraceSnapshot: vi.fn(),
-        cookieList: vi.fn()
-      })
+      createChallengeRuntimeHandle: vi.fn().mockReturnValue(makeChallengeRuntimeHandle())
     } as unknown as BrowserManagerLike;
     const challengeOrchestrator = {
       orchestrate: vi.fn(async () => ({
@@ -1601,12 +1622,7 @@ describe("provider runtime factory", () => {
         activeTargetId: undefined
       })),
       disconnect: vi.fn(async () => undefined),
-      createChallengeRuntimeHandle: vi.fn().mockReturnValue({
-        status: vi.fn(),
-        snapshot: vi.fn(),
-        debugTraceSnapshot: vi.fn(),
-        cookieList: vi.fn()
-      })
+      createChallengeRuntimeHandle: vi.fn().mockReturnValue(makeChallengeRuntimeHandle())
     } as unknown as BrowserManagerLike;
     const challengeOrchestrator = {
       orchestrate: vi.fn(async () => ({
@@ -1715,7 +1731,8 @@ describe("provider runtime factory", () => {
         })),
         disconnect: vi.fn(async () => undefined),
         getSessionChallengeAutomationMode: vi.fn(() => testCase.sessionMode),
-        setSessionChallengeAutomationMode: vi.fn()
+        setSessionChallengeAutomationMode: vi.fn(),
+        createChallengeRuntimeHandle: vi.fn().mockReturnValue(makeChallengeRuntimeHandle())
       } as unknown as BrowserManagerLike;
 
       const challengeOrchestrator = {
@@ -1781,7 +1798,16 @@ describe("provider runtime factory", () => {
         reasonCode: "challenge_detected",
         trace: { requestId: `rf-precedence-${testCase.label}`, ts: "2026-03-23T00:00:00.000Z" },
         url: "https://example.com/challenge",
-        ...(testCase.runMode ? { challengeAutomationMode: testCase.runMode } : {})
+        ...(testCase.runMode
+          ? {
+            runtimePolicy: resolveProviderRuntimePolicy({
+              source: "shopping",
+              runtimePolicy: {
+                challengeAutomationMode: testCase.runMode
+              }
+            })
+          }
+          : {})
       });
 
       expect(challengeOrchestrator.orchestrate).toHaveBeenCalledWith(expect.objectContaining({
@@ -1810,14 +1836,10 @@ describe("provider runtime factory", () => {
           }
         });
       }
-      if (testCase.runMode) {
-        expect(manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith(
-          `challenge-${testCase.label}-session`,
-          testCase.runMode
-        );
-      } else {
-        expect(manager.setSessionChallengeAutomationMode).not.toHaveBeenCalled();
-      }
+      expect(manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith(
+        `challenge-${testCase.label}-session`,
+        testCase.expectedMode
+      );
       expect(manager.disconnect).not.toHaveBeenCalled();
     }
   });
@@ -1842,7 +1864,8 @@ describe("provider runtime factory", () => {
       })),
       disconnect: vi.fn(async () => undefined),
       getSessionChallengeAutomationMode: vi.fn(() => undefined),
-      setSessionChallengeAutomationMode: vi.fn()
+      setSessionChallengeAutomationMode: vi.fn(),
+      createChallengeRuntimeHandle: vi.fn().mockReturnValue(makeChallengeRuntimeHandle())
     } as unknown as BrowserManagerLike;
 
     const challengeOrchestrator = {
@@ -2056,7 +2079,12 @@ describe("provider runtime factory", () => {
       reasonCode: "token_required",
       trace: { requestId: "rf-clear-auth", ts: "2026-03-23T00:00:00.000Z" },
       url: "https://www.linkedin.com/search/results/content/?keywords=browser%20automation&page=1",
-      challengeAutomationMode: "browser_with_helper"
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: {
+          challengeAutomationMode: "browser_with_helper"
+        }
+      })
     });
 
     expect(response).toMatchObject({
@@ -2092,7 +2120,8 @@ describe("provider runtime factory", () => {
       })),
       disconnect: vi.fn(async () => undefined),
       getSessionChallengeAutomationMode: vi.fn(() => undefined),
-      setSessionChallengeAutomationMode: vi.fn()
+      setSessionChallengeAutomationMode: vi.fn(),
+      createChallengeRuntimeHandle: vi.fn().mockReturnValue(makeChallengeRuntimeHandle())
     } as unknown as BrowserManagerLike;
 
     const challengeOrchestrator = {
@@ -2288,7 +2317,8 @@ describe("provider runtime factory", () => {
       status: vi.fn(async () => ({ mode: "extension", url: "https://example.com/challenge" })),
       cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
       disconnect: vi.fn(async () => undefined),
-      getSessionChallengeAutomationMode: vi.fn(() => "session-mode-should-not-apply")
+      getSessionChallengeAutomationMode: vi.fn(() => "session-mode-should-not-apply"),
+      createChallengeRuntimeHandle: vi.fn().mockReturnValue(makeChallengeRuntimeHandle())
     } as unknown as BrowserManagerLike;
     const challengeOrchestrator = {
       orchestrate: vi.fn(async () => ({
@@ -2314,8 +2344,11 @@ describe("provider runtime factory", () => {
       reasonCode: "challenge_detected",
       trace: { requestId: "rf-empty-session-id", ts: "2026-03-26T00:00:00.000Z" },
       url: "https://example.com/challenge",
-      preferredModes: ["extension"],
-      challengeAutomationMode: "browser_with_helper"
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        preferredFallbackModes: ["extension"],
+        challengeAutomationMode: "browser_with_helper"
+      })
     });
 
     expect(response).toMatchObject({
@@ -2536,7 +2569,12 @@ describe("provider runtime factory", () => {
       reasonCode: "transcript_unavailable",
       trace: { requestId: "rf-cookie-policy-1", ts: "2026-02-16T00:00:00.000Z" },
       url: "https://example.com/protected",
-      useCookies: true
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: {
+          useCookies: true
+        }
+      })
     });
     expect(withUseCookies).toMatchObject({
       ok: true,
@@ -2555,7 +2593,12 @@ describe("provider runtime factory", () => {
       reasonCode: "transcript_unavailable",
       trace: { requestId: "rf-cookie-policy-2", ts: "2026-02-16T00:00:00.000Z" },
       url: "https://example.com/protected",
-      useCookies: false
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: {
+          useCookies: false
+        }
+      })
     });
     expect(withDisable).toMatchObject({
       ok: true,
@@ -2574,8 +2617,13 @@ describe("provider runtime factory", () => {
       reasonCode: "transcript_unavailable",
       trace: { requestId: "rf-cookie-policy-3", ts: "2026-02-16T00:00:00.000Z" },
       url: "https://example.com/protected",
-      useCookies: false,
-      cookiePolicyOverride: "required"
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: {
+          useCookies: false,
+          cookiePolicyOverride: "required"
+        }
+      })
     });
     expect(withRequiredOverride).toMatchObject({
       ok: true,

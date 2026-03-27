@@ -171,11 +171,13 @@ describe("social platform adapters", () => {
       const fallbackCalls = new Map(
         fallbackResolve.mock.calls
           .map(([request]) => [request?.provider, request] as const)
-          .filter((entry): entry is readonly [string, { preferredModes?: string[] }] => typeof entry[0] === "string")
+          .filter((
+            entry
+          ): entry is readonly [string, { runtimePolicy?: { browser?: { preferredModes?: string[] } } }] => typeof entry[0] === "string")
       );
-      expect(fallbackCalls.get("social/linkedin")?.preferredModes).toEqual(["extension", "managed_headed"]);
-      expect(fallbackCalls.get("social/instagram")?.preferredModes).toEqual(["managed_headed"]);
-      expect(fallbackCalls.get("social/reddit")?.preferredModes).toEqual(["managed_headed"]);
+      expect(fallbackCalls.get("social/linkedin")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
+      expect(fallbackCalls.get("social/instagram")?.runtimePolicy?.browser?.preferredModes).toEqual(["managed_headed"]);
+      expect(fallbackCalls.get("social/reddit")?.runtimePolicy?.browser?.preferredModes).toEqual(["managed_headed"]);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -250,7 +252,12 @@ describe("social platform adapters", () => {
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
         provider: "social/linkedin",
         reasonCode: "token_required",
-        preferredModes: ["extension", "managed_headed"]
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension", "managed_headed"],
+            forceTransport: false
+          }
+        })
       }));
       expect(fallbackResolve.mock.calls.length).toBeLessThanOrEqual(2);
       expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(2);
@@ -418,7 +425,12 @@ describe("social platform adapters", () => {
       });
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
         provider: "social/linkedin",
-        preferredModes: ["extension", "managed_headed"]
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension", "managed_headed"],
+            forceTransport: false
+          }
+        })
       }));
     } finally {
       vi.unstubAllGlobals();

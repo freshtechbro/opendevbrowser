@@ -19,7 +19,9 @@ import {
   toBrowserFallbackObservation,
   toProviderFallbackError
 } from "./browser-fallback";
+import { resolveProviderRuntimePolicy } from "./runtime-policy";
 import { createLogger } from "../core/logging";
+import type { ChallengeAutomationMode } from "../challenges";
 import {
   AntiBotPolicyEngine,
   type AntiBotPolicyConfig
@@ -613,6 +615,7 @@ export interface RuntimeInit {
     policy?: ProviderCookiePolicy;
     source?: ProviderCookieSourceConfig;
   };
+  challengeAutomationModeDefault?: ChallengeAutomationMode;
   browserFallbackPort?: BrowserFallbackPort;
 }
 
@@ -636,6 +639,10 @@ export class ProviderRuntime {
   private readonly adaptiveConfig: Required<NonNullable<RuntimeInit["adaptiveConcurrency"]>>;
   private adaptiveConcurrency: AdaptiveConcurrencyController;
   private readonly browserFallbackPort?: BrowserFallbackPort;
+  private readonly runtimePolicyDefaults: {
+    challengeAutomationMode: ChallengeAutomationMode;
+    cookiePolicy: ProviderCookiePolicy;
+  };
 
   constructor(init: RuntimeInit = {}) {
     this.registry = new ProviderRegistry();
@@ -649,6 +656,10 @@ export class ProviderRuntime {
     this.blockerDetectionThreshold = clampBlockerThreshold(init.blockerDetectionThreshold);
     this.antiBotPolicy = new AntiBotPolicyEngine(this.registry, init.antiBotPolicy);
     this.browserFallbackPort = init.browserFallbackPort;
+    this.runtimePolicyDefaults = {
+      challengeAutomationMode: init.challengeAutomationModeDefault ?? "browser_with_helper",
+      cookiePolicy: init.cookies?.policy ?? "auto"
+    };
     this.adaptiveConfig = {
       enabled: init.adaptiveConcurrency?.enabled ?? false,
       maxGlobal: Math.max(this.budgets.concurrency.global, init.adaptiveConcurrency?.maxGlobal ?? this.budgets.concurrency.global),
@@ -1168,23 +1179,26 @@ export class ProviderRuntime {
 
         const records = await this.withProviderConcurrency(provider.id, scopeKey, async () => {
           return this.withTimeout(timeoutMs, async (signal) => {
+            const recoveryHints = provider.recoveryHints?.();
+            const runtimePolicy = resolveProviderRuntimePolicy({
+              source: provider.source,
+              runtimePolicy: runOptions.runtimePolicy,
+              preferredFallbackModes: runOptions.preferredFallbackModes,
+              forceBrowserTransport: runOptions.forceBrowserTransport,
+              useCookies: runOptions.useCookies,
+              cookiePolicyOverride: runOptions.cookiePolicyOverride,
+              challengeAutomationMode: runOptions.challengeAutomationMode,
+              configChallengeAutomationMode: this.runtimePolicyDefaults.challengeAutomationMode,
+              configCookiePolicy: this.runtimePolicyDefaults.cookiePolicy,
+              recoveryHints
+            });
             const context: ProviderContext = {
               trace: createTraceContext(trace, provider.id),
               timeoutMs,
               attempt,
               signal,
-              ...(runOptions.preferredFallbackModes?.length
-                ? { preferredFallbackModes: runOptions.preferredFallbackModes }
-                : {}),
-              ...(runOptions.forceBrowserTransport ? { forceBrowserTransport: true } : {}),
+              runtimePolicy,
               suspendedIntent: this.buildSuspendedIntent(provider.id, provider.source, operation, input, runOptions),
-              ...(typeof runOptions.useCookies === "boolean" ? { useCookies: runOptions.useCookies } : {}),
-              ...(runOptions.challengeAutomationMode
-                ? { challengeAutomationMode: runOptions.challengeAutomationMode }
-                : {}),
-              ...(runOptions.cookiePolicyOverride
-                ? { cookiePolicyOverride: runOptions.cookiePolicyOverride }
-                : {}),
               ...(this.browserFallbackPort
                 ? { browserFallbackPort: this.browserFallbackPort }
                 : {})

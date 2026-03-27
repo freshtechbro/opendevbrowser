@@ -1,12 +1,13 @@
 import * as path from "path";
 import * as os from "os";
 import { readFile } from "fs/promises";
-import type { BrowserManagerLike } from "../browser/manager-types";
+import type { BrowserManagerLike, ChallengeRuntimeHandle } from "../browser/manager-types";
 import type { OpenDevBrowserConfig } from "../config";
 import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
 import { createDefaultRuntime, type RuntimeDefaults, type RuntimeInit } from "./index";
 import { classifyBlockerSignal } from "./blocker";
 import { ProviderRuntimeError } from "./errors";
+import { resolveProviderRuntimePolicy } from "./runtime-policy";
 import { canonicalizeUrl } from "./web/crawler";
 import { toSnippet, extractStructuredContent } from "./web/extract";
 import type {
@@ -67,9 +68,10 @@ const toFallbackMode = (mode: unknown): BrowserFallbackMode => {
 };
 
 const isExplicitShoppingExtensionRequest = (request: BrowserFallbackRequest): boolean => {
+  const preferredModes = request.runtimePolicy?.browser.preferredModes ?? request.preferredModes;
   return request.source === "shopping"
-    && request.preferredModes?.length === 1
-    && request.preferredModes[0] === "extension";
+    && preferredModes?.length === 1
+    && preferredModes[0] === "extension";
 };
 
 const normalizeComparableUrl = (value: string | undefined): string | undefined => {
@@ -123,6 +125,41 @@ const isRestrictedExtensionNavigationError = (error: unknown): boolean => {
     || lowered.includes("restricted url")
     || lowered.includes("restricted tab")
     || lowered.includes("active tab uses a restricted url scheme");
+};
+
+type BrowserManagerWithResolveRefPoint = BrowserManagerLike & {
+  resolveRefPoint?: ChallengeRuntimeHandle["resolveRefPoint"];
+};
+
+const createFallbackChallengeRuntimeHandle = (manager: BrowserManagerLike): ChallengeRuntimeHandle => {
+  const createdHandle = manager.createChallengeRuntimeHandle?.();
+  if (createdHandle) {
+    return createdHandle;
+  }
+  const resolveRefPoint = (manager as BrowserManagerWithResolveRefPoint).resolveRefPoint;
+  if (typeof resolveRefPoint !== "function") {
+    throw new Error("Challenge runtime handle is unavailable for browser fallback orchestration.");
+  }
+  return {
+    status: manager.status.bind(manager),
+    goto: manager.goto.bind(manager),
+    waitForLoad: manager.waitForLoad.bind(manager),
+    snapshot: manager.snapshot.bind(manager),
+    click: manager.click.bind(manager),
+    hover: manager.hover.bind(manager),
+    press: manager.press.bind(manager),
+    type: manager.type.bind(manager),
+    select: manager.select.bind(manager),
+    scroll: manager.scroll.bind(manager),
+    pointerMove: manager.pointerMove.bind(manager),
+    pointerDown: manager.pointerDown.bind(manager),
+    pointerUp: manager.pointerUp.bind(manager),
+    drag: manager.drag.bind(manager),
+    cookieList: manager.cookieList.bind(manager),
+    cookieImport: manager.cookieImport.bind(manager),
+    debugTraceSnapshot: manager.debugTraceSnapshot.bind(manager),
+    resolveRefPoint: resolveRefPoint.bind(manager)
+  };
 };
 
 const reconnectExplicitShoppingExtensionSession = async (args: {
@@ -222,22 +259,6 @@ const readCookiesFromSource = async (
   }
 };
 
-const resolveEffectiveCookiePolicy = (
-  defaults: BrowserFallbackCookieConfig,
-  request: { useCookies?: boolean; cookiePolicyOverride?: ProviderCookiePolicy }
-): ProviderCookiePolicy => {
-  if (request.cookiePolicyOverride) {
-    return request.cookiePolicyOverride;
-  }
-  if (request.useCookies === false) {
-    return "off";
-  }
-  if (request.useCookies === true && defaults.policy === "off") {
-    return "auto";
-  }
-  return defaults.policy;
-};
-
 const baseCookieDiagnostics = (
   policy: ProviderCookiePolicy,
   source: ProviderCookieSourceConfig
@@ -258,7 +279,8 @@ const fallbackFailure = (
   reasonCode: BrowserFallbackResponse["reasonCode"],
   message: string,
   cookieDiagnostics?: BrowserFallbackCookieDiagnostics,
-  challengeOrchestration?: Record<string, JsonValue>
+  challengeOrchestration?: Record<string, JsonValue>,
+  runtimePolicy?: Record<string, JsonValue>
 ): BrowserFallbackResponse => ({
   ok: false,
   reasonCode,
@@ -266,7 +288,8 @@ const fallbackFailure = (
   details: {
     message,
     ...(cookieDiagnostics ? { cookieDiagnostics: toJsonRecord(cookieDiagnostics) } : {}),
-    ...(challengeOrchestration ? { challengeOrchestration } : {})
+    ...(challengeOrchestration ? { challengeOrchestration } : {}),
+    ...(runtimePolicy ? { runtimePolicy } : {})
   }
 });
 
@@ -350,7 +373,7 @@ const buildFallbackChallengeOrchestration = (args: {
   manager: BrowserManagerLike;
   request: Parameters<NonNullable<BrowserFallbackPort>["resolve"]>[0];
   sessionId?: string | null;
-  challengeModeDefault: ChallengeAutomationMode;
+  runtimePolicy: ReturnType<typeof resolveProviderRuntimePolicy>;
   helperBridgeEnabled: boolean;
   invoked: boolean;
   reason: string;
@@ -358,13 +381,7 @@ const buildFallbackChallengeOrchestration = (args: {
   if (!shouldEmitFallbackChallengeOrchestration(args.request.reasonCode)) {
     return undefined;
   }
-  const policy = resolveChallengeAutomationPolicy({
-    runMode: args.request.challengeAutomationMode,
-    sessionMode: args.sessionId
-      ? args.manager.getSessionChallengeAutomationMode?.(args.sessionId)
-      : undefined,
-    configMode: args.challengeModeDefault
-  });
+  const policy = args.runtimePolicy.challenge;
   return toJsonRecord({
     mode: policy.mode,
     source: policy.source,
@@ -622,12 +639,26 @@ export const createBrowserFallbackPort = (
         return Math.max(1, Math.min(requestedMs, remainingMs));
       };
 
-      const preferredModes = request.preferredModes?.length
-        ? [...new Set(request.preferredModes)]
+      const resolveFallbackRuntimePolicy = (sessionChallengeAutomationMode?: ChallengeAutomationMode) => (
+        request.runtimePolicy ?? resolveProviderRuntimePolicy({
+          source: request.source,
+          preferredFallbackModes: request.preferredModes,
+          sessionChallengeAutomationMode,
+          configChallengeAutomationMode: challengeModeDefault,
+          configCookiePolicy: defaults.policy
+        })
+      );
+      const baseRuntimePolicy = resolveFallbackRuntimePolicy();
+      const baseRuntimePolicyRecord = toJsonRecord(baseRuntimePolicy);
+      const preferredModes = baseRuntimePolicy.browser.preferredModes.length
+        ? baseRuntimePolicy.browser.preferredModes
         : ["managed_headed"];
       let lastFailure: BrowserFallbackResponse = fallbackFailure(
         "env_limited",
-        "Browser fallback exhausted all preferred modes."
+        "Browser fallback exhausted all preferred modes.",
+        undefined,
+        undefined,
+        baseRuntimePolicyRecord
       );
 
       for (const preferredMode of preferredModes) {
@@ -635,7 +666,9 @@ export const createBrowserFallbackPort = (
         let preserveSession = false;
         let navigatedDuringAttach = false;
         let attachedUrl: string | undefined;
-        const policy = resolveEffectiveCookiePolicy(defaults, request);
+        let runtimePolicy = baseRuntimePolicy;
+        let runtimePolicyRecord = baseRuntimePolicyRecord;
+        let policy = runtimePolicy.cookies.policy;
         const cookieDiagnostics = baseCookieDiagnostics(policy, defaults.source);
         const abortListener = () => {
           if (sessionId) {
@@ -649,7 +682,7 @@ export const createBrowserFallbackPort = (
           ensureNotAborted("mode_start");
           if (preferredMode === "extension") {
             if (!transportDefaults.extensionWsEndpoint) {
-              lastFailure = fallbackFailure("env_limited", "Extension fallback requires a relay endpoint.", cookieDiagnostics);
+              lastFailure = fallbackFailure("env_limited", "Extension fallback requires a relay endpoint.", cookieDiagnostics, undefined, runtimePolicyRecord);
               continue;
             }
             const attachOptions = request.source === "shopping" && !isExplicitShoppingExtensionRequest(request)
@@ -681,8 +714,15 @@ export const createBrowserFallbackPort = (
             });
             sessionId = launched.sessionId;
           }
-          if (sessionId && request.challengeAutomationMode) {
-            manager.setSessionChallengeAutomationMode?.(sessionId, request.challengeAutomationMode);
+          if (sessionId) {
+            if (!request.runtimePolicy) {
+              runtimePolicy = resolveFallbackRuntimePolicy(
+                manager.getSessionChallengeAutomationMode?.(sessionId)
+              );
+              runtimePolicyRecord = toJsonRecord(runtimePolicy);
+              policy = runtimePolicy.cookies.policy;
+            }
+            manager.setSessionChallengeAutomationMode?.(sessionId, runtimePolicy.challenge.mode);
           }
           ensureNotAborted("session_ready");
 
@@ -719,7 +759,7 @@ export const createBrowserFallbackPort = (
               if (reasonMessage) {
                 cookieDiagnostics.reasonCode = "auth_required";
                 cookieDiagnostics.message = reasonMessage;
-                lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics);
+                lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics, undefined, runtimePolicyRecord);
                 continue;
               }
             }
@@ -778,7 +818,7 @@ export const createBrowserFallbackPort = (
               const reasonMessage = "Provider cookies were not observable in the live extension session.";
               cookieDiagnostics.reasonCode = "auth_required";
               cookieDiagnostics.message = reasonMessage;
-              lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics);
+              lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics, undefined, runtimePolicyRecord);
               continue;
             }
           }
@@ -816,23 +856,18 @@ export const createBrowserFallbackPort = (
                 manager,
                 request,
                 sessionId,
-                challengeModeDefault,
+                runtimePolicy,
                 helperBridgeEnabled,
                 invoked: false,
                 reason: "Fallback reached a preserve-eligible blocker before challenge orchestration ran."
               });
               if (challengeOrchestrator) {
-                const policy = resolveChallengeAutomationPolicy({
-                  runMode: request.challengeAutomationMode,
-                  sessionMode: manager.getSessionChallengeAutomationMode?.(sessionId),
-                  configMode: challengeModeDefault
-                });
                 const orchestration = await challengeOrchestrator.orchestrate({
-                  handle: manager.createChallengeRuntimeHandle?.() ?? manager,
+                  handle: createFallbackChallengeRuntimeHandle(manager),
                   sessionId,
                   targetId: status.activeTargetId ?? undefined,
-                  policy,
-                  canImportCookies: policy.mode !== "off",
+                  policy: runtimePolicy.challenge,
+                  canImportCookies: runtimePolicy.challenge.mode !== "off",
                   fallbackDisposition: disposition
                 });
                 challengeOrchestrationRecord = {
@@ -840,7 +875,7 @@ export const createBrowserFallbackPort = (
                     manager,
                     request,
                     sessionId,
-                    challengeModeDefault,
+                    runtimePolicy,
                     helperBridgeEnabled,
                     invoked: true,
                     reason: "Fallback invoked challenge orchestration after reaching a preserve-eligible blocker."
@@ -874,7 +909,8 @@ export const createBrowserFallbackPort = (
                       operation: request.operation,
                       message: `Browser fallback resumed after bounded challenge orchestration at ${refreshedUrl}.`,
                       cookieDiagnostics: toJsonRecord(cookieDiagnostics),
-                      challengeOrchestration: challengeOrchestrationRecord
+                      challengeOrchestration: challengeOrchestrationRecord,
+                      runtimePolicy: runtimePolicyRecord
                     }
                   };
                 }
@@ -903,7 +939,8 @@ export const createBrowserFallbackPort = (
                   operation: request.operation,
                   message: `Browser fallback preserved ${blocker.type} session at ${resolvedUrl}.`,
                   cookieDiagnostics: toJsonRecord(cookieDiagnostics),
-                  ...(challengeOrchestrationRecord ? { challengeOrchestration: challengeOrchestrationRecord } : {})
+                  ...(challengeOrchestrationRecord ? { challengeOrchestration: challengeOrchestrationRecord } : {}),
+                  runtimePolicy: runtimePolicyRecord
                 }
               };
             }
@@ -915,11 +952,12 @@ export const createBrowserFallbackPort = (
                 manager,
                 request,
                 sessionId,
-                challengeModeDefault,
+                runtimePolicy,
                 helperBridgeEnabled,
                 invoked: false,
                 reason: "Fallback ended on a non-preserve-eligible blocker, so challenge orchestration was not invoked."
-              })
+              }),
+              runtimePolicyRecord
             );
             continue;
           }
@@ -928,7 +966,7 @@ export const createBrowserFallbackPort = (
             manager,
             request,
             sessionId,
-            challengeModeDefault,
+            runtimePolicy,
             helperBridgeEnabled,
             invoked: false,
             reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked."
@@ -946,7 +984,8 @@ export const createBrowserFallbackPort = (
               provider: request.provider,
               operation: request.operation,
               cookieDiagnostics: toJsonRecord(cookieDiagnostics),
-              ...(challengeOrchestrationRecord ? { challengeOrchestration: challengeOrchestrationRecord } : {})
+              ...(challengeOrchestrationRecord ? { challengeOrchestration: challengeOrchestrationRecord } : {}),
+              runtimePolicy: runtimePolicyRecord
             }
           };
         } catch (error) {
@@ -957,7 +996,7 @@ export const createBrowserFallbackPort = (
             throw error;
           }
           const message = error instanceof Error ? error.message : String(error);
-          lastFailure = fallbackFailure("env_limited", message, cookieDiagnostics);
+          lastFailure = fallbackFailure("env_limited", message, cookieDiagnostics, undefined, runtimePolicyRecord);
         } finally {
           request.signal?.removeEventListener("abort", abortListener);
           if (sessionId && !preserveSession) {
@@ -1039,6 +1078,9 @@ export const buildRuntimeInitFromConfig = (
           ...(providers.cookieSource ? { source: providers.cookieSource } : {})
         }
       }
+      : {}),
+    ...(providers?.challengeOrchestration?.mode
+      ? { challengeAutomationModeDefault: providers.challengeOrchestration.mode }
       : {}),
     ...(browserFallbackPort ? { browserFallbackPort } : {})
   };

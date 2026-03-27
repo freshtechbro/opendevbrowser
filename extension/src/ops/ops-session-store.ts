@@ -29,9 +29,20 @@ export type OpsNetworkEvent = {
   ts: number;
 };
 
+export type OpsSyntheticTargetRecord = {
+  targetId: string;
+  tabId: number;
+  type: string;
+  url?: string;
+  title?: string;
+  sessionId?: string;
+  openerTargetId?: string;
+  attachedAt: number;
+};
+
 type OpsSessionExtra = {
   refStore: OpsRefStore;
-  syntheticTargets: Map<string, { url: string; title?: string }>;
+  syntheticTargets: Map<string, OpsSyntheticTargetRecord>;
   consoleEvents: OpsConsoleEvent[];
   networkEvents: OpsNetworkEvent[];
   networkRequests: Map<string, { method: string; url: string; resourceType?: string }>;
@@ -52,21 +63,31 @@ type OpsSessionExtra = {
 export type OpsSession = TargetSessionRecord<OpsSessionExtra>;
 
 export class OpsRefStore {
-  private refsByTarget = new Map<string, Map<string, { ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string }>>();
+  private refsByTarget = new Map<string, Map<string, { ref: string; selector: string; backendNodeId: number; snapshotId: string; frameId?: string; role?: string; name?: string }>>();
   private snapshotByTarget = new Map<string, string>();
+  private refCounterByTarget = new Map<string, number>();
+
+  nextRef(targetId: string): string {
+    const next = (this.refCounterByTarget.get(targetId) ?? 0) + 1;
+    this.refCounterByTarget.set(targetId, next);
+    return `r${next}`;
+  }
 
   setSnapshot(targetId: string, entries: Array<{ ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string }>): { snapshotId: string; targetId: string; count: number } {
-    const map = new Map<string, { ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string }>();
-    for (const entry of entries) {
-      map.set(entry.ref, entry);
-    }
+    const map = new Map<string, { ref: string; selector: string; backendNodeId: number; snapshotId: string; frameId?: string; role?: string; name?: string }>();
     const snapshotId = createCoordinatorId();
+    for (const entry of entries) {
+      map.set(entry.ref, {
+        ...entry,
+        snapshotId
+      });
+    }
     this.refsByTarget.set(targetId, map);
     this.snapshotByTarget.set(targetId, snapshotId);
     return { snapshotId, targetId, count: entries.length };
   }
 
-  resolve(targetId: string, ref: string): { ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string } | null {
+  resolve(targetId: string, ref: string): { ref: string; selector: string; backendNodeId: number; snapshotId: string; frameId?: string; role?: string; name?: string } | null {
     const map = this.refsByTarget.get(targetId);
     if (!map) return null;
     return map.get(ref) ?? null;
@@ -178,6 +199,49 @@ export class OpsSessionStore {
 
   listNamedTargets(sessionId: string): Array<{ name: string; targetId: string }> {
     return this.coordinator.listNamedTargets(sessionId);
+  }
+
+  upsertSyntheticTarget(sessionId: string, target: OpsSyntheticTargetRecord): OpsSyntheticTargetRecord {
+    const session = this.requireSession(sessionId);
+    const existing = session.syntheticTargets.get(target.targetId);
+    const nextTarget: OpsSyntheticTargetRecord = {
+      ...(existing ?? {}),
+      ...target,
+      tabId: target.tabId,
+      type: target.type,
+      attachedAt: target.attachedAt
+    };
+    session.syntheticTargets.set(target.targetId, nextTarget);
+    return nextTarget;
+  }
+
+  getSyntheticTarget(sessionId: string, targetId: string): OpsSyntheticTargetRecord | null {
+    return this.requireSession(sessionId).syntheticTargets.get(targetId) ?? null;
+  }
+
+  listSyntheticTargets(sessionId: string): OpsSyntheticTargetRecord[] {
+    return Array.from(this.requireSession(sessionId).syntheticTargets.values());
+  }
+
+  findSyntheticTargetBySessionId(sessionId: string, childSessionId: string): OpsSyntheticTargetRecord | null {
+    const session = this.requireSession(sessionId);
+    for (const target of session.syntheticTargets.values()) {
+      if (target.sessionId === childSessionId) {
+        return target;
+      }
+    }
+    return null;
+  }
+
+  removeSyntheticTarget(sessionId: string, targetId: string): OpsSyntheticTargetRecord | null {
+    const session = this.requireSession(sessionId);
+    const existing = session.syntheticTargets.get(targetId) ?? null;
+    if (!existing) {
+      return null;
+    }
+    session.syntheticTargets.delete(targetId);
+    session.refStore.clearTarget(targetId);
+    return existing;
   }
 
   requireSession(sessionId: string): OpsSession {

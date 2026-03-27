@@ -22,6 +22,13 @@ type RelayCallbacks = {
   onPrimaryTabChange?: (tabId: number | null) => void;
 };
 
+export type CDPRouterEvent = {
+  tabId: number;
+  method: string;
+  params?: unknown;
+  sessionId?: string;
+};
+
 const FLAT_SESSION_ERROR = "Chrome 125+ required for extension relay (flat sessions).";
 const DEPRECATED_SEND_MESSAGE = "Target.sendMessageToTarget is deprecated in flat session mode. Use sessionId routing.";
 const DEFAULT_BROWSER_CONTEXT_ID = "default";
@@ -37,6 +44,7 @@ export class CDPRouter {
   private readonly sessions = new TargetSessionMap();
   private readonly tabManager = new TabManager();
   private readonly rootAttachedSessions = new Set<string>();
+  private readonly eventListeners = new Set<(event: CDPRouterEvent) => void>();
   private callbacks: RelayCallbacks | null = null;
   private autoAttachOptions: AutoAttachOptions = { autoAttach: false, waitForDebuggerOnStart: false, flatten: true };
   private discoverTargets = false;
@@ -59,6 +67,56 @@ export class CDPRouter {
 
   setCallbacks(callbacks: RelayCallbacks): void {
     this.callbacks = callbacks;
+  }
+
+  addEventListener(listener: (event: CDPRouterEvent) => void): void {
+    this.eventListeners.add(listener);
+  }
+
+  removeEventListener(listener: (event: CDPRouterEvent) => void): void {
+    this.eventListeners.delete(listener);
+  }
+
+  async setDiscoverTargetsEnabled(discover: boolean): Promise<void> {
+    const shouldEmit = discover && !this.discoverTargets;
+    this.discoverTargets = discover;
+    for (const debuggee of this.debuggees.values()) {
+      await this.applyDiscoverTargets(debuggee, discover);
+    }
+    if (!shouldEmit) {
+      return;
+    }
+    for (const targetInfo of this.sessions.listTargetInfos()) {
+      const tabId = this.sessions.getByTargetId(targetInfo.targetId)?.tabId
+        ?? this.rootTargetTabIds.get(targetInfo.targetId)
+        ?? this.primaryTabId;
+      if (typeof tabId === "number") {
+        this.emitTargetCreated(tabId, targetInfo);
+      }
+    }
+  }
+
+  async configureAutoAttach(options: AutoAttachOptions): Promise<void> {
+    if (options.flatten === false) {
+      throw new Error(FLAT_SESSION_ERROR);
+    }
+    this.autoAttachOptions = { ...options, flatten: true };
+    if (this.autoAttachOptions.autoAttach) {
+      this.resetRootAttached();
+    }
+    for (const debuggee of this.debuggees.values()) {
+      await this.applyAutoAttach(debuggee);
+    }
+    if (!this.autoAttachOptions.autoAttach) {
+      this.emitRootDetached();
+      return;
+    }
+    for (const tabId of this.sessions.listTabIds()) {
+      await this.refreshRootTargetInfo(tabId);
+    }
+    for (const targetInfo of this.sessions.listTargetInfos()) {
+      this.emitRootAttached(targetInfo);
+    }
   }
 
   async attach(tabId: number): Promise<void> {
@@ -84,7 +142,8 @@ export class CDPRouter {
       const targetInfo = await this.registerRootTab(tabId);
 
       if (this.discoverTargets) {
-        this.emitTargetCreated(targetInfo);
+        await this.applyDiscoverTargets(debuggee, true);
+        this.emitTargetCreated(tabId, targetInfo);
       }
 
       if (this.autoAttachOptions.autoAttach) {
@@ -281,10 +340,25 @@ export class CDPRouter {
       setDiscoverTargets: (value) => {
         this.discoverTargets = value;
       },
+      applyDiscoverTargets: this.applyDiscoverTargets.bind(this),
       respond: this.respond.bind(this),
       respondError: this.respondError.bind(this),
-      emitEvent: this.emitEvent.bind(this),
-      emitTargetCreated: this.emitTargetCreated.bind(this),
+      emitEvent: (method, params, sessionId) => {
+        const tabId = sessionId
+          ? this.sessions.getBySessionId(sessionId)?.tabId ?? this.primaryTabId
+          : this.primaryTabId;
+        if (typeof tabId === "number") {
+          this.emitEvent(tabId, method, params, sessionId);
+        }
+      },
+      emitTargetCreated: (targetInfo) => {
+        const tabId = this.sessions.getByTargetId(targetInfo.targetId)?.tabId
+          ?? this.rootTargetTabIds.get(targetInfo.targetId)
+          ?? this.primaryTabId;
+        if (typeof tabId === "number") {
+          this.emitTargetCreated(tabId, targetInfo);
+        }
+      },
       emitRootAttached: this.emitRootAttached.bind(this),
       emitRootDetached: this.emitRootDetached.bind(this),
       resetRootAttached: this.resetRootAttached.bind(this),
@@ -658,6 +732,10 @@ export class CDPRouter {
     }
   }
 
+  private async applyDiscoverTargets(debuggee: DebuggerSession, discover: boolean): Promise<void> {
+    await this.sendCommand(debuggee, "Target.setDiscoverTargets", { discover });
+  }
+
   private async applyAutoAttach(debuggee: chrome.debugger.Debuggee): Promise<void> {
     const params: Record<string, unknown> = {
       autoAttach: this.autoAttachOptions.autoAttach,
@@ -779,7 +857,7 @@ export class CDPRouter {
     }
 
     const forwardSessionId = this.resolveForwardSessionId(method, source);
-    this.emitEvent(method, params, forwardSessionId);
+    this.emitEvent(tabId, method, params, forwardSessionId);
   }
 
   private handleDetach(source: chrome.debugger.Debuggee, reason?: string): void {
@@ -802,10 +880,10 @@ export class CDPRouter {
       }
       this.rootAttachedSessions.delete(record.rootSessionId);
       if (this.autoAttachOptions.autoAttach) {
-        this.emitTargetDetached(record.rootSessionId, record.targetInfo.targetId);
+        this.emitTargetDetached(record.tabId, record.rootSessionId, record.targetInfo.targetId);
       }
       if (this.discoverTargets) {
-        this.emitTargetDestroyed(record.targetInfo.targetId);
+        this.emitTargetDestroyed(record.tabId, record.targetInfo.targetId);
       }
     }
 
@@ -896,16 +974,16 @@ export class CDPRouter {
     }
   }
 
-  private emitTargetCreated(targetInfo: TargetInfo): void {
-    this.emitEvent("Target.targetCreated", { targetInfo });
+  private emitTargetCreated(tabId: number, targetInfo: TargetInfo): void {
+    this.emitEvent(tabId, "Target.targetCreated", { targetInfo });
   }
 
-  private emitTargetDestroyed(targetId: string): void {
-    this.emitEvent("Target.targetDestroyed", { targetId });
+  private emitTargetDestroyed(tabId: number, targetId: string): void {
+    this.emitEvent(tabId, "Target.targetDestroyed", { targetId });
   }
 
-  private emitTargetDetached(sessionId: string, targetId: string): void {
-    this.emitEvent("Target.detachedFromTarget", { sessionId, targetId });
+  private emitTargetDetached(tabId: number, sessionId: string, targetId: string): void {
+    this.emitEvent(tabId, "Target.detachedFromTarget", { sessionId, targetId });
   }
 
   private emitRootAttached(targetInfo: TargetInfo): void {
@@ -913,7 +991,7 @@ export class CDPRouter {
     if (!record || record.kind !== "root") return;
     if (this.rootAttachedSessions.has(record.sessionId)) return;
     this.rootAttachedSessions.add(record.sessionId);
-    this.emitEvent("Target.attachedToTarget", {
+    this.emitEvent(record.tabId, "Target.attachedToTarget", {
       sessionId: record.sessionId,
       targetInfo,
       waitingForDebugger: false
@@ -926,7 +1004,7 @@ export class CDPRouter {
       if (!record || record.kind !== "root") continue;
       if (!this.rootAttachedSessions.has(record.sessionId)) continue;
       this.rootAttachedSessions.delete(record.sessionId);
-      this.emitTargetDetached(record.sessionId, targetInfo.targetId);
+      this.emitTargetDetached(record.tabId, record.sessionId, targetInfo.targetId);
     }
   }
 
@@ -1064,9 +1142,13 @@ export class CDPRouter {
     this.callbacks.onResponse({ id, error: { message }, ...(sessionId ? { sessionId } : {}) });
   }
 
-  private emitEvent(method: string, params?: unknown, sessionId?: string): void {
+  private emitEvent(tabId: number, method: string, params?: unknown, sessionId?: string): void {
+    const event: CDPRouterEvent = { tabId, method, ...(typeof params !== "undefined" ? { params } : {}), ...(sessionId ? { sessionId } : {}) };
+    for (const listener of this.eventListeners) {
+      listener(event);
+    }
     if (!this.callbacks) return;
-    const payload: RelayEvent["params"] = { method, params };
+    const payload: RelayEvent["params"] = { method, ...(typeof params !== "undefined" ? { params } : {}) };
     if (sessionId) {
       payload.sessionId = sessionId;
     }

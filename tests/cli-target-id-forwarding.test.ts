@@ -18,6 +18,7 @@ import { runSelect } from "../src/cli/commands/interact/select";
 import { runType } from "../src/cli/commands/interact/type";
 import { runUncheck } from "../src/cli/commands/interact/uncheck";
 import { runGoto } from "../src/cli/commands/nav/goto";
+import { runReview } from "../src/cli/commands/nav/review";
 import { runSnapshot } from "../src/cli/commands/nav/snapshot";
 import { runWait } from "../src/cli/commands/nav/wait";
 
@@ -76,6 +77,14 @@ const CASES: Array<{
     rawArgs: ["--session-id", "s1", "--mode", "outline", "--target-id", "tab-11"],
     method: "nav.snapshot",
     payload: { sessionId: "s1", mode: "outline", maxChars: undefined, cursor: undefined, targetId: "tab-11" }
+  },
+  {
+    title: "review",
+    command: "review",
+    run: runReview,
+    rawArgs: ["--session-id", "s1", "--target-id", "tab-11"],
+    method: "nav.review",
+    payload: { sessionId: "s1", maxChars: undefined, cursor: undefined, targetId: "tab-11" }
   },
   {
     title: "click",
@@ -240,6 +249,25 @@ describe("CLI target-id forwarding", () => {
       {
         sessionId: "s1",
         mode: "actionables",
+        maxChars: undefined,
+        cursor: undefined,
+        targetId: "tab-11"
+      },
+      { timeoutMs: 15000 }
+    );
+  });
+
+  it("forwards review timeout overrides to the daemon client", async () => {
+    await runReview(makeArgs("review", [
+      "--session-id", "s1",
+      "--target-id", "tab-11",
+      "--timeout-ms", "15000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "nav.review",
+      {
+        sessionId: "s1",
         maxChars: undefined,
         cursor: undefined,
         targetId: "tab-11"

@@ -179,7 +179,11 @@ describe("workflow tools", () => {
     } as never);
     expect(deps.providerRuntime.search).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ challengeAutomationMode: "browser_with_helper" })
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          challengeAutomationMode: "browser_with_helper"
+        })
+      })
     );
 
     deps.providerRuntime.search.mockClear();
@@ -190,7 +194,11 @@ describe("workflow tools", () => {
     } as never);
     expect(deps.providerRuntime.search).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ challengeAutomationMode: "browser" })
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          challengeAutomationMode: "browser"
+        })
+      })
     );
 
     await productVideoTool.execute({
@@ -200,7 +208,11 @@ describe("workflow tools", () => {
     } as never);
     expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
       { url: "https://example.com/product" },
-      expect.objectContaining({ challengeAutomationMode: "off" })
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          challengeAutomationMode: "off"
+        })
+      })
     );
   });
 

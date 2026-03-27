@@ -19,6 +19,7 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry[] = [
   { name: "opendevbrowser_goto", description: "Navigate to a URL.", cliEquivalent: "goto" },
   { name: "opendevbrowser_wait", description: "Wait for load, ref, or state conditions.", cliEquivalent: "wait" },
   { name: "opendevbrowser_snapshot", description: "Capture AX-tree refs for actions.", cliEquivalent: "snapshot" },
+  { name: "opendevbrowser_review", description: "Capture a first-class review payload with status and actionables.", cliEquivalent: "review" },
   { name: "opendevbrowser_click", description: "Click an element by ref.", cliEquivalent: "click" },
   { name: "opendevbrowser_hover", description: "Hover an element by ref.", cliEquivalent: "hover" },
   { name: "opendevbrowser_press", description: "Send a keyboard key.", cliEquivalent: "press" },

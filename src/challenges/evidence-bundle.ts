@@ -34,6 +34,7 @@ type ChallengeDebugTraceInput = {
 export type ChallengeEvidenceInput = {
   status: ChallengeStatusInput;
   snapshot?: {
+    snapshotId?: string;
     content?: string;
     warnings?: string[];
   };
@@ -276,6 +277,7 @@ export const buildChallengeEvidenceBundle = (input: ChallengeEvidenceInput): Cha
     url: sanitize(input.status.url),
     title: sanitize(input.status.title),
     activeTargetId: input.status.activeTargetId,
+    snapshotId: input.snapshot?.snapshotId,
     mode: sanitize(input.status.mode),
     fallbackDisposition: input.fallbackDisposition,
     ownerSurface: challenge?.ownerSurface,

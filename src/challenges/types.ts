@@ -3,6 +3,7 @@ import type {
   BlockerSignalV1,
   BrowserFallbackDisposition,
   JsonValue,
+  ProviderCookieImportRecord,
   ProviderReasonCode,
   SessionChallengeSummary
 } from "../providers/types";
@@ -181,6 +182,7 @@ export type ChallengeEvidenceBundle = {
   url?: string;
   title?: string;
   activeTargetId?: string | null;
+  snapshotId?: string;
   mode?: string;
   fallbackDisposition?: BrowserFallbackDisposition;
   ownerSurface?: SessionChallengeSummary["ownerSurface"];
@@ -258,6 +260,9 @@ export type ChallengeActionStep = {
   url?: string;
   text?: string;
   values?: string[];
+  cookies?: ProviderCookieImportRecord[];
+  snapshotChars?: number;
+  traceMax?: number;
   dy?: number;
   holdMs?: number;
   coordinates?: {
