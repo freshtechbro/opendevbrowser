@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0",
   "expectedCounts": {
-    "cliCommands": 60,
-    "tools": 53,
-    "opsCommands": 48,
+    "cliCommands": 61,
+    "tools": 54,
+    "opsCommands": 54,
     "canvasCommands": 35
   },
   "docsMustCover": [

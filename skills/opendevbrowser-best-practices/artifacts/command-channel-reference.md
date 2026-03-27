@@ -6,9 +6,9 @@ Compact operational map of the current OpenDevBrowser surfaces, with the `/canva
 
 ## Current coverage snapshot
 
-- CLI commands: `60`
-- Plugin tools: `53`
-- `/ops` command names: `48`
+- CLI commands: `61`
+- Plugin tools: `54`
+- `/ops` command names: `54`
 - `/canvas` command names: `35`
 - Legacy `/cdp` relay: generic CDP forwarding (method-level)
 

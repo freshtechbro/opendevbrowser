@@ -12,7 +12,7 @@
 
 OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
 
-The current public surface includes [60 CLI commands and 53 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
+The current public surface includes [61 CLI commands and 54 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
@@ -177,9 +177,9 @@ OpenDevBrowser uses the same automation model across plugin tools and CLI comman
 ```
 1. Launch a browser session
 2. Navigate to a URL
-3. Take a snapshot to get element refs
+3. Take a review to get target-aware actionables and refs
 4. Interact using refs (click, type, select)
-5. Re-snapshot after navigation
+5. Re-review or re-snapshot after navigation
 ```
 
 Shipping checklist for first-time users (local-package install, daemon, extension, first task, multi-tab auth/cookies):
@@ -193,9 +193,10 @@ Parallel execution is target-scoped (`ExecutionKey = (sessionId,targetId)`): sam
 |------|------|---------|
 | 1 | `opendevbrowser_launch` | Launch a session (extension relay first; managed fallback is explicit) |
 | 2 | `opendevbrowser_goto` | Navigate to URL |
-| 3 | `opendevbrowser_snapshot` | Get page structure with refs |
+| 3 | `opendevbrowser_review` | Inspect the active target and capture fresh actionables before acting |
 | 4 | `opendevbrowser_click` / `opendevbrowser_type` | Interact with elements |
-| 5 | `opendevbrowser_disconnect` | Clean up session |
+| 5 | `opendevbrowser_snapshot` | Re-capture refs after navigation or DOM changes |
+| 6 | `opendevbrowser_disconnect` | Clean up session |
 
 ---
 
@@ -216,8 +217,8 @@ npx opendevbrowser serve --stop
 # Launch a session
 npx opendevbrowser launch --start-url https://example.com
 
-# Capture a snapshot
-npx opendevbrowser snapshot --session-id <session-id>
+# Review the active target and capture fresh refs
+npx opendevbrowser review --session-id <session-id>
 
 # Interact by ref
 npx opendevbrowser click --session-id <session-id> --ref r12
@@ -320,7 +321,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **53 tools** organized by category:
+OpenDevBrowser provides **54 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 Terminal help now mirrors the live command and tool surface directly from `src/cli/help.ts` and `src/tools/surface.ts`: `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
@@ -356,6 +357,7 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 | `opendevbrowser_goto` | Navigate to URL |
 | `opendevbrowser_wait` | Wait for load state or element |
 | `opendevbrowser_snapshot` | Capture page accessibility tree with refs |
+| `opendevbrowser_review` | Capture target-aware actionables plus status context before acting |
 | `opendevbrowser_click` | Click element by ref |
 | `opendevbrowser_hover` | Hover element by ref |
 | `opendevbrowser_press` | Press a keyboard key (optionally focusing a ref) |
@@ -651,7 +653,7 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 53 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 54 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
@@ -816,7 +818,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 53 opendevbrowser_* tool definitions
+│   ├── tools/        # 54 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)

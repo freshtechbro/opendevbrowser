@@ -2,7 +2,7 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-03-23
+Last updated: 2026-03-26
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/cli/args.ts`
@@ -19,7 +19,7 @@ Operational mirror:
 
 ---
 
-## CLI Command Inventory (60)
+## CLI Command Inventory (61)
 
 ### Install and runtime management (10)
 - `install` - Install the plugin.
@@ -44,10 +44,11 @@ Operational mirror:
 - `shopping` - Run shopping workflows.
 - `product-video` - Run product presentation asset workflows.
 
-### Navigation (3)
+### Navigation (4)
 - `goto` - Navigate the current session to a URL.
 - `wait` - Wait for load completion or a ref/state condition.
 - `snapshot` - Capture a snapshot of the active page.
+- `review` - Capture a first-class review payload for the active target.
 
 ### Interaction (13)
 - `click` - Click an element by ref.
@@ -99,7 +100,7 @@ Operational mirror:
 
 ---
 
-## Tool Inventory (53)
+## Tool Inventory (54)
 
 ### Session and cookies (6)
 - `opendevbrowser_launch` - Launch a managed browser session.
@@ -118,10 +119,11 @@ Operational mirror:
 - `opendevbrowser_list` - List named pages in the session.
 - `opendevbrowser_close` - Close a named page.
 
-### Navigation and interaction (17)
+### Navigation and interaction (18)
 - `opendevbrowser_goto` - Navigate to a URL.
 - `opendevbrowser_wait` - Wait for load, ref, or state conditions.
 - `opendevbrowser_snapshot` - Capture AX-tree refs for actions.
+- `opendevbrowser_review` - Capture a first-class review payload with status and actionables.
 - `opendevbrowser_click` - Click an element by ref.
 - `opendevbrowser_hover` - Hover an element by ref.
 - `opendevbrowser_press` - Send a keyboard key.
@@ -172,9 +174,15 @@ Operational mirror:
 
 ## Relay Channel Inventory
 
-### `/ops` command names (48)
+### `/ops` command names (54)
 
 `/ops` is the high-level relay protocol used by default extension sessions.
+
+#### Target lifecycle events (4)
+- `Target.targetCreated`
+- `Target.attachedToTarget`
+- `Target.targetDestroyed`
+- `Target.detachedFromTarget`
 
 #### Session (4)
 - `session.launch`
@@ -199,10 +207,11 @@ Operational mirror:
 - `page.close`
 - `page.screenshot`
 
-#### Navigation (3)
+#### Navigation (4)
 - `nav.goto`
 - `nav.wait`
 - `nav.snapshot`
+- `nav.review`
 
 #### Interaction (9)
 - `interact.click`
@@ -221,7 +230,7 @@ Operational mirror:
 - `pointer.up`
 - `pointer.drag`
 
-#### DOM (7)
+#### DOM (8)
 - `dom.getHtml`
 - `dom.getText`
 - `dom.getAttr`
@@ -229,6 +238,7 @@ Operational mirror:
 - `dom.isVisible`
 - `dom.isEnabled`
 - `dom.isChecked`
+- `dom.refPoint`
 
 #### Overlay and runtime preview (5)
 - `canvas.overlay.mount`

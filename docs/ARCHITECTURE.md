@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-03-23
+Last updated: 2026-03-26
 
 ---
 
@@ -18,9 +18,9 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `60`
-- Plugin tools: `53`
-- `/ops` command names: `48`
+- CLI commands: `61`
+- Plugin tools: `54`
+- `/ops` command names: `54`
 - `/canvas` command names: `35`
 
 Human-facing inventory metadata is split intentionally:
@@ -50,7 +50,7 @@ and `daemon status`, and a stable persisted auto-start entry remains authoritati
 The anti-bot cutover keeps blocker truth and challenge lifecycle separate on purpose:
 
 - `src/browser/session-store.ts` remains the only blocker FSM authority.
-- `src/browser/browser-manager.ts` and `src/browser/ops-browser-manager.ts` remain the only writers of surfaced blocker and challenge metadata. Existing `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` fields stay stable; additive `meta.challenge` and `meta.challengeOrchestration` are layered on top.
+- `src/browser/browser-manager.ts` and `src/browser/ops-browser-manager.ts` remain the only writers of surfaced blocker and challenge metadata. Existing `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` fields stay stable; additive `meta.challenge` and `meta.challengeOrchestration` are layered on top, and the public `review` surface composes that manager status with a fresh actionables capture before action.
 - `src/browser/global-challenge-coordinator.ts` owns lifecycle-only state for claim, refresh, resolve, defer, expire, and release. It does not classify blockers.
 - `src/challenges/` is the shared Part 2 intelligence plane. It builds canonical evidence, interprets the incident, selects one bounded lane, executes browser-native steps, verifies via manager-owned checks, and emits reclaimable yield or outcome records without becoming a second truth authority.
 - `src/providers/runtime-factory.ts` plus `src/providers/browser-fallback.ts` own preserve-or-complete browser fallback transport. Responses use explicit `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`.
@@ -323,7 +323,7 @@ sequenceDiagram
 - Canonical contract: `docs/CLI.md` (concurrency semantics) and `src/config.ts` (`parallelism` settings).
 - Execution key: `ExecutionKey = (sessionId, targetId)`.
 - Command taxonomy:
-  - `TargetScoped`: `goto`, `wait`, `snapshot`, interaction commands, DOM commands, `page.screenshot`, export/devtools target-bound commands.
+  - `TargetScoped`: `goto`, `wait`, `snapshot`, `review`, interaction commands, DOM commands, `page.screenshot`, export/devtools target-bound commands.
   - `SessionStructural`: connect/disconnect, target/page create/close/select/list.
 - Scheduler guarantees:
   - Same target: strict FIFO.

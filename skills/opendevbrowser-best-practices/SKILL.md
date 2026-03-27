@@ -219,7 +219,7 @@ node scripts/live-regression-direct.mjs --out artifacts/live-regression-direct.j
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (60 CLI commands, 53 tools, 48 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
+- `docs/SURFACE_REFERENCE.md` (61 CLI commands, 54 tools, 54 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
 - `artifacts/skill-runtime-surface-matrix.md` and `assets/templates/skill-runtime-pack-matrix.json` (canonical pack/runtime audit inventory)
 

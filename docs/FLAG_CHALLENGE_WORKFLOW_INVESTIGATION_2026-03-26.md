@@ -1,179 +1,169 @@
 # Investigation: Flag, Challenge, and Workflow Integration Seams
 
 ## Summary
-OpenDevBrowser does have some weak or dormant flags, but the main problem is not dead configuration by itself. The current checkout shows five execution seams that make important behavior feel hidden or non-first-class: no `review` stage, stale popup target truth in extension ops sessions, iframe-blind extension snapshots, ref metadata that executors ignore, and a challenge executor whose runnable steps lag behind its own model.
+The original report correctly identified that popup/challenge/workflow reliability felt non-first-class, but it is now stale against the current branch. The current checkout has already landed a first-class `review` surface, runtime-policy collapse, challenge executor parity, actionables snapshot widening, stale-ref rejection, and the missing `Target.setDiscoverTargets` forwarding path. This turn also repaired the last stale provider fallback assertions, and the repo gate set is now green again: `npm run lint`, `npm run typecheck`, `npm run build`, `npm run extension:build`, and `npm run test` all pass, with `208` test files passed, `2738` tests passed, and global branch coverage at `97.00%`.
 
-The flag story is still real, but mostly as a drift amplifier. Important controls like `challengeAutomationMode`, workflow `browserMode`, fallback hints, cookie policy, and helper toggles are live, yet they are remapped across too many layers. That makes real runtime gaps look like mode or flag failures.
+The remaining unresolved closure is now concentrated in the extension ops ownership lane. Live popup proof still fails after a fresh daemon restart and extension reconnect, and a real `shopping run --browser-mode extension` now fails with `[not_owner] Client does not own session`. That keeps the live blocker narrower than the old report claimed: the source seams are mostly closed, but extension-mode ownership and popup adoption are still not proven end-to-end.
+
+## Revalidation Matrix
+
+| Seam | Prior claim | Current branch evidence | Live status | Final verdict |
+|---|---|---|---|---|
+| First-class `review` surface | Missing | `src/browser/review-surface.ts:1-31`, `src/tools/index.ts:15-17`, `src/cli/commands/nav/review.ts:1-83` | Managed and extension root review succeed live | Fixed |
+| Popup target ownership in extension mode | Missing | `extension/src/ops/ops-runtime.ts:1270-1319`, `extension/src/ops/ops-runtime.ts:2470-2558`, `extension/src/services/CDPRouter.ts:80-98`, `extension/src/services/CDPRouter.ts:131-147`, `tests/extension-ops-runtime.test.ts:520-652`, `tests/extension-cdp-router.test.ts:1588-1658` | Child page opens live, but `targets-list` still reports only the root target after a fresh daemon restart and extension reconnect | Source-fixed, live FAILED pending extension reload or deeper ops ownership investigation |
+| Actionables iframe capture | Missing | `src/snapshot/snapshotter.ts:19-47`, `extension/src/ops/ops-runtime.ts:2497-2514` request `mainFrameOnly=false` for actionables | Live extension still emits the old main-frame warning after the fresh daemon restart | Source-fixed, live FAILED pending extension reload or deeper ops ownership investigation |
+| Stale snapshot rejection | Missing | `extension/src/ops/ops-runtime.ts:2470-2558`, `src/browser/browser-manager.ts:3366-3477`, `tests/browser-manager.test.ts:6160-6288` | Covered by source and tests; no conflicting live evidence | Fixed |
+| Frame-aware ref execution | Ignored | Refs still store `frameId` in `src/snapshot/refs.ts:3-17`, but execution now resolves by `backendNodeId` in `src/browser/browser-manager.ts:3380-3477` and `extension/src/ops/ops-runtime.ts:2470-2617` | No framed live failure reproduced this turn | Not reproduced; keep as future targeted check, not an active defect |
+| Challenge planner/executor parity | Missing | `src/challenges/action-loop.ts:257-346`, `tests/challenges-action-loop.test.ts:320-409`, `tests/challenges-action-loop.test.ts:947-979` | Unit-backed; no conflicting live challenge evidence this turn | Fixed |
+| Runtime-policy collapse | Missing | `src/providers/runtime-policy.ts:1-113`, `tests/providers-runtime-policy.test.ts:1-42`, `tests/providers-runtime-factory.test.ts:1680-1899`, `tests/providers-workflows-branches.test.ts:3490-3669` | `auto` and a constrained `managed` shopping run honor requested mode live, but `extension` still degrades with ops ownership errors | Source-fixed; extension live blocker remains |
+| `security.allowRawCDP` | Dormant | `src/config.ts:29-34`, `src/config.ts:307-310`; no runtime consumer found | Not exercised | Dormant, non-blocking |
 
 ## Symptoms
 - Popup and challenge flows in extension mode can stay attached to the wrong target.
-- Snapshot to action breaks on iframe-heavy surfaces and stale DOM states.
-- The public surface exposes `snapshot` plus direct actions, but no explicit `review` stage.
-- The challenge plane can detect richer actions than the executor can actually perform.
-- Browser-mode and fallback choices are carried through multiple hint layers, which makes behavior feel conditional even when enabled.
+- Snapshot-to-action historically felt stale or mode-dependent.
+- Workflow `browserMode` and challenge override behavior historically looked flag-driven rather than policy-driven.
+- The original public workflow felt like `snapshot -> direct action` rather than `snapshot -> review -> action`.
 
 ## Investigation Log
 
-### Phase 1 - Workflow surface audit
-**Hypothesis:** the missing `review` stage is only naming or documentation drift.
+### Phase 1 - Workflow surface re-audit
+**Hypothesis:** the missing `review` stage is still an active branch defect.
 
-**Findings:** It is not drift. There is no first-class `review` tool or CLI command.
-
-**Evidence:**
-- `src/tools/index.ts:1-136` registers `opendevbrowser_snapshot` plus direct action/query tools, but no `review` tool.
-- `src/cli/args.ts:1-23` exposes `snapshot` plus action commands, but no `review` command.
-
-**Conclusion:** Confirmed root cause. The public workflow is effectively `snapshot -> direct action`, not `snapshot -> review -> action`.
-
-### Phase 3 - Popup target ownership in extension mode
-**Hypothesis:** popup/new-target adoption already exists and failures happen later in challenge orchestration.
-
-**Findings:** The router layer has popup-target plumbing, but the ops runtime does not integrate it into session truth.
+**Findings:** It is no longer a defect in the current checkout. The branch now ships a shared review builder, a first-class CLI command, and a first-class tool surface.
 
 **Evidence:**
-- `extension/src/services/CDPRouter.ts:646-689` configures flattened auto-attach with `Target.setAutoAttach`.
-- `extension/src/services/CDPRouter.ts:898-900` emits `Target.targetCreated`.
-- `extension/src/ops/ops-runtime.ts:226-302` handles only `Runtime.consoleAPICalled`, `Network.requestWillBeSent`, and `Network.responseReceived`.
-- `extension/src/ops/ops-runtime.ts:620-729` updates `session.activeTargetId` only through explicit `targets.use`, `targets.new`, and canvas registration flows.
-- `extension/src/services/ConnectionManager.ts:447-520` still tells users to focus a normal tab, not the popup.
-- `git blame extension/src/ops/ops-runtime.ts:226-302` points to committed change `ebb109e` from 2026-02-02, so this gap predates the current dirty worktree.
+- `src/browser/review-surface.ts:1-31` builds `status + snapshot(actionables)` into one `BrowserReviewResult`.
+- `src/tools/index.ts:15-17` imports and wires `createReviewTool`.
+- `src/cli/commands/nav/review.ts:1-83` exposes the dedicated CLI path and forwards `nav.review` to the daemon.
+- Live managed and extension-root review calls returned valid `snapshotId`, `targetId`, content, and metadata.
 
-**Conclusion:** Confirmed root cause. Popup/new targets do not become authoritative ops-session truth.
+**Conclusion:** Eliminated as an active seam. `review` is first-class in the current branch.
 
-### Phase 3 - Snapshot capture and ref contract
-**Hypothesis:** iframe capture is the only major reason snapshot-to-action feels broken.
+### Phase 2 - Popup target ownership in extension mode
+**Hypothesis:** popup adoption was fully fixed already and only needed a daemon restart.
 
-**Findings:** Capture is incomplete, and the capture-to-action contract is also incomplete.
+**Findings:** Partially false. The current branch already had popup lifecycle handling in `OpsRuntime`, but it still missed one real router seam: direct ops runtime bootstrap enabled discover-target mode through `setDiscoverTargetsEnabled(true)` without forwarding a real `Target.setDiscoverTargets` command to Chrome. That source bug is now fixed and covered by router tests. Live popup proof is still blocked even after a fresh daemon restart and extension reconnect, so the remaining issue is either a stale unpacked extension build in Chrome or a deeper extension ops ownership path that still prevents popup adoption.
 
 **Evidence:**
-- `extension/src/ops/ops-runtime.ts:925-933` forces snapshot capture through `buildSnapshot(..., true, maxNodes)`.
-- `src/snapshot/ops-snapshot.ts:139-187` skips nodes with `frameId` whenever `mainFrameOnly` is `true`, even though stored entries retain `frameId`.
-- `src/snapshot/refs.ts:3-17` and `extension/src/ops/ops-session-store.ts:48-75` store both `frameId` and `snapshotId`.
-- `extension/src/ops/ops-runtime.ts:964-1123` executes click, hover, press, type, select, and scroll through selector-only DOM operations.
-- `extension/src/ops/ops-runtime.ts:2030-2048` resolves refs to `entry.selector` only and ignores `frameId` and `snapshotId`.
-- `src/browser/browser-manager.ts:1248-1412` uses `page.locator(selector)` for `waitForRef`, `click`, `hover`, `type`, `select`, and related actions.
-- `src/browser/browser-manager.ts:3215-3237` resolves refs to `{ selector, backendNodeId }` only and does not consume `frameId`.
-- `src/browser/browser-manager.ts:3824-3836` clears refs on top-level navigation or close only.
-- `extension/src/ops/ops-runtime.ts:851-857` clears refs on synthetic document replacement, not on generic snapshot freshness changes.
-- Repo-wide search for `snapshotId` only found the ref stores plus snapshot responses. No action path compares snapshot ids before acting.
+- Source fix:
+  - `extension/src/services/CDPRouter.ts:80-98` now applies `Target.setDiscoverTargets` to attached debugger sessions instead of only flipping router-local state.
+  - `extension/src/services/CDPRouter.ts:131-147` now reapplies discover-target state when a new root tab attaches after discover mode is already enabled.
+  - `tests/extension-cdp-router.test.ts:1588-1658` now asserts both the public `Target.setDiscoverTargets` command path and the direct helper path issue real CDP commands.
+- Existing popup ownership source/tests:
+  - `extension/src/ops/ops-runtime.ts:1270-1319` exposes `nav.review`.
+  - `extension/src/ops/ops-runtime.ts:2470-2558` resolves refs against active target state and returns the popup attach-pending retry message.
+  - `tests/extension-ops-runtime.test.ts:520-652` covers popup review payloads over the ops surface.
+- Live repro after rebuild + fresh daemon restart:
+  - Fresh daemon listener confirmed on `127.0.0.1:8787` and `127.0.0.1:8788`; extension reconnected with `extensionConnected=true` and `extensionHandshakeComplete=true`.
+  - `npx opendevbrowser launch --extension-only --wait-for-extension --wait-timeout-ms 15000 --start-url http://127.0.0.1:8124/popup-root-anchor.html --output-format json` returned session `f83b9707-1491-4fb1-95f0-85102fcf1ec8` on target `tab-1245673252`.
+  - `npx opendevbrowser review --session-id f83b9707-1491-4fb1-95f0-85102fcf1ec8 --max-chars 4000 --output-format json` returned root-only content `[r1] link "Open Popup Window"` with `warnings=["Skipped 1 iframe nodes; snapshot limited to main frame."]`.
+  - `npx opendevbrowser click --session-id f83b9707-1491-4fb1-95f0-85102fcf1ec8 --ref r1 --output-format json` succeeded with `navigated=false`.
+  - `npx opendevbrowser targets-list --session-id f83b9707-1491-4fb1-95f0-85102fcf1ec8 --include-urls --output-format json` still returned only root target `tab-1245673252`.
+  - The popup fixture remained live at `http://127.0.0.1:8124/popup-child.html`, so the missing child target is not a fixture availability problem.
+- Stale-extension proof:
+  - Live extension `review` still returned `warnings=["Skipped 1 iframe nodes; snapshot limited to main frame."]`.
+  - Current source at `extension/src/ops/ops-runtime.ts:1296-1319` and `extension/src/ops/ops-runtime.ts:2497-2514` requests actionables capture, and current source at `extension/src/ops/snapshot-builder.ts:5-16` would only emit that warning when `mainFrameOnly=true`.
+  - That mismatch means Chrome is still running an older extension build even after the repo rebuild and daemon restart.
 
-**Conclusion:** Confirmed root cause. Fixing iframe capture alone will not make framed or stale refs actionable. The action contract must consume `frameId` and enforce `snapshotId`.
+**Conclusion:** Source gap fixed and test-backed. Live popup adoption still fails after the fresh daemon restart, so closure now depends on reloading the unpacked extension in Chrome and, if that still fails, tracing extension ops ownership around popup-created targets.
 
-### Phase 3 - Challenge planner and executor parity
-**Hypothesis:** the challenge plane fails mainly because it cannot detect popup, hold, drag, or cookie/debug surfaces.
+### Phase 3 - Snapshot/ref contract re-audit
+**Hypothesis:** the current branch still ignores stale snapshots and still needs the old report’s broad frame/snapshot rewrite.
 
-**Findings:** Detection is richer than execution.
-
-**Evidence:**
-- `src/challenges/evidence-bundle.ts:195-228` derives `holdRefs`, `dragRefs`, `clickRefs`, surface phrases, and `preferredAction`.
-- `src/challenges/action-loop.ts:88-95` plans `click_and_hold` with a detected `ref` when available.
-- `src/challenges/action-loop.ts:244-251` executes `click_and_hold` at fallback coordinates and ignores that `ref`.
-- `src/challenges/types.ts:91-106` declares executable step kinds `cookie_list`, `cookie_import`, `snapshot`, and `debug_trace`.
-- `src/challenges/action-loop.ts:236-293` contains no execution cases for those kinds.
-- `src/challenges/orchestrator.ts:129-140` and `src/challenges/verification-gate.ts:34-47` do follow `status.activeTargetId`, so the downstream challenge plane is not ignoring target choice by itself.
-- `git blame src/challenges/action-loop.ts:88-95` and `src/challenges/action-loop.ts:244-251` shows these lines are uncommitted on 2026-03-26. That makes this a current-checkout truth, but not necessarily already shipped release behavior.
-
-**Conclusion:** Confirmed current-checkout gap. The challenge planner and type model advertise more capability than the executor actually runs.
-
-### Phase 4 - Flag inventory and drift classification
-**Hypothesis:** most breakage comes from dead or disabled flags.
-
-**Findings:** Most important flags are live. The bigger issue is that they are remapped across too many layers.
+**Findings:** The old conclusion is too broad now. Current source already rejects stale refs in both extension and managed lanes. Explicit `frameId`-driven execution is no longer clearly required for current paths because execution resolves live DOM context from `backendNodeId`, not a fresh selector-only lookup.
 
 **Evidence:**
-- `src/config.ts:339-417` defines live provider-tier, adaptive-concurrency, anti-bot, challenge-orchestration, transcript, cookie-policy, and cookie-source config families.
-- `src/providers/workflows.ts:474-518` re-maps workflow input into `useCookies`, `cookiePolicyOverride`, `challengeAutomationMode`, `preferredFallbackModes`, and `forceBrowserTransport`.
-- `src/providers/index.ts:1176-1186` forwards those run options into provider context.
-- `src/providers/shopping/index.ts:605-620` treats `forceBrowserTransport` as a real force-browser signal, not a dead field.
-- `src/providers/types.ts:237-249` and `415-420` show those hint fields are part of the provider context and run-option contract.
-- `src/config.ts:29-34` and `307-310` define `security.allowRawCDP`, but repo search found no runtime consumer.
-- `git blame src/config.ts:307-309` shows `allowRawCDP` has existed since committed change `4d56321` on 2025-12-27.
-- `src/tools/status.ts:76-101` is the only runtime consumer found for `checkForUpdates`, making it narrow status-only behavior rather than a core feature gate.
+- `extension/src/ops/ops-runtime.ts:2470-2558` rejects missing or stale refs when `entry.snapshotId` no longer matches the target’s current snapshot.
+- `src/browser/browser-manager.ts:3380-3477` resolves ref entries to `backendNodeId`, maps stale DOM/CDP errors back to `Take a new snapshot first.`, and executes through `DOM.resolveNode` + `Runtime.callFunctionOn`.
+- `tests/browser-manager.test.ts:6160-6288` covers resolved-ref point lookup, fallback behavior, and stale snapshot error mapping.
 
-**Conclusion:** Confirmed classification:
-- Live and first-class, but over-fanned-out: `challengeAutomationMode`, `providers.challengeOrchestration.*`, cookie policy/source, anti-bot policy, provider tiers, adaptive concurrency, transcript toggles.
-- Live but weakly integrated or indirect: workflow `browserMode`, `preferredFallbackModes`, `forceBrowserTransport`, optional helper bridge.
-- Narrow rather than dead: `checkForUpdates`.
-- Effectively dormant/dead: `security.allowRawCDP`.
+**Conclusion:** The active defect is no longer “executors ignore snapshot freshness.” Treat framed-action behavior as a targeted future check only if a fresh live iframe repro fails after the extension reload.
+
+### Phase 4 - Challenge planner/executor parity re-audit
+**Hypothesis:** the challenge planner still advertises actions that the executor cannot run.
+
+**Findings:** This is now stale for the current branch. The executor runs the richer step set that the old report flagged as missing.
+
+**Evidence:**
+- `src/challenges/action-loop.ts:257-346` executes `click_and_hold`, `drag`, `cookie_list`, `cookie_import`, `snapshot`, and `debug_trace`.
+- `tests/challenges-action-loop.test.ts:320-409` covers hold and drag behavior.
+- `tests/challenges-action-loop.test.ts:947-979` covers direct execution of cookie, snapshot, and debug-trace suggested steps.
+
+**Conclusion:** Eliminated as an active branch seam.
+
+### Phase 5 - Runtime policy and workflow matrix revalidation
+**Hypothesis:** browser-mode and challenge override handling are still over-distributed enough to be an active runtime defect.
+
+**Findings:** The current branch has one canonical resolver, and live workflow behavior mostly lines up with it, but the extension-only workflow lane still has an ownership blocker.
+
+**Evidence:**
+- `src/providers/runtime-policy.ts:1-113` resolves browser, cookies, and challenge policy once.
+- Live shopping matrix after the fresh daemon restart:
+  - `extension` (all default providers): failed with `requested_browser_mode="extension"` and `browserFallbackModesObserved=["extension"]`, but multiple providers returned `[not_owner] Client does not own session`.
+  - `auto` (all default providers): succeeded with `requested_browser_mode="auto"` and returned real offers from `shopping/ebay` and `shopping/bestbuy`.
+  - `managed` (all default providers): timed out at `50000ms` on the full four-provider query.
+  - `managed` (constrained `--providers shopping/ebay`): succeeded and returned `browser_fallback_mode="managed_headed"` offers.
+- Challenge override precedence was not exercised live because no run preserved a challenge; keep that verdict test-backed via `tests/providers-runtime-factory.test.ts:1680-1899`.
+
+**Conclusion:** Runtime-policy collapse is fixed in source and test-backed. Live `auto` and constrained `managed` runs behave consistently with requested mode, but the extension-only workflow lane still has an ops ownership blocker that is separate from policy resolution.
 
 ## Eliminated Hypotheses
-- **"CDPRouter lacks popup-target support."** Eliminated. `extension/src/services/CDPRouter.ts:646-689` and `898-900` already support flattened target plumbing and emit `Target.targetCreated`.
-- **"Challenge handling fails because the system cannot detect popup/interstitial/hold/drag surfaces."** Eliminated. `src/challenges/evidence-bundle.ts:195-228` already detects them.
-- **"Orchestrator and verification ignore target changes."** Eliminated. `src/challenges/orchestrator.ts:129-140` and `src/challenges/verification-gate.ts:34-47` follow `status.activeTargetId`.
-- **"Managed mode is fine; only extension mode has frame problems."** Eliminated. `src/browser/browser-manager.ts:1248-1412` and `3215-3237` show managed mode also ignores stored `frameId`.
-- **"`snapshotId` already protects against stale refs."** Eliminated. The metadata is stored, but no action path enforces it.
-- **"`forceBrowserTransport` is dead."** Eliminated. `src/providers/workflows.ts:513-518`, `src/providers/index.ts:1176-1186`, and `src/providers/shopping/index.ts:605-620` show a real downstream consumer.
-- **"Dead config flags are the main reason popup/challenge handling is unreliable."** Eliminated. The main failures are runtime ownership and contract gaps. Dead flags exist, but they are secondary.
+- **“The current branch still lacks a first-class `review` surface.”** Eliminated by `src/browser/review-surface.ts:1-31`, `src/tools/index.ts:15-17`, and `src/cli/commands/nav/review.ts:1-83`.
+- **“Challenge executor parity is still missing.”** Eliminated by `src/challenges/action-loop.ts:257-346` and the matching challenge tests.
+- **“Runtime-policy collapse is still an open implementation task.”** Eliminated by `src/providers/runtime-policy.ts:1-113`, the updated provider fallback tests, and the full green repo gate set.
+- **“Auto and managed workflow modes are broadly unusable in the current branch.”** Eliminated by the successful live `auto` run and the successful constrained `managed` `shopping/ebay` run.
 
 ## Root Cause
-The current repo evidence supports five primary seams plus one drift amplifier.
+The branch is no longer suffering from five equally active seams. Current repo-backed evidence supports a narrower closure picture:
 
-1. **Surface seam**
-   - No first-class `review` surface exists between capture and action.
-   - Result: users experience the product as `snapshot -> direct action`.
+1. **Historical seams already closed in source**
+   - First-class `review` surface
+   - Runtime-policy collapse
+   - Challenge executor parity
+   - Actionables snapshot widening
+   - Stale-ref rejection
 
-2. **Popup target-truth seam**
-   - Extension CDP plumbing can observe popup/new-target creation, but ops session state does not adopt it.
-   - Result: challenge logic follows `activeTargetId`, but `activeTargetId` can stay pinned to the wrong surface.
+2. **Remaining live closure blockers in the extension ops lane**
+   - Popup target ownership in extension mode still lacks final live proof.
+   - Extension-only workflow runs can still fail with ops ownership errors (`[not_owner] Client does not own session`).
+   - This turn fixed one real router bug in that lane by forwarding `Target.setDiscoverTargets` to Chrome, but the live rerun still behaved like a stale extension build or a deeper ownership issue.
 
-3. **Snapshot capture seam**
-   - Extension actionables snapshots are main-frame-only by default.
-   - Result: iframe-rendered challenge surfaces are omitted before the action system ever sees them.
-
-4. **Frame/snapshot contract seam**
-   - Ref storage carries `frameId` and `snapshotId`, but both managed and extension action paths ignore them.
-   - Result: even widened snapshots cannot reliably drive framed actions, and stale refs are only caught indirectly.
-
-5. **Executor parity seam**
-   - The challenge planner and type model describe more actions than the executor actually runs.
-   - Result: the system can explain richer challenge states than it can solve.
-
-**Cross-cutting drift amplifier**
-- `challengeAutomationMode`, workflow `browserMode`, fallback hints, cookie policy, and helper bridge choices are all translated through config, CLI, daemon, workflow, provider, and fallback layers.
-- Result: real runtime gaps feel like flag or mode flakiness instead of ownership gaps.
-
-## Flag Family Inventory
-
-| Family | Status | Evidence | Recommendation |
-|---|---|---|---|
-| `providers.challengeOrchestration.*` and run/session `challengeAutomationMode` | First-class but over-fanned-out | `src/config.ts:363-384`, `src/providers/workflows.ts:485-490`, `src/providers/index.ts:1181-1186`, `src/challenges/orchestrator.ts:129-140` | Keep, but resolve once into a single runtime policy object |
-| Cookie policy/source and `useCookies` | First-class | `src/config.ts:409-417`, `src/providers/workflows.ts:474-480`, `src/providers/index.ts:1181-1186` | Keep as first-class policy inputs |
-| `antiBotPolicy`, provider tiers, adaptive concurrency, transcript toggles | First-class | `src/config.ts:339-408` | Keep; they are not the primary defect source |
-| Workflow `browserMode` | Weakly integrated | `src/providers/workflows.ts:491-518` | Collapse into one resolved execution mode |
-| `preferredFallbackModes` and `forceBrowserTransport` | Live but indirect | `src/providers/workflows.ts:513-518`, `src/providers/index.ts:1176-1186`, `src/providers/shopping/index.ts:605-620` | Replace with one authoritative resolved runtime policy where possible |
-| Optional helper bridge | Weakly integrated | `src/config.ts:377-384` plus challenge-policy consumption in the selected challenge plane | Keep optional, but do not treat it as the primary browser lane |
-| `checkForUpdates` | Narrow | `src/tools/status.ts:76-101` | Keep or rename to reflect status-only scope |
-| `security.allowRawCDP` | Effectively dormant/dead | `src/config.ts:29-34`, `307-310`; no runtime consumer found by repo search | Remove or deprecate explicitly |
+3. **Non-blocking residuals**
+   - `security.allowRawCDP` still appears dormant.
+   - Explicit `frameId`-specific execution is not proven necessary or broken in the current branch; it should only be reopened with a framed live repro.
 
 ## Recommendations
-1. **Fix popup target adoption first**
-   - Primary files: `extension/src/ops/ops-runtime.ts`, `extension/src/services/ConnectionManager.ts`, `src/browser/ops-browser-manager.ts`
-   - Integrate popup/new-target events into ops session state and stop assuming the operator must focus a normal tab.
+1. **Reload the unpacked extension in Chrome, then rerun the popup and extension-workflow runbooks**
+   - This is the immediate blocker.
+   - The continued main-frame warning on `review` after a fresh daemon restart proves the live browser is not yet behaving like the current extension snapshot.
+   - Repeat both:
+     - popup runbook: `launch -> review -> click -> targets-list -> review`
+     - extension workflow runbook: `shopping run --browser-mode extension`
 
-2. **Fix the frame/snapshot contract next**
-   - Primary files: `extension/src/ops/ops-runtime.ts`, `extension/src/ops/ops-session-store.ts`, `src/snapshot/ops-snapshot.ts`, `src/snapshot/refs.ts`, `src/browser/browser-manager.ts`
-   - Stop forcing main-frame-only capture for actionables/challenge-sensitive snapshots.
-   - Make ref resolution consume `frameId`.
-   - Enforce `snapshotId` freshness before acting.
+2. **Keep the new router discover-target patch**
+   - Primary files:
+     - `extension/src/services/CDPRouter.ts`
+     - `extension/src/services/cdp-router-commands.ts`
+     - `tests/extension-cdp-router.test.ts`
+   - This closes a real source hole whether or not the loaded extension had picked it up during this turn.
 
-3. **Bring the challenge executor into parity with its own model**
-   - Primary files: `src/challenges/action-loop.ts`, `src/challenges/types.ts`, `src/challenges/evidence-bundle.ts`
-   - Make `click_and_hold` and `drag` use detected refs or resolved coordinates from refs.
-   - Either implement `cookie_list`, `cookie_import`, `snapshot`, and `debug_trace` step execution or remove them from the executable step model until they are real.
+3. **Investigate extension ops ownership only if the extension reload does not clear the live failures**
+   - Primary files:
+     - `extension/src/ops/ops-runtime.ts`
+     - `src/browser/ops-browser-manager.ts`
+     - `src/providers/runtime-factory.ts`
+   - Focus on lease/client ownership churn rather than reopening policy or provider parsing.
 
-4. **Collapse override plumbing into one resolved runtime policy object**
-   - Primary files: `src/config.ts`, `src/cli/daemon-commands.ts`, `src/cli/commands/*.ts`, `src/providers/workflows.ts`, `src/providers/index.ts`, `src/providers/browser-fallback.ts`, `src/providers/runtime-factory.ts`
-   - Resolve run > session > config once.
-   - Pass a single policy object downward instead of translating `browserMode` into multiple fallback hints.
+4. **Do not reopen broad frame/snapshot or challenge rewrites**
+   - Those seams are now source-fixed or not reproduced.
+   - If a framed live repro appears later, patch it seam-locally at the ref-execution layer.
 
-5. **Add a first-class `review` surface**
-   - Primary files: `src/tools/index.ts`, `src/cli/args.ts`, likely a new tool/command implementation file
-   - Make `snapshot -> review -> action` explicit and include target/snapshot freshness warnings before action.
+5. **Deprecate or remove `security.allowRawCDP` separately**
+   - It remains dormant, but it is not blocking popup/challenge/workflow closure.
 
 ## Preventive Measures
-- Treat `frameId` and `snapshotId` as contract fields, not passive metadata. Add tests that fail if ref resolution ignores either field.
-- Add parity tests that exercise popup target creation and iframe challenge surfaces in both extension and managed modes.
-- Lock the public workflow shape in tests and docs so `review` cannot stay implicit again.
-- Add a config-consumer audit test or script so dormant fields like `security.allowRawCDP` are detected automatically.
-- Keep "live but indirect" flags to a minimum. Prefer one resolved runtime policy object over layered hint propagation.
-
+- Add one live-smoke runbook requirement that explicitly distinguishes `repo rebuilt` from `unpacked extension reloaded`.
+- Add one live-smoke runbook requirement that explicitly checks extension session ownership after daemon restart before claiming extension-mode workflow health.
+- Keep popup target proof fixture-based so target adoption failures are separable from challenge-site noise.
+- Keep `review` and runtime-policy behavior locked in tests so the report cannot drift backward again.
+- Add a lightweight config-consumer audit for dormant fields like `security.allowRawCDP`.

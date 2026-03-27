@@ -2,9 +2,9 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-23
+Last updated: 2026-03-26
 
-OpenDevBrowser exposes 53 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+OpenDevBrowser exposes 54 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff/compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
@@ -136,18 +136,18 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `60`.
+- Total commands: `61`.
 - Categories: install/runtime management, session/connection, navigation, interaction plus low-level pointer control, targets/pages, DOM inspection, design canvas, export/diagnostics/macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `53` (`opendevbrowser_*`).
+- Total tools: `54` (`opendevbrowser_*`).
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
 ### Relay channel surface
 
-- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `48` command names.
+- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `54` command names.
 - `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `35` command names and envelope contracts.
 - `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
 
@@ -250,9 +250,9 @@ npx opendevbrowser -v
 ```
 
 `--help` and `help` print the same complete, agent-oriented inventory:
-- All CLI commands (60) grouped by function, each with a one-line description, usage snippet, and primary flags.
+- All CLI commands (61) grouped by function, each with a one-line description, usage snippet, and primary flags.
 - All supported CLI flags, grouped by install/session/navigation/workflow usage, with representative examples on high-value shared flags.
-- All `opendevbrowser_*` tools (53), each with a one-line description and CLI equivalent or tool-only scope.
+- All `opendevbrowser_*` tools (54), each with a one-line description and CLI equivalent or tool-only scope.
 - Macro and design-canvas timeout guidance via `--timeout-ms`.
 - The exhaustive mirrored name + description inventory lives in `docs/SURFACE_REFERENCE.md`.
 - Canonical inventory pointers: `src/cli/index.ts`, `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`, `docs/SURFACE_REFERENCE.md`, and this CLI guide.
@@ -960,6 +960,15 @@ npx opendevbrowser snapshot --session-id <session-id>
 npx opendevbrowser snapshot --session-id <session-id> --max-chars 16000 --cursor <cursor>
 ```
 
+### Review
+
+Use `review` as the explicit `snapshot -> review -> action` step when you want the active target summary plus a fresh actionables capture in one response.
+
+```bash
+npx opendevbrowser review --session-id <session-id>
+npx opendevbrowser review --session-id <session-id> --target-id <target-id> --max-chars 16000 --cursor <cursor>
+```
+
 ---
 
 ## Interaction commands (daemon required)
@@ -1277,13 +1286,14 @@ npx opendevbrowser debug-trace-snapshot \
 |------|---------|-------------|
 | `--url` | `goto`, `page`, `target-new`, `cookie-list` | URL to navigate/open or filter cookie listing |
 | `--wait-until` | `goto` | Load state (`load`, `domcontentloaded`, etc.) |
-| `--timeout-ms` | `goto`, `wait` | Timeout in ms |
+| `--timeout-ms` | `goto`, `wait`, `review` | Timeout in ms |
 | `--ref` | `wait` | Element ref to wait for |
 | `--state` | `wait` | Element state (e.g. `visible`) |
 | `--until` | `wait` | Page load state |
 | `--mode` | `snapshot` | Snapshot mode (`outline` or `actionables`) |
-| `--max-chars` | `snapshot`, `dom-*` | Max characters returned |
-| `--cursor` | `snapshot` | Snapshot pagination cursor |
+| `--target-id` | `review` | Optional target override for the review payload |
+| `--max-chars` | `snapshot`, `review`, `dom-*` | Max characters returned |
+| `--cursor` | `snapshot`, `review` | Snapshot pagination cursor |
 
 **Annotation**
 
