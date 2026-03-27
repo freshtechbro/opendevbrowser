@@ -10,7 +10,10 @@ export const buildCapabilityMatrix = (
     ...bundle.continuity.loginRefs,
     ...bundle.continuity.sessionReuseRefs,
     ...bundle.continuity.humanVerificationRefs,
-    ...bundle.continuity.checkpointRefs
+    ...bundle.continuity.checkpointRefs,
+    ...(bundle.interaction?.clickRefs ?? []),
+    ...(bundle.interaction?.holdRefs ?? []),
+    ...(bundle.interaction?.dragRefs ?? [])
   ];
   const authLaneRelevant = interpretation.classification === "auth_required"
     || interpretation.classification === "existing_session_reuse"

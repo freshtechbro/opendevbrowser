@@ -153,6 +153,67 @@ describe("challenge interpreter", () => {
     expect(result.summary).toContain("classification=checkpoint_or_friction");
   });
 
+  it("includes popup interaction evidence in the summary when visible", () => {
+    const bundle = buildBundle({
+      url: "https://example.com/challenge",
+      title: "Choose where you'd like to shop",
+      blockerType: "anti_bot_challenge",
+      reasonCode: "challenge_detected",
+      snapshot: "[r1] dialog \"Choose where you'd like to shop\"\n[r2] button \"Pickup\""
+    });
+
+    const result = interpretChallengeEvidence(bundle);
+
+    expect(result.summary).toContain("surface=popup");
+    expect(result.summary).toContain("preferredAction=click");
+  });
+
+  it("omits unknown interaction surfaces from the summary", () => {
+    const bundle = buildBundle({
+      url: "https://example.com/challenge",
+      title: "",
+      blockerType: "anti_bot_challenge",
+      reasonCode: "challenge_detected",
+      snapshot: ""
+    });
+
+    const result = interpretChallengeEvidence(bundle);
+
+    expect(result.summary).not.toContain("surface=");
+  });
+
+  it("adds click-and-hold actions when the interaction evidence requests a hold gesture", () => {
+    const bundle = buildBundle({
+      url: "https://example.com/challenge",
+      title: "Press and hold",
+      blockerType: "anti_bot_challenge",
+      reasonCode: "challenge_detected",
+      snapshot: "[r30] button \"Press and hold for 1 second\""
+    });
+
+    const result = interpretChallengeEvidence(bundle);
+
+    expect(result.allowedActionFamilies).toContain("click_and_hold");
+    expect(result.allowedActionFamilies).toContain("pointer");
+    expect(result.summary).toContain("preferredAction=click_and_hold");
+  });
+
+  it("adds drag actions when the interaction evidence requests a slider gesture", () => {
+    const bundle = buildBundle({
+      url: "https://example.com/challenge",
+      title: "Drag the slider",
+      blockerType: "anti_bot_challenge",
+      reasonCode: "challenge_detected",
+      snapshot: "Drag the slider to continue."
+    });
+
+    const result = interpretChallengeEvidence(bundle);
+
+    expect(result.allowedActionFamilies).toContain("drag");
+    expect(result.allowedActionFamilies).toContain("pointer");
+    expect(result.summary).toContain("preferredAction=drag");
+  });
+
   it("omits continuity summary details when no continuity opportunity exists", () => {
     const bundle = buildBundle({
       url: "https://example.com/app",

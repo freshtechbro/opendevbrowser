@@ -11,6 +11,7 @@ import type {
 } from "./types";
 
 const SENSITIVE_FIELD_RE = /\b(password|passcode|secret|otp|mfa|token|verification code|passkey)\b/i;
+const DEFAULT_HOLD_MS = 1500;
 
 const hasExecuted = (steps: ChallengeActionStep[], kind: ChallengeActionStep["kind"], ref?: string, url?: string): boolean => {
   return steps.some((step) => step.kind === kind && step.ref === ref && step.url === url);
@@ -55,8 +56,57 @@ const resolveTaskValue = (bundle: ChallengeEvidenceBundle, ref: string): string 
   return undefined;
 };
 
-const nextUnusedRef = (refs: string[], steps: ChallengeActionStep[], kind: "click" | "hover" | "type"): string | undefined => {
+const nextUnusedRef = (
+  refs: string[],
+  steps: ChallengeActionStep[],
+  kind: "click" | "click_and_hold" | "hover" | "type"
+): string | undefined => {
   return refs.find((ref) => !hasExecuted(steps, kind, ref));
+};
+
+const planInteractionStep = (
+  bundle: ChallengeEvidenceBundle,
+  decision: ChallengeStrategyDecision,
+  executedSteps: ChallengeActionStep[]
+): ChallengeActionStep | undefined => {
+  const interaction = bundle.interaction;
+  if (!interaction || interaction.preferredAction === "unknown") {
+    return undefined;
+  }
+
+  if (interaction.preferredAction === "click" && decision.allowedActionFamilies.includes("click_path")) {
+    const clickRef = nextUnusedRef(interaction.clickRefs, executedSteps, "click");
+    if (clickRef) {
+      return {
+        kind: "click",
+        ref: clickRef,
+        reason: "Visible popup or interstitial exposes a bounded click path."
+      };
+    }
+  }
+
+  if (interaction.preferredAction === "click_and_hold" && decision.allowedActionFamilies.includes("click_and_hold")) {
+    const holdRef = nextUnusedRef(interaction.holdRefs, executedSteps, "click_and_hold");
+    if (holdRef || !hasExecuted(executedSteps, "click_and_hold")) {
+      return {
+        kind: "click_and_hold",
+        ...(holdRef ? { ref: holdRef } : {}),
+        ...(typeof interaction.holdMs === "number" ? { holdMs: interaction.holdMs } : {}),
+        reason: "Visible challenge requests a bounded click-and-hold gesture."
+      };
+    }
+  }
+
+  if (interaction.preferredAction === "drag" && decision.allowedActionFamilies.includes("drag") && !hasExecuted(executedSteps, "drag")) {
+    return {
+      kind: "drag",
+      ...(interaction.dragRefs[0] ? { ref: interaction.dragRefs[0] } : {}),
+      coordinates: { x: 640, y: 360 },
+      reason: "Visible challenge requests a bounded drag gesture."
+    };
+  }
+
+  return undefined;
 };
 
 const planGenericStep = (
@@ -191,6 +241,15 @@ const executeStep = async (args: {
         await args.handle.click(args.sessionId, args.step.ref, args.targetId);
       }
       return;
+    case "click_and_hold": {
+      const x = args.step.coordinates?.x ?? 640;
+      const y = args.step.coordinates?.y ?? 360;
+      await args.handle.pointerMove(args.sessionId, x, y, args.targetId, 12);
+      await args.handle.pointerDown(args.sessionId, x, y, args.targetId, "left", 1);
+      await new Promise((resolve) => setTimeout(resolve, Math.max(250, args.step.holdMs ?? DEFAULT_HOLD_MS)));
+      await args.handle.pointerUp(args.sessionId, x, y, args.targetId, "left", 1);
+      return;
+    }
     case "hover":
       if (args.step.ref) {
         await args.handle.hover(args.sessionId, args.step.ref, args.targetId);
@@ -248,6 +307,7 @@ export const runChallengeActionLoop = async (args: {
   suggestedSteps?: ChallengeActionStep[];
 }): Promise<ChallengeActionResult> => {
   let currentBundle = args.initialBundle;
+  let currentTargetId = args.targetId ?? args.initialBundle.activeTargetId ?? null;
   const executedSteps: ChallengeActionStep[] = [];
   let noProgressCount = 0;
   let reusedExistingSession = false;
@@ -263,9 +323,10 @@ export const runChallengeActionLoop = async (args: {
         args.config.optionalComputerUseBridge.maxSuggestions
       ).find((candidate) => !hasExecuted(executedSteps, candidate.kind, candidate.ref, candidate.url))
       : undefined;
+    const interactionStep = planInteractionStep(currentBundle, args.decision, executedSteps);
     const step = args.decision.lane === "optional_computer_use_bridge"
       ? suggestedStep ?? helperSuggestedStep
-      : suggestedStep ?? planGenericStep(currentBundle, args.decision, executedSteps) ?? helperSuggestedStep;
+      : suggestedStep ?? interactionStep ?? planGenericStep(currentBundle, args.decision, executedSteps) ?? helperSuggestedStep;
 
     if (!step) {
       return {
@@ -293,7 +354,7 @@ export const runChallengeActionLoop = async (args: {
       await executeStep({
         handle: args.handle,
         sessionId: args.sessionId,
-        targetId: args.targetId,
+        targetId: currentTargetId,
         step,
         config: args.config
       });
@@ -312,7 +373,7 @@ export const runChallengeActionLoop = async (args: {
     const verification = await verifyChallengeProgress({
       handle: args.handle,
       sessionId: args.sessionId,
-      targetId: args.targetId,
+      targetId: currentTargetId,
       previous: currentBundle,
       canImportCookies: currentBundle.continuity.canImportCookies,
       fallbackDisposition: currentBundle.fallbackDisposition,
@@ -320,6 +381,7 @@ export const runChallengeActionLoop = async (args: {
       taskData: currentBundle.taskData
     });
     currentBundle = verification.bundle ?? currentBundle;
+    currentTargetId = verification.bundle?.activeTargetId ?? currentTargetId;
 
     if (verification.status === "clear") {
       return {

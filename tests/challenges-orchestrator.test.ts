@@ -167,6 +167,240 @@ describe("challenge orchestrator", () => {
     expect(handle.cookieList).not.toHaveBeenCalled();
   });
 
+  it("passes a null target during evidence capture when no target is active or provided", async () => {
+    const handle = makeHandle({
+      url: "https://example.com/challenge",
+      title: "Continue",
+      snapshot: "[r1] button \"Continue\""
+    });
+    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      mode: "extension",
+      activeTargetId: null,
+      url: "https://example.com/challenge",
+      title: "Continue",
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0" as const,
+          type: "auth_required" as const,
+          source: "navigation" as const,
+          reasonCode: "token_required" as const,
+          confidence: 0.9,
+          retryable: true,
+          detectedAt: "2026-03-22T00:00:00.000Z",
+          evidence: { matchedPatterns: [], networkHosts: [] },
+          actionHints: []
+        },
+        challenge: {
+          challengeId: "challenge-1",
+          blockerType: "auth_required" as const,
+          ownerSurface: "direct_browser" as const,
+          resumeMode: "manual" as const,
+          status: "active" as const,
+          updatedAt: "2026-03-22T00:00:00.000Z",
+          preservedSessionId: "session-1"
+        }
+      }
+    });
+    const orchestrator = new ChallengeOrchestrator(makeConfig());
+
+    await orchestrator.captureEvidence({
+      handle,
+      sessionId: "session-null-target",
+      canImportCookies: false
+    });
+
+    expect(handle.snapshot).toHaveBeenCalledWith("session-null-target", "actionables", 2400, undefined, null);
+  });
+
+  it("uses the provided target fallback during evidence capture and includes interaction evidence in the outcome", async () => {
+    const handle = makeHandle({
+      url: "https://example.com/challenge",
+      title: "Press and hold",
+      snapshot: "Press and hold for 0 seconds."
+    });
+    (handle.status as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        mode: "extension",
+        activeTargetId: null,
+        url: "https://example.com/challenge",
+        title: "Press and hold",
+        meta: {
+          blockerState: "active",
+          blocker: {
+            schemaVersion: "1.0" as const,
+            type: "anti_bot_challenge" as const,
+            source: "navigation" as const,
+            reasonCode: "challenge_detected" as const,
+            confidence: 0.9,
+            retryable: true,
+            detectedAt: "2026-03-22T00:00:00.000Z",
+            evidence: { matchedPatterns: [], networkHosts: [] },
+            actionHints: []
+          },
+          challenge: {
+            challengeId: "challenge-1",
+            blockerType: "anti_bot_challenge" as const,
+            ownerSurface: "direct_browser" as const,
+            resumeMode: "manual" as const,
+            status: "active" as const,
+            updatedAt: "2026-03-22T00:00:00.000Z",
+            preservedSessionId: "session-1"
+          }
+        }
+      })
+      .mockResolvedValue({
+        mode: "extension",
+        activeTargetId: null,
+        url: "https://example.com/challenge",
+        title: "Press and hold",
+        meta: {
+          blockerState: "active",
+          blocker: {
+            schemaVersion: "1.0" as const,
+            type: "anti_bot_challenge" as const,
+            source: "navigation" as const,
+            reasonCode: "challenge_detected" as const,
+            confidence: 0.9,
+            retryable: true,
+            detectedAt: "2026-03-22T00:00:00.000Z",
+            evidence: { matchedPatterns: [], networkHosts: [] },
+            actionHints: []
+          },
+          challenge: {
+            challengeId: "challenge-1",
+            blockerType: "anti_bot_challenge" as const,
+            ownerSurface: "direct_browser" as const,
+            resumeMode: "manual" as const,
+            status: "active" as const,
+            updatedAt: "2026-03-22T00:00:00.000Z",
+            preservedSessionId: "session-1"
+          }
+        }
+      });
+    const orchestrator = new ChallengeOrchestrator(makeConfig({
+      attemptBudget: 1,
+      noProgressLimit: 1
+    }));
+
+    const bundle = await orchestrator.captureEvidence({
+      handle,
+      sessionId: "session-target-fallback",
+      targetId: "provided-target",
+      canImportCookies: true
+    });
+    const result = await orchestrator.orchestrate({
+      handle,
+      sessionId: "session-target-fallback",
+      targetId: "provided-target",
+      canImportCookies: true
+    });
+
+    expect(handle.snapshot).toHaveBeenCalledWith("session-target-fallback", "actionables", 2400, undefined, "provided-target");
+    expect(bundle.interaction).toMatchObject({
+      surface: "interstitial",
+      preferredAction: "click_and_hold",
+      holdMs: 1500
+    });
+    expect(result.outcome.evidence).toMatchObject({
+      interactionSurface: "interstitial",
+      preferredAction: "click_and_hold",
+      holdMs: 1500
+    });
+  });
+
+  it("uses the latest verified target when yielding after verification discovers a popup", async () => {
+    const handle = makeHandle({
+      url: "https://example.com/challenge",
+      title: "Continue",
+      snapshot: "[r1] button \"Continue\"",
+      advanceOnKinds: ["click"]
+    });
+    (handle.status as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        mode: "extension",
+        activeTargetId: null,
+        url: "https://example.com/challenge",
+        title: "Continue",
+        meta: {
+          blockerState: "active",
+          blocker: {
+            schemaVersion: "1.0" as const,
+            type: "auth_required" as const,
+            source: "navigation" as const,
+            reasonCode: "token_required" as const,
+            confidence: 0.9,
+            retryable: true,
+            detectedAt: "2026-03-22T00:00:00.000Z",
+            evidence: { matchedPatterns: [], networkHosts: [] },
+            actionHints: []
+          },
+          challenge: {
+            challengeId: "challenge-1",
+            blockerType: "auth_required" as const,
+            ownerSurface: "direct_browser" as const,
+            resumeMode: "manual" as const,
+            status: "active" as const,
+            updatedAt: "2026-03-22T00:00:00.000Z",
+            preservedSessionId: "session-1"
+          }
+        }
+      })
+      .mockResolvedValueOnce({
+        mode: "extension",
+        activeTargetId: "popup-target",
+        url: "https://example.com/challenge?step=mfa",
+        title: "Enter your verification code",
+        meta: {
+          blockerState: "active",
+          blocker: {
+            schemaVersion: "1.0" as const,
+            type: "auth_required" as const,
+            source: "navigation" as const,
+            reasonCode: "auth_required" as const,
+            confidence: 0.9,
+            retryable: true,
+            detectedAt: "2026-03-22T00:00:00.000Z",
+            evidence: { matchedPatterns: [], networkHosts: [] },
+            actionHints: []
+          },
+          challenge: {
+            challengeId: "challenge-1",
+            blockerType: "auth_required" as const,
+            ownerSurface: "direct_browser" as const,
+            resumeMode: "manual" as const,
+            status: "active" as const,
+            updatedAt: "2026-03-22T00:00:00.000Z",
+            preservedSessionId: "session-1"
+          }
+        }
+      });
+    (handle.snapshot as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        content: "[r1] button \"Continue\"",
+        warnings: []
+      })
+      .mockResolvedValueOnce({
+        content: "[r9] textbox \"Verification code\"",
+        warnings: []
+      });
+    const orchestrator = new ChallengeOrchestrator(makeConfig({
+      minAttemptGapMs: 0,
+      attemptBudget: 1,
+      noProgressLimit: 2
+    }));
+
+    const result = await orchestrator.orchestrate({
+      handle,
+      sessionId: "session-yield-target",
+      targetId: "root-target",
+      canImportCookies: true
+    });
+
+    expect(result.outcome.status).toBe("yield_required");
+    expect(result.outcome.yielded?.targetId).toBe("popup-target");
+  });
+
   it("throttles repeated unresolved attempts for the same challenge id", async () => {
     const recorder = new OutcomeRecorder();
     recorder.record({
@@ -228,6 +462,101 @@ describe("challenge orchestrator", () => {
     expect(result.outcome.status).toBe("yield_required");
     expect(result.outcome.yielded?.requiredHumanStep).toContain("secret-bearing credentials");
     expect(recorder.latest("challenge-1")?.resumeOutcome).toBe("awaiting_human_reclaim");
+  });
+
+  it("uses the provided target when an early human yield has no captured active target", async () => {
+    const handle = makeHandle({
+      url: "https://example.com/login",
+      title: "Sign in",
+      snapshot: "[r1] textbox \"Password\""
+    });
+    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+      mode: "extension",
+      activeTargetId: null,
+      url: "https://example.com/login",
+      title: "Sign in",
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0" as const,
+          type: "auth_required" as const,
+          source: "navigation" as const,
+          reasonCode: "token_required" as const,
+          confidence: 0.9,
+          retryable: true,
+          detectedAt: "2026-03-22T00:00:00.000Z",
+          evidence: { matchedPatterns: [], networkHosts: [] },
+          actionHints: []
+        },
+        challenge: {
+          challengeId: "challenge-1",
+          blockerType: "auth_required" as const,
+          ownerSurface: "direct_browser" as const,
+          resumeMode: "manual" as const,
+          status: "active" as const,
+          updatedAt: "2026-03-22T00:00:00.000Z",
+          preservedSessionId: "session-1"
+        }
+      }
+    });
+    const orchestrator = new ChallengeOrchestrator(makeConfig());
+
+    const result = await orchestrator.orchestrate({
+      handle,
+      sessionId: "session-secret-provided-target",
+      targetId: "provided-target",
+      canImportCookies: true
+    });
+
+    expect(result.outcome.status).toBe("yield_required");
+    expect(result.outcome.yielded?.targetId).toBe("provided-target");
+  });
+
+  it("falls back to a null target when an early human yield has no active or provided target", async () => {
+    const handle = makeHandle({
+      url: "https://example.com/login",
+      title: "Sign in",
+      snapshot: "[r1] textbox \"Password\""
+    });
+    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+      mode: "extension",
+      activeTargetId: null,
+      url: "https://example.com/login",
+      title: "Sign in",
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0" as const,
+          type: "auth_required" as const,
+          source: "navigation" as const,
+          reasonCode: "token_required" as const,
+          confidence: 0.9,
+          retryable: true,
+          detectedAt: "2026-03-22T00:00:00.000Z",
+          evidence: { matchedPatterns: [], networkHosts: [] },
+          actionHints: []
+        },
+        challenge: {
+          challengeId: "challenge-1",
+          blockerType: "auth_required" as const,
+          ownerSurface: "direct_browser" as const,
+          resumeMode: "manual" as const,
+          status: "active" as const,
+          updatedAt: "2026-03-22T00:00:00.000Z",
+          preservedSessionId: "session-1"
+        }
+      }
+    });
+    const orchestrator = new ChallengeOrchestrator(makeConfig());
+
+    const result = await orchestrator.orchestrate({
+      handle,
+      sessionId: "session-secret-null-target",
+      canImportCookies: true
+    });
+
+    expect(result.outcome.status).toBe("yield_required");
+    expect(result.outcome.yielded?.targetId).toBeNull();
   });
 
   it("surfaces manager stand-down reasons when helper eligibility stays otherwise allowed", async () => {
@@ -427,6 +756,23 @@ describe("challenge orchestrator", () => {
     expect(orchestrator.getRecorder()).toBe(recorder);
   });
 
+  it("omits unknown interaction surfaces from outcome evidence", async () => {
+    const orchestrator = new ChallengeOrchestrator(makeConfig({
+      mode: "off"
+    }));
+
+    const result = await orchestrator.orchestrate({
+      handle: makeHandle({
+        url: "https://example.com/challenge",
+        title: "",
+        snapshot: ""
+      }),
+      sessionId: "session-unknown-surface"
+    });
+
+    expect(result.outcome.evidence).not.toHaveProperty("interactionSurface");
+  });
+
   it("records still_blocked outcomes when attempt budget ends before no-progress exhaustion", async () => {
     const recorder = new OutcomeRecorder();
     const orchestrator = new ChallengeOrchestrator(makeConfig({
@@ -473,5 +819,87 @@ describe("challenge orchestrator", () => {
     expect(result.outcome.status).toBe("yield_required");
     expect(result.outcome.yielded?.reason).toBe("exhausted_no_progress");
     expect(recorder.latest("challenge-1")?.resumeOutcome).toBe("awaiting_human_reclaim");
+  });
+
+  it("falls back to a null target when post-action human yield cannot verify any active target", async () => {
+    const handle = makeHandle({
+      url: "https://example.com/challenge",
+      title: "Continue",
+      snapshot: "[r1] button \"Continue\"",
+      advanceOnKinds: []
+    });
+    (handle.status as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        mode: "extension",
+        activeTargetId: null,
+        url: "https://example.com/challenge",
+        title: "Continue",
+        meta: {
+          blockerState: "active",
+          blocker: {
+            schemaVersion: "1.0" as const,
+            type: "auth_required" as const,
+            source: "navigation" as const,
+            reasonCode: "token_required" as const,
+            confidence: 0.9,
+            retryable: true,
+            detectedAt: "2026-03-22T00:00:00.000Z",
+            evidence: { matchedPatterns: [], networkHosts: [] },
+            actionHints: []
+          },
+          challenge: {
+            challengeId: "challenge-1",
+            blockerType: "auth_required" as const,
+            ownerSurface: "direct_browser" as const,
+            resumeMode: "manual" as const,
+            status: "active" as const,
+            updatedAt: "2026-03-22T00:00:00.000Z",
+            preservedSessionId: "session-1"
+          }
+        }
+      })
+      .mockResolvedValueOnce({
+        mode: "extension",
+        activeTargetId: null,
+        url: "https://example.com/challenge",
+        title: "Continue",
+        meta: {
+          blockerState: "active",
+          blocker: {
+            schemaVersion: "1.0" as const,
+            type: "auth_required" as const,
+            source: "navigation" as const,
+            reasonCode: "token_required" as const,
+            confidence: 0.9,
+            retryable: true,
+            detectedAt: "2026-03-22T00:00:00.000Z",
+            evidence: { matchedPatterns: [], networkHosts: [] },
+            actionHints: []
+          },
+          challenge: {
+            challengeId: "challenge-1",
+            blockerType: "auth_required" as const,
+            ownerSurface: "direct_browser" as const,
+            resumeMode: "manual" as const,
+            status: "active" as const,
+            updatedAt: "2026-03-22T00:00:00.000Z",
+            preservedSessionId: "session-1"
+          }
+        }
+      });
+    const orchestrator = new ChallengeOrchestrator(makeConfig({
+      minAttemptGapMs: 0,
+      attemptBudget: 1,
+      noProgressLimit: 1
+    }));
+
+    const result = await orchestrator.orchestrate({
+      handle,
+      sessionId: "session-no-progress-null-target",
+      canImportCookies: false
+    });
+
+    expect(result.outcome.status).toBe("yield_required");
+    expect(result.outcome.yielded?.targetId).toBeNull();
   });
 });

@@ -16,6 +16,7 @@ const ALL_ACTIONS: ChallengeActionFamily[] = [
   "cookie_reuse",
   "element_discovery",
   "click_path",
+  "click_and_hold",
   "non_secret_form_fill",
   "dropdown",
   "scroll",
@@ -139,6 +140,7 @@ export const buildChallengePolicyGate = (
   if (config.allowInteractionExploration) {
     allowed.add("element_discovery");
     allowed.add("click_path");
+    allowed.add("click_and_hold");
     allowed.add("scroll");
     allowed.add("hover");
     allowed.add("press");

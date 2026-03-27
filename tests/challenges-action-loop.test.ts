@@ -301,7 +301,205 @@ describe("challenge action loop", () => {
       ref: "r3",
       text: "agent@example.com"
     });
-    expect(handle.type).toHaveBeenCalledWith("session-type", "r3", "agent@example.com", true, false, undefined);
+    expect(handle.type).toHaveBeenCalledWith("session-type", "r3", "agent@example.com", true, false, "tab-1");
+  });
+
+  it("chooses a bounded click-and-hold step when the visible challenge requests it", async () => {
+    vi.useFakeTimers();
+    try {
+      const handle = makeHandle("[r30] button \"Press and hold for 1 second\"", {
+        advanceOnKinds: ["pointer"]
+      });
+      const pending = runChallengeActionLoop({
+        handle,
+        sessionId: "session-hold",
+        initialBundle: makeBundle({
+          url: "https://example.com/challenge",
+          title: "Press and hold",
+          snapshot: "[r30] button \"Press and hold for 1 second\""
+        }),
+        decision: makeDecision(["click_and_hold", "pointer", "verification"]),
+        config
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      const result = await pending;
+
+      expect(result.executedSteps[0]).toMatchObject({
+        kind: "click_and_hold",
+        ref: "r30",
+        holdMs: 1000
+      });
+      expect(handle.pointerDown).toHaveBeenCalledWith("session-hold", 640, 360, "tab-1", "left", 1);
+      expect(handle.pointerUp).toHaveBeenCalledWith("session-hold", 640, 360, "tab-1", "left", 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("chooses popup clicks, default hold gestures, drag prompts without refs, and respects explicit target ids", async () => {
+    vi.useFakeTimers();
+    try {
+      const popupResult = await runChallengeActionLoop({
+        handle: makeHandle("[r40] dialog \"Choose where you'd like to shop\"\n[r41] button \"Pickup\"", {
+          advanceOnKinds: ["click"]
+        }),
+        sessionId: "session-popup-click",
+        initialBundle: makeBundle({
+          url: "https://example.com/challenge",
+          title: "Choose where you'd like to shop",
+          snapshot: "[r40] dialog \"Choose where you'd like to shop\"\n[r41] button \"Pickup\""
+        }),
+        decision: makeDecision(["click_path", "verification"]),
+        config
+      });
+      const holdHandle = makeHandle("Press and hold to continue.", {
+        advanceOnKinds: ["pointer"]
+      });
+      const holdPending = runChallengeActionLoop({
+        handle: holdHandle,
+        sessionId: "session-hold-default",
+        targetId: "override-target",
+        initialBundle: makeBundle({
+          url: "https://example.com/challenge",
+          title: "Press and hold",
+          snapshot: "Press and hold to continue."
+        }),
+        decision: makeDecision(["click_and_hold", "verification"]),
+        config
+      });
+      await vi.advanceTimersByTimeAsync(1500);
+      const holdResult = await holdPending;
+      const dragResult = await runChallengeActionLoop({
+        handle: makeHandle("Drag the slider to continue.", {
+          advanceOnKinds: ["drag"]
+        }),
+        sessionId: "session-drag-no-ref",
+        initialBundle: makeBundle({
+          url: "https://example.com/challenge",
+          title: "Drag the slider",
+          snapshot: "Drag the slider to continue."
+        }),
+        decision: makeDecision(["drag", "verification"]),
+        config
+      });
+
+      expect(popupResult.executedSteps[0]).toMatchObject({
+        kind: "click",
+        ref: "r41"
+      });
+      expect(holdResult.executedSteps[0]).toMatchObject({
+        kind: "click_and_hold",
+        holdMs: 1500
+      });
+      expect(holdHandle.pointerDown).toHaveBeenCalledWith("session-hold-default", 640, 360, "override-target", "left", 1);
+      expect(dragResult.executedSteps[0]).toMatchObject({
+        kind: "drag",
+        coordinates: { x: 640, y: 360 }
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls through popup click prompts with no safe click refs to a bounded wait", async () => {
+    const bundle = makeBundle({
+      url: "https://example.com/challenge",
+      title: "Choose where you'd like to shop",
+      snapshot: "[r40] dialog \"Choose where you'd like to shop\""
+    });
+    const result = await runChallengeActionLoop({
+      handle: makeHandle("[r40] dialog \"Choose where you'd like to shop\"", {
+        advanceOnKinds: ["wait"]
+      }),
+      sessionId: "session-popup-no-click-ref",
+      initialBundle: {
+        ...bundle,
+        interaction: {
+          ...bundle.interaction,
+          surface: "popup",
+          preferredAction: "click",
+          clickRefs: []
+        }
+      },
+      decision: makeDecision(["click_path", "verification"]),
+      config
+    });
+
+    expect(result.executedSteps[0]).toEqual({
+      kind: "wait",
+      reason: "Give the page a short bounded settle window before yielding."
+    });
+  });
+
+  it("defaults hold timing and falls through repeated hold prompts without refs", async () => {
+    vi.useFakeTimers();
+    try {
+      const handle = makeHandle("Press and hold to continue.");
+      const bundle = makeBundle({
+        url: "https://example.com/challenge",
+        title: "Press and hold",
+        snapshot: "Press and hold to continue."
+      });
+      const { holdMs: _ignoredHoldMs, ...interactionWithoutHoldMs } = bundle.interaction;
+      const pending = runChallengeActionLoop({
+        handle,
+        sessionId: "session-repeat-hold",
+        initialBundle: {
+          ...bundle,
+          interaction: {
+            ...interactionWithoutHoldMs,
+            preferredAction: "click_and_hold",
+            holdRefs: []
+          }
+        },
+        decision: makeDecision(["click_and_hold", "verification"], {
+          attemptBudget: 2,
+          noProgressLimit: 4
+        }),
+        config
+      });
+
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(handle.pointerUp).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await pending;
+
+      expect(result.executedSteps[0]).toEqual({
+        kind: "click_and_hold",
+        reason: "Visible challenge requests a bounded click-and-hold gesture."
+      });
+      expect(result.executedSteps[1]).toEqual({
+        kind: "wait",
+        reason: "Give the page a short bounded settle window before yielding."
+      });
+      expect(handle.pointerDown).toHaveBeenCalledWith("session-repeat-hold", 640, 360, "tab-1", "left", 1);
+      expect(handle.pointerUp).toHaveBeenCalledWith("session-repeat-hold", 640, 360, "tab-1", "left", 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("chooses drag first when the visible challenge requests a slider-style action", async () => {
+    const handle = makeHandle("[r31] button \"Drag the slider\"", {
+      advanceOnKinds: ["drag"]
+    });
+    const result = await runChallengeActionLoop({
+      handle,
+      sessionId: "session-drag",
+      initialBundle: makeBundle({
+        url: "https://example.com/challenge",
+        title: "Drag the slider",
+        snapshot: "[r31] button \"Drag the slider\""
+      }),
+      decision: makeDecision(["drag", "pointer", "verification"]),
+      config
+    });
+
+    expect(result.executedSteps[0]).toMatchObject({
+      kind: "drag",
+      ref: "r31"
+    });
+    expect(handle.drag).toHaveBeenCalled();
   });
 
   it("explores checkpoint, hover, scroll, press, pointer, and drag paths in bounded order", async () => {
@@ -384,6 +582,26 @@ describe("challenge action loop", () => {
     expect(drag.executedSteps[0]).toMatchObject({
       kind: "drag",
       coordinates: { x: 640, y: 360 }
+    });
+  });
+
+  it("skips checkpoint clicks when click_path is disallowed and uses hover instead", async () => {
+    const result = await runChallengeActionLoop({
+      handle: makeHandle("[r5] button \"Continue\"", {
+        advanceOnKinds: ["hover"]
+      }),
+      sessionId: "session-checkpoint-hover-fallback",
+      initialBundle: makeBundle({
+        snapshot: "[r5] button \"Continue\""
+      }),
+      decision: makeDecision(["hover", "verification"]),
+      config
+    });
+
+    expect(result.executedSteps[0]).toEqual({
+      kind: "hover",
+      ref: "r5",
+      reason: "Hover a likely action target to reveal hidden menus or session pickers."
     });
   });
 
@@ -641,8 +859,8 @@ describe("challenge action loop", () => {
       config
     });
 
-    expect(handle.select).toHaveBeenCalledWith("session-suggested", "r8", ["ca"], undefined);
-    expect(handle.hover).toHaveBeenCalledWith("session-suggested", "r8", undefined);
+    expect(handle.select).toHaveBeenCalledWith("session-suggested", "r8", ["ca"], "tab-1");
+    expect(handle.hover).toHaveBeenCalledWith("session-suggested", "r8", "tab-1");
     expect(result.executedSteps).toEqual(suggestedSteps);
   });
 
@@ -680,14 +898,14 @@ describe("challenge action loop", () => {
     expect(handle.hover).not.toHaveBeenCalled();
     expect(handle.type).not.toHaveBeenCalled();
     expect(handle.select).not.toHaveBeenCalled();
-    expect(handle.press).toHaveBeenCalledWith("session-defaults", "Tab", undefined, undefined);
-    expect(handle.scroll).toHaveBeenCalledWith("session-defaults", 600, undefined, undefined);
-    expect(handle.pointerMove).toHaveBeenCalledWith("session-defaults", 640, 360, undefined, 12);
+    expect(handle.press).toHaveBeenCalledWith("session-defaults", "Tab", undefined, "tab-1");
+    expect(handle.scroll).toHaveBeenCalledWith("session-defaults", 600, undefined, "tab-1");
+    expect(handle.pointerMove).toHaveBeenCalledWith("session-defaults", 640, 360, "tab-1", 12);
     expect(handle.drag).toHaveBeenCalledWith(
       "session-defaults",
       { x: 640, y: 240 },
       { x: 640, y: 500 },
-      undefined,
+      "tab-1",
       16
     );
     expect(result.executedSteps).toHaveLength(10);
@@ -711,6 +929,146 @@ describe("challenge action loop", () => {
     });
 
     expect(result.status).toBe("no_progress");
+  });
+
+  it("uses a null target when no explicit or bundle target is available", async () => {
+    const result = await runChallengeActionLoop({
+      handle: makeHandle("", {
+        advanceOnKinds: ["wait"]
+      }),
+      sessionId: "session-null-start-target",
+      initialBundle: {
+        ...makeBundle({
+          snapshot: ""
+        }),
+        activeTargetId: null
+      },
+      decision: makeDecision(["verification"], {
+        attemptBudget: 1,
+        noProgressLimit: 2
+      }),
+      suggestedSteps: [
+        {
+          kind: "wait",
+          reason: "settle first"
+        }
+      ],
+      config
+    });
+
+    expect(result.executedSteps[0]?.reason).toBe("settle first");
+    expect(result.status).toBe("still_blocked");
+  });
+
+  it("switches to the latest verified target on later attempts", async () => {
+    const handle = makeHandle("[r21] button \"Continue\"\n[r22] button \"Continue again\"", {
+      advanceOnKinds: ["click"]
+    });
+    (handle.status as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        mode: "extension",
+        activeTargetId: "popup-target",
+        url: "https://example.com/challenge?popup=1",
+        title: "Choose where you'd like to shop",
+        meta: {
+          blockerState: "active",
+          blocker: {
+            schemaVersion: "1.0" as const,
+            type: "auth_required" as const,
+            source: "navigation" as const,
+            reasonCode: "token_required" as const,
+            confidence: 0.9,
+            retryable: true,
+            detectedAt: "2026-03-22T00:00:00.000Z",
+            evidence: { matchedPatterns: [], networkHosts: [] },
+            actionHints: []
+          },
+          challenge: {
+            challengeId: "challenge-1",
+            blockerType: "auth_required" as const,
+            ownerSurface: "direct_browser" as const,
+            resumeMode: "manual" as const,
+            status: "active" as const,
+            updatedAt: "2026-03-22T00:00:00.000Z",
+            preservedSessionId: "session-1"
+          }
+        }
+      })
+      .mockResolvedValueOnce({
+        mode: "extension",
+        activeTargetId: "popup-target",
+        url: "https://example.com/home",
+        title: "Home",
+        meta: {
+          blockerState: "clear" as const
+        }
+      });
+
+    const result = await runChallengeActionLoop({
+      handle,
+      sessionId: "session-popup-target-follow",
+      targetId: "root-target",
+      initialBundle: makeBundle({
+        url: "https://example.com/challenge",
+        title: "Choose where you'd like to shop",
+        snapshot: "[r21] button \"Continue\"\n[r22] button \"Continue again\""
+      }),
+      decision: makeDecision(["click_path", "verification"], {
+        attemptBudget: 2,
+        noProgressLimit: 2
+      }),
+      config
+    });
+
+    expect(handle.click).toHaveBeenNthCalledWith(1, "session-popup-target-follow", "r21", "root-target");
+    expect(handle.click).toHaveBeenNthCalledWith(2, "session-popup-target-follow", "r22", "popup-target");
+    expect(result.status).toBe("resolved");
+  });
+
+  it("clamps short hold suggestions and ignores unsupported suggested step kinds", async () => {
+    vi.useFakeTimers();
+    try {
+      const handle = makeHandle("", {
+        advanceOnKinds: ["pointer"]
+      });
+      const pending = runChallengeActionLoop({
+        handle,
+        sessionId: "session-short-hold",
+        initialBundle: makeBundle({
+          url: "https://example.com/challenge",
+          title: "Press and hold",
+          snapshot: ""
+        }),
+        decision: makeDecision(["verification"], {
+          attemptBudget: 2,
+          noProgressLimit: 4
+        }),
+        suggestedSteps: [
+          {
+            kind: "click_and_hold",
+            holdMs: 10,
+            reason: "short hold"
+          },
+          {
+            kind: "unsupported" as unknown as ChallengeActionStep["kind"],
+            reason: "noop"
+          } as ChallengeActionStep
+        ],
+        config
+      });
+
+      await vi.advanceTimersByTimeAsync(249);
+      expect(handle.pointerUp).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await pending;
+
+      expect(handle.pointerDown).toHaveBeenCalledWith("session-short-hold", 640, 360, "tab-1", "left", 1);
+      expect(handle.pointerUp).toHaveBeenCalledWith("session-short-hold", 640, 360, "tab-1", "left", 1);
+      expect(result.executedSteps[0]).toMatchObject({ kind: "click_and_hold", holdMs: 10 });
+      expect(result.executedSteps[1]?.reason).toBe("noop");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns no_progress after an empty optional bridge and surfaces deferred verification results", async () => {

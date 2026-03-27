@@ -20,7 +20,14 @@ const secretEntryInterpretation: ChallengeInterpreterResult = {
   summary: "classification=checkpoint_or_friction;humanBoundary=secret_entry"
 };
 
-const buildBundle = (snapshot: string, blockerState: "active" | "clear" = "active") => buildChallengeEvidenceBundle({
+const buildBundle = (
+  snapshot: string,
+  blockerState: "active" | "clear" = "active",
+  options: {
+    canImportCookies?: boolean;
+    taskData?: Record<string, string>;
+  } = {}
+) => buildChallengeEvidenceBundle({
   status: {
     mode: "extension",
     activeTargetId: "tab-1",
@@ -47,7 +54,9 @@ const buildBundle = (snapshot: string, blockerState: "active" | "clear" = "activ
   },
   snapshot: {
     content: snapshot
-  }
+  },
+  canImportCookies: options.canImportCookies,
+  ...(options.taskData ? { taskData: options.taskData } : {})
 });
 
 const buildGate = (allowedActions: ChallengePolicyGate["allowedActions"], overrides: Partial<ChallengePolicyGate> = {}): ChallengePolicyGate => ({
@@ -112,6 +121,64 @@ describe("challenge capability matrix", () => {
     });
   });
 
+  it("tolerates bundles that have no interaction metadata", () => {
+    const bundleWithoutInteraction = {
+      ...buildBundle(""),
+      interaction: undefined
+    };
+    const matrix = buildCapabilityMatrix(
+      bundleWithoutInteraction as ReturnType<typeof buildBundle>,
+      baseInterpretation,
+      buildGate(["click_path"], { optionalComputerUseBridge: true })
+    );
+
+    expect(matrix.canUseComputerUseBridge).toBe(false);
+    expect(matrix.helperEligibility).toEqual({
+      allowed: false,
+      reason: "Canonical evidence did not expose any safe browser-scoped helper actions.",
+      standDownReason: "helper_no_safe_actions"
+    });
+  });
+
+  it("treats interaction-only refs as safe helper actions", () => {
+    const matrix = buildCapabilityMatrix(
+      buildBundle("[r20] button \"Press and hold for 1 second\"", "active"),
+      baseInterpretation,
+      buildGate([], { optionalComputerUseBridge: true })
+    );
+
+    expect(matrix.canUseComputerUseBridge).toBe(true);
+    expect(matrix.helperEligibility).toEqual({
+      allowed: true,
+      reason: "Optional helper bridge remains eligible after policy resolution."
+    });
+  });
+
+  it("enables auth, session, cookie, and non-secret form-fill continuity when evidence supports them", () => {
+    const authInterpretation: ChallengeInterpreterResult = {
+      ...baseInterpretation,
+      classification: "auth_required",
+      summary: "classification=auth_required"
+    };
+    const matrix = buildCapabilityMatrix(
+      buildBundle(
+        "[r1] link \"Sign in\"\n[r2] button \"Use existing session\"\n[r3] textbox \"Email\"",
+        "active",
+        {
+          canImportCookies: true,
+          taskData: { email: "agent@example.com" }
+        }
+      ),
+      authInterpretation,
+      buildGate(["auth_navigation", "session_reuse", "cookie_reuse", "non_secret_form_fill"])
+    );
+
+    expect(matrix.canNavigateToAuth).toBe(true);
+    expect(matrix.canReuseExistingSession).toBe(true);
+    expect(matrix.canReuseCookies).toBe(true);
+    expect(matrix.canFillNonSecretFields).toBe(true);
+  });
+
   it("defers when the blocker is already clear and no blocker payload remains", () => {
     const matrix = buildCapabilityMatrix(
       buildBundle("[r2] button \"Continue\"", "clear"),
@@ -119,6 +186,33 @@ describe("challenge capability matrix", () => {
       buildGate(["click_path"])
     );
 
+    expect(matrix.mustDefer).toBe(true);
+  });
+
+  it("defers policy-blocked lanes and honors explicit helper eligibility overrides", () => {
+    const policyBlockedInterpretation: ChallengeInterpreterResult = {
+      ...baseInterpretation,
+      humanBoundary: "policy_blocked",
+      summary: "classification=checkpoint_or_friction;humanBoundary=policy_blocked"
+    };
+    const matrix = buildCapabilityMatrix(
+      buildBundle("[r9] button \"Drag the slider\""),
+      policyBlockedInterpretation,
+      buildGate(["click_path"], {
+        helperEligibility: {
+          allowed: true,
+          reason: "Manager override."
+        }
+      })
+    );
+
+    expect(matrix.canExploreClicks).toBe(true);
+    expect(matrix.canUseComputerUseBridge).toBe(false);
+    expect(matrix.helperEligibility).toEqual({
+      allowed: false,
+      reason: "Helper bridge is blocked by human boundary: policy_blocked.",
+      standDownReason: "helper_blocked_by_human_boundary"
+    });
     expect(matrix.mustDefer).toBe(true);
   });
 });

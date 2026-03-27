@@ -75,6 +75,15 @@ const buildOutcome = (args: {
     loginRefs: args.bundle.continuity.loginRefs,
     humanVerificationRefs: args.bundle.continuity.humanVerificationRefs,
     checkpointRefs: args.bundle.continuity.checkpointRefs,
+    ...(args.bundle.interaction?.surface && args.bundle.interaction.surface !== "unknown"
+      ? { interactionSurface: args.bundle.interaction.surface }
+      : {}),
+    ...(args.bundle.interaction?.preferredAction && args.bundle.interaction.preferredAction !== "unknown"
+      ? { preferredAction: args.bundle.interaction.preferredAction }
+      : {}),
+    ...(typeof args.bundle.interaction?.holdMs === "number"
+      ? { holdMs: args.bundle.interaction.holdMs }
+      : {}),
     registryPressure: args.bundle.registryPressure
   },
   ...(args.yielded ? { yielded: args.yielded } : {})
@@ -125,7 +134,8 @@ export class ChallengeOrchestrator {
     taskData?: ChallengeEvidenceBundle["taskData"];
   }): Promise<ChallengeEvidenceBundle> {
     const status = await args.handle.status(args.sessionId);
-    const snapshot = await args.handle.snapshot(args.sessionId, "actionables", 2400, undefined, args.targetId);
+    const effectiveTargetId = status.activeTargetId ?? args.targetId ?? null;
+    const snapshot = await args.handle.snapshot(args.sessionId, "actionables", 2400, undefined, effectiveTargetId);
     const debugTrace = await args.handle.debugTraceSnapshot(args.sessionId, { max: 50 });
     const cookies = status.url
       ? await args.handle.cookieList(args.sessionId, [status.url])
@@ -256,7 +266,7 @@ export class ChallengeOrchestrator {
         bundle,
         interpretation,
         sessionId: args.sessionId,
-        targetId: args.targetId,
+        targetId: bundle.activeTargetId ?? args.targetId ?? null,
         reason: yieldDecision.reason,
         verification
       });
@@ -363,7 +373,7 @@ export class ChallengeOrchestrator {
         bundle: verifiedBundle,
         interpretation,
         sessionId: args.sessionId,
-        targetId: args.targetId,
+        targetId: verifiedBundle.activeTargetId ?? bundle.activeTargetId ?? args.targetId ?? null,
         reason: action.status === "yield_required" ? maybeYield.reason : maybeYield.reason,
         verification: action.verification
       })

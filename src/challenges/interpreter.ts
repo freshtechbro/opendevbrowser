@@ -59,6 +59,7 @@ export const interpretChallengeEvidence = (
 ): ChallengeInterpreterResult => {
   const humanBoundary = detectHumanBoundary(bundle);
   const classification = detectClassification(bundle, humanBoundary);
+  const preferredAction = bundle.interaction?.preferredAction;
   const authState: ChallengeInterpreterResult["authState"] = classification === "existing_session_reuse"
     ? "session_reusable"
     : classification === "auth_required"
@@ -71,17 +72,25 @@ export const interpretChallengeEvidence = (
           ? "authenticated"
           : "unknown";
 
-  const allowedActionFamilies = [
+  const allowedActionFamilies = new Set<ChallengeInterpreterResult["allowedActionFamilies"][number]>([
     "wait",
     "verification",
     "debug_trace",
     ...(classification === "auth_required" || classification === "existing_session_reuse"
-      ? ["auth_navigation", "session_reuse", "cookie_reuse", "element_discovery", "click_path", "scroll", "hover", "press"]
-      : ["element_discovery", "click_path", "scroll", "hover", "press", "pointer", "drag"]),
+      ? ["auth_navigation", "session_reuse", "cookie_reuse", "element_discovery", "click_path", "scroll", "hover", "press"] as const
+      : ["element_discovery", "click_path", "scroll", "hover", "press", "pointer", "drag"] as const),
     ...(bundle.continuity.hasNonSecretTaskData && bundle.continuity.nonSecretFieldRefs.length > 0
-      ? ["non_secret_form_fill", "dropdown"]
-      : [])
-  ] as ChallengeInterpreterResult["allowedActionFamilies"];
+      ? ["non_secret_form_fill", "dropdown"] as const
+      : [] as const)
+  ]);
+  if (preferredAction === "click_and_hold") {
+    allowedActionFamilies.add("click_and_hold");
+    allowedActionFamilies.add("pointer");
+  }
+  if (preferredAction === "drag") {
+    allowedActionFamilies.add("drag");
+    allowedActionFamilies.add("pointer");
+  }
 
   const continuityOpportunities: ChallengeInterpreterResult["continuityOpportunities"] = [];
   if (
@@ -120,12 +129,14 @@ export const interpretChallengeEvidence = (
       : humanBoundary,
     requiredVerification: stopRisk === "low" ? "light" : "full",
     continuityOpportunities,
-    allowedActionFamilies,
+    allowedActionFamilies: [...allowedActionFamilies],
     laneHints,
     stopRisk,
     summary: summarize([
       `classification=${classification}`,
       `authState=${authState}`,
+      bundle.interaction?.surface && bundle.interaction.surface !== "unknown" ? `surface=${bundle.interaction.surface}` : null,
+      preferredAction && preferredAction !== "unknown" ? `preferredAction=${preferredAction}` : null,
       continuityOpportunities.length > 0 ? `continuity=${continuityOpportunities.join(",")}` : null,
       bundle.continuity.likelyLoginPage ? "login-page-visible" : null,
       bundle.continuity.likelyHumanVerification ? "human-verification-visible" : null

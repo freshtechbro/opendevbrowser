@@ -191,4 +191,92 @@ describe("challenge evidence bundle", () => {
     ]);
     expect(bundle.diagnostics.networkHosts).toEqual(["example.com"]);
   });
+
+  it("detects popup click flows from dialog-like shopping interstitials", () => {
+    const bundle = buildChallengeEvidenceBundle({
+      status: {
+        mode: "extension",
+        activeTargetId: "tab-popup",
+        url: "https://www.walmart.com/search?q=macbook",
+        title: "Choose where you'd like to shop",
+        meta: {
+          blockerState: "active"
+        }
+      },
+      snapshot: {
+        content: [
+          "[r10] dialog \"Choose where you'd like to shop\"",
+          "[r11] button \"Pickup\"",
+          "[r12] button \"Delivery\""
+        ].join("\n")
+      }
+    });
+
+    expect(bundle.interaction).toMatchObject({
+      surface: "popup",
+      preferredAction: "click",
+      clickRefs: ["r11", "r12"]
+    });
+  });
+
+  it("detects hold prompts and parses bounded hold durations", () => {
+    const bundle = buildChallengeEvidenceBundle({
+      status: {
+        mode: "extension",
+        activeTargetId: "tab-hold",
+        url: "https://example.com/challenge",
+        title: "Press and hold",
+        meta: {
+          blockerState: "active"
+        }
+      },
+      snapshot: {
+        content: "[r20] button \"Press and hold for 1 minute\""
+      }
+    });
+
+    expect(bundle.interaction).toMatchObject({
+      surface: "interstitial",
+      preferredAction: "click_and_hold",
+      holdRefs: ["r20"],
+      holdMs: 60000
+    });
+  });
+
+  it("defaults invalid hold durations and preserves unknown surfaces when no evidence exists", () => {
+    const holdBundle = buildChallengeEvidenceBundle({
+      status: {
+        mode: "extension",
+        activeTargetId: "tab-hold-default",
+        url: "https://example.com/challenge",
+        title: "Press and hold",
+        meta: {
+          blockerState: "active"
+        }
+      },
+      snapshot: {
+        content: "Press and hold for 0 seconds."
+      }
+    });
+    const unknownSurfaceBundle = buildChallengeEvidenceBundle({
+      status: {
+        mode: "managed",
+        activeTargetId: null
+      }
+    });
+
+    expect(holdBundle.interaction).toMatchObject({
+      surface: "interstitial",
+      preferredAction: "click_and_hold",
+      holdRefs: [],
+      holdMs: 1500
+    });
+    expect(unknownSurfaceBundle.interaction).toMatchObject({
+      surface: "unknown",
+      preferredAction: "unknown",
+      clickRefs: [],
+      holdRefs: [],
+      dragRefs: []
+    });
+  });
 });

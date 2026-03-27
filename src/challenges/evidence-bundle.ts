@@ -1,6 +1,13 @@
 import type { ProviderAntiBotSnapshot } from "../providers/registry";
 import type { BrowserFallbackDisposition, JsonValue } from "../providers/types";
-import type { ChallengeActionable, ChallengeContinuitySignals, ChallengeDiagnosticsSummary, ChallengeEvidenceBundle } from "./types";
+import type {
+  ChallengeActionable,
+  ChallengeContinuitySignals,
+  ChallengeDiagnosticsSummary,
+  ChallengeEvidenceBundle,
+  ChallengeInteractionSignals,
+  ChallengeInteractionSurface
+} from "./types";
 
 type ChallengeStatusInput = {
   mode: string;
@@ -47,11 +54,25 @@ const HUMAN_VERIFICATION_RE = /\b(captcha|verify (?:that )?you(?:'re| are) human
 const NON_SECRET_FIELD_RE = /\b(email|e-mail|username|first name|last name|full name|company|phone|city|state|country|linkedin|portfolio|resume|cv)\b/i;
 const CHECKPOINT_RE = /\b(next|continue|resume|verify|submit|approve|allow)\b/i;
 const LOGIN_PAGE_RE = /\/(login|signin|sign-in|auth|session)(?:[/?#]|$)/i;
+const CLICK_ACTION_RE = /\b(click|tap|select|choose|continue|allow|dismiss|close|not now|got it|delivery|pickup|ship(?:ping)? here)\b/i;
+const HOLD_ACTION_RE = /\b(?:click|press|tap|activate)\s+(?:and\s+)?hold\b|\bhold (?:the )?(?:button|slider)\b/i;
+const DRAG_ACTION_RE = /\b(?:drag|slide|move)(?:\s+the)?\s+(?:slider|puzzle(?:\s+piece)?|piece|button)\b/i;
+const POPUP_SURFACE_RE = /\b(?:popup|pop up|modal|dialog|choose where (?:you(?:'|’)d|you would|to) like to shop|how do you want your items|set your location|confirm your location|choose a store)\b/i;
+const INTERSTITIAL_SURFACE_RE = /\b(?:interstitial|security check|verify (?:that )?you(?:'re| are) human|checking your browser|captcha|challenge|press and hold|click and hold|drag the slider|slide to verify)\b/i;
+const CLICKABLE_ROLE_RE = /^(?:button|link|menuitem|option|tab|radio|checkbox)$/i;
+const DIALOG_ROLE_RE = /^(?:dialog|alertdialog)$/i;
+const HOLD_DURATION_RE = /\b(\d+)\s*(second|sec|seconds|minute|min|minutes)\b/i;
+const DEFAULT_HOLD_MS = 1500;
+const MAX_HOLD_MS = 60_000;
 
 const sanitize = (value: string | undefined): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const dedupe = (values: string[]): string[] => {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
 };
 
 const parseActionables = (content: string | undefined): ChallengeActionable[] => {
@@ -79,6 +100,32 @@ const collectRefs = (actionables: ChallengeActionable[], matcher: RegExp): strin
       return matcher.test(haystack);
     })
     .map((entry) => entry.ref);
+};
+
+const collectInteractiveRefs = (actionables: ChallengeActionable[], matcher: RegExp): string[] => {
+  return actionables
+    .filter((entry) => {
+      if (entry.disabled || !CLICKABLE_ROLE_RE.test(entry.role)) {
+        return false;
+      }
+      const haystack = `${entry.role} ${entry.name ?? ""} ${entry.value ?? ""}`.trim();
+      return matcher.test(haystack);
+    })
+    .map((entry) => entry.ref);
+};
+
+const parseHoldDurationMs = (value: string): number | undefined => {
+  const match = value.match(HOLD_DURATION_RE);
+  if (!match?.[1] || !match[2]) {
+    return undefined;
+  }
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return undefined;
+  }
+  const unit = match[2].toLowerCase();
+  const multiplier = unit.startsWith("min") ? 60_000 : 1000;
+  return Math.min(MAX_HOLD_MS, Math.max(1000, Math.floor(amount * multiplier)));
 };
 
 const buildContinuitySignals = (
@@ -115,8 +162,82 @@ const buildContinuitySignals = (
   };
 };
 
+const resolveInteractionSurface = (args: {
+  actionables: ChallengeActionable[];
+  combinedText: string;
+  warnings: string[];
+}): ChallengeInteractionSurface => {
+  if (args.actionables.some((entry) => DIALOG_ROLE_RE.test(entry.role)) || POPUP_SURFACE_RE.test(args.combinedText)) {
+    return "popup";
+  }
+  if (INTERSTITIAL_SURFACE_RE.test(args.combinedText) || args.warnings.some((warning) => INTERSTITIAL_SURFACE_RE.test(warning))) {
+    return "interstitial";
+  }
+  if (args.combinedText.trim().length > 0 || args.actionables.length > 0) {
+    return "page";
+  }
+  return "unknown";
+};
+
+const buildInteractionSignals = (
+  input: ChallengeEvidenceInput,
+  actionables: ChallengeActionable[],
+  continuity: ChallengeContinuitySignals
+): ChallengeInteractionSignals => {
+  const warnings = input.snapshot?.warnings ?? [];
+  const combinedText = [
+    input.status.title,
+    input.snapshot?.content,
+    ...warnings
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+  const surface = resolveInteractionSurface({ actionables, combinedText, warnings });
+  const holdRefs = dedupe(collectInteractiveRefs(actionables, HOLD_ACTION_RE));
+  const dragRefs = dedupe(collectInteractiveRefs(actionables, DRAG_ACTION_RE));
+  const clickRefs = dedupe([
+    ...collectInteractiveRefs(actionables, CLICK_ACTION_RE),
+    ...continuity.checkpointRefs,
+    ...(surface === "popup"
+      ? actionables
+        .filter((entry) => !entry.disabled && CLICKABLE_ROLE_RE.test(entry.role))
+        .slice(0, 4)
+        .map((entry) => entry.ref)
+      : [])
+  ]);
+
+  const evidencePhrases = dedupe([
+    ...(surface === "popup" ? ["popup_surface"] : []),
+    ...(surface === "interstitial" ? ["interstitial_surface"] : []),
+    ...(HOLD_ACTION_RE.test(combinedText) ? ["click_and_hold_prompt"] : []),
+    ...(DRAG_ACTION_RE.test(combinedText) ? ["drag_prompt"] : [])
+  ]);
+  const holdMs = HOLD_ACTION_RE.test(combinedText)
+    ? parseHoldDurationMs(combinedText) ?? DEFAULT_HOLD_MS
+    : undefined;
+
+  const preferredAction = holdRefs.length > 0 || HOLD_ACTION_RE.test(combinedText)
+    ? "click_and_hold"
+    : dragRefs.length > 0 || DRAG_ACTION_RE.test(combinedText)
+      ? "drag"
+      : clickRefs.length > 0 || surface === "popup"
+        ? "click"
+        : "unknown";
+
+  return {
+    surface,
+    preferredAction,
+    clickRefs,
+    holdRefs,
+    dragRefs,
+    evidencePhrases,
+    ...(typeof holdMs === "number" ? { holdMs } : {})
+  };
+};
+
 const buildDiagnostics = (input: ChallengeEvidenceInput): ChallengeDiagnosticsSummary => {
   const networkEvents = input.debugTrace?.channels?.network?.events ?? [];
+  const warnings = input.snapshot?.warnings ?? [];
   const networkHosts = [...new Set(networkEvents
     .map((event) => {
       try {
@@ -133,7 +254,7 @@ const buildDiagnostics = (input: ChallengeEvidenceInput): ChallengeDiagnosticsSu
     exceptionCount: input.debugTrace?.channels?.exception?.events?.length ?? 0,
     networkCount: networkEvents.length,
     networkHosts,
-    warnings: input.snapshot?.warnings ?? [],
+    warnings,
     screenshotCaptured: false
   };
 };
@@ -142,6 +263,7 @@ export const buildChallengeEvidenceBundle = (input: ChallengeEvidenceInput): Cha
   const actionables = parseActionables(input.snapshot?.content);
   const diagnostics = buildDiagnostics(input);
   const continuity = buildContinuitySignals(input, actionables);
+  const interaction = buildInteractionSignals(input, actionables, continuity);
   const blockerState = input.status.meta?.blockerState ?? "clear";
   const challenge = input.status.meta?.challenge;
 
@@ -165,6 +287,7 @@ export const buildChallengeEvidenceBundle = (input: ChallengeEvidenceInput): Cha
     actionables,
     snapshotText: input.snapshot?.content,
     diagnostics,
-    continuity
+    continuity,
+    interaction
   };
 };

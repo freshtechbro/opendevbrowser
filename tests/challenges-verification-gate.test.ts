@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildChallengeEvidenceBundle, verifyChallengeProgress } from "../src/challenges";
+import * as evidenceBundleModule from "../src/challenges/evidence-bundle";
 import type { ChallengeRuntimeHandle } from "../src/browser/manager-types";
 
 const buildHandle = (args: {
@@ -129,6 +130,44 @@ describe("challenge verification gate", () => {
     expect(result.reason).toContain("deferred");
   });
 
+  it("treats resolved manager blocker metadata as a clear result", async () => {
+    const handle = buildHandle({});
+    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+      mode: "extension",
+      activeTargetId: "tab-1",
+      url: "https://example.com/home",
+      title: "Home",
+      meta: {
+        blockerState: "active",
+        blockerResolution: {
+          status: "resolved",
+          reason: "manager cleared the blocker"
+        },
+        blocker: {
+          schemaVersion: "1.0" as const,
+          type: "auth_required" as const,
+          source: "navigation" as const,
+          reasonCode: "token_required" as const,
+          confidence: 0.9,
+          retryable: true,
+          detectedAt: "2026-03-22T00:00:00.000Z",
+          evidence: { matchedPatterns: [], networkHosts: [] },
+          actionHints: []
+        }
+      }
+    });
+
+    const result = await verifyChallengeProgress({
+      handle,
+      sessionId: "session-resolved",
+      previous,
+      canImportCookies: true
+    });
+
+    expect(result.status).toBe("clear");
+    expect(result.reason).toContain("cleared");
+  });
+
   it("yields when verification detects a human boundary", async () => {
     const result = await verifyChallengeProgress({
       handle: buildHandle({
@@ -159,6 +198,48 @@ describe("challenge verification gate", () => {
     expect(result.changed).toBe(true);
   });
 
+  it("reports progress when drag interaction evidence disappears even if the page url is stable", async () => {
+    const previousDrag = buildChallengeEvidenceBundle({
+      status: {
+        mode: "extension",
+        activeTargetId: "tab-1",
+        url: "https://example.com/challenge",
+        title: "Drag the slider",
+        meta: {
+          blockerState: "active",
+          blocker: {
+            schemaVersion: "1.0",
+            type: "anti_bot_challenge",
+            source: "navigation",
+            reasonCode: "challenge_detected",
+            confidence: 0.95,
+            retryable: true,
+            detectedAt: "2026-03-22T00:00:00.000Z",
+            evidence: { matchedPatterns: [], networkHosts: [] },
+            actionHints: []
+          }
+        }
+      },
+      snapshot: {
+        content: "Drag the slider to continue."
+      }
+    });
+
+    const result = await verifyChallengeProgress({
+      handle: buildHandle({
+        url: "https://example.com/challenge",
+        title: "Drag the slider",
+        snapshot: "[r1] button \"Continue\""
+      }),
+      sessionId: "session-interaction-progress",
+      previous: previousDrag,
+      canImportCookies: true
+    });
+
+    expect(result.status).toBe("progress");
+    expect(result.changed).toBe(true);
+  });
+
   it("reports still blocked when verification observes no meaningful change", async () => {
     const result = await verifyChallengeProgress({
       handle: buildHandle({}),
@@ -182,5 +263,173 @@ describe("challenge verification gate", () => {
 
     expect(handle.cookieList).not.toHaveBeenCalled();
     expect(result.bundle?.url).toBeUndefined();
+  });
+
+  it("follows the manager's active target when verification discovers a popup target", async () => {
+    const handle = buildHandle({
+      url: "https://example.com/challenge?popup=1",
+      title: "Choose where you'd like to shop",
+      snapshot: "[r10] dialog \"Choose where you'd like to shop\"\n[r11] button \"Pickup\""
+    });
+    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+      mode: "extension",
+      activeTargetId: "popup-target",
+      url: "https://example.com/challenge?popup=1",
+      title: "Choose where you'd like to shop",
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0" as const,
+          type: "anti_bot_challenge" as const,
+          source: "navigation" as const,
+          reasonCode: "challenge_detected" as const,
+          confidence: 0.95,
+          retryable: true,
+          detectedAt: "2026-03-22T00:00:00.000Z",
+          evidence: { matchedPatterns: [], networkHosts: [] },
+          actionHints: []
+        }
+      }
+    });
+
+    const result = await verifyChallengeProgress({
+      handle,
+      sessionId: "session-popup-target",
+      targetId: "stale-target",
+      previous,
+      canImportCookies: true
+    });
+
+    expect(handle.snapshot).toHaveBeenCalledWith("session-popup-target", "actionables", 2400, undefined, "popup-target");
+    expect(result.bundle?.activeTargetId).toBe("popup-target");
+    expect(result.changed).toBe(true);
+  });
+
+  it("falls back to the provided target id and detects drag interaction changes", async () => {
+    const handle = buildHandle({
+      url: "https://example.com/challenge?drag=1",
+      title: "Drag the slider",
+      snapshot: "Drag the slider to continue."
+    });
+    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+      mode: "extension",
+      activeTargetId: null,
+      url: "https://example.com/challenge?drag=1",
+      title: "Drag the slider",
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0" as const,
+          type: "anti_bot_challenge" as const,
+          source: "navigation" as const,
+          reasonCode: "challenge_detected" as const,
+          confidence: 0.95,
+          retryable: true,
+          detectedAt: "2026-03-22T00:00:00.000Z",
+          evidence: { matchedPatterns: [], networkHosts: [] },
+          actionHints: []
+        }
+      }
+    });
+
+    const result = await verifyChallengeProgress({
+      handle,
+      sessionId: "session-drag-target",
+      targetId: "provided-target",
+      previous,
+      canImportCookies: true
+    });
+
+    expect(handle.snapshot).toHaveBeenCalledWith("session-drag-target", "actionables", 2400, undefined, "provided-target");
+    expect(result.bundle?.interaction).toMatchObject({
+      preferredAction: "drag"
+    });
+    expect(result.changed).toBe(true);
+  });
+
+  it("passes a null target when neither the manager nor the caller provides one", async () => {
+    const handle = buildHandle({
+      url: "https://example.com/challenge",
+      title: "Continue",
+      snapshot: "[r1] button \"Continue\""
+    });
+    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+      mode: "extension",
+      activeTargetId: null,
+      url: "https://example.com/challenge",
+      title: "Continue",
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0" as const,
+          type: "auth_required" as const,
+          source: "navigation" as const,
+          reasonCode: "token_required" as const,
+          confidence: 0.9,
+          retryable: true,
+          detectedAt: "2026-03-22T00:00:00.000Z",
+          evidence: { matchedPatterns: [], networkHosts: [] },
+          actionHints: []
+        }
+      }
+    });
+
+    await verifyChallengeProgress({
+      handle,
+      sessionId: "session-null-target",
+      previous,
+      canImportCookies: true
+    });
+
+    expect(handle.snapshot).toHaveBeenCalledWith("session-null-target", "actionables", 2400, undefined, null);
+  });
+
+  it("treats missing drag metadata as unchanged when neither bundle exposes drag refs", async () => {
+    const nextBundle = {
+      ...buildChallengeEvidenceBundle({
+        status: {
+          mode: "extension",
+          activeTargetId: "tab-1",
+          url: "https://example.com/login",
+          title: "Sign in",
+          meta: {
+            blockerState: "active",
+            blocker: {
+              schemaVersion: "1.0",
+              type: "auth_required",
+              source: "navigation",
+              reasonCode: "token_required",
+              confidence: 0.9,
+              retryable: true,
+              detectedAt: "2026-03-22T00:00:00.000Z",
+              evidence: { matchedPatterns: [], networkHosts: [] },
+              actionHints: []
+            }
+          }
+        },
+        snapshot: { content: "[r1] link \"Sign in\"" }
+      }),
+      interaction: undefined
+    };
+    const bundleSpy = vi.spyOn(evidenceBundleModule, "buildChallengeEvidenceBundle").mockReturnValue(
+      nextBundle as ReturnType<typeof buildChallengeEvidenceBundle>
+    );
+
+    try {
+      const result = await verifyChallengeProgress({
+        handle: buildHandle({}),
+        sessionId: "session-missing-drag-metadata",
+        previous: {
+          ...previous,
+          interaction: undefined
+        },
+        canImportCookies: true
+      });
+
+      expect(result.status).toBe("still_blocked");
+      expect(result.changed).toBe(false);
+    } finally {
+      bundleSpy.mockRestore();
+    }
   });
 });

@@ -6,12 +6,18 @@ import type { ChallengeEvidenceBundle, VerificationResult } from "./types";
 const hasProgress = (previous: ChallengeEvidenceBundle, next: ChallengeEvidenceBundle): boolean => {
   return previous.blockerState !== next.blockerState
     || previous.blocker?.type !== next.blocker?.type
+    || previous.activeTargetId !== next.activeTargetId
     || previous.url !== next.url
     || previous.title !== next.title
     || previous.continuity.cookieCount !== next.continuity.cookieCount
     || previous.continuity.loginRefs.join(",") !== next.continuity.loginRefs.join(",")
     || previous.continuity.sessionReuseRefs.join(",") !== next.continuity.sessionReuseRefs.join(",")
-    || previous.continuity.humanVerificationRefs.join(",") !== next.continuity.humanVerificationRefs.join(",");
+    || previous.continuity.humanVerificationRefs.join(",") !== next.continuity.humanVerificationRefs.join(",")
+    || previous.interaction?.surface !== next.interaction?.surface
+    || previous.interaction?.preferredAction !== next.interaction?.preferredAction
+    || (previous.interaction?.clickRefs.join(",") ?? "") !== (next.interaction?.clickRefs.join(",") ?? "")
+    || (previous.interaction?.holdRefs.join(",") ?? "") !== (next.interaction?.holdRefs.join(",") ?? "")
+    || (previous.interaction?.dragRefs.join(",") ?? "") !== (next.interaction?.dragRefs.join(",") ?? "");
 };
 
 export const verifyChallengeProgress = async (args: {
@@ -27,12 +33,13 @@ export const verifyChallengeProgress = async (args: {
   traceMax?: number;
 }): Promise<VerificationResult> => {
   const status = await args.handle.status(args.sessionId);
+  const effectiveTargetId = status.activeTargetId ?? args.targetId ?? null;
   const snapshot = await args.handle.snapshot(
     args.sessionId,
     "actionables",
     args.snapshotChars ?? 2400,
     undefined,
-    args.targetId
+    effectiveTargetId
   );
   const debugTrace = await args.handle.debugTraceSnapshot(args.sessionId, {
     max: args.traceMax ?? 50

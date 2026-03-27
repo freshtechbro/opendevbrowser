@@ -77,6 +77,7 @@ export type ChallengeActionFamily =
   | "cookie_reuse"
   | "element_discovery"
   | "click_path"
+  | "click_and_hold"
   | "non_secret_form_fill"
   | "dropdown"
   | "scroll"
@@ -91,6 +92,7 @@ export type ChallengeStepKind =
   | "wait"
   | "goto"
   | "click"
+  | "click_and_hold"
   | "hover"
   | "press"
   | "type"
@@ -126,6 +128,19 @@ export type ChallengeActionable = {
   value?: string;
   disabled: boolean;
   checked: boolean;
+};
+
+export type ChallengeInteractionSurface = "page" | "popup" | "interstitial" | "unknown";
+export type ChallengeInteractionPreference = "click" | "click_and_hold" | "drag" | "unknown";
+
+export type ChallengeInteractionSignals = {
+  surface: ChallengeInteractionSurface;
+  preferredAction: ChallengeInteractionPreference;
+  clickRefs: string[];
+  holdRefs: string[];
+  dragRefs: string[];
+  evidencePhrases: string[];
+  holdMs?: number;
 };
 
 export type ChallengeDiagnosticsSummary = {
@@ -178,6 +193,7 @@ export type ChallengeEvidenceBundle = {
   snapshotText?: string;
   diagnostics: ChallengeDiagnosticsSummary;
   continuity: ChallengeContinuitySignals;
+  interaction?: ChallengeInteractionSignals;
 };
 
 export type ChallengeInterpreterResult = {
@@ -243,6 +259,7 @@ export type ChallengeActionStep = {
   text?: string;
   values?: string[];
   dy?: number;
+  holdMs?: number;
   coordinates?: {
     x: number;
     y: number;
@@ -321,6 +338,9 @@ export type ChallengeOrchestrationSnapshot = {
     loginRefs: string[];
     humanVerificationRefs: string[];
     checkpointRefs: string[];
+    interactionSurface?: ChallengeInteractionSurface;
+    preferredAction?: ChallengeInteractionPreference;
+    holdMs?: number;
     registryPressure?: ProviderAntiBotSnapshot;
   };
   yielded?: HumanYieldPacket;
