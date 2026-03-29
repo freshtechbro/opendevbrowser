@@ -159,7 +159,7 @@ export class OpsSessionStore {
     return this.coordinator.delete(sessionId);
   }
 
-  addTarget(sessionId: string, tabId: number, info?: { url?: string; title?: string }): OpsTargetInfo {
+  addTarget(sessionId: string, tabId: number, info?: { url?: string; title?: string; openerTargetId?: string }): OpsTargetInfo {
     return this.coordinator.addTarget(sessionId, tabId, info);
   }
 

@@ -1,22 +1,86 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OpsRuntime } from "../extension/src/ops/ops-runtime";
 import { OpsSessionStore } from "../extension/src/ops/ops-session-store";
+import { CDPRouter } from "../extension/src/services/CDPRouter";
+import { createChromeMock } from "./extension-chrome-mock";
 
 type TabRemovedListener = (tabId: number) => void;
+type TabCreatedListener = (tab: chrome.tabs.Tab) => void;
 type DebuggerDetachListener = (source: chrome.debugger.Debuggee) => void;
 const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
 };
 
+const createPopupRuntimeHarness = async (): Promise<{
+  mock: ReturnType<typeof createChromeMock>;
+  router: CDPRouter;
+  runtime: OpsRuntime;
+  sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }>;
+  session: ReturnType<OpsSessionStore["getByTabId"]>;
+  rootSessionId: string;
+}> => {
+  const mock = createChromeMock({
+    activeTab: {
+      id: 101,
+      url: "https://example.com/root",
+      title: "Root Page",
+      groupId: 1,
+      status: "complete",
+      active: true
+    }
+  });
+  globalThis.chrome = mock.chrome;
+
+  const router = new CDPRouter();
+  const routerEvents: Array<{ tabId: number; method: string; params?: unknown; sessionId?: string }> = [];
+  router.setCallbacks({ onEvent: vi.fn(), onResponse: vi.fn(), onDetach: vi.fn() });
+  router.addEventListener((event) => {
+    routerEvents.push(event);
+  });
+
+  const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }> = [];
+  const runtime = new OpsRuntime({
+    send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }),
+    cdp: router as never
+  });
+
+  runtime.handleMessage({
+    type: "ops_request",
+    requestId: "req-launch-popup-harness",
+    clientId: "client-1",
+    command: "session.launch",
+    payload: {
+      tabId: 101
+    }
+  });
+
+  const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+  await vi.waitFor(() => {
+    expect(sessions.getByTabId(101)).not.toBeNull();
+    expect(routerEvents.some((event) => event.method === "Target.attachedToTarget")).toBe(true);
+  });
+
+  const session = sessions.getByTabId(101);
+  const rootAttachedEvent = routerEvents.find((event) => event.method === "Target.attachedToTarget");
+  const rootSessionId = (rootAttachedEvent?.params as { sessionId?: string } | undefined)?.sessionId;
+  if (!session || !rootSessionId) {
+    throw new Error("Expected popup runtime harness to create a launched root session");
+  }
+
+  return { mock, router, runtime, sent, session, rootSessionId };
+};
+
 describe("OpsRuntime target teardown", () => {
   const originalChrome = globalThis.chrome;
 
   let tabRemovedListener: TabRemovedListener | null = null;
+  let tabCreatedListener: TabCreatedListener | null = null;
   let debuggerDetachListener: DebuggerDetachListener | null = null;
 
   beforeEach(() => {
     tabRemovedListener = null;
+    tabCreatedListener = null;
     debuggerDetachListener = null;
 
     globalThis.chrome = {
@@ -48,6 +112,16 @@ describe("OpsRuntime target teardown", () => {
             }
           })
         },
+        onCreated: {
+          addListener: vi.fn((listener: TabCreatedListener) => {
+            tabCreatedListener = listener;
+          }),
+          removeListener: vi.fn((listener: TabCreatedListener) => {
+            if (tabCreatedListener === listener) {
+              tabCreatedListener = null;
+            }
+          })
+        },
         onUpdated: {
           addListener: vi.fn(),
           removeListener: vi.fn()
@@ -75,6 +149,80 @@ describe("OpsRuntime target teardown", () => {
     vi.restoreAllMocks();
   });
 
+  it("attaches a replacement target without issuing a manual detach when the router already owns root normalization", async () => {
+    const cdp = {
+      attach: vi.fn(async () => undefined),
+      detachTab: vi.fn(async () => undefined),
+      getPrimaryTabId: vi.fn(() => 101)
+    };
+
+    const runtime = new OpsRuntime({
+      send: () => undefined,
+      cdp: cdp as never
+    });
+
+    await (runtime as unknown as { attachTargetTab: (tabId: number) => Promise<void> }).attachTargetTab(202);
+
+    expect(cdp.attach).toHaveBeenCalledWith(202);
+    expect(cdp.detachTab).not.toHaveBeenCalled();
+  });
+
+  it("retries a blocked replacement attach without reattaching the previous root tab", async () => {
+    vi.useFakeTimers();
+    const cdp = {
+      attach: vi.fn()
+        .mockRejectedValueOnce(new Error("Not allowed"))
+        .mockResolvedValueOnce(undefined),
+      detachTab: vi.fn(async () => undefined),
+      getPrimaryTabId: vi.fn(() => 101)
+    };
+
+    const runtime = new OpsRuntime({
+      send: () => undefined,
+      cdp: cdp as never
+    });
+
+    const attachPromise = (runtime as unknown as { attachTargetTab: (tabId: number) => Promise<void> }).attachTargetTab(202);
+    await vi.advanceTimersByTimeAsync(50);
+    await attachPromise;
+
+    expect(cdp.attach).toHaveBeenNthCalledWith(1, 202);
+    expect(cdp.attach).toHaveBeenNthCalledWith(2, 202);
+    expect(cdp.detachTab).not.toHaveBeenCalled();
+  });
+
+  it("resolves root targets through the router's live debuggee when one is available", () => {
+    const cdp = {
+      getTabDebuggee: vi.fn((tabId: number) => (
+        tabId === 101
+          ? { tabId: 101, targetId: "target-101", attachBy: "targetId" as const }
+          : null
+      ))
+    };
+
+    const runtime = new OpsRuntime({
+      send: () => undefined,
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+
+    const resolved = (runtime as unknown as {
+      resolveTargetContext: (opsSession: ReturnType<OpsSessionStore["get"]>, targetId: string) => {
+        debuggee: chrome.debugger.Debuggee & { sessionId?: string; targetId?: string; attachBy?: "tabId" | "targetId" };
+      } | null;
+    }).resolveTargetContext(session, session.targetId);
+
+    expect(resolved?.debuggee).toEqual(
+      expect.objectContaining({
+        tabId: 101,
+        targetId: "target-101",
+        attachBy: "targetId"
+      })
+    );
+  });
+
   it("does not teardown the full session when a non-root tab is removed", () => {
     const sent: unknown[] = [];
     const cdp = {
@@ -98,6 +246,30 @@ describe("OpsRuntime target teardown", () => {
     expect(updated?.targets.has("tab-202")).toBe(false);
     expect(cdp.detachTab).not.toHaveBeenCalled();
     expect(sent).toEqual([]);
+  });
+
+  it("marks the shared cdp router stale when an ops client disconnects", () => {
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      markClientClosed: vi.fn()
+    };
+
+    const runtime = new OpsRuntime({
+      send: () => undefined,
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+
+    runtime.handleMessage({
+      type: "ops_event",
+      clientId: "client-1",
+      event: "ops_client_disconnected",
+      payload: { at: Date.now() }
+    });
+
+    expect(cdp.markClientClosed).toHaveBeenCalledTimes(1);
   });
 
   it("tears down the full session when root tab is removed", () => {
@@ -487,6 +659,47 @@ describe("OpsRuntime target teardown", () => {
     );
   });
 
+  it("reclaims an active session when the lease matches on a new ops client id", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined)
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example", title: "Root" });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-session-reclaim",
+      clientId: "client-2",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "session.status",
+      payload: {}
+    });
+    await flushMicrotasks();
+
+    expect(session.ownerClientId).toBe("client-2");
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-session-reclaim",
+          payload: expect.objectContaining({
+            activeTargetId: "tab-101",
+            leaseId: "lease-1",
+            state: "active"
+          })
+        })
+      ])
+    );
+  });
+
   it("captures first-class review payloads over the ops surface", async () => {
     const sent: Array<{ type?: string; requestId?: string; payload?: unknown }> = [];
     const cdp = {
@@ -576,85 +789,129 @@ describe("OpsRuntime target teardown", () => {
   });
 
   it("captures review payloads for the active popup target over the ops surface", async () => {
-    const sent: Array<{ type?: string; requestId?: string; payload?: unknown }> = [];
-    const cdp = {
-      detachTab: vi.fn(async () => undefined),
-      sendCommand: vi.fn(async (_debuggee: chrome.debugger.Debuggee, method: string, params?: Record<string, unknown>) => {
-        if (method === "Accessibility.enable" || method === "DOM.enable") {
-          return {};
+    const { mock, runtime, sent, session, rootSessionId } = await createPopupRuntimeHarness();
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee, method, params, callback) => {
+      void debuggee;
+      if (method === "Accessibility.enable" || method === "DOM.enable" || method === "Target.setAutoAttach") {
+        callback?.({});
+        return;
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        callback?.({
+          nodes: [{
+            nodeId: "ax-popup-1",
+            backendDOMNodeId: 2,
+            role: { value: "button" },
+            name: { value: "Popup CTA" }
+          }]
+        });
+        return;
+      }
+      if (method === "DOM.resolveNode") {
+        callback?.({ object: { objectId: "popup-node-1" } });
+        return;
+      }
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+          ? (params as { functionDeclaration: string }).functionDeclaration
+          : "";
+        if (declaration.includes("querySelectorAll")) {
+          callback?.({ result: { value: "#popup-cta" } });
+          return;
         }
-        if (method === "Accessibility.getFullAXTree") {
-          return {
-            nodes: [{
-              nodeId: "ax-popup-1",
-              backendDOMNodeId: 2,
-              role: { value: "button" },
-              name: { value: "Popup CTA" }
-            }]
-          };
-        }
-        if (method === "DOM.resolveNode") {
-          return { object: { objectId: "popup-node-1" } };
-        }
-        if (method === "Runtime.callFunctionOn") {
-          const declaration = typeof params?.functionDeclaration === "string"
-            ? params.functionDeclaration
-            : "";
-          if (declaration.includes("querySelectorAll")) {
-            return { result: { value: "#popup-cta" } };
-          }
-          return { result: { value: null } };
-        }
-        return {};
-      })
-    };
-
-    const runtime = new OpsRuntime({
-      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown }),
-      cdp: cdp as never
+        callback?.({ result: { value: null } });
+        return;
+      }
+      callback?.({});
     });
-
-    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
-    const session = sessions.createSession("client-1", 101, "lease-1", {
-      url: "https://example.com/root",
-      title: "Root Page"
-    });
-    sessions.upsertSyntheticTarget(session.id, {
-      targetId: "popup-202",
-      tabId: 202,
-      type: "page",
-      url: "https://popup.example.com/challenge",
-      title: "Popup Challenge",
-      sessionId: "popup-session-202",
-      openerTargetId: "tab-101",
-      attachedAt: Date.now()
-    });
-    session.activeTargetId = "popup-202";
 
     const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
     getTabMock.mockImplementation(async (tabId: number) => ({
       id: tabId,
-      url: tabId === 202 ? "https://popup.example.com/challenge" : "https://example.com/root",
-      title: tabId === 202 ? "Popup Challenge" : "Root Page",
+      url: "https://example.com/root",
+      title: "Root Page",
       status: "complete"
     } as chrome.tabs.Tab));
+
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.targetCreated",
+      {
+        targetInfo: {
+          targetId: "popup-202",
+          type: "page",
+          url: "https://popup.example.com/challenge",
+          title: "Popup Challenge",
+          openerId: "tab-101"
+        }
+      }
+    );
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.attachedToTarget",
+      {
+        sessionId: "popup-session-202",
+        targetInfo: {
+          targetId: "popup-202",
+          type: "page",
+          url: "https://popup.example.com/challenge",
+          title: "Popup Challenge",
+          openerId: "tab-101"
+        },
+        waitingForDebugger: false
+      }
+    );
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-targets-list-popup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.list",
+      payload: {
+        includeUrls: true
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-targets-list-popup",
+            payload: expect.objectContaining({
+              targets: expect.arrayContaining([
+                expect.objectContaining({
+                  targetId: "popup-202",
+                  url: "https://popup.example.com/challenge",
+                  title: "Popup Challenge"
+                })
+              ])
+            })
+          })
+        ])
+      );
+    });
 
     runtime.handleMessage({
       type: "ops_request",
       requestId: "req-nav-review-popup",
       clientId: "client-1",
       opsSessionId: session.id,
-      leaseId: "lease-1",
+      leaseId: session.leaseId,
       command: "nav.review",
       payload: {
         maxChars: 4096
       }
     });
     await vi.waitFor(() => {
-      expect(cdp.sendCommand).toHaveBeenCalledWith(
-        { tabId: 202, sessionId: "popup-session-202" },
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101, sessionId: "popup-session-202" },
         "Accessibility.getFullAXTree",
-        {}
+        {},
+        expect.any(Function)
       );
     });
 
@@ -676,6 +933,3091 @@ describe("OpsRuntime target teardown", () => {
         })
       ])
     );
+  });
+
+  it("captures review payloads when the popup child target reuses the real popup target id", async () => {
+    const { mock, runtime, sent, session, rootSessionId } = await createPopupRuntimeHarness();
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    sessions.addTarget(session.id, 202, {
+      url: "https://popup.example.com/numeric",
+      title: "Popup Numeric",
+      openerTargetId: session.targetId
+    });
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee, method, params, callback) => {
+      void debuggee;
+      if (method === "Accessibility.enable" || method === "DOM.enable" || method === "Target.setAutoAttach") {
+        callback?.({});
+        return;
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        callback?.({
+          nodes: [{
+            nodeId: "ax-popup-numeric-1",
+            backendDOMNodeId: 2,
+            role: { value: "button" },
+            name: { value: "Popup Same Id CTA" }
+          }]
+        });
+        return;
+      }
+      if (method === "DOM.resolveNode") {
+        callback?.({ object: { objectId: "popup-node-same-id-1" } });
+        return;
+      }
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+          ? (params as { functionDeclaration: string }).functionDeclaration
+          : "";
+        if (declaration.includes("querySelectorAll")) {
+          callback?.({ result: { value: "#popup-same-id-cta" } });
+          return;
+        }
+        callback?.({ result: { value: null } });
+        return;
+      }
+      callback?.({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/numeric" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Numeric" : "Root Page",
+      status: "complete"
+    } as chrome.tabs.Tab));
+
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.targetCreated",
+      {
+        targetInfo: {
+          targetId: "tab-202",
+          type: "page",
+          url: "https://popup.example.com/numeric",
+          title: "Popup Numeric",
+          openerId: "tab-101"
+        }
+      }
+    );
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.attachedToTarget",
+      {
+        sessionId: "popup-session-same-id-202",
+        targetInfo: {
+          targetId: "tab-202",
+          type: "page",
+          url: "https://popup.example.com/numeric",
+          title: "Popup Numeric",
+          openerId: "tab-101"
+        },
+        waitingForDebugger: false
+      }
+    );
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-numeric-target-id",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        targetId: "tab-202",
+        maxChars: 4096
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 202, sessionId: "popup-session-same-id-202" },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+    });
+
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-review-popup-numeric-target-id",
+          payload: expect.objectContaining({
+            sessionId: session.id,
+            targetId: "tab-202",
+            mode: "extension",
+            snapshotId: expect.any(String),
+            url: "https://popup.example.com/numeric",
+            title: "Popup Numeric",
+            refCount: 1,
+            content: expect.stringContaining("Popup Same Id CTA")
+          })
+        })
+      ])
+    );
+  });
+
+  it("dispatches non-canvas clicks through Input.dispatchMouseEvent", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }> = [];
+    const sendCommand = vi.fn(async (_debuggee: chrome.debugger.Debuggee, method: string, params?: Record<string, unknown>) => {
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: "node-1" } };
+      }
+      if (method === "DOM.getBoxModel") {
+        return {
+          model: {
+            content: [10, 20, 30, 20, 30, 40, 10, 40]
+          }
+        };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        return { result: { value: undefined } };
+      }
+      if (method === "Input.dispatchMouseEvent") {
+        return {};
+      }
+      return {};
+    });
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }),
+      cdp: {
+        detachTab: vi.fn(async () => undefined),
+        sendCommand
+      } as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", {
+      url: "https://example.com/root",
+      title: "Root Page"
+    });
+    session.refStore.setSnapshot("tab-101", [{
+      ref: "r1",
+      selector: "#open-popup",
+      backendNodeId: 3,
+      role: "link",
+      name: "Open Popup Window"
+    }]);
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockResolvedValue({
+      id: 101,
+      url: "https://example.com/root",
+      title: "Root Page",
+      status: "complete"
+    } as chrome.tabs.Tab);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-click-real-input",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "interact.click",
+      payload: {
+        ref: "r1"
+      }
+    });
+    await vi.waitFor(() => {
+      expect(globalThis.chrome.tabs.update).toHaveBeenCalledWith(
+        101,
+        { active: true },
+        expect.any(Function)
+      );
+      expect(sendCommand).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Input.dispatchMouseEvent",
+        expect.objectContaining({ type: "mouseMoved", x: 20, y: 30 })
+      );
+      expect(sendCommand).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Input.dispatchMouseEvent",
+        expect.objectContaining({ type: "mousePressed", x: 20, y: 30, button: "left", clickCount: 1 })
+      );
+      expect(sendCommand).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Input.dispatchMouseEvent",
+        expect.objectContaining({ type: "mouseReleased", x: 20, y: 30, button: "left", clickCount: 1 })
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-click-real-input",
+            payload: expect.objectContaining({ navigated: false })
+          })
+        ])
+      );
+    });
+  });
+
+  it("lists popup targets when router events are keyed only by the popup child target id", async () => {
+    const { mock, runtime, sent, session } = await createPopupRuntimeHarness();
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: "https://example.com/root",
+      title: "Root Page",
+      status: "complete"
+    } as chrome.tabs.Tab));
+
+    mock.emitDebuggerEvent(
+      { targetId: "popup-303" },
+      "Target.targetCreated",
+      {
+        targetInfo: {
+          targetId: "popup-303",
+          type: "page",
+          url: "https://popup.example.com/child-source",
+          title: "Popup Child Source",
+          openerId: "tab-101"
+        }
+      }
+    );
+    mock.emitDebuggerEvent(
+      { targetId: "popup-303" },
+      "Target.attachedToTarget",
+      {
+        sessionId: "popup-session-303",
+        targetInfo: {
+          targetId: "popup-303",
+          type: "page",
+          url: "https://popup.example.com/child-source",
+          title: "Popup Child Source",
+          openerId: "tab-101"
+        },
+        waitingForDebugger: false
+      }
+    );
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-targets-list-popup-child-source",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.list",
+      payload: {
+        includeUrls: true
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-targets-list-popup-child-source",
+            payload: expect.objectContaining({
+              targets: expect.arrayContaining([
+                expect.objectContaining({
+                  targetId: "popup-303",
+                  url: "https://popup.example.com/child-source",
+                  title: "Popup Child Source"
+                })
+              ])
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("adopts top-level popup tabs created with an opener tab id when Chrome allows only one attached root tab", async () => {
+    const { mock, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const detachMock = globalThis.chrome.debugger.detach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    let attachedTabId: number | null = 101;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (typeof tabId === "number" && attachedTabId !== null && attachedTabId !== tabId) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      attachedTabId = typeof tabId === "number" ? tabId : attachedTabId;
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    detachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (typeof tabId === "number" && attachedTabId === tabId) {
+        attachedTabId = null;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (typeof tabId === "number" && attachedTabId !== tabId) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      if (method === "Target.attachToTarget") {
+        callback({ sessionId: `session-${tabId ?? 0}` });
+        return;
+      }
+      if (
+        method === "Accessibility.enable"
+        || method === "DOM.enable"
+        || method === "Target.setAutoAttach"
+        || method === "Target.setDiscoverTargets"
+        || method === "Runtime.enable"
+        || method === "Network.enable"
+        || method === "Performance.enable"
+      ) {
+        callback({});
+        return;
+      }
+      if (method === "Page.getFrameTree") {
+        callback({
+          frameTree: {
+            frame: {
+              id: `tab-${tabId ?? 0}`,
+              url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root"
+            }
+          }
+        });
+        return;
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        callback({
+          nodes: [{
+            nodeId: "ax-popup-1",
+            backendDOMNodeId: 2,
+            role: { value: "button" },
+            name: { value: "Popup CTA" }
+          }]
+        });
+        return;
+      }
+      if (method === "DOM.resolveNode") {
+        callback({ object: { objectId: "popup-node-1" } });
+        return;
+      }
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+          ? (params as { functionDeclaration: string }).functionDeclaration
+          : "";
+        if (declaration.includes("querySelectorAll")) {
+          callback({ result: { value: "#popup-cta" } });
+          return;
+        }
+        callback({ result: { value: null } });
+        return;
+      }
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.get("tab-202")?.openerTargetId).toBe(session.targetId);
+      expect(session.activeTargetId).toBe("tab-101");
+    });
+
+    expect(detachMock).not.toHaveBeenCalled();
+    expect(attachMock).not.toHaveBeenCalledWith({ tabId: 202 }, "1.3", expect.any(Function));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-targets-list-popup-top-level",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.list",
+      payload: {
+        includeUrls: true
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-targets-list-popup-top-level",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-101",
+              targets: expect.arrayContaining([
+                expect.objectContaining({
+                  targetId: "tab-202",
+                  url: "https://popup.example.com/top-level",
+                  title: "Popup Top Level"
+                })
+              ])
+            })
+          })
+        ])
+      );
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-nav-review-popup-top-level",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096,
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-nav-review-popup-top-level",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Top Level",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("reuses a matching synthetic popup session for a top-level popup target when direct popup root attach is not allowed", async () => {
+    const { runtime, sent, session } = await createPopupRuntimeHarness();
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const popupTarget = sessions.addTarget(session.id, 202, {
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level"
+    });
+    sessions.upsertSyntheticTarget(session.id, {
+      targetId: "popup-202",
+      tabId: 101,
+      type: "page",
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level",
+      sessionId: "popup-session-202",
+      openerTargetId: session.targetId,
+      attachedAt: Date.now()
+    });
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-bridge-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-bridge-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-target-use-popup-bridge",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: popupTarget.targetId
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-target-use-popup-bridge",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Top Level"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(false);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-bridge",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101, sessionId: "popup-session-202" },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-review-popup-bridge",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Top Level",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("reuses a synthetic popup session by opener when the child session metadata is still on about:blank and the opener uses a stale root alias", async () => {
+    const { runtime, sent, session } = await createPopupRuntimeHarness();
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const popupTarget = sessions.addTarget(session.id, 202, {
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level",
+      openerTargetId: session.targetId
+    });
+    sessions.upsertSyntheticTarget(session.id, {
+      targetId: "popup-202",
+      tabId: 101,
+      type: "page",
+      url: "about:blank",
+      title: "about:blank",
+      sessionId: "popup-session-202",
+      openerTargetId: "target-101",
+      attachedAt: Date.now()
+    });
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-bridge-opener-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-bridge-opener-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-target-use-popup-bridge-opener",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: popupTarget.targetId
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-target-use-popup-bridge-opener",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Top Level"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(false);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-bridge-opener",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101, sessionId: "popup-session-202" },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-review-popup-bridge-opener",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Top Level",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("creates a popup child-session bridge on demand when direct top-level popup attach is blocked", async () => {
+    const { runtime, sent, session } = await createPopupRuntimeHarness();
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const popupTarget = sessions.addTarget(session.id, 202, {
+      url: "https://popup.example.com/top-level",
+      title: "Popup Child",
+      openerTargetId: session.targetId
+    });
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [{
+              targetId: "popup-202",
+              type: "page",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Child"
+            }]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          expect(params).toEqual({
+            targetId: "popup-202",
+            flatten: true
+          });
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-bridge-demand-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-bridge-demand-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Child" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-target-use-popup-bridge-demand",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: popupTarget.targetId
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-target-use-popup-bridge-demand",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Child"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(true);
+    expect(sendCommandMock).toHaveBeenCalledWith(
+      { tabId: 101 },
+      "Target.attachToTarget",
+      { targetId: "popup-202", flatten: true },
+      expect.any(Function)
+    );
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-bridge-demand",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101, sessionId: "popup-session-202" },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+      expect(
+        sendCommandMock.mock.calls.some(([debuggee, method]) => (
+          (debuggee as { tabId?: number; sessionId?: string }).tabId === 202
+          && (debuggee as { sessionId?: string }).sessionId === undefined
+          && method === "Accessibility.getFullAXTree"
+        ))
+      ).toBe(false);
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-review-popup-bridge-demand",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Child",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("hydrates a missing popup opener from router metadata before targets.use bridges the popup", async () => {
+    const { mock, runtime, sent, session, rootSessionId } = await createPopupRuntimeHarness();
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const popupTarget = sessions.addTarget(session.id, 202, {
+      url: "https://popup.example.com/top-level",
+      title: "Popup Child"
+    });
+
+    const getTargetsMock = globalThis.chrome.debugger.getTargets as unknown as ReturnType<typeof vi.fn>;
+    getTargetsMock.mockImplementation((callback: (result: chrome.debugger.TargetInfo[]) => void) => {
+      callback([
+        {
+          id: "target-101",
+          tabId: 101,
+          type: "page",
+          title: "Root Page",
+          url: "https://example.com/root",
+          attached: false
+        },
+        {
+          id: "popup-202",
+          tabId: 202,
+          type: "page",
+          title: "Popup Child",
+          url: "https://popup.example.com/top-level",
+          attached: false
+        },
+        {
+          id: "popup-202-initial",
+          tabId: 202,
+          type: "page",
+          title: "about:blank",
+          url: "about:blank",
+          openerId: "target-101",
+          attached: false
+        }
+      ] as chrome.debugger.TargetInfo[]);
+    });
+
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.targetCreated",
+      {
+        targetInfo: {
+          targetId: "popup-202",
+          type: "page",
+          title: "Popup Child",
+          url: "https://popup.example.com/top-level",
+          openerId: "target-101"
+        }
+      }
+    );
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [{
+              targetId: "popup-202",
+              type: "page",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Child",
+              openerId: "target-101"
+            }]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          expect(params).toEqual({
+            targetId: "popup-202",
+            flatten: true
+          });
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-hydrated-use-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-hydrated-use-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Child" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-target-use-popup-hydrated-opener",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: popupTarget.targetId
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(popupTarget.openerTargetId).toBe(session.targetId);
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-target-use-popup-hydrated-opener",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Child"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(false);
+    expect(sendCommandMock).toHaveBeenCalledWith(
+      { tabId: 101 },
+      "Target.attachToTarget",
+      { targetId: "popup-202", flatten: true },
+      expect.any(Function)
+    );
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-hydrated-opener",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101, sessionId: "popup-session-202" },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-review-popup-hydrated-opener",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Child",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("bridges targets.use when only the synthetic router target carries the popup opener id", async () => {
+    const { mock, runtime, sent, session, rootSessionId } = await createPopupRuntimeHarness();
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const popupTarget = sessions.addTarget(session.id, 202, {
+      url: "https://popup.example.com/top-level",
+      title: "Popup Child"
+    });
+
+    const getTargetsMock = globalThis.chrome.debugger.getTargets as unknown as ReturnType<typeof vi.fn>;
+    getTargetsMock.mockImplementation((callback: (result: chrome.debugger.TargetInfo[]) => void) => {
+      callback([
+        {
+          id: "target-101",
+          tabId: 101,
+          type: "page",
+          title: "Root Page",
+          url: "https://example.com/root",
+          attached: false
+        },
+        {
+          id: "popup-202",
+          tabId: 202,
+          type: "page",
+          title: "Popup Child",
+          url: "https://popup.example.com/top-level",
+          attached: false
+        }
+      ] as chrome.debugger.TargetInfo[]);
+    });
+
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.targetCreated",
+      {
+        targetInfo: {
+          targetId: "popup-202",
+          type: "page",
+          title: "Popup Child",
+          url: "https://popup.example.com/top-level",
+          openerId: "tab-101"
+        }
+      }
+    );
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [{
+              targetId: "popup-202",
+              type: "page",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Child",
+              openerId: "tab-101"
+            }]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          expect(params).toEqual({
+            targetId: "popup-202",
+            flatten: true
+          });
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-synthetic-opener-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-synthetic-opener-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Child" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-target-use-popup-synthetic-opener",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: popupTarget.targetId
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-target-use-popup-synthetic-opener",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Child"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(false);
+    expect(sendCommandMock).toHaveBeenCalledWith(
+      { tabId: 101 },
+      "Target.attachToTarget",
+      { targetId: "popup-202", flatten: true },
+      expect.any(Function)
+    );
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-synthetic-opener",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101, sessionId: "popup-session-202" },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-review-popup-synthetic-opener",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Child",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("restores the opener root attach before bridging a blocked popup during popup creation", async () => {
+    const { mock, router, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const detachMock = globalThis.chrome.debugger.detach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    let attachedTabId: number | null = 101;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      if (typeof tabId === "number" && attachedTabId !== null && attachedTabId !== tabId) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      attachedTabId = typeof tabId === "number" ? tabId : attachedTabId;
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    detachMock.mockClear();
+    detachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (typeof tabId === "number" && attachedTabId === tabId) {
+        attachedTabId = null;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (typeof tabId === "number" && attachedTabId !== tabId) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [{
+              targetId: "popup-202",
+              type: "page",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Top Level"
+            }]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          const requestedTargetId = typeof (params as { targetId?: unknown } | undefined)?.targetId === "string"
+            ? (params as { targetId: string }).targetId
+            : null;
+          if (requestedTargetId === "popup-202" || requestedTargetId === "target-101") {
+            callback({ sessionId: requestedTargetId === "popup-202" ? "popup-session-202" : "root-session-101" });
+            return;
+          }
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-restored-root-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-restored-root-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.get("tab-202")?.openerTargetId).toBe(session.targetId);
+      expect(session.activeTargetId).toBe("tab-101");
+      expect(attachedTabId).toBe(101);
+    });
+
+    expect(router.getAttachedTabIds()).toEqual([101]);
+    expect(attachMock).not.toHaveBeenCalledWith({ tabId: 202 }, "1.3", expect.any(Function));
+    expect(attachMock).not.toHaveBeenCalledWith({ tabId: 101 }, "1.3", expect.any(Function));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-restored-root",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096,
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101, sessionId: "popup-session-202" },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-review-popup-restored-root",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Top Level",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("keeps the opener root usable after blocked popup attach following router client reset", async () => {
+    const { mock, router, runtime, sent, session } = await createPopupRuntimeHarness();
+    router.markClientClosed();
+    await router.handleCommand({
+      id: 990,
+      method: "forwardCDPCommand",
+      params: { method: "Runtime.enable", params: {} }
+    });
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const detachMock = globalThis.chrome.debugger.detach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    let attachedTabId: number | null = 101;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      if (typeof tabId === "number" && attachedTabId !== null && attachedTabId !== tabId) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      attachedTabId = typeof tabId === "number" ? tabId : attachedTabId;
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    detachMock.mockClear();
+    detachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (typeof tabId === "number" && attachedTabId === tabId) {
+        attachedTabId = null;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (typeof tabId === "number" && attachedTabId !== tabId) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [{
+              targetId: "popup-202",
+              type: "page",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Top Level"
+            }]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          const requestedTargetId = typeof (params as { targetId?: unknown } | undefined)?.targetId === "string"
+            ? (params as { targetId: string }).targetId
+            : null;
+          if (requestedTargetId === "popup-202" || requestedTargetId === "target-101") {
+            callback({ sessionId: requestedTargetId === "popup-202" ? "popup-session-202" : "root-session-101" });
+            return;
+          }
+        }
+        if (method === "Accessibility.enable" || method === "DOM.enable" || method === "Runtime.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-root-after-reset-1",
+              backendDOMNodeId: 1,
+              role: { value: "link" },
+              name: { value: "Open Popup Window" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "root-node-after-reset-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#open-popup" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-after-reset-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-after-reset-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.has("tab-202")).toBe(true);
+      expect(attachedTabId).toBe(101);
+    });
+
+    expect(router.getAttachedTabIds()).toEqual([101]);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-root-review-after-reset",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096,
+        targetId: "tab-101"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-root-review-after-reset",
+            payload: expect.objectContaining({
+              targetId: "tab-101",
+              title: "Root Page",
+              url: "https://example.com/root",
+              content: expect.stringContaining("Open Popup Window")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("bridges a popup child session during popup creation when Target.getTargets still reports about:blank", async () => {
+    const { mock, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [
+              {
+                targetId: "root-101",
+                type: "page",
+                url: "https://example.com/root",
+                title: "Root Page"
+              },
+              {
+                targetId: "popup-202",
+                type: "page",
+                url: "about:blank",
+                title: "about:blank"
+              }
+            ]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          expect(params).toEqual({
+            targetId: "popup-202",
+            flatten: true
+          });
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-live-bridge-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-live-bridge-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-targets-list-popup-top-level-live-bridge",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.list",
+      payload: {
+        includeUrls: true
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-targets-list-popup-top-level-live-bridge",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-101",
+              targets: expect.arrayContaining([
+                expect.objectContaining({
+                  targetId: "tab-202",
+                  url: "https://popup.example.com/top-level",
+                  title: "Popup Top Level"
+                })
+              ])
+            })
+          })
+        ])
+      );
+    });
+
+    expect(attachMock).not.toHaveBeenCalledWith({ tabId: 202 }, "1.3", expect.any(Function));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-top-level-live-bridge",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096,
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101, sessionId: "popup-session-202" },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+      expect(
+        sendCommandMock.mock.calls.some(([debuggee, method]) => (
+          (debuggee as { tabId?: number; sessionId?: string }).tabId === 202
+          && (debuggee as { sessionId?: string }).sessionId === undefined
+          && method === "Accessibility.getFullAXTree"
+        ))
+      ).toBe(false);
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-review-popup-top-level-live-bridge",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Top Level",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("hydrates popup opener ownership from router metadata when popup creation omits openerTabId", async () => {
+    const { mock, runtime, sent, session, rootSessionId } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const getTargetsMock = globalThis.chrome.debugger.getTargets as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    getTargetsMock.mockImplementation((callback: (result: chrome.debugger.TargetInfo[]) => void) => {
+      callback([
+        {
+          id: "target-101",
+          tabId: 101,
+          type: "page",
+          title: "Root Page",
+          url: "https://example.com/root",
+          attached: false
+        },
+        {
+          id: "popup-202",
+          tabId: 202,
+          type: "page",
+          title: "about:blank",
+          url: "about:blank",
+          attached: false
+        }
+      ] as chrome.debugger.TargetInfo[]);
+    });
+
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.targetCreated",
+      {
+        targetInfo: {
+          targetId: "popup-202",
+          type: "page",
+          title: "about:blank",
+          url: "about:blank",
+          openerId: "target-101"
+        }
+      }
+    );
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [
+              {
+                targetId: "root-101",
+                type: "page",
+                url: "https://example.com/root",
+                title: "Root Page"
+              },
+              {
+                targetId: "popup-202",
+                type: "page",
+                url: "about:blank",
+                title: "about:blank",
+                openerId: "target-101"
+              }
+            ]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          expect(params).toEqual({
+            targetId: "popup-202",
+            flatten: true
+          });
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-hydrated-create-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-hydrated-create-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    mock.emitTabCreated({
+      id: 202,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.get("tab-202")?.openerTargetId).toBe(session.targetId);
+      expect(session.activeTargetId).toBe("tab-101");
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(false);
+  });
+
+  it("adopts a popup on tab update when router opener metadata arrives after tab creation", async () => {
+    const { mock, runtime, session, rootSessionId } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const getTargetsMock = globalThis.chrome.debugger.getTargets as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    let openerReady = false;
+    getTargetsMock.mockImplementation((callback: (result: chrome.debugger.TargetInfo[]) => void) => {
+      callback([
+        {
+          id: "target-101",
+          tabId: 101,
+          type: "page",
+          title: "Root Page",
+          url: "https://example.com/root",
+          attached: false
+        },
+        {
+          id: "popup-202",
+          tabId: 202,
+          type: "page",
+          title: openerReady ? "Popup Top Level" : "about:blank",
+          url: openerReady ? "https://popup.example.com/top-level" : "about:blank",
+          ...(openerReady ? { openerId: "target-101" } : {}),
+          attached: false
+        }
+      ] as chrome.debugger.TargetInfo[]);
+    });
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [
+              {
+                targetId: "target-101",
+                type: "page",
+                url: "https://example.com/root",
+                title: "Root Page"
+              },
+              {
+                targetId: "popup-202",
+                type: "page",
+                url: openerReady ? "https://popup.example.com/top-level" : "about:blank",
+                title: openerReady ? "Popup Top Level" : "about:blank",
+                ...(openerReady ? { openerId: "target-101" } : {})
+              }
+            ]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          expect(params).toEqual({
+            targetId: "popup-202",
+            flatten: true
+          });
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+      }
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    mock.emitTabCreated({
+      id: 202,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await flushMicrotasks();
+    expect(session.targets.has("tab-202")).toBe(false);
+
+    openerReady = true;
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.targetCreated",
+      {
+        targetInfo: {
+          targetId: "popup-202",
+          type: "page",
+          title: "Popup Top Level",
+          url: "https://popup.example.com/top-level",
+          openerId: "target-101"
+        }
+      }
+    );
+    mock.emitTabUpdated(202, {
+      id: 202,
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.get("tab-202")?.openerTargetId).toBe(session.targetId);
+      expect(session.activeTargetId).toBe("tab-101");
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(false);
+  });
+
+  it("lists popup targets when created-navigation metadata preserves opener ownership without openerTabId", async () => {
+    const { mock, runtime, sent, session } = await createPopupRuntimeHarness();
+
+    mock.emitCreatedNavigationTarget({
+      sourceTabId: 101,
+      sourceFrameId: 0,
+      tabId: 202,
+      timeStamp: 1,
+      url: "https://popup.example.com/navigation"
+    } as chrome.webNavigation.WebNavigationSourceCallbackDetails);
+
+    mock.emitTabCreated({
+      id: 202,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      url: "https://popup.example.com/navigation",
+      title: "Popup Navigation",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.has("tab-202")).toBe(true);
+      expect(session.targets.get("tab-202")?.openerTargetId).toBe("tab-101");
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-targets-list-created-navigation-popup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.list",
+      payload: {
+        includeUrls: true
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-targets-list-created-navigation-popup",
+            payload: expect.objectContaining({
+              targets: expect.arrayContaining([
+                expect.objectContaining({
+                  targetId: "tab-202",
+                  title: "Popup Navigation",
+                  url: "https://popup.example.com/navigation"
+                })
+              ])
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("lists popup alias targets from router target events using the parsed popup tab id", async () => {
+    const { mock, runtime, sent, session, rootSessionId } = await createPopupRuntimeHarness();
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.targetCreated",
+      {
+        targetInfo: {
+          targetId: "tab-202",
+          type: "page",
+          title: "Popup Top Level",
+          url: "https://popup.example.com/top-level",
+          openerId: session.targetId
+        }
+      }
+    );
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-targets-list-popup-alias",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.list",
+      payload: {
+        includeUrls: true
+      }
+    });
+
+    await vi.waitFor(() => {
+      const storedSynthetic = ((runtime as unknown as { sessions: OpsSessionStore }).sessions.get(session.id)?.syntheticTargets
+        .get("tab-202"));
+      expect(storedSynthetic?.tabId).toBe(202);
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-targets-list-popup-alias",
+            payload: expect.objectContaining({
+              targets: expect.arrayContaining([
+                expect.objectContaining({
+                  targetId: "tab-202",
+                  title: "Popup Top Level",
+                  url: "https://popup.example.com/top-level"
+                })
+              ])
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("retries popup child-session bridging through an attached root session when root Target.attachToTarget is not allowed", async () => {
+    const { runtime, sent, session } = await createPopupRuntimeHarness();
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const popupTarget = sessions.addTarget(session.id, 202, {
+      url: "https://popup.example.com/top-level",
+      title: "Popup Child",
+      openerTargetId: session.targetId
+    });
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [{
+              targetId: "popup-202",
+              type: "page",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Child"
+            }]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          const requestedTargetId = typeof (params as { targetId?: unknown } | undefined)?.targetId === "string"
+            ? (params as { targetId: string }).targetId
+            : null;
+          if (requestedTargetId === "target-101") {
+            callback({ sessionId: "root-session-101" });
+            return;
+          }
+          globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+          callback(undefined);
+          globalThis.chrome.runtime.lastError = null as never;
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "root-session-101") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.attachToTarget") {
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-browser-session-1",
+              backendDOMNodeId: 2,
+              role: { value: "button" },
+              name: { value: "Popup CTA" }
+            }]
+          });
+          return;
+        }
+        if (method === "DOM.resolveNode") {
+          callback({ object: { objectId: "popup-node-browser-session-1" } });
+          return;
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+            ? (params as { functionDeclaration: string }).functionDeclaration
+            : "";
+          if (declaration.includes("querySelectorAll")) {
+            callback({ result: { value: "#popup-cta" } });
+            return;
+          }
+          callback({ result: { value: null } });
+          return;
+        }
+      }
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Child" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-target-use-popup-bridge-browser-session",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: popupTarget.targetId
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-target-use-popup-bridge-browser-session",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              url: "https://popup.example.com/top-level",
+              title: "Popup Child"
+            })
+          })
+        ])
+      );
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Target.attachToTarget",
+        { targetId: "target-101", flatten: true },
+        expect.any(Function)
+      );
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { targetId: "target-101", sessionId: "root-session-101" },
+        "Target.attachToTarget",
+        { targetId: "popup-202", flatten: true },
+        expect.any(Function)
+      );
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(true);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-bridge-browser-session",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101, sessionId: "popup-session-202" },
+        "Accessibility.getFullAXTree",
+        {},
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-review-popup-bridge-browser-session",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Child",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("retries popup child-session bridging through an attached root session when the first root attach returns no session id", async () => {
+    const { runtime, sent, session } = await createPopupRuntimeHarness();
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const popupTarget = sessions.addTarget(session.id, 202, {
+      url: "https://popup.example.com/top-level-null",
+      title: "Popup Child Null Attach",
+      openerTargetId: session.targetId
+    });
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockClear();
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [{
+              targetId: "popup-202",
+              type: "page",
+              url: "https://popup.example.com/top-level-null",
+              title: "Popup Child Null Attach"
+            }]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          const requestedTargetId = typeof (params as { targetId?: unknown } | undefined)?.targetId === "string"
+            ? (params as { targetId: string }).targetId
+            : null;
+          if (requestedTargetId === "popup-202") {
+            callback({});
+            return;
+          }
+          if (requestedTargetId === "target-101") {
+            callback({ sessionId: "root-session-101" });
+            return;
+          }
+        }
+      }
+      if (tabId === 101 && sessionId === "root-session-101") {
+        globalThis.chrome.runtime.lastError = null as never;
+        if (method === "Target.attachToTarget") {
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level-null" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Child Null Attach" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-target-use-popup-null-attach-browser-session",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: popupTarget.targetId
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-target-use-popup-null-attach-browser-session",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              url: "https://popup.example.com/top-level-null",
+              title: "Popup Child Null Attach"
+            })
+          })
+        ])
+      );
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Target.attachToTarget",
+        { targetId: "popup-202", flatten: true },
+        expect.any(Function)
+      );
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Target.attachToTarget",
+        { targetId: "target-101", flatten: true },
+        expect.any(Function)
+      );
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        { targetId: "target-101", sessionId: "root-session-101" },
+        "Target.attachToTarget",
+        { targetId: "popup-202", flatten: true },
+        expect.any(Function)
+      );
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(true);
+  });
+
+  it("keeps popup creation on the opener bridge path even when a top-level attach would succeed on retry", async () => {
+    const { mock, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const detachMock = globalThis.chrome.debugger.detach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    let attachedTabId: number | null = 101;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (typeof tabId === "number" && attachedTabId !== null && attachedTabId !== tabId) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      attachedTabId = typeof tabId === "number" ? tabId : attachedTabId;
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    detachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (typeof tabId === "number" && attachedTabId === tabId) {
+        attachedTabId = null;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      callback();
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (typeof tabId === "number" && attachedTabId !== tabId) {
+        globalThis.chrome.runtime.lastError = {
+          message: `Debugger is not attached to the tab with id: ${tabId}.`
+        } as never;
+        callback(undefined);
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      globalThis.chrome.runtime.lastError = null as never;
+      if (method === "Target.attachToTarget") {
+        callback({ sessionId: `session-${tabId ?? 0}` });
+        return;
+      }
+      if (
+        method === "Accessibility.enable"
+        || method === "DOM.enable"
+        || method === "Target.setAutoAttach"
+        || method === "Target.setDiscoverTargets"
+        || method === "Runtime.enable"
+        || method === "Network.enable"
+        || method === "Performance.enable"
+      ) {
+        callback({});
+        return;
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        callback({
+          nodes: [{
+            nodeId: "ax-popup-retry-1",
+            backendDOMNodeId: 2,
+            role: { value: "button" },
+            name: { value: "Popup CTA" }
+          }]
+        });
+        return;
+      }
+      if (method === "DOM.resolveNode") {
+        callback({ object: { objectId: "popup-node-retry-1" } });
+        return;
+      }
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+          ? (params as { functionDeclaration: string }).functionDeclaration
+          : "";
+        if (declaration.includes("querySelectorAll")) {
+          callback({ result: { value: "#popup-cta" } });
+          return;
+        }
+        callback({ result: { value: null } });
+        return;
+      }
+      callback({});
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockImplementation(async (tabId: number) => ({
+      id: tabId,
+      url: tabId === 202 ? "https://popup.example.com/top-level" : "https://example.com/root",
+      title: tabId === 202 ? "Popup Top Level" : "Root Page",
+      status: "complete",
+      active: tabId === 202
+    } as chrome.tabs.Tab));
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/top-level",
+      title: "Popup Top Level",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(attachedTabId).toBe(101);
+      expect(session.activeTargetId).toBe("tab-101");
+    });
+
+    expect(detachMock).not.toHaveBeenCalled();
+    expect(attachMock).not.toHaveBeenCalledWith({ tabId: 202 }, "1.3", expect.any(Function));
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-review-popup-retry",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096,
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-review-popup-retry",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Top Level",
+              url: "https://popup.example.com/top-level",
+              content: expect.stringContaining("Popup CTA")
+            })
+          })
+        ])
+      );
+    });
   });
 
   it("prefers stored canvas target metadata in session.status when live tab lookup disagrees", async () => {
@@ -1486,6 +4828,231 @@ describe("OpsRuntime target teardown", () => {
     );
   });
 
+  it("retries a blocked attach during session.launch before returning cdp_attach_failed", async () => {
+    vi.useFakeTimers();
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
+    const cdp = {
+      attach: vi.fn()
+        .mockRejectedValueOnce(new Error("Not allowed"))
+        .mockResolvedValueOnce(undefined),
+      detachTab: vi.fn(async () => undefined),
+      setDiscoverTargetsEnabled: vi.fn(async () => undefined),
+      configureAutoAttach: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 202,
+      status: "complete",
+      url: "https://example.com/recovered",
+      title: "Recovered Tab"
+    } as chrome.tabs.Tab);
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }),
+      cdp: cdp as never
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-session-launch-retry",
+      clientId: "client-1",
+      command: "session.launch",
+      payload: {
+        tabId: 202
+      }
+    });
+
+    await vi.advanceTimersByTimeAsync(50);
+    await vi.waitFor(() => {
+      expect(cdp.attach).toHaveBeenCalledTimes(2);
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-session-launch-retry",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              url: "https://example.com/recovered",
+              title: "Recovered Tab"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(cdp.attach).toHaveBeenNthCalledWith(1, 202);
+    expect(cdp.attach).toHaveBeenNthCalledWith(2, 202);
+    expect(sent.some((message) => message.type === "ops_error" && message.error?.code === "cdp_attach_failed")).toBe(false);
+  });
+
+  it("surfaces root attach diagnostics in session.launch cdp_attach_failed responses", async () => {
+    vi.useFakeTimers();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sent: Array<{
+      type?: string;
+      requestId?: string;
+      payload?: unknown;
+      error?: { code?: string; message?: string; details?: Record<string, unknown> };
+    }> = [];
+    const cdp = {
+      attach: vi.fn().mockRejectedValue(new Error("Not allowed")),
+      detachTab: vi.fn(async () => undefined),
+      getLastRootAttachDiagnostic: vi.fn(() => ({
+        tabId: 202,
+        origin: "root_attach" as const,
+        stage: "root_debugger_attach_failed" as const,
+        attachBy: "tabId" as const,
+        reason: "Not allowed",
+        at: Date.now()
+      })),
+      setDiscoverTargetsEnabled: vi.fn(async () => undefined),
+      configureAutoAttach: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 202,
+      status: "complete",
+      url: "https://example.com/recovered",
+      title: "Recovered Tab"
+    } as chrome.tabs.Tab);
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as {
+        type?: string;
+        requestId?: string;
+        payload?: unknown;
+        error?: { code?: string; message?: string; details?: Record<string, unknown> };
+      }),
+      cdp: cdp as never
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-session-launch-root-attach-stage",
+      clientId: "client-1",
+      command: "session.launch",
+      payload: {
+        tabId: 202
+      }
+    });
+
+    await vi.advanceTimersByTimeAsync(50);
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_error",
+            requestId: "req-session-launch-root-attach-stage",
+            error: expect.objectContaining({
+              code: "cdp_attach_failed",
+              message: "Not allowed (origin: root_attach; stage: root_debugger_attach_failed)",
+              details: expect.objectContaining({
+                origin: "root_attach",
+                stage: "root_debugger_attach_failed",
+                attachBy: "tabId",
+                reason: "Not allowed"
+              })
+            })
+          })
+        ])
+      );
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "[opendevbrowser]",
+      expect.stringContaining("\"context\":\"ops.direct_attach_stage\"")
+    );
+  });
+
+  it("surfaces flat-session bootstrap diagnostics in session.launch cdp_attach_failed responses", async () => {
+    vi.useFakeTimers();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sent: Array<{
+      type?: string;
+      requestId?: string;
+      payload?: unknown;
+      error?: { code?: string; message?: string; details?: Record<string, unknown> };
+    }> = [];
+    const cdp = {
+      attach: vi.fn().mockRejectedValue(
+        new Error("Chrome 125+ required for extension relay (flat sessions). (Not allowed)")
+      ),
+      detachTab: vi.fn(async () => undefined),
+      getLastRootAttachDiagnostic: vi.fn(() => ({
+        tabId: 202,
+        origin: "flat_session_bootstrap" as const,
+        stage: "fallback_flat_session_probe_failed" as const,
+        attachBy: "targetId" as const,
+        probeMethod: "Target.setAutoAttach" as const,
+        reason: "Chrome 125+ required for extension relay (flat sessions). (Not allowed)",
+        at: Date.now()
+      })),
+      setDiscoverTargetsEnabled: vi.fn(async () => undefined),
+      configureAutoAttach: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 202,
+      status: "complete",
+      url: "https://example.com/recovered",
+      title: "Recovered Tab"
+    } as chrome.tabs.Tab);
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as {
+        type?: string;
+        requestId?: string;
+        payload?: unknown;
+        error?: { code?: string; message?: string; details?: Record<string, unknown> };
+      }),
+      cdp: cdp as never
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-session-launch-bootstrap-stage",
+      clientId: "client-1",
+      command: "session.launch",
+      payload: {
+        tabId: 202
+      }
+    });
+
+    await vi.advanceTimersByTimeAsync(50);
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_error",
+            requestId: "req-session-launch-bootstrap-stage",
+            error: expect.objectContaining({
+              code: "cdp_attach_failed",
+              message: "Chrome 125+ required for extension relay (flat sessions). (Not allowed) (origin: flat_session_bootstrap; stage: fallback_flat_session_probe_failed)",
+              details: expect.objectContaining({
+                origin: "flat_session_bootstrap",
+                stage: "fallback_flat_session_probe_failed",
+                attachBy: "targetId",
+                probeMethod: "Target.setAutoAttach",
+                reason: "Chrome 125+ required for extension relay (flat sessions). (Not allowed)"
+              })
+            })
+          })
+        ])
+      );
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "[opendevbrowser]",
+      expect.stringContaining("\"context\":\"ops.direct_attach_stage\"")
+    );
+  });
+
   it("falls back to the first attachable http tab when session.launch sees a restricted active tab", async () => {
     const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
     const cdp = {
@@ -1793,31 +5360,23 @@ describe("OpsRuntime target teardown", () => {
   });
 
   it("returns retry guidance when a popup target has not finished attaching", async () => {
-    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }> = [];
-    const cdp = {
-      detachTab: vi.fn(async () => undefined),
-      sendCommand: vi.fn(async () => ({}))
-    };
+    const { mock, runtime, sent, session, rootSessionId } = await createPopupRuntimeHarness();
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    sendCommandMock.mockClear();
 
-    const runtime = new OpsRuntime({
-      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }),
-      cdp: cdp as never
-    });
-
-    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
-    const session = sessions.createSession("client-1", 101, "lease-1", {
-      url: "https://example.com/root",
-      title: "Root Page"
-    });
-    sessions.upsertSyntheticTarget(session.id, {
-      targetId: "popup-303",
-      tabId: 303,
-      type: "page",
-      url: "https://popup.example.com/attach",
-      title: "Popup Pending",
-      openerTargetId: "tab-101",
-      attachedAt: Date.now()
-    });
+    mock.emitDebuggerEvent(
+      { sessionId: rootSessionId },
+      "Target.targetCreated",
+      {
+        targetInfo: {
+          targetId: "popup-303",
+          type: "page",
+          url: "https://popup.example.com/attach",
+          title: "Popup Pending",
+          openerId: "tab-101"
+        }
+      }
+    );
     session.refStore.setSnapshot("popup-303", [{
       ref: "r1",
       selector: "#popup-cta",
@@ -1831,7 +5390,7 @@ describe("OpsRuntime target teardown", () => {
       requestId: "req-popup-click-pending",
       clientId: "client-1",
       opsSessionId: session.id,
-      leaseId: "lease-1",
+      leaseId: session.leaseId,
       command: "interact.click",
       payload: {
         ref: "r1",
@@ -1840,7 +5399,7 @@ describe("OpsRuntime target teardown", () => {
     });
     await flushMicrotasks();
 
-    expect(cdp.sendCommand).not.toHaveBeenCalled();
+    expect(sendCommandMock).not.toHaveBeenCalled();
     expect(sent).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1854,6 +5413,829 @@ describe("OpsRuntime target teardown", () => {
         })
       ])
     );
+  });
+
+  it("returns a review payload for an explicitly targeted top-level popup when cached popup snapshot state is already available", async () => {
+    const { mock, router, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    sendCommandMock.mockClear();
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 202) {
+        mock.setRuntimeError("Not allowed");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback();
+    });
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/pending",
+      title: "Popup Pending",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.has("tab-202")).toBe(true);
+    });
+
+    session.refStore.setSnapshot("tab-202", [{
+      ref: "r1",
+      selector: "#popup-cta",
+      backendNodeId: 4,
+      role: "button",
+      name: "Popup CTA"
+    }]);
+
+    expect(session.activeTargetId).toBe("tab-101");
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-review-pending-top-level",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096,
+        targetId: "tab-202"
+      }
+    });
+    await vi.waitFor(() => {
+      expect(
+        sendCommandMock.mock.calls.some(([debuggee, method]) => (
+          (debuggee as { tabId?: number; sessionId?: string }).tabId === 202
+          && (debuggee as { sessionId?: string }).sessionId === undefined
+          && method === "Accessibility.getFullAXTree"
+        ))
+      ).toBe(false);
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-popup-review-pending-top-level",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Pending",
+              url: "https://popup.example.com/pending"
+            })
+          })
+        ])
+      );
+    });
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(true);
+  });
+
+  it("returns retry guidance for targets.use on a top-level popup tab before attach or bridge is ready", async () => {
+    const { mock, router, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 202) {
+        mock.setRuntimeError("Not allowed");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback();
+    });
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/pending",
+      title: "Popup Pending",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.has("tab-202")).toBe(true);
+    });
+
+    attachMock.mockClear();
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
+      const tabId = (debuggee as { tabId?: number }).tabId;
+      if (tabId === 101 && method === "Target.getTargets") {
+        callback({
+          targetInfos: [{
+            targetId: "target-101",
+            type: "page",
+            url: "https://example.com/root",
+            title: "Root Page"
+          }]
+        });
+        return;
+      }
+      if (tabId === 101 && method === "Target.attachToTarget") {
+        mock.setRuntimeError("Not allowed");
+        callback(undefined);
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback({ ok: true });
+    });
+    sent.length = 0;
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-target-use-pending-top-level",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: "tab-202"
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_error",
+            requestId: "req-popup-target-use-pending-top-level",
+            error: expect.objectContaining({
+              code: "execution_failed",
+              retryable: true,
+              message: expect.stringContaining("Popup target has not finished attaching yet"),
+              details: expect.objectContaining({
+                stage: expect.any(String)
+              })
+            })
+          })
+        ])
+      );
+    });
+
+    expect(
+      attachMock.mock.calls.some(([debuggee]) => ((debuggee as { tabId?: number }).tabId === 202))
+    ).toBe(true);
+  });
+
+  it("retries a transient popup attach stage once before surfacing an error for targets.use", async () => {
+    const { mock, router, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/retry-success",
+      title: "Popup Retry Success",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.has("tab-202")).toBe(true);
+    });
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 202) {
+        mock.setRuntimeError("Not allowed");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback();
+    });
+
+    const attachChildTarget = vi.fn<CDPRouter["attachChildTarget"]>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce("popup-session-202");
+    const getLastChildAttachDiagnostic = vi.fn<CDPRouter["getLastChildAttachDiagnostic"]>()
+      .mockReturnValue({
+        tabId: 101,
+        targetId: "target-202",
+        stage: "attached_root_unavailable",
+        at: Date.now()
+      });
+    (router as unknown as { attachChildTarget: CDPRouter["attachChildTarget"] }).attachChildTarget = attachChildTarget;
+    (router as unknown as { getLastChildAttachDiagnostic: CDPRouter["getLastChildAttachDiagnostic"] }).getLastChildAttachDiagnostic = getLastChildAttachDiagnostic;
+
+    sent.length = 0;
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-target-use-retry-success",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-popup-target-use-retry-success",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              title: "Popup Retry Success",
+              url: "https://popup.example.com/retry-success"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(attachChildTarget.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(getLastChildAttachDiagnostic).toHaveBeenCalledWith(101, "target-202");
+  });
+
+  it("refreshes the opener tab attachment before popup attach when opener target lookup reports a detached debugger", async () => {
+    const { mock, router, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const activateTabMock = globalThis.chrome.tabs.update as unknown as ReturnType<typeof vi.fn>;
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/refreshed",
+      title: "Popup Refreshed",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.has("tab-202")).toBe(true);
+    });
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 202) {
+        mock.setRuntimeError("Not allowed");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback();
+    });
+
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 101 && method === "Target.getTargets") {
+        mock.setRuntimeError("Debugger is not attached to the tab with id: 101.");
+        callback(undefined);
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback({ ok: true });
+    });
+
+    const refreshTabAttachment = vi.fn(async (_tabId: number) => {});
+    const resolveTabTargetId = vi.fn(async (_tabId: number) => "target-202");
+    const attachChildTarget = vi.fn(async (_tabId: number, _targetId: string) => "popup-session-202");
+    (router as unknown as { refreshTabAttachment: (tabId: number) => Promise<void> }).refreshTabAttachment = refreshTabAttachment;
+    (router as unknown as { resolveTabTargetId: (tabId: number) => Promise<string | null> }).resolveTabTargetId = resolveTabTargetId;
+    (router as unknown as { attachChildTarget: (tabId: number, targetId: string) => Promise<string | null> }).attachChildTarget = attachChildTarget;
+
+    sent.length = 0;
+    activateTabMock.mockClear();
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-target-use-refresh-opener",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-popup-target-use-refresh-opener",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              title: "Popup Refreshed",
+              url: "https://popup.example.com/refreshed"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(refreshTabAttachment).toHaveBeenCalledWith(101);
+    expect(attachChildTarget).toHaveBeenCalledWith(101, "target-202");
+    expect(activateTabMock).toHaveBeenCalledWith(202, { active: true }, expect.any(Function));
+  });
+
+  it("includes root refresh diagnostics when popup attach still fails after a detached-opener lookup refresh", async () => {
+    const { router, runtime, sent, session } = await createPopupRuntimeHarness();
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    sessions.addTarget(session.id, 202, {
+      url: "https://popup.example.com/refresh-failed",
+      title: "Popup Refresh Failed",
+      openerTargetId: session.targetId
+    });
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 202) {
+        globalThis.chrome.runtime.lastError = { message: "Not allowed" } as never;
+        callback();
+        globalThis.chrome.runtime.lastError = null as never;
+        return;
+      }
+      callback();
+    });
+
+    const sendCommand = vi.fn(async (_debuggee: chrome.debugger.Debuggee, method: string) => {
+      if (method === "Target.getTargets") {
+        throw new Error("Debugger is not attached to the tab with id: 101.");
+      }
+      return { ok: true };
+    });
+    const refreshTabAttachment = vi.fn(async (_tabId: number) => {});
+    const getLastRootRefreshDiagnostic = vi.fn(() => ({
+      tabId: 101,
+      path: "reattach_root_debuggee" as const,
+      refreshCompleted: true,
+      debuggeePresentAfterRefresh: true,
+      rootSessionPresentAfterRefresh: true,
+      rootTargetIdAfterRefresh: "target-101",
+      probeMethod: "Target.getTargets" as const,
+      probeStage: "failed" as const,
+      probeReason: "Debugger is not attached to the tab with id: 101.",
+      at: Date.now()
+    }));
+    const resolveTabTargetId = vi.fn(async (_tabId: number) => "target-202");
+    const attachChildTarget = vi.fn(async (_tabId: number, _targetId: string) => {
+      throw new Error("Debugger is not attached to the tab with id: 101.");
+    });
+    const getLastChildAttachDiagnostic = vi.fn(() => ({
+      tabId: 101,
+      targetId: "target-202",
+      stage: "raw_attach_failed" as const,
+      reason: "Debugger is not attached to the tab with id: 101.",
+      at: Date.now()
+    }));
+
+    (router as unknown as { sendCommand: typeof sendCommand }).sendCommand = sendCommand;
+    (router as unknown as { refreshTabAttachment: typeof refreshTabAttachment }).refreshTabAttachment = refreshTabAttachment;
+    (router as unknown as { getLastRootRefreshDiagnostic: typeof getLastRootRefreshDiagnostic }).getLastRootRefreshDiagnostic = getLastRootRefreshDiagnostic;
+    (router as unknown as { resolveTabTargetId: typeof resolveTabTargetId }).resolveTabTargetId = resolveTabTargetId;
+    (router as unknown as { attachChildTarget: typeof attachChildTarget }).attachChildTarget = attachChildTarget;
+    (router as unknown as { getLastChildAttachDiagnostic: typeof getLastChildAttachDiagnostic }).getLastChildAttachDiagnostic = getLastChildAttachDiagnostic;
+
+    sent.length = 0;
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-target-use-refresh-diagnostic",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_error",
+            requestId: "req-popup-target-use-refresh-diagnostic",
+            error: expect.objectContaining({
+              code: "execution_failed",
+              retryable: true,
+              message: "Popup target has not finished attaching yet (stage: raw_attach_failed). Take a new review or snapshot and retry.",
+              details: expect.objectContaining({
+                stage: "raw_attach_failed",
+                matcher: "resolve_tab_target_id",
+                targetsLookupFailed: true,
+                refreshPath: "reattach_root_debuggee",
+                refreshCompleted: true,
+                refreshDebuggeePresent: true,
+                refreshRootSessionPresent: true,
+                refreshRootTargetId: "target-101",
+                refreshProbeMethod: "Target.getTargets",
+                refreshProbeStage: "failed",
+                refreshProbeReason: "Debugger is not attached to the tab with id: 101.",
+                reason: "Debugger is not attached to the tab with id: 101."
+              })
+            })
+          })
+        ])
+      );
+    });
+
+    expect(refreshTabAttachment).toHaveBeenCalledWith(101);
+    expect(getLastRootRefreshDiagnostic).toHaveBeenCalledWith(101);
+    expect(resolveTabTargetId).toHaveBeenCalledWith(202);
+    expect(attachChildTarget).toHaveBeenCalledWith(101, "target-202");
+  });
+
+  it("reports resolve_tab_target_failed when the popup target cannot be matched or resolved from the tab id", async () => {
+    const { mock, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const getTargetsMock = globalThis.chrome.debugger.getTargets as unknown as ReturnType<typeof vi.fn>;
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 202) {
+        mock.setRuntimeError("Not allowed");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback();
+    });
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/unresolved",
+      title: "Popup Unresolved",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.has("tab-202")).toBe(true);
+    });
+
+    getTargetsMock.mockImplementation((callback: (result: chrome.debugger.TargetInfo[]) => void) => {
+      callback([{
+        id: "target-101",
+        tabId: 101,
+        type: "page",
+        title: "Root Page",
+        url: "https://example.com/root",
+        attached: false
+      } as chrome.debugger.TargetInfo]);
+    });
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
+      const tabId = (debuggee as { tabId?: number }).tabId;
+      if (tabId === 101 && method === "Target.getTargets") {
+        callback({
+          targetInfos: [{
+            targetId: "target-101",
+            type: "page",
+            url: "https://example.com/root",
+            title: "Root Page"
+          }]
+        });
+        return;
+      }
+      callback({ ok: true });
+    });
+    sent.length = 0;
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-target-use-unresolved-top-level",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_error",
+            requestId: "req-popup-target-use-unresolved-top-level",
+            error: expect.objectContaining({
+              code: "execution_failed",
+              retryable: true,
+              message: "Popup target has not finished attaching yet (stage: resolve_tab_target_failed). Take a new review or snapshot and retry.",
+              details: expect.objectContaining({
+                stage: "resolve_tab_target_failed"
+              })
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("bridges a top-level popup via resolveTabTargetId when opener Target.getTargets only returns the root page", async () => {
+    const { mock, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 202) {
+        mock.setRuntimeError("Not allowed");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback();
+    });
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/fallback",
+      title: "Popup Fallback",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.has("tab-202")).toBe(true);
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        if (method === "Target.getTargets") {
+          callback({
+            targetInfos: [{
+              targetId: "target-101",
+              type: "page",
+              url: "https://example.com/root",
+              title: "Root Page"
+            }]
+          });
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          expect(params).toEqual({
+            targetId: "target-202",
+            flatten: true
+          });
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      if (tabId === 101 && sessionId === "popup-session-202") {
+        if (method === "Accessibility.enable" || method === "DOM.enable") {
+          callback({});
+          return;
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback({
+            nodes: [{
+              nodeId: "ax-popup-fallback-1",
+              backendDOMNodeId: 8,
+              role: { value: "button" },
+              name: { value: "Popup Fallback CTA" }
+            }]
+          });
+          return;
+        }
+      }
+      if (method === "DOM.resolveNode") {
+        callback({ object: { objectId: "popup-fallback-node-1" } });
+        return;
+      }
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = typeof (params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration === "string"
+          ? (params as { functionDeclaration: string }).functionDeclaration
+          : "";
+        if (declaration.includes("querySelectorAll")) {
+          callback({ result: { value: "#popup-fallback-cta" } });
+          return;
+        }
+        callback({ result: { value: null } });
+        return;
+      }
+      callback({});
+    });
+    sent.length = 0;
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-target-use-root-only-targets",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-popup-target-use-root-only-targets",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              title: "Popup Fallback",
+              url: "https://popup.example.com/fallback"
+            })
+          })
+        ])
+      );
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-review-root-only-targets",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.review",
+      payload: {
+        maxChars: 4096,
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-popup-review-root-only-targets",
+            payload: expect.objectContaining({
+              targetId: "tab-202",
+              title: "Popup Fallback",
+              url: "https://popup.example.com/fallback",
+              content: expect.stringContaining("Popup Fallback CTA")
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("bridges a top-level popup via resolveTabTargetId when opener Target.getTargets fails outright", async () => {
+    const { mock, runtime, sent, session } = await createPopupRuntimeHarness();
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 202) {
+        mock.setRuntimeError("Not allowed");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback();
+    });
+
+    mock.emitTabCreated({
+      id: 202,
+      openerTabId: 101,
+      url: "about:blank",
+      title: "about:blank",
+      status: "loading",
+      active: true
+    } as chrome.tabs.Tab);
+    mock.emitTabUpdated(202, {
+      id: 202,
+      openerTabId: 101,
+      url: "https://popup.example.com/fallback-error",
+      title: "Popup Fallback Error",
+      status: "complete",
+      active: true
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(session.targets.has("tab-202")).toBe(true);
+    });
+
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      const sessionId = (debuggee as { sessionId?: string }).sessionId;
+      if (tabId === 101 && typeof sessionId !== "string") {
+        if (method === "Target.getTargets") {
+          mock.setRuntimeError("Not allowed");
+          callback(undefined);
+          mock.setRuntimeError(null);
+          return;
+        }
+        if (method === "Target.attachToTarget") {
+          expect(params).toEqual({
+            targetId: "target-202",
+            flatten: true
+          });
+          callback({ sessionId: "popup-session-202" });
+          return;
+        }
+      }
+      callback({});
+    });
+    sent.length = 0;
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-popup-target-use-targets-error",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "targets.use",
+      payload: {
+        targetId: "tab-202"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-popup-target-use-targets-error",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-202",
+              title: "Popup Fallback Error",
+              url: "https://popup.example.com/fallback-error"
+            })
+          })
+        ])
+      );
+    });
   });
 
   it("handles storage.getCookies with url filters", async () => {

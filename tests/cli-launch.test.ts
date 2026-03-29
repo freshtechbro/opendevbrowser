@@ -78,4 +78,28 @@ describe("launch CLI command", () => {
       data: { sessionId: "session-temp" }
     });
   });
+
+  it("forwards extensionLegacy and startUrl to daemon launch", async () => {
+    callDaemon.mockResolvedValue({ sessionId: "session-extension" });
+
+    const result = await runSessionLaunch(makeArgs([
+      "--extension-legacy",
+      "--start-url",
+      "http://127.0.0.1:41731/"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "session.launch",
+      expect.objectContaining({
+        extensionLegacy: true,
+        startUrl: "http://127.0.0.1:41731/"
+      }),
+      { timeoutMs: 30000 }
+    );
+    expect(result).toEqual({
+      success: true,
+      message: "Session launched: session-extension",
+      data: { sessionId: "session-extension" }
+    });
+  });
 });

@@ -62,6 +62,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
   private opsProtocolSessions = new Map<string, string>();
   private publicSessionIdsByProtocolId = new Map<string, string>();
   private opsSessionTabs = new Map<string, number>();
+  private opsSessionReconnectTabs = new Map<string, number>();
   private opsSessionUrls = new Map<string, string>();
   private opsSessionChallengeAutomationModes = new Map<string, ChallengeAutomationMode>();
   private closedOpsSessions = new Map<string, number>();
@@ -218,6 +219,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.reserveExternalBlockerSlot(sessionId);
     this.trackProtocolSession(sessionId, result.opsSessionId);
     this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    this.rememberReconnectTarget(sessionId, result.activeTargetId ?? null, true);
     this.rememberSessionUrl(sessionId, result.url);
     this.trackClosedSessionCleanup();
     return {
@@ -276,6 +278,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.releaseProtocolSession(sessionId);
     this.releaseExternalBlockerSlot(sessionId);
     this.opsSessionTabs.delete(sessionId);
+    this.opsSessionReconnectTabs.delete(sessionId);
     this.opsSessionUrls.delete(sessionId);
     this.closedOpsSessions.delete(sessionId);
     await this.disconnectOpsClientIfIdle();
@@ -967,6 +970,9 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (this.opsSessionTabs.get(sessionId) === parseTabTargetId(targetId)) {
       this.opsSessionTabs.delete(sessionId);
     }
+    if (this.opsSessionReconnectTabs.get(sessionId) === parseTabTargetId(targetId)) {
+      this.opsSessionReconnectTabs.delete(sessionId);
+    }
   }
 
   async page(sessionId: string, name: string, url?: string): Promise<{ targetId: string; created: boolean; url?: string; title?: string }> {
@@ -1142,9 +1148,10 @@ export class OpsBrowserManager implements BrowserManagerLike {
       this.releaseProtocolSession(sessionId);
       this.releaseExternalBlockerSlot(sessionId);
       this.opsSessionTabs.delete(sessionId);
-    this.opsSessionUrls.delete(sessionId);
-    this.opsSessionChallengeAutomationModes.delete(sessionId);
-    this.closedOpsSessions.set(sessionId, Date.now());
+      this.opsSessionReconnectTabs.delete(sessionId);
+      this.opsSessionUrls.delete(sessionId);
+      this.opsSessionChallengeAutomationModes.delete(sessionId);
+      this.closedOpsSessions.set(sessionId, Date.now());
       this.trackClosedSessionCleanup();
       void this.disconnectOpsClientIfIdle();
     }
@@ -1209,6 +1216,21 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.opsSessionTabs.set(sessionId, tabId);
   }
 
+  private rememberReconnectTarget(
+    sessionId: string,
+    targetId: string | null | undefined,
+    overwrite = false
+  ): void {
+    const tabId = parseTabTargetId(targetId);
+    if (tabId === null) {
+      return;
+    }
+    if (!overwrite && this.opsSessionReconnectTabs.has(sessionId)) {
+      return;
+    }
+    this.opsSessionReconnectTabs.set(sessionId, tabId);
+  }
+
   private rememberSessionUrl(sessionId: string, url: string | null | undefined): void {
     const normalized = normalizeRecoverableOpsUrl(url);
     if (!normalized) {
@@ -1228,7 +1250,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
       sessionId,
       parallelismPolicy: this.buildParallelismPolicyPayload()
     };
-    const rememberedTabId = this.opsSessionTabs.get(sessionId);
+    const rememberedTabId = this.opsSessionReconnectTabs.get(sessionId) ?? this.opsSessionTabs.get(sessionId);
     const fallbackUrl = normalizeRecoverableOpsUrl(payload.url) ?? this.opsSessionUrls.get(sessionId) ?? null;
     if (typeof rememberedTabId === "number") {
       reconnectPayload.tabId = rememberedTabId;
@@ -1267,6 +1289,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.reserveExternalBlockerSlot(sessionId);
     this.trackProtocolSession(sessionId, result.opsSessionId);
     this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    this.rememberReconnectTarget(sessionId, result.activeTargetId ?? null);
     this.rememberSessionUrl(sessionId, result.url ?? fallbackUrl);
     this.closedOpsSessions.delete(sessionId);
     return true;

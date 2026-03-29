@@ -13,6 +13,11 @@ import {
 } from "../macros/execute";
 import type { AnnotationDispatchSource, AnnotationPayload } from "../relay/protocol";
 import {
+  buildLoopbackSessionRelayEndpoint,
+  classifySessionRelayEndpoint,
+  resolveSessionRelayRoute
+} from "../relay/relay-endpoints";
+import {
   bindRelay,
   waitForBinding,
   releaseRelay,
@@ -785,7 +790,7 @@ async function launchWithRelay(
   const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
   if (!relayUrl) {
     const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
-    relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/${extensionLegacy ? "cdp" : "ops"}` : null;
+    relayUrl = fallbackPort ? buildLoopbackSessionRelayEndpoint(fallbackPort, { extensionLegacy }) : null;
   }
   const extensionReady = Boolean(
     relayUrl && (
@@ -847,26 +852,6 @@ async function launchWithRelay(
   }
 }
 
-function normalizeRelayEndpoint(
-  wsEndpoint: string | undefined,
-  path: "cdp" | "ops",
-  allowBase: boolean
-): string | null {
-  if (!wsEndpoint) return null;
-  try {
-    const url = new URL(wsEndpoint);
-    if (url.protocol !== "ws:" && url.protocol !== "wss:") return null;
-    if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return null;
-    if (!url.port || !/^\d+$/.test(url.port)) return null;
-    const normalizedPath = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
-    if (!allowBase && normalizedPath === "") return null;
-    if (normalizedPath && normalizedPath !== `/${path}`) return null;
-    return `${url.protocol}//${url.hostname}:${url.port}/${path}`;
-  } catch {
-    return null;
-  }
-}
-
 async function connectWithRelayRouting(
   core: OpenDevBrowserCore,
   params: Record<string, unknown>,
@@ -876,19 +861,19 @@ async function connectWithRelayRouting(
   const wsEndpoint = optionalString(params.wsEndpoint);
   const extensionLegacy = optionalBoolean(params.extensionLegacy) ?? false;
   const relayUrl = extensionLegacy ? core.relay.getCdpUrl() : core.relay.getOpsUrl?.() ?? null;
-  const normalizedOpsEndpoint = normalizeRelayEndpoint(wsEndpoint, "ops", true);
-  const normalizedLegacyEndpoint = normalizeRelayEndpoint(wsEndpoint, "cdp", extensionLegacy);
+  const parsedRelayEndpoint = classifySessionRelayEndpoint(wsEndpoint);
+  const resolvedRelayEndpoint = parsedRelayEndpoint
+    ? resolveSessionRelayRoute(parsedRelayEndpoint, { extensionLegacy })
+    : null;
+  if (resolvedRelayEndpoint && "code" in resolvedRelayEndpoint) {
+    throw new Error("Legacy extension relay (/cdp) requires --extension-legacy.");
+  }
   const relayEndpoint = relayUrl && wsEndpoint === relayUrl
     ? relayUrl
-    : extensionLegacy
-      ? normalizedLegacyEndpoint ?? normalizedOpsEndpoint
-      : normalizedOpsEndpoint;
+    : resolvedRelayEndpoint?.normalizedEndpoint ?? null;
 
   const hasExplicitCdp = Boolean(wsEndpoint || params.host || params.port);
   const headlessExplicit = optionalBoolean(params.headless) === true;
-  if (normalizedLegacyEndpoint && !extensionLegacy) {
-    throw new Error("Legacy extension relay (/cdp) requires --extension-legacy.");
-  }
 
   if (headlessExplicit && !hasExplicitCdp) {
     throw unsupportedModeError(

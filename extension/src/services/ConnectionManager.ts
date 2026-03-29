@@ -795,15 +795,31 @@ export class ConnectionManager {
   };
 
   private handleTabUpdated = (_tabId: number, _changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => {
-    if (!this.trackedTab || tab.id !== this.trackedTab.id) {
+    const updatedTabId = typeof tab.id === "number" ? tab.id : null;
+    if (updatedTabId === null) {
       return;
     }
-    this.trackedTab = {
-      id: tab.id,
-      url: tab.url ?? this.trackedTab.url,
-      title: tab.title ?? this.trackedTab.title,
-      groupId: typeof tab.groupId === "number" ? tab.groupId : this.trackedTab.groupId
-    };
+    const trackedTabId = this.trackedTab?.id ?? null;
+    const primaryTabId = this.cdp.getPrimaryTabId();
+    if (trackedTabId !== updatedTabId && primaryTabId !== updatedTabId) {
+      return;
+    }
+    if (trackedTabId !== updatedTabId) {
+      if (!this.isRestrictedTab(tab)) {
+        this.setTrackedTab(tab);
+        this.refreshHandshake();
+        return;
+      }
+      this.refreshTrackedTab(updatedTabId, { preserveCurrentOnRestricted: true })
+        .then(() => {
+          this.refreshHandshake();
+        })
+        .catch((error) => {
+          logError("connection.tab_updated_refresh", error, { code: "tracked_tab_refresh_failed" });
+        });
+      return;
+    }
+    this.setTrackedTab(tab);
     if (this.relay?.isConnected()) {
       this.safeRelaySend(() => this.relay?.sendHandshake(this.buildHandshake()), "relay.send_handshake");
     }
@@ -1026,8 +1042,16 @@ export class ConnectionManager {
       this.trackedTab = null;
       return;
     }
+    this.setTrackedTab(tab);
+  }
+
+  private setTrackedTab(tab: chrome.tabs.Tab): void {
+    const tabId = typeof tab.id === "number" ? tab.id : null;
+    if (tabId === null) {
+      return;
+    }
     this.trackedTab = {
-      id: nextTrackedTabId,
+      id: tabId,
       url: tab.url ?? this.trackedTab?.url,
       title: tab.title ?? this.trackedTab?.title,
       groupId: typeof tab.groupId === "number" ? tab.groupId : this.trackedTab?.groupId

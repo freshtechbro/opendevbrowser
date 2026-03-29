@@ -2,6 +2,7 @@ import { vi } from "vitest";
 
 type StorageListener = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => void;
 type TabActivatedListener = (activeInfo: chrome.tabs.TabActiveInfo) => void;
+type TabCreatedListener = (tab: chrome.tabs.Tab) => void;
 type TabRemovedListener = (tabId: number) => void;
 type TabUpdatedListener = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void;
 type DebuggerEventListener = (source: chrome.debugger.Debuggee, method: string, params?: object) => void;
@@ -10,14 +11,17 @@ type RuntimeListener = () => void;
 type MessageListener = (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void) => void;
 type AlarmListener = (alarm: chrome.alarms.Alarm) => void;
 type ConnectListener = (port: chrome.runtime.Port) => void;
+type CreatedNavigationTargetListener = (details: chrome.webNavigation.WebNavigationSourceCallbackDetails) => void;
 
 export type ChromeMockState = {
   chrome: typeof chrome;
   setActiveTab: (tab: chrome.tabs.Tab | null) => void;
+  emitTabCreated: (tab: chrome.tabs.Tab) => void;
   emitTabActivated: (tabId: number) => void;
   emitStorageChange: (value: unknown) => void;
   emitTabRemoved: (tabId: number) => void;
   emitTabUpdated: (tabId: number, tab: chrome.tabs.Tab) => void;
+  emitCreatedNavigationTarget: (details: chrome.webNavigation.WebNavigationSourceCallbackDetails) => void;
   emitDebuggerEvent: (source: chrome.debugger.Debuggee, method: string, params?: object) => void;
   emitDebuggerDetach: (source: chrome.debugger.Debuggee, reason?: string) => void;
   setRuntimeError: (message: string | null) => void;
@@ -80,10 +84,12 @@ export const createChromeMock = (initial?: {
 
   const storageListeners = new Set<StorageListener>();
   const tabActivatedListeners = new Set<TabActivatedListener>();
+  const tabCreatedListeners = new Set<TabCreatedListener>();
   const tabRemovedListeners = new Set<TabRemovedListener>();
   const tabUpdatedListeners = new Set<TabUpdatedListener>();
   const debuggerEventListeners = new Set<DebuggerEventListener>();
   const debuggerDetachListeners = new Set<DebuggerDetachListener>();
+  const createdNavigationTargetListeners = new Set<CreatedNavigationTargetListener>();
   const startupListeners = new Set<RuntimeListener>();
   const installedListeners = new Set<RuntimeListener>();
   const messageListeners = new Set<MessageListener>();
@@ -329,6 +335,11 @@ export const createChromeMock = (initial?: {
           tabRemovedListeners.add(listener);
         }
       },
+      onCreated: {
+        addListener: (listener: TabCreatedListener) => {
+          tabCreatedListeners.add(listener);
+        }
+      },
       onActivated: {
         addListener: (listener: TabActivatedListener) => {
           tabActivatedListeners.add(listener);
@@ -340,6 +351,13 @@ export const createChromeMock = (initial?: {
         },
         removeListener: (listener: TabUpdatedListener) => {
           tabUpdatedListeners.delete(listener);
+        }
+      }
+    },
+    webNavigation: {
+      onCreatedNavigationTarget: {
+        addListener: (listener: CreatedNavigationTargetListener) => {
+          createdNavigationTargetListeners.add(listener);
         }
       }
     },
@@ -407,6 +425,17 @@ export const createChromeMock = (initial?: {
     setActiveTab: (tab) => {
       setActiveTabState(tab);
     },
+    emitTabCreated: (tab) => {
+      if (typeof tab.id === "number") {
+        tabsById.set(tab.id, tab);
+      }
+      if (tab.active) {
+        setActiveTabState(tab);
+      }
+      for (const listener of tabCreatedListeners) {
+        listener(tab);
+      }
+    },
     emitTabActivated: (tabId) => {
       const tab = tabsById.get(tabId) ?? null;
       if (tab) {
@@ -439,6 +468,11 @@ export const createChromeMock = (initial?: {
       }
       for (const listener of tabUpdatedListeners) {
         listener(tabId, tab.status ? { status: tab.status } : {}, tab);
+      }
+    },
+    emitCreatedNavigationTarget: (details) => {
+      for (const listener of createdNavigationTargetListeners) {
+        listener(details);
       }
     },
     emitDebuggerEvent: (source, method, params) => {

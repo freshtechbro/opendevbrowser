@@ -1,5 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
+import { buildLoopbackSessionRelayEndpoint } from "../relay/relay-endpoints";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 
@@ -45,7 +46,7 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
           let relayUrl = extensionLegacy ? deps.relay?.getCdpUrl() ?? null : deps.relay?.getOpsUrl?.() ?? null;
           const relayPort = relayStatus?.port;
           if (!relayUrl && isValidPort(relayPort)) {
-            relayUrl = `ws://127.0.0.1:${relayPort}/${extensionLegacy ? "cdp" : "ops"}`;
+            relayUrl = buildLoopbackSessionRelayEndpoint(relayPort, { extensionLegacy });
           }
           const waitTimeoutMs = clampWaitTimeout(args.waitTimeoutMs ?? 30000);
           const headlessExplicit = args.headless === true;
@@ -72,7 +73,7 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
           const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
           if (!relayUrl) {
             const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
-            relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/${extensionLegacy ? "cdp" : "ops"}` : null;
+            relayUrl = fallbackPort ? buildLoopbackSessionRelayEndpoint(fallbackPort, { extensionLegacy }) : null;
           }
           const extensionReady = Boolean(
             relayUrl && (

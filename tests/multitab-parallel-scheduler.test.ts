@@ -154,6 +154,7 @@ describe("OpsRuntime target-scoped scheduler", () => {
         update: vi.fn((_tabId: number, _updateProperties: chrome.tabs.UpdateProperties, cb: (tab?: chrome.tabs.Tab) => void) => {
           cb({ id: 101, url: "https://example.com", title: "Example" } as chrome.tabs.Tab);
         }),
+        onCreated: { addListener: vi.fn(), removeListener: vi.fn() },
         onRemoved: { addListener: vi.fn(), removeListener: vi.fn() },
         onUpdated: { addListener: vi.fn(), removeListener: vi.fn() }
       },
@@ -279,9 +280,9 @@ describe("OpsRuntime target-scoped scheduler", () => {
     runtime.handleMessage({
       type: "ops_request",
       requestId: "req-not-owner",
-      clientId: "client-other",
+      clientId: "client-owner",
       opsSessionId: session.id,
-      leaseId: "lease-owner",
+      leaseId: "lease-other",
       command: "session.status",
       payload: {}
     });

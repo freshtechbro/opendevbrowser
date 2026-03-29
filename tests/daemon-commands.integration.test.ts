@@ -592,6 +592,82 @@ describe("daemon-commands integration", () => {
     }));
   });
 
+  it("preserves explicit /ops relay endpoints even when extensionLegacy is enabled", async () => {
+    const core = makeCore();
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-ops-legacy",
+      mode: "extension",
+      activeTargetId: "target-1",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+    const binding = bindRelay("client-ops-legacy");
+    if ("queued" in binding && binding.queued) {
+      throw new Error("Expected immediate binding for test setup.");
+    }
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-ops-legacy",
+        bindingId: binding.bindingId,
+        wsEndpoint: "ws://127.0.0.1:8787/ops",
+        extensionLegacy: true
+      }
+    });
+
+    expect(core.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
+    expect(response).toEqual(expect.objectContaining({
+      sessionId: "session-ops-legacy",
+      mode: "extension"
+    }));
+  });
+
+  it("routes local base relay endpoints to /ops and preserves startUrl", async () => {
+    const core = makeCore();
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-ops",
+      mode: "extension",
+      activeTargetId: "target-1",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops",
+      leaseId: "lease-ops"
+    });
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-ops",
+        wsEndpoint: "ws://127.0.0.1:8787",
+        startUrl: "http://127.0.0.1:41731/"
+      }
+    });
+
+    expect(core.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops", {
+      startUrl: "http://127.0.0.1:41731/"
+    });
+    expect(response).toEqual(expect.objectContaining({
+      sessionId: "session-ops",
+      leaseId: "lease-ops"
+    }));
+    expect(getSessionLease("session-ops")).toEqual(expect.objectContaining({
+      leaseId: "lease-ops",
+      clientId: "client-ops"
+    }));
+  });
+
+  it("rejects explicit /cdp relay endpoints without extensionLegacy", async () => {
+    const core = makeCore();
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-cdp",
+        wsEndpoint: "ws://127.0.0.1:8787/cdp"
+      }
+    })).rejects.toThrow("Legacy extension relay (/cdp) requires --extension-legacy.");
+  });
+
   it("rejects non-legacy extension connect results that do not return a lease", async () => {
     const core = makeCore();
     const relay = core.relay as unknown as {
@@ -1118,4 +1194,5 @@ describe("daemon-commands integration", () => {
     expect(manager.connectRelay).not.toHaveBeenCalled();
     expect(manager.connect).not.toHaveBeenCalled();
   });
+
 });

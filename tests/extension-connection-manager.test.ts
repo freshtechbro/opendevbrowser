@@ -415,6 +415,77 @@ describe("ConnectionManager", () => {
     expect(relay.isConnected()).toBe(true);
   });
 
+  it("moves the tracked tab to a newly primary web tab once that tab finishes loading", async () => {
+    const webTab = {
+      id: 1,
+      url: "https://example.com/root",
+      title: "Root",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const loadingTab = {
+      id: 3,
+      url: "about:blank",
+      title: "Loading",
+      status: "loading",
+      active: false,
+      lastAccessed: 30
+    } satisfies chrome.tabs.Tab;
+    const loadedTab = {
+      id: 3,
+      url: "https://example.com/new-root",
+      title: "New Root",
+      status: "complete",
+      active: true,
+      lastAccessed: 40
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: webTab, tabs: [webTab, loadingTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const cdp = (manager as {
+      cdp?: {
+        primaryTabId: number | null;
+        callbacks?: { onPrimaryTabChange?: (tabId: number | null) => void };
+      }
+    }).cdp;
+    const onPrimaryTabChange = cdp?.callbacks?.onPrimaryTabChange;
+    expect(onPrimaryTabChange).toBeTypeOf("function");
+
+    if (cdp) {
+      cdp.primaryTabId = loadingTab.id;
+    }
+    await onPrimaryTabChange?.(loadingTab.id);
+
+    let trackedTab = (manager as { trackedTab?: { id?: number; url?: string } | null }).trackedTab;
+    expect(trackedTab?.id).toBe(webTab.id);
+
+    relay.sendHandshake.mockClear();
+    await (manager as unknown as {
+      handleTabUpdated: (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => void;
+    }).handleTabUpdated(loadingTab.id, { status: "complete" }, loadedTab);
+
+    await vi.waitFor(() => {
+      trackedTab = (manager as { trackedTab?: { id?: number; url?: string } | null }).trackedTab;
+      expect(trackedTab?.id).toBe(loadedTab.id);
+      expect(trackedTab?.url).toBe(loadedTab.url);
+      expect(relay.sendHandshake).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            tabId: loadedTab.id,
+            url: loadedTab.url,
+            title: loadedTab.title
+          })
+        })
+      );
+    });
+  });
+
   it("refreshes the tracked tab when a stale restricted tracked tab is removed but another attached web tab remains", async () => {
     const webTab = {
       id: 1,

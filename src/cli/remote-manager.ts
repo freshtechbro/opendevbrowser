@@ -4,6 +4,7 @@ import type { TargetInfo } from "../browser/target-manager";
 import type { ReactExport } from "../export/react-emitter";
 import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
+import { classifySessionRelayEndpoint } from "../relay/relay-endpoints";
 import { DaemonClient } from "./daemon-client";
 
 type CookieImportRecord = {
@@ -27,16 +28,6 @@ type BrowserManagerMethodKey = keyof BrowserManagerMethods;
 
 type CallResult<K extends BrowserManagerMethodKey> = Awaited<ReturnType<BrowserManagerMethods[K]>>;
 
-function isLegacyRelayEndpoint(wsEndpoint: string): boolean {
-  try {
-    const url = new URL(wsEndpoint);
-    const path = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
-    return path === "/cdp";
-  } catch {
-    return false;
-  }
-}
-
 export class RemoteManager implements BrowserManagerLike {
   private client: DaemonClient;
 
@@ -56,18 +47,14 @@ export class RemoteManager implements BrowserManagerLike {
     const startUrl = typeof options?.startUrl === "string" && options.startUrl.trim().length > 0
       ? options.startUrl.trim()
       : undefined;
+    const parsedRelayEndpoint = classifySessionRelayEndpoint(wsEndpoint);
     return this.client.call<CallResult<"connectRelay">>(
       "session.connect",
-      isLegacyRelayEndpoint(wsEndpoint)
-        ? {
-          wsEndpoint,
-          extensionLegacy: true,
-          ...(startUrl ? { startUrl } : {})
-        }
-        : {
-          wsEndpoint,
-          ...(startUrl ? { startUrl } : {})
-        }
+      {
+        wsEndpoint,
+        ...(parsedRelayEndpoint?.inputPath === "/cdp" ? { extensionLegacy: true } : {}),
+        ...(startUrl ? { startUrl } : {})
+      }
     );
   }
 

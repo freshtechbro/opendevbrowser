@@ -15,7 +15,13 @@ import {
   type OpsResponse,
   type OpsChunk
 } from "../types.js";
-import { CDPRouter, type CDPRouterEvent } from "../services/CDPRouter.js";
+import {
+  CDPRouter,
+  type CDPRouterEvent,
+  type ChildTargetAttachDiagnostic,
+  type RootAttachDiagnostic,
+  type RootRefreshDiagnostic
+} from "../services/CDPRouter.js";
 import { TabManager } from "../services/TabManager.js";
 import { getRestrictionMessage, isRestrictedUrl } from "../services/url-restrictions.js";
 import { logError } from "../logging.js";
@@ -27,6 +33,7 @@ import {
   type OpsSession,
   type OpsConsoleEvent,
   type OpsNetworkEvent,
+  type OpsTargetInfo,
   type OpsSyntheticTargetRecord
 } from "./ops-session-store.js";
 import {
@@ -42,6 +49,7 @@ const MAX_NETWORK_EVENTS = 300;
 const SESSION_TTL_MS = 20_000;
 const SCREENSHOT_TIMEOUT_MS = 8000;
 const TAB_CLOSE_TIMEOUT_MS = 5000;
+const POPUP_ATTACH_RETRY_DELAY_MS = 100;
 const STALE_REF_ERROR_SUFFIX = "Take a new snapshot first.";
 
 const DOM_OUTER_HTML_DECLARATION = `
@@ -117,13 +125,6 @@ const DOM_SELECTOR_STATE_DECLARATION = `
       attached: true,
       visible: Boolean(style && style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0)
     };
-  }
-`;
-
-const DOM_CLICK_DECLARATION = `
-  function() {
-    if (!(this instanceof HTMLElement)) return;
-    this.click();
   }
 `;
 
@@ -292,6 +293,55 @@ type ResolvedOpsRef = {
   name?: string;
 };
 
+type PopupAttachDiagnosticStage =
+  | "targets_lookup_failed"
+  | "resolve_tab_target_failed"
+  | ChildTargetAttachDiagnostic["stage"];
+
+type PopupAttachMatcher =
+  | "url"
+  | "title"
+  | "non_opener"
+  | "resolve_tab_target_id";
+
+type PopupAttachDiagnostic = {
+  targetId: string;
+  tabId: number;
+  openerTargetId?: string;
+  popupTargetId?: string;
+  stage: PopupAttachDiagnosticStage;
+  matcher?: PopupAttachMatcher;
+  initialStage?: ChildTargetAttachDiagnostic["initialStage"];
+  rootTargetRetryStage?: ChildTargetAttachDiagnostic["rootTargetRetryStage"];
+  attachedRootRecoveryStage?: ChildTargetAttachDiagnostic["attachedRootRecoveryStage"];
+  attachedRootRecoverySource?: ChildTargetAttachDiagnostic["attachedRootRecoverySource"];
+  attachedRootRecoveryReason?: ChildTargetAttachDiagnostic["attachedRootRecoveryReason"];
+  refreshPath?: RootRefreshDiagnostic["path"];
+  refreshCompleted?: boolean;
+  refreshDebuggeePresent?: boolean;
+  refreshRootSessionPresent?: boolean;
+  refreshRootTargetId?: string;
+  refreshProbeMethod?: RootRefreshDiagnostic["probeMethod"];
+  refreshProbeStage?: RootRefreshDiagnostic["probeStage"];
+  refreshProbeReason?: string;
+  refreshReason?: string;
+  targetsLookupFailed?: boolean;
+  reason?: string;
+  at: number;
+};
+
+type DirectAttachFailureDetails = {
+  origin?: RootAttachDiagnostic["origin"];
+  stage?: RootAttachDiagnostic["stage"];
+  attachBy?: RootAttachDiagnostic["attachBy"];
+  probeMethod?: RootAttachDiagnostic["probeMethod"];
+  reason?: string;
+};
+
+type DirectAttachDecoratedError = Error & {
+  directAttachDetails?: DirectAttachFailureDetails;
+};
+
 export type OpsRuntimeOptions = {
   send: (message: OpsEnvelope) => void;
   cdp: CDPRouter;
@@ -308,6 +358,8 @@ export class OpsRuntime {
   private readonly dom = new DomBridge();
   private readonly sessions = new OpsSessionStore();
   private readonly encoder = new TextEncoder();
+  private readonly popupOpenerTabIds = new Map<number, number>();
+  private readonly popupAttachDiagnostics = new Map<string, PopupAttachDiagnostic>();
   private closingTimers = new Map<string, number>();
   private parallelWaiters = new Map<string, OpsParallelWaiter[]>();
 
@@ -316,8 +368,10 @@ export class OpsRuntime {
     this.cdp = options.cdp;
     this.getCanvasPageState = options.getCanvasPageState;
     this.performCanvasPageAction = options.performCanvasPageAction;
+    chrome.tabs.onCreated.addListener(this.handleTabCreated);
     chrome.tabs.onRemoved.addListener(this.handleTabRemoved);
     chrome.tabs.onUpdated.addListener(this.handleTabUpdated);
+    chrome.webNavigation?.onCreatedNavigationTarget?.addListener?.(this.handleCreatedNavigationTarget);
     chrome.debugger.onEvent.addListener(this.handleDebuggerEvent);
     chrome.debugger.onDetach.addListener(this.handleDebuggerDetach);
     if (typeof this.cdp.addEventListener === "function") {
@@ -407,6 +461,7 @@ export class OpsRuntime {
   private handleClientDisconnected(message: OpsEvent): void {
     const clientId = message.clientId;
     if (!clientId) return;
+    this.cdp.markClientClosed();
     const sessions = this.sessions.listOwnedBy(clientId);
     for (const session of sessions) {
       this.markSessionClosing(session, "ops_session_expired");
@@ -414,12 +469,138 @@ export class OpsRuntime {
   }
 
   private handleTabRemoved = (tabId: number): void => {
+    this.popupOpenerTabIds.delete(tabId);
     this.handleClosedTarget(tabId, "ops_tab_closed");
   };
 
+  private handleCreatedNavigationTarget = (
+    details: chrome.webNavigation.WebNavigationSourceCallbackDetails
+  ): void => {
+    const tabId = typeof details.tabId === "number" ? details.tabId : null;
+    const openerTabId = typeof details.sourceTabId === "number" ? details.sourceTabId : null;
+    if (tabId === null || openerTabId === null) {
+      return;
+    }
+    this.popupOpenerTabIds.set(tabId, openerTabId);
+  };
+
+  private handleTabCreated = (tab: chrome.tabs.Tab): void => {
+    const tabId = typeof tab.id === "number" ? tab.id : null;
+    if (tabId === null) {
+      return;
+    }
+    const openerTabId = typeof tab.openerTabId === "number" ? tab.openerTabId : null;
+    if (openerTabId !== null) {
+      const session = this.sessions.getByTabId(openerTabId);
+      if (!session) {
+        return;
+      }
+      this.finishCreatedTab(
+        session,
+        this.sessions.getTargetIdByTabId(session.id, openerTabId) ?? session.targetId,
+        tab,
+        tabId
+      );
+      return;
+    }
+    void this.handleCreatedTab(tab, tabId);
+  };
+
+  private async handleCreatedTab(tab: chrome.tabs.Tab, tabId: number): Promise<void> {
+    const opener = await this.resolvePopupOpenerContext(
+      tabId,
+      typeof tab.openerTabId === "number" ? tab.openerTabId : null
+    );
+    if (!opener) {
+      return;
+    }
+    this.finishCreatedTab(opener.session, opener.openerTargetId, tab, tabId);
+  }
+
+  private finishCreatedTab(
+    session: OpsSession,
+    openerTargetId: string,
+    tab: chrome.tabs.Tab,
+    tabId: number
+  ): void {
+    this.popupOpenerTabIds.delete(tabId);
+    const existingTargetId = this.updateKnownTabTarget(session, tab);
+    if (existingTargetId) {
+      const existingTarget = session.targets.get(existingTargetId) ?? null;
+      if (existingTarget && !existingTarget.openerTargetId) {
+        existingTarget.openerTargetId = openerTargetId;
+      }
+      const resolvedTarget = this.resolveTargetContext(session, existingTargetId);
+      if (
+        resolvedTarget
+        && this.shouldPromotePopupTarget(session, openerTargetId, resolvedTarget)
+      ) {
+        session.activeTargetId = existingTargetId;
+      }
+      return;
+    }
+    const target = this.sessions.addTarget(session.id, tabId, {
+      url: tab.url ?? undefined,
+      title: tab.title ?? undefined,
+      openerTargetId: openerTargetId
+    });
+    void this.attachCreatedTab(session, target.targetId, tabId);
+  }
+
+  private async resolvePopupOpenerContext(
+    tabId: number,
+    openerTabId: number | null
+  ): Promise<{ session: OpsSession; openerTargetId: string } | null> {
+    let resolvedOpenerTabId = openerTabId ?? this.popupOpenerTabIds.get(tabId) ?? null;
+    if (resolvedOpenerTabId === null && typeof this.cdp.resolveTabOpenerTargetId === "function") {
+      const openerTargetId = await this.cdp.resolveTabOpenerTargetId(tabId).catch(() => null);
+      resolvedOpenerTabId = parseTargetAliasTabId(openerTargetId ?? undefined);
+    }
+    if (resolvedOpenerTabId === null) {
+      return null;
+    }
+    const session = this.sessions.getByTabId(resolvedOpenerTabId);
+    if (!session) {
+      return null;
+    }
+    return {
+      session,
+      openerTargetId: this.sessions.getTargetIdByTabId(session.id, resolvedOpenerTabId) ?? session.targetId
+    };
+  }
+
+  private async hydratePopupOpenerTarget(session: OpsSession, targetId: string): Promise<OpsTargetInfo | null> {
+    const target = session.targets.get(targetId) ?? null;
+    if (!target || target.openerTargetId) {
+      return target;
+    }
+    const opener = await this.resolvePopupOpenerContext(target.tabId, null);
+    if (!opener || opener.session.id !== session.id) {
+      return target;
+    }
+    target.openerTargetId = opener.openerTargetId;
+    return target;
+  }
+
   private handleTabUpdated = (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab): void => {
     const session = this.sessions.getByTabId(tabId);
-    if (!session) return;
+    if (!session) {
+      if (changeInfo.status === "complete" || tab.status === "complete" || typeof tab.openerTabId === "number") {
+        void this.handleCreatedTab(tab, tabId);
+      }
+      return;
+    }
+    const targetId = this.updateKnownTabTarget(session, tab);
+    if (
+      targetId
+      && tab.active === true
+      && (changeInfo.status === "complete" || tab.status === "complete")
+    ) {
+      const target = this.resolveTargetContext(session, targetId);
+      if (target && (!target.openerTargetId || this.hasUsableDebuggee(target))) {
+        session.activeTargetId = targetId;
+      }
+    }
     if (changeInfo.discarded === true || tab.discarded === true) {
       session.discardedSignals += 1;
     }
@@ -434,6 +615,50 @@ export class OpsRuntime {
     if (typeof source.tabId !== "number") return;
     void this.handleDebuggerDetachForTab(source.tabId);
   };
+
+  private updateKnownTabTarget(session: OpsSession, tab: chrome.tabs.Tab): string | null {
+    const tabId = typeof tab.id === "number" ? tab.id : null;
+    if (tabId === null) {
+      return null;
+    }
+    const targetId = this.sessions.getTargetIdByTabId(session.id, tabId);
+    if (!targetId) {
+      return null;
+    }
+    const target = session.targets.get(targetId);
+    if (!target) {
+      return targetId;
+    }
+    target.url = tab.url ?? target.url;
+    target.title = tab.title ?? target.title;
+    return targetId;
+  }
+
+  private async attachCreatedTab(session: OpsSession, targetId: string, tabId: number): Promise<void> {
+    await this.tabs.waitForTabComplete(tabId, 5000).catch(() => undefined);
+    const target = await this.hydratePopupOpenerTarget(session, targetId);
+    if (target?.openerTargetId) {
+      // Keep the opener root stable and attach popup tabs only when the caller explicitly targets them.
+      return;
+    }
+    try {
+      await this.attachTargetTab(tabId);
+      await this.enableTargetDomains(tabId);
+      this.promotePopupTarget(session, targetId);
+    } catch (error) {
+      if (target && isAttachBlockedError(error)) {
+        const bridged = await this.attachTargetViaOpenerSession(session, target).catch(() => false);
+        if (bridged) {
+          this.promotePopupTarget(session, targetId);
+          return;
+        }
+      }
+      logError("ops.popup_tab_attach", error, {
+        code: "popup_tab_attach_failed",
+        extra: { tabId }
+      });
+    }
+  }
 
   private handleDebuggerEvent = (source: chrome.debugger.Debuggee, method: string, params?: object): void => {
     if (typeof source.tabId !== "number") return;
@@ -541,9 +766,10 @@ export class OpsRuntime {
     if (!targetInfo || !isSyntheticPageTarget(session, targetInfo.targetId, targetInfo.type)) {
       return;
     }
+    const resolvedTabId = parseTabTargetId(targetInfo.targetId) ?? event.tabId;
     this.sessions.upsertSyntheticTarget(session.id, {
       targetId: targetInfo.targetId,
-      tabId: event.tabId,
+      tabId: resolvedTabId,
       type: targetInfo.type,
       ...(typeof targetInfo.url === "string" ? { url: targetInfo.url } : {}),
       ...(typeof targetInfo.title === "string" ? { title: targetInfo.title } : {}),
@@ -559,9 +785,10 @@ export class OpsRuntime {
     if (!targetInfo || !isSyntheticPageTarget(session, targetInfo.targetId, targetInfo.type)) {
       return;
     }
+    const resolvedTabId = parseTabTargetId(targetInfo.targetId) ?? event.tabId;
     const synthetic = this.sessions.upsertSyntheticTarget(session.id, {
       targetId: targetInfo.targetId,
-      tabId: event.tabId,
+      tabId: resolvedTabId,
       type: targetInfo.type,
       ...(typeof targetInfo.url === "string" ? { url: targetInfo.url } : {}),
       ...(typeof targetInfo.title === "string" ? { title: targetInfo.title } : {}),
@@ -844,10 +1071,10 @@ export class OpsRuntime {
     }
 
     try {
-      await this.cdp.attach(activeTabId);
+      await this.attachTargetTab(activeTabId);
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Debugger attach failed";
-      this.sendError(message, buildError("cdp_attach_failed", detail, false));
+      this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
       return;
     }
     if (!startUrl) {
@@ -941,25 +1168,116 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Unknown targetId", false));
       return;
     }
-    const target = this.resolveTargetContext(session, targetId);
-    if (target && !target.synthetic) {
-      await this.tabs.activateTab(target.tabId).catch(() => undefined);
+    let target = this.resolveTargetContext(session, targetId);
+    if (target && !this.hasUsableDebuggee(target) && (target.synthetic || !!target.openerTargetId)) {
       try {
-        await this.cdp.attach(target.tabId);
-        await this.enableTargetDomains(target.tabId);
+        target = await this.preparePopupTarget(session, targetId) ?? target;
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Debugger attach failed";
-        this.sendError(message, buildError("cdp_attach_failed", detail, false));
+        this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
         return;
       }
     }
-    session.activeTargetId = targetId;
-    const tab = target ? await this.tabs.getTab(target.tabId) : null;
-    this.sendResponse(message, {
-      activeTargetId: targetId,
-      url: target ? resolveReportedTargetUrl(target, tab?.url) : undefined,
-      title: target ? resolveReportedTargetTitle(target, tab?.title) : undefined
-    });
+    if (target?.synthetic && !target.sessionId) {
+      const syntheticPopupTarget = target.openerTargetId
+        ? {
+          targetId,
+          tabId: target.tabId,
+          ...(typeof target.url === "string" ? { url: target.url } : {}),
+          ...(typeof target.title === "string" ? { title: target.title } : {}),
+          openerTargetId: target.openerTargetId
+        }
+        : null;
+      if (syntheticPopupTarget && await this.attachTargetViaOpenerSession(session, syntheticPopupTarget).catch(() => false)) {
+        this.clearPopupAttachDiagnostic(session.id, targetId);
+        await this.activateTargetAndRespond(message, session, targetId);
+        return;
+      }
+      this.sendPopupAttachPendingError(message, session, targetId);
+      return;
+    }
+    if (target && !target.synthetic) {
+      const hydratedPopupTarget = typeof target.sessionId !== "string"
+        ? await this.hydratePopupOpenerTarget(session, targetId)
+        : null;
+      const popupTarget: OpsTargetInfo | null = hydratedPopupTarget?.openerTargetId
+        ? hydratedPopupTarget
+        : target.openerTargetId
+          ? {
+            targetId,
+            tabId: target.tabId,
+            ...(typeof target.url === "string" ? { url: target.url } : {}),
+            ...(typeof target.title === "string" ? { title: target.title } : {}),
+            openerTargetId: target.openerTargetId
+          }
+          : null;
+      if (popupTarget?.openerTargetId) {
+        const resolvedPopupTarget = this.resolveTargetContext(session, targetId);
+        if (resolvedPopupTarget && this.hasUsableDebuggee(resolvedPopupTarget)) {
+          this.clearPopupAttachDiagnostic(session.id, targetId);
+          await this.activateTargetAndRespond(message, session, targetId);
+          return;
+        }
+      }
+      const deferPopupActivation = Boolean(popupTarget?.openerTargetId && typeof target.sessionId !== "string");
+      if (!deferPopupActivation) {
+        await this.tabs.activateTab(target.tabId).catch(() => undefined);
+      }
+      if (typeof target.sessionId !== "string") {
+        if (popupTarget?.openerTargetId && await this.attachTargetViaOpenerSession(session, popupTarget).catch(() => false)) {
+          this.clearPopupAttachDiagnostic(session.id, targetId);
+          await this.activateTargetAndRespond(message, session, targetId);
+          return;
+        }
+        if (popupTarget?.openerTargetId) {
+          const resolvedPopupTarget = this.resolveTargetContext(session, targetId);
+          if (resolvedPopupTarget && this.hasUsableDebuggee(resolvedPopupTarget)) {
+            this.clearPopupAttachDiagnostic(session.id, targetId);
+            await this.activateTargetAndRespond(message, session, targetId);
+            return;
+          }
+          if (this.shouldPreferDirectPopupTabAttach(popupTarget)) {
+            try {
+              await this.attachTargetTab(target.tabId);
+              await this.enableTargetDomains(target.tabId);
+              this.clearPopupAttachDiagnostic(session.id, targetId);
+              await this.activateTargetAndRespond(message, session, targetId);
+              return;
+            } catch (error) {
+              if (!isAttachBlockedError(error)) {
+                const detail = error instanceof Error ? error.message : "Debugger attach failed";
+                this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
+                return;
+              }
+            }
+          }
+          this.sendPopupAttachPendingError(message, session, targetId);
+          return;
+        }
+        try {
+          await this.attachTargetTab(target.tabId);
+          await this.enableTargetDomains(target.tabId);
+          this.clearPopupAttachDiagnostic(session.id, targetId);
+        } catch (error) {
+          if (isAttachBlockedError(error) && popupTarget && await this.attachTargetViaOpenerSession(session, popupTarget).catch(() => false)) {
+            session.activeTargetId = targetId;
+            this.clearPopupAttachDiagnostic(session.id, targetId);
+            await this.tabs.activateTab(target.tabId).catch(() => undefined);
+            const tab = await this.tabs.getTab(target.tabId);
+            this.sendResponse(message, {
+              activeTargetId: targetId,
+              url: resolveReportedTargetUrl(this.resolveTargetContext(session, targetId), tab?.url),
+              title: resolveReportedTargetTitle(this.resolveTargetContext(session, targetId), tab?.title)
+            });
+            return;
+          }
+          const detail = error instanceof Error ? error.message : "Debugger attach failed";
+          this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
+          return;
+        }
+      }
+    }
+    await this.activateTargetAndRespond(message, session, targetId);
   }
 
   private async handleTargetsRegisterCanvas(message: OpsRequest, session: OpsSession): Promise<void> {
@@ -1024,7 +1342,7 @@ export class OpsRuntime {
       };
     }
     try {
-      await this.cdp.attach(tabId);
+      await this.attachTargetTab(tabId);
       await this.enableTargetDomains(tabId);
     } catch (error) {
       logError("ops.register_canvas_target", error, {
@@ -1052,10 +1370,10 @@ export class OpsRuntime {
     }
     await this.tabs.waitForTabComplete(tab.id).catch(() => undefined);
     try {
-      await this.cdp.attach(tab.id);
+      await this.attachTargetTab(tab.id);
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Debugger attach failed";
-      this.sendError(message, buildError("cdp_attach_failed", detail, false));
+      this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
       return;
     }
     const target = this.sessions.addTarget(session.id, tab.id, { url: tab.url ?? undefined, title: tab.title ?? undefined });
@@ -1120,10 +1438,10 @@ export class OpsRuntime {
     }
     await this.tabs.waitForTabComplete(tab.id).catch(() => undefined);
     try {
-      await this.cdp.attach(tab.id);
+      await this.attachTargetTab(tab.id);
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Debugger attach failed";
-      this.sendError(message, buildError("cdp_attach_failed", detail, false));
+      this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
       return;
     }
     const target = this.sessions.addTarget(session.id, tab.id, { url: tab.url ?? undefined, title: tab.title ?? undefined });
@@ -1323,10 +1641,21 @@ export class OpsRuntime {
     if (!resolved) return;
     const start = Date.now();
     const before = await this.tabs.getTab(resolved.target.tabId);
+    await this.tabs.activateTab(resolved.target.tabId).catch(() => undefined);
     if (this.isAllowedCanvasTargetUrl(resolved.target.url)) {
       await this.runElementAction(resolved.target, resolved.selector, { type: "click" }, () => this.dom.click(resolved.target.tabId, resolved.selector));
     } else {
-      await this.callFunctionOnRef<void>(resolved, DOM_CLICK_DECLARATION);
+      await this.callFunctionOnRef<void>(resolved, DOM_SCROLL_INTO_VIEW_DECLARATION);
+      const point = await this.resolveRefPoint(resolved);
+      await this.dispatchMouseEvent(resolved.target.debuggee, "mouseMoved", point.x, point.y);
+      await this.dispatchMouseEvent(resolved.target.debuggee, "mousePressed", point.x, point.y, {
+        button: "left",
+        clickCount: 1
+      });
+      await this.dispatchMouseEvent(resolved.target.debuggee, "mouseReleased", point.x, point.y, {
+        button: "left",
+        clickCount: 1
+      });
     }
     const after = await this.tabs.getTab(resolved.target.tabId);
     const navigated = Boolean(before?.url && after?.url && before.url !== after.url);
@@ -2000,6 +2329,33 @@ export class OpsRuntime {
     await this.enableTargetDomains(session.tabId);
   }
 
+  private async attachTargetTab(tabId: number): Promise<void> {
+    try {
+      await this.cdp.attach(tabId);
+    } catch (error) {
+      if (isAttachBlockedError(error)) {
+        await delay(50);
+        try {
+          await this.cdp.attach(tabId);
+          return;
+        } catch (retryError) {
+          error = retryError;
+        }
+      }
+      const diagnostic = this.cdp.getLastRootAttachDiagnostic?.(tabId) ?? null;
+      const detail = error instanceof Error ? error.message : "Debugger attach failed";
+      logError("ops.direct_attach_stage", error instanceof Error ? error : new Error(detail), {
+        code: "direct_attach_stage",
+        extra: {
+          tabId,
+          ...(this.toDirectAttachDiagnosticDetails(diagnostic) ?? {}),
+          ...(!diagnostic ? { reason: detail } : {})
+        }
+      });
+      throw this.decorateDirectAttachError(error, diagnostic);
+    }
+  }
+
   private async enableTargetDomains(tabId: number): Promise<void> {
     try {
       await this.cdp.setDiscoverTargetsEnabled?.(true);
@@ -2008,6 +2364,7 @@ export class OpsRuntime {
         waitForDebuggerOnStart: false,
         flatten: true
       });
+      await this.cdp.primeAttachedRootSession?.(tabId);
       await this.cdp.sendCommand({ tabId }, "Runtime.enable", {});
       await this.cdp.sendCommand({ tabId }, "Network.enable", {});
       await this.cdp.sendCommand({ tabId }, "Performance.enable", {});
@@ -2288,8 +2645,15 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_session", "Unknown ops session", false));
       return null;
     }
-    if (session.state === "closing") {
-      const leaseId = typeof message.leaseId === "string" ? message.leaseId : "";
+    const leaseId = typeof message.leaseId === "string" ? message.leaseId : "";
+    if (session.ownerClientId !== clientId) {
+      if (leaseId && leaseId === session.leaseId) {
+        this.reclaimSession(session, clientId);
+      } else {
+        this.sendError(message, buildError("not_owner", "Client does not own session", false));
+        return null;
+      }
+    } else if (session.state === "closing") {
       if (leaseId && leaseId === session.leaseId) {
         this.reclaimSession(session, clientId);
       } else {
@@ -2297,11 +2661,7 @@ export class OpsRuntime {
         return null;
       }
     }
-    if (session.ownerClientId !== clientId) {
-      this.sendError(message, buildError("not_owner", "Client does not own session", false));
-      return null;
-    }
-    if (typeof message.leaseId !== "string" || message.leaseId !== session.leaseId) {
+    if (leaseId !== session.leaseId) {
       this.sendError(message, buildError("not_owner", "Lease does not match session owner", false));
       return null;
     }
@@ -2323,24 +2683,535 @@ export class OpsRuntime {
 
   private resolveTargetContext(session: OpsSession, targetId: string): ResolvedOpsTarget | null {
     const target = session.targets.get(targetId) ?? null;
-    const synthetic = this.sessions.getSyntheticTarget(session.id, targetId);
+    const explicitSynthetic = this.sessions.getSyntheticTarget(session.id, targetId);
+    const bridgeSynthetic = explicitSynthetic ? null : this.findSyntheticSessionBridge(session, target);
+    const synthetic = explicitSynthetic ?? bridgeSynthetic;
     if (!target && !synthetic) {
       return null;
     }
-    const baseTabId = synthetic?.tabId ?? target?.tabId ?? session.tabId;
+    const targetTabId = target?.tabId ?? synthetic?.tabId ?? session.tabId;
     const baseType = synthetic?.type ?? "page";
     return {
       targetId,
-      tabId: baseTabId,
+      tabId: targetTabId,
       type: baseType,
-      synthetic: synthetic !== null && !session.targets.has(targetId),
-      ...(synthetic?.url ? { url: synthetic.url } : target?.url ? { url: target.url } : {}),
-      ...(synthetic?.title ? { title: synthetic.title } : target?.title ? { title: target.title } : {}),
+      synthetic: explicitSynthetic !== null && !session.targets.has(targetId),
+      ...(explicitSynthetic?.url ? { url: explicitSynthetic.url } : target?.url ? { url: target.url } : bridgeSynthetic?.url ? { url: bridgeSynthetic.url } : {}),
+      ...(explicitSynthetic?.title ? { title: explicitSynthetic.title } : target?.title ? { title: target.title } : bridgeSynthetic?.title ? { title: bridgeSynthetic.title } : {}),
       ...(synthetic?.sessionId ? { sessionId: synthetic.sessionId } : {}),
-      ...(synthetic?.openerTargetId ? { openerTargetId: synthetic.openerTargetId } : {}),
+      ...(explicitSynthetic?.openerTargetId
+        ? { openerTargetId: explicitSynthetic.openerTargetId }
+        : target?.openerTargetId
+          ? { openerTargetId: target.openerTargetId }
+          : bridgeSynthetic?.openerTargetId
+            ? { openerTargetId: bridgeSynthetic.openerTargetId }
+            : {}),
       debuggee: synthetic?.sessionId
-        ? { tabId: baseTabId, sessionId: synthetic.sessionId }
-        : { tabId: baseTabId }
+        ? { tabId: synthetic.tabId, sessionId: synthetic.sessionId }
+        : this.cdp.getTabDebuggee?.(targetTabId) ?? { tabId: targetTabId }
+    };
+  }
+
+  private hasUsableDebuggee(target: ResolvedOpsTarget): boolean {
+    if (typeof target.sessionId === "string" && target.sessionId.length > 0) {
+      return true;
+    }
+    if (typeof this.cdp.isTabAttached === "function") {
+      return this.cdp.isTabAttached(target.tabId);
+    }
+    if (typeof this.cdp.getAttachedTabIds === "function") {
+      return this.cdp.getAttachedTabIds().includes(target.tabId);
+    }
+    if (typeof this.cdp.getPrimaryTabId === "function") {
+      return this.cdp.getPrimaryTabId() === target.tabId;
+    }
+    return false;
+  }
+
+  private async preparePopupTarget(session: OpsSession, targetId: string): Promise<ResolvedOpsTarget | null> {
+    let target = this.resolveTargetContext(session, targetId);
+    if (!target || this.hasUsableDebuggee(target)) {
+      return target;
+    }
+
+    const hydratedPopupTarget = typeof target.sessionId !== "string"
+      ? await this.hydratePopupOpenerTarget(session, targetId)
+      : null;
+    const popupTarget: OpsTargetInfo | null = hydratedPopupTarget?.openerTargetId
+      ? hydratedPopupTarget
+      : target.openerTargetId
+        ? {
+          targetId,
+          tabId: target.tabId,
+          ...(typeof target.url === "string" ? { url: target.url } : {}),
+          ...(typeof target.title === "string" ? { title: target.title } : {}),
+          openerTargetId: target.openerTargetId
+        }
+        : null;
+    if (!popupTarget?.openerTargetId) {
+      return target;
+    }
+
+    if (this.shouldPreferDirectPopupTabAttach(popupTarget)) {
+      await this.tabs.activateTab(popupTarget.tabId).catch(() => undefined);
+      try {
+        await this.attachTargetTab(popupTarget.tabId);
+        await this.enableTargetDomains(popupTarget.tabId);
+        this.clearPopupAttachDiagnostic(session.id, targetId);
+        target = this.resolveTargetContext(session, targetId) ?? target;
+        if (this.hasUsableDebuggee(target)) {
+          return target;
+        }
+      } catch (error) {
+        if (!isAttachBlockedError(error)) {
+          throw error;
+        }
+        this.cdp.markClientClosed();
+        try {
+          await this.attachTargetTab(popupTarget.tabId);
+          await this.enableTargetDomains(popupTarget.tabId);
+          this.clearPopupAttachDiagnostic(session.id, targetId);
+          target = this.resolveTargetContext(session, targetId) ?? target;
+          if (this.hasUsableDebuggee(target)) {
+            return target;
+          }
+        } catch (resetError) {
+          if (!isAttachBlockedError(resetError)) {
+            throw resetError;
+          }
+        }
+      }
+    }
+
+    if (await this.attachTargetViaOpenerSession(session, popupTarget).catch(() => false)) {
+      this.clearPopupAttachDiagnostic(session.id, targetId);
+    }
+    return this.resolveTargetContext(session, targetId) ?? target;
+  }
+
+  private shouldPreferDirectPopupTabAttach(target: Pick<OpsTargetInfo, "tabId" | "openerTargetId">): boolean {
+    const openerTabId = parseTargetAliasTabId(target.openerTargetId);
+    return openerTabId !== null && openerTabId !== target.tabId;
+  }
+
+  private async activateTargetAndRespond(message: OpsRequest, session: OpsSession, targetId: string): Promise<void> {
+    session.activeTargetId = targetId;
+    const target = this.resolveTargetContext(session, targetId);
+    if (target) {
+      await this.tabs.activateTab(target.tabId).catch(() => undefined);
+    }
+    const tab = target ? await this.tabs.getTab(target.tabId) : null;
+    this.sendResponse(message, {
+      activeTargetId: targetId,
+      url: target ? resolveReportedTargetUrl(target, tab?.url) : undefined,
+      title: target ? resolveReportedTargetTitle(target, tab?.title) : undefined
+    });
+  }
+
+  private shouldPromotePopupTarget(
+    session: OpsSession,
+    openerTargetId: string,
+    target: ResolvedOpsTarget
+  ): boolean {
+    return (
+      (!!target.openerTargetId || target.targetId !== session.targetId)
+      && this.hasUsableDebuggee(target)
+      && (
+        !session.activeTargetId
+        || session.activeTargetId === session.targetId
+        || session.activeTargetId === openerTargetId
+      )
+    );
+  }
+
+  private promotePopupTarget(session: OpsSession, targetId: string): void {
+    const target = this.resolveTargetContext(session, targetId);
+    if (!target || !target.openerTargetId) {
+      return;
+    }
+    if (this.shouldPromotePopupTarget(session, target.openerTargetId, target)) {
+      session.activeTargetId = targetId;
+    }
+  }
+
+  private findSyntheticSessionBridge(
+    session: OpsSession,
+    target: OpsTargetInfo | null
+  ): OpsSyntheticTargetRecord | null {
+    if (!target) {
+      return null;
+    }
+    const candidates = this.sessions
+      .listSyntheticTargets(session.id)
+      .filter((candidate) => typeof candidate.sessionId === "string" && candidate.sessionId.length > 0);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const targetUrl = typeof target.url === "string" && target.url.length > 0 ? target.url : null;
+    const targetTitle = typeof target.title === "string" && target.title.length > 0 ? target.title : null;
+    let matches = targetUrl
+      ? candidates.filter((candidate) => candidate.url === targetUrl)
+      : [];
+
+    if (matches.length === 0 && targetTitle) {
+      matches = candidates.filter((candidate) => candidate.title === targetTitle);
+    } else if (matches.length > 1 && targetTitle) {
+      const titledMatches = matches.filter((candidate) => candidate.title === targetTitle);
+      if (titledMatches.length > 0) {
+        matches = titledMatches;
+      }
+    }
+
+    if (matches.length === 0 && typeof target.openerTargetId === "string" && target.openerTargetId.length > 0) {
+      const targetOpenerTabId = parseTargetAliasTabId(target.openerTargetId);
+      matches = candidates.filter((candidate) => {
+        if (candidate.openerTargetId === target.openerTargetId) {
+          return true;
+        }
+        const candidateOpenerTabId = parseTargetAliasTabId(candidate.openerTargetId);
+        return targetOpenerTabId !== null && candidateOpenerTabId === targetOpenerTabId;
+      });
+    }
+
+    if (matches.length === 0) {
+      return null;
+    }
+    if (matches.length === 1) {
+      return matches[0] ?? null;
+    }
+    return matches.sort((left, right) => right.attachedAt - left.attachedAt)[0] ?? null;
+  }
+
+  private async attachTargetViaOpenerSession(session: OpsSession, target: OpsTargetInfo): Promise<boolean> {
+    if (typeof target.openerTargetId !== "string" || target.openerTargetId.length === 0) {
+      return false;
+    }
+    const opener = this.resolveTargetContext(session, target.openerTargetId)
+      ?? this.resolveTargetContext(session, session.targetId);
+    if (!opener) {
+      return false;
+    }
+    const openerBridgeDebuggee: chrome.debugger.Debuggee = { tabId: opener.tabId };
+
+    let targetsLookupFailedReason: string | null = null;
+    let targetInfos: Array<NonNullable<ReturnType<typeof extractTargetInfo>>> = [];
+    try {
+      const rawTargets = await this.cdp.sendCommand(openerBridgeDebuggee, "Target.getTargets", {}, { preserveTab: true });
+      targetInfos = isRecord(rawTargets) && Array.isArray(rawTargets.targetInfos)
+        ? rawTargets.targetInfos.map((entry) => extractTargetInfo(entry)).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+        : [];
+    } catch (error) {
+      targetsLookupFailedReason = error instanceof Error ? error.message : String(error);
+      targetInfos = [];
+    }
+    const pageTargets = targetInfos.filter((info) => info.type === "page");
+    const targetUrl = typeof target.url === "string" && target.url.length > 0 ? target.url : null;
+    const targetTitle = typeof target.title === "string" && target.title.length > 0 ? target.title : null;
+    let matcher: PopupAttachMatcher | undefined = targetUrl ? "url" : undefined;
+    let matches = targetUrl
+      ? pageTargets.filter((info) => info.url === targetUrl)
+      : pageTargets;
+    if (matches.length === 0 && targetTitle) {
+      matches = pageTargets.filter((info) => info.title === targetTitle);
+      if (matches.length > 0) {
+        matcher = "title";
+      }
+    } else if (matches.length > 1 && targetTitle) {
+      const titledMatches = matches.filter((info) => info.title === targetTitle);
+      if (titledMatches.length > 0) {
+        matches = titledMatches;
+        matcher = "title";
+      }
+    }
+
+    if (matches.length === 0 && typeof target.openerTargetId === "string" && target.openerTargetId.length > 0) {
+      const openerUrl = typeof opener.url === "string" && opener.url.length > 0 ? opener.url : null;
+      const openerTitle = typeof opener.title === "string" && opener.title.length > 0 ? opener.title : null;
+      const nonOpenerMatches = pageTargets.filter((info) => {
+        if (openerUrl && info.url === openerUrl) {
+          return false;
+        }
+        if (openerTitle && info.title === openerTitle) {
+          return false;
+        }
+        return true;
+      });
+      if (nonOpenerMatches.length === 1) {
+        matches = nonOpenerMatches;
+        matcher = "non_opener";
+      }
+    }
+
+    const popupTargetInfo = matches[0] ?? null;
+    const resolvedTabTargetId = popupTargetInfo?.targetId
+      ? null
+      : (typeof this.cdp.resolveTabTargetId === "function"
+        ? await this.cdp.resolveTabTargetId(target.tabId)
+        : null);
+    const popupTargetId = popupTargetInfo?.targetId ?? resolvedTabTargetId;
+    if (!popupTargetId) {
+      this.recordPopupAttachDiagnostic(session, target, {
+        stage: targetsLookupFailedReason ? "targets_lookup_failed" : "resolve_tab_target_failed",
+        ...(matcher ? { matcher } : {}),
+        ...(targetsLookupFailedReason ? { reason: targetsLookupFailedReason, targetsLookupFailed: true } : {})
+      });
+      return false;
+    }
+    if (resolvedTabTargetId) {
+      matcher = "resolve_tab_target_id";
+    }
+
+    const shouldRefreshAfterResolvedFallback = Boolean(
+      resolvedTabTargetId
+      && typeof this.cdp.refreshTabAttachment === "function"
+      && (
+        (targetsLookupFailedReason
+          && this.shouldRefreshPopupOpenerAfterLookupFailure(targetsLookupFailedReason))
+        || (popupTargetInfo === null && pageTargets.length === 0)
+      )
+    );
+
+    let refreshDiagnostic: RootRefreshDiagnostic | null = null;
+    let refreshReasonOverride: string | null = null;
+    if (shouldRefreshAfterResolvedFallback) {
+      try {
+        await this.cdp.refreshTabAttachment(opener.tabId);
+      } catch (error) {
+        refreshDiagnostic = this.cdp.getLastRootRefreshDiagnostic?.(opener.tabId) ?? null;
+        const refreshReason = error instanceof Error ? error.message : String(error);
+        const canProceedWithRetainedRoot = Boolean(
+          refreshDiagnostic?.rootSessionPresentAfterRefresh
+          && refreshDiagnostic?.rootTargetIdAfterRefresh
+          && refreshReason.includes("Not allowed")
+        );
+        if (canProceedWithRetainedRoot) {
+          refreshReasonOverride = refreshReason;
+        } else {
+          this.recordPopupAttachDiagnostic(session, target, {
+            stage: "raw_attach_failed",
+            popupTargetId,
+            ...(matcher ? { matcher } : {}),
+            ...this.toPopupRefreshDiagnostic(refreshDiagnostic),
+            ...(targetsLookupFailedReason ? { targetsLookupFailed: true } : {}),
+            reason: refreshReason
+          });
+          return false;
+        }
+      }
+      refreshDiagnostic = this.cdp.getLastRootRefreshDiagnostic?.(opener.tabId) ?? null;
+    }
+
+    let sessionId: string | null = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        sessionId = typeof this.cdp.attachChildTarget === "function"
+          ? await this.cdp.attachChildTarget(opener.tabId, popupTargetId)
+          : await this.cdp.sendCommand(openerBridgeDebuggee, "Target.attachToTarget", {
+            targetId: popupTargetId,
+            flatten: true
+          }).then((attached) => isRecord(attached) && typeof attached.sessionId === "string" ? attached.sessionId : null);
+      } catch (error) {
+        const routerDiagnostic = this.cdp.getLastChildAttachDiagnostic(opener.tabId, popupTargetId);
+        const stage = routerDiagnostic?.stage ?? "attached_root_attach_failed";
+        if (attempt === 0 && this.shouldRetryPopupAttachStage(stage)) {
+          await this.waitForPopupAttachRetry();
+          continue;
+        }
+        this.recordPopupAttachDiagnostic(session, target, {
+          stage,
+          popupTargetId,
+          ...(matcher ? { matcher } : {}),
+          ...(routerDiagnostic?.initialStage ? { initialStage: routerDiagnostic.initialStage } : {}),
+          ...(routerDiagnostic?.rootTargetRetryStage ? { rootTargetRetryStage: routerDiagnostic.rootTargetRetryStage } : {}),
+          ...(routerDiagnostic?.attachedRootRecoveryStage
+            ? { attachedRootRecoveryStage: routerDiagnostic.attachedRootRecoveryStage }
+            : {}),
+          ...(routerDiagnostic?.attachedRootRecoverySource
+            ? { attachedRootRecoverySource: routerDiagnostic.attachedRootRecoverySource }
+            : {}),
+          ...(routerDiagnostic?.attachedRootRecoveryReason
+            ? { attachedRootRecoveryReason: routerDiagnostic.attachedRootRecoveryReason }
+            : {}),
+          ...this.toPopupRefreshDiagnostic(refreshDiagnostic),
+          ...(refreshReasonOverride ? { refreshReason: refreshReasonOverride } : {}),
+          ...(targetsLookupFailedReason ? { targetsLookupFailed: true } : {}),
+          reason: routerDiagnostic?.reason ?? (error instanceof Error ? error.message : String(error))
+        });
+        return false;
+      }
+      if (sessionId) {
+        break;
+      }
+      const routerDiagnostic = this.cdp.getLastChildAttachDiagnostic(opener.tabId, popupTargetId);
+      const stage = routerDiagnostic?.stage ?? "attached_root_attach_null";
+      if (attempt === 0 && this.shouldRetryPopupAttachStage(stage)) {
+        await this.waitForPopupAttachRetry();
+        continue;
+      }
+      this.recordPopupAttachDiagnostic(session, target, {
+        stage,
+        popupTargetId,
+        ...(matcher ? { matcher } : {}),
+        ...(routerDiagnostic?.initialStage ? { initialStage: routerDiagnostic.initialStage } : {}),
+        ...(routerDiagnostic?.rootTargetRetryStage ? { rootTargetRetryStage: routerDiagnostic.rootTargetRetryStage } : {}),
+        ...(routerDiagnostic?.attachedRootRecoveryStage
+          ? { attachedRootRecoveryStage: routerDiagnostic.attachedRootRecoveryStage }
+          : {}),
+        ...(routerDiagnostic?.attachedRootRecoverySource
+          ? { attachedRootRecoverySource: routerDiagnostic.attachedRootRecoverySource }
+          : {}),
+        ...(routerDiagnostic?.attachedRootRecoveryReason
+          ? { attachedRootRecoveryReason: routerDiagnostic.attachedRootRecoveryReason }
+          : {}),
+        ...this.toPopupRefreshDiagnostic(refreshDiagnostic),
+        ...(refreshReasonOverride ? { refreshReason: refreshReasonOverride } : {}),
+        ...(targetsLookupFailedReason ? { targetsLookupFailed: true } : {}),
+        ...(routerDiagnostic?.reason ? { reason: routerDiagnostic.reason } : {})
+      });
+      return false;
+    }
+
+    this.sessions.upsertSyntheticTarget(session.id, {
+      targetId: popupTargetId,
+      tabId: opener.tabId,
+      type: popupTargetInfo?.type ?? "page",
+      ...(typeof popupTargetInfo?.url === "string" ? { url: popupTargetInfo.url } : targetUrl ? { url: targetUrl } : {}),
+      ...(typeof popupTargetInfo?.title === "string" ? { title: popupTargetInfo.title } : targetTitle ? { title: targetTitle } : {}),
+      sessionId: sessionId ?? undefined,
+      openerTargetId: target.openerTargetId,
+      attachedAt: Date.now()
+    });
+    this.clearPopupAttachDiagnostic(session.id, target.targetId);
+    return true;
+  }
+
+  private popupAttachDiagnosticKey(sessionId: string, targetId: string): string {
+    return `${sessionId}:${targetId}`;
+  }
+
+  private shouldRefreshPopupOpenerAfterLookupFailure(reason: string): boolean {
+    return reason.includes("Debugger is not attached")
+      || reason.includes("Detached while handling command");
+  }
+
+  private shouldRetryPopupAttachStage(stage?: PopupAttachDiagnosticStage): boolean {
+    return stage === "raw_attach_failed"
+      || stage === "attached_root_unavailable"
+      || stage === "attached_root_attach_null"
+      || stage === "attached_root_attach_failed";
+  }
+
+  private async waitForPopupAttachRetry(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, POPUP_ATTACH_RETRY_DELAY_MS));
+  }
+
+  private formatDirectAttachDiagnosticSuffix(diagnostic: RootAttachDiagnostic | null): string {
+    if (!diagnostic?.stage) {
+      return "";
+    }
+    return ` (origin: ${diagnostic.origin}; stage: ${diagnostic.stage})`;
+  }
+
+  private toDirectAttachDiagnosticDetails(diagnostic: RootAttachDiagnostic | null): DirectAttachFailureDetails | undefined {
+    if (!diagnostic) {
+      return undefined;
+    }
+    return {
+      origin: diagnostic.origin,
+      stage: diagnostic.stage,
+      attachBy: diagnostic.attachBy,
+      ...(diagnostic.probeMethod ? { probeMethod: diagnostic.probeMethod } : {}),
+      ...(diagnostic.reason ? { reason: diagnostic.reason } : {})
+    };
+  }
+
+  private decorateDirectAttachError(error: unknown, diagnostic: RootAttachDiagnostic | null): Error {
+    const detail = error instanceof Error ? error.message : "Debugger attach failed";
+    if (!diagnostic) {
+      return error instanceof Error ? error : new Error(detail);
+    }
+    const decorated = error instanceof Error ? error as DirectAttachDecoratedError : new Error(detail) as DirectAttachDecoratedError;
+    decorated.message = `${detail}${this.formatDirectAttachDiagnosticSuffix(diagnostic)}`;
+    decorated.directAttachDetails = this.toDirectAttachDiagnosticDetails(diagnostic);
+    return decorated;
+  }
+
+  private getDirectAttachErrorDetails(error: unknown): Record<string, unknown> | undefined {
+    if (!(error instanceof Error)) {
+      return undefined;
+    }
+    const decorated = error as DirectAttachDecoratedError;
+    return decorated.directAttachDetails;
+  }
+
+  private getPopupAttachDiagnostic(sessionId: string, targetId: string): PopupAttachDiagnostic | null {
+    return this.popupAttachDiagnostics.get(this.popupAttachDiagnosticKey(sessionId, targetId)) ?? null;
+  }
+
+  private clearPopupAttachDiagnostic(sessionId: string, targetId: string): void {
+    this.popupAttachDiagnostics.delete(this.popupAttachDiagnosticKey(sessionId, targetId));
+  }
+
+  private recordPopupAttachDiagnostic(
+    session: OpsSession,
+    target: OpsTargetInfo,
+    diagnostic: Omit<PopupAttachDiagnostic, "targetId" | "tabId" | "openerTargetId" | "at">
+  ): void {
+    const entry: PopupAttachDiagnostic = {
+      targetId: target.targetId,
+      tabId: target.tabId,
+      ...(target.openerTargetId ? { openerTargetId: target.openerTargetId } : {}),
+      at: Date.now(),
+      ...diagnostic
+    };
+    this.popupAttachDiagnostics.set(this.popupAttachDiagnosticKey(session.id, target.targetId), entry);
+    logError("ops.popup_attach_stage", new Error(entry.stage), {
+      code: "popup_attach_stage",
+      extra: {
+        targetId: entry.targetId,
+        tabId: entry.tabId,
+        ...(entry.openerTargetId ? { openerTargetId: entry.openerTargetId } : {}),
+        ...(entry.popupTargetId ? { popupTargetId: entry.popupTargetId } : {}),
+        ...(entry.matcher ? { matcher: entry.matcher } : {}),
+        ...(entry.initialStage ? { initialStage: entry.initialStage } : {}),
+        ...(entry.rootTargetRetryStage ? { rootTargetRetryStage: entry.rootTargetRetryStage } : {}),
+        ...(entry.attachedRootRecoveryStage ? { attachedRootRecoveryStage: entry.attachedRootRecoveryStage } : {}),
+        ...(entry.attachedRootRecoverySource ? { attachedRootRecoverySource: entry.attachedRootRecoverySource } : {}),
+        ...(entry.attachedRootRecoveryReason ? { attachedRootRecoveryReason: entry.attachedRootRecoveryReason } : {}),
+        ...(entry.refreshPath ? { refreshPath: entry.refreshPath } : {}),
+        ...(typeof entry.refreshCompleted === "boolean" ? { refreshCompleted: entry.refreshCompleted } : {}),
+        ...(typeof entry.refreshDebuggeePresent === "boolean" ? { refreshDebuggeePresent: entry.refreshDebuggeePresent } : {}),
+        ...(typeof entry.refreshRootSessionPresent === "boolean"
+          ? { refreshRootSessionPresent: entry.refreshRootSessionPresent }
+          : {}),
+        ...(entry.refreshRootTargetId ? { refreshRootTargetId: entry.refreshRootTargetId } : {}),
+        ...(entry.refreshProbeMethod ? { refreshProbeMethod: entry.refreshProbeMethod } : {}),
+        ...(entry.refreshProbeStage ? { refreshProbeStage: entry.refreshProbeStage } : {}),
+        ...(entry.refreshProbeReason ? { refreshProbeReason: entry.refreshProbeReason } : {}),
+        ...(entry.refreshReason ? { refreshReason: entry.refreshReason } : {}),
+        ...(entry.targetsLookupFailed ? { targetsLookupFailed: true } : {}),
+        ...(entry.reason ? { reason: entry.reason } : {})
+      }
+    });
+  }
+
+  private toPopupRefreshDiagnostic(
+    diagnostic: RootRefreshDiagnostic | null
+  ): Partial<Omit<PopupAttachDiagnostic, "targetId" | "tabId" | "openerTargetId" | "at" | "stage">> {
+    if (!diagnostic) {
+      return {};
+    }
+    return {
+      refreshPath: diagnostic.path,
+      refreshCompleted: diagnostic.refreshCompleted,
+      refreshDebuggeePresent: diagnostic.debuggeePresentAfterRefresh,
+      refreshRootSessionPresent: diagnostic.rootSessionPresentAfterRefresh,
+      ...(diagnostic.rootTargetIdAfterRefresh ? { refreshRootTargetId: diagnostic.rootTargetIdAfterRefresh } : {}),
+      refreshProbeMethod: diagnostic.probeMethod,
+      refreshProbeStage: diagnostic.probeStage,
+      ...(diagnostic.probeReason ? { refreshProbeReason: diagnostic.probeReason } : {}),
+      ...(diagnostic.reason ? { refreshReason: diagnostic.reason } : {})
     };
   }
 
@@ -2363,7 +3234,11 @@ export class OpsRuntime {
       }
     }
     if (target.synthetic && !target.sessionId) {
-      this.sendError(message, buildError("execution_failed", "Popup target has not finished attaching yet. Take a new review or snapshot and retry.", true));
+      this.sendPopupAttachPendingError(message, session, targetId);
+      return null;
+    }
+    if (target.openerTargetId && !this.hasUsableDebuggee(target)) {
+      this.sendPopupAttachPendingError(message, session, targetId);
       return null;
     }
     return target;
@@ -2515,6 +3390,16 @@ export class OpsRuntime {
     timingMs: number;
     warnings: string[];
   } | null> {
+    const requestedTargetId = this.requestedTargetId(session, message);
+    if (requestedTargetId) {
+      try {
+        await this.preparePopupTarget(session, requestedTargetId);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Debugger attach failed";
+        this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
+        return null;
+      }
+    }
     const target = this.requireActiveTarget(session, message);
     if (!target) return null;
 
@@ -2572,10 +3457,72 @@ export class OpsRuntime {
       return null;
     }
     if (resolved.target.synthetic && !resolved.target.sessionId) {
-      this.sendError(message, buildError("execution_failed", "Popup target has not finished attaching yet. Take a new review or snapshot and retry.", true));
+      this.sendPopupAttachPendingError(message, session, resolved.target.targetId);
       return null;
     }
     return resolved;
+  }
+
+  private formatPopupAttachDiagnosticSuffix(diagnostic: PopupAttachDiagnostic | null): string {
+    if (!diagnostic?.stage) {
+      return "";
+    }
+    const parts = [`stage: ${diagnostic.stage}`];
+    if (diagnostic.rootTargetRetryStage) {
+      parts.push(`root-target-retry: ${diagnostic.rootTargetRetryStage}`);
+    }
+    if (diagnostic.attachedRootRecoveryStage) {
+      const attachedRootPart = diagnostic.attachedRootRecoverySource
+        ? `${diagnostic.attachedRootRecoveryStage} via ${diagnostic.attachedRootRecoverySource}`
+        : diagnostic.attachedRootRecoveryStage;
+      parts.push(`attached-root: ${attachedRootPart}`);
+    }
+    return ` (${parts.join("; ")})`;
+  }
+
+  private sendPopupAttachPendingError(message: OpsRequest, session?: OpsSession, targetId?: string | null): void {
+    const diagnostic = session && typeof targetId === "string"
+      ? this.getPopupAttachDiagnostic(session.id, targetId)
+      : null;
+    const stageSuffix = this.formatPopupAttachDiagnosticSuffix(diagnostic);
+    this.sendError(message, buildError(
+      "execution_failed",
+      `Popup target has not finished attaching yet${stageSuffix}. Take a new review or snapshot and retry.`,
+      true,
+      diagnostic
+        ? {
+          stage: diagnostic.stage,
+          ...(diagnostic.popupTargetId ? { popupTargetId: diagnostic.popupTargetId } : {}),
+          ...(diagnostic.matcher ? { matcher: diagnostic.matcher } : {}),
+          ...(diagnostic.initialStage ? { initialStage: diagnostic.initialStage } : {}),
+          ...(diagnostic.rootTargetRetryStage ? { rootTargetRetryStage: diagnostic.rootTargetRetryStage } : {}),
+          ...(diagnostic.attachedRootRecoveryStage
+            ? { attachedRootRecoveryStage: diagnostic.attachedRootRecoveryStage }
+            : {}),
+          ...(diagnostic.attachedRootRecoverySource
+            ? { attachedRootRecoverySource: diagnostic.attachedRootRecoverySource }
+            : {}),
+          ...(diagnostic.attachedRootRecoveryReason
+            ? { attachedRootRecoveryReason: diagnostic.attachedRootRecoveryReason }
+            : {}),
+          ...(diagnostic.refreshPath ? { refreshPath: diagnostic.refreshPath } : {}),
+          ...(typeof diagnostic.refreshCompleted === "boolean" ? { refreshCompleted: diagnostic.refreshCompleted } : {}),
+          ...(typeof diagnostic.refreshDebuggeePresent === "boolean"
+            ? { refreshDebuggeePresent: diagnostic.refreshDebuggeePresent }
+            : {}),
+          ...(typeof diagnostic.refreshRootSessionPresent === "boolean"
+            ? { refreshRootSessionPresent: diagnostic.refreshRootSessionPresent }
+            : {}),
+          ...(diagnostic.refreshRootTargetId ? { refreshRootTargetId: diagnostic.refreshRootTargetId } : {}),
+          ...(diagnostic.refreshProbeMethod ? { refreshProbeMethod: diagnostic.refreshProbeMethod } : {}),
+          ...(diagnostic.refreshProbeStage ? { refreshProbeStage: diagnostic.refreshProbeStage } : {}),
+          ...(diagnostic.refreshProbeReason ? { refreshProbeReason: diagnostic.refreshProbeReason } : {}),
+          ...(diagnostic.refreshReason ? { refreshReason: diagnostic.refreshReason } : {}),
+          ...(diagnostic.targetsLookupFailed ? { targetsLookupFailed: true } : {}),
+          ...(diagnostic.reason ? { reason: diagnostic.reason } : {})
+        }
+        : undefined
+    ));
   }
 
   private resolveSelector(session: OpsSession, refOrPayload: unknown, message: OpsRequest): string | null {
@@ -3022,6 +3969,11 @@ const isParallelismBackpressureError = (
   return typed.code === "parallelism_backpressure" && typeof typed.details === "object" && typed.details !== null;
 };
 
+const isAttachBlockedError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("Not allowed");
+};
+
 const buildError = (code: OpsErrorCode, message: string, retryable: boolean, details?: Record<string, unknown>): OpsError => ({
   code,
   message,
@@ -3266,12 +4218,23 @@ const paginate = (lines: string[], startIndex: number, maxChars: number): { cont
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const parseTabTargetId = (targetId: string): number | null => {
-  const raw = targetId.startsWith("tab-") ? targetId.slice(4) : targetId;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  const match = /^tab-(\d+)$/.exec(targetId);
+  if (!match) {
     return null;
   }
+  const parsed = Number.parseInt(match[1]!, 10);
   return parsed;
+};
+
+const parseTargetAliasTabId = (targetId: string | undefined): number | null => {
+  if (typeof targetId !== "string" || targetId.length === 0) {
+    return null;
+  }
+  if (targetId.startsWith("target-")) {
+    const parsed = Number.parseInt(targetId.slice(7), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  return parseTabTargetId(targetId);
 };
 
 const extractBodyHtml = (html: string): string => {
@@ -3525,13 +4488,23 @@ const extractTargetInfo = (params: unknown): {
 };
 
 const isSyntheticPageTarget = (session: OpsSession, targetId: string, type: string): boolean => {
-  return type === "page" && !session.targets.has(targetId) && parseTabTargetId(targetId) === null;
+  if (type !== "page" || targetId === session.targetId) {
+    return false;
+  }
+  const parsedTabId = parseTabTargetId(targetId);
+  return session.targets.has(targetId) || parsedTabId === null || parsedTabId !== session.tabId;
 };
 
 const resolveReportedTargetUrl = (
-  target: { url?: string; title?: string } | null | undefined,
+  target: { url?: string; title?: string; sessionId?: string; synthetic?: boolean } | null | undefined,
   liveUrl?: string
 ): string | undefined => {
+  if (typeof target?.sessionId === "string" && typeof target.url === "string" && target.url.length > 0) {
+    return target.url;
+  }
+  if (target?.synthetic === true && typeof target.url === "string" && target.url.length > 0) {
+    return target.url;
+  }
   if (typeof target?.url === "string" && isHtmlDataUrl(target.url)) {
     return target.url;
   }
@@ -3542,9 +4515,15 @@ const resolveReportedTargetUrl = (
 };
 
 const resolveReportedTargetTitle = (
-  target: { url?: string; title?: string } | null | undefined,
+  target: { url?: string; title?: string; sessionId?: string; synthetic?: boolean } | null | undefined,
   liveTitle?: string
 ): string | undefined => {
+  if (typeof target?.sessionId === "string" && typeof target.title === "string" && target.title.length > 0) {
+    return target.title;
+  }
+  if (target?.synthetic === true && typeof target.title === "string" && target.title.length > 0) {
+    return target.title;
+  }
   if (typeof target?.url === "string" && isHtmlDataUrl(target.url) && typeof target.title === "string" && target.title.length > 0) {
     return target.title;
   }

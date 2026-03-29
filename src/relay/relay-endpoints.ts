@@ -10,6 +10,69 @@ export type RelayEndpointResult = {
   epoch?: number;
 };
 
+export type RelaySessionRoute = "ops" | "cdp";
+export type RelaySessionInputPath = "" | "/ops" | "/cdp";
+
+export type ParsedSessionRelayEndpoint = {
+  baseOrigin: string;
+  inputPath: RelaySessionInputPath;
+};
+
+export type RelaySessionRouteResult = {
+  route: RelaySessionRoute;
+  normalizedEndpoint: string;
+};
+
+export type RelaySessionEndpointGateFailure = {
+  code: "extension_legacy_required";
+  message: string;
+};
+
+export function classifySessionRelayEndpoint(wsEndpoint: string | undefined): ParsedSessionRelayEndpoint | null {
+  if (!wsEndpoint) return null;
+  try {
+    const url = new URL(wsEndpoint);
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") return null;
+    ensureLocalEndpoint(wsEndpoint, false);
+    if (!url.port || !/^\d+$/.test(url.port)) return null;
+    const normalizedPath = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
+    if (normalizedPath !== "" && normalizedPath !== "/ops" && normalizedPath !== "/cdp") {
+      return null;
+    }
+    return {
+      baseOrigin: `${url.protocol}//${url.host}`,
+      inputPath: normalizedPath as RelaySessionInputPath
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function resolveSessionRelayRoute(
+  parsed: ParsedSessionRelayEndpoint,
+  options: { extensionLegacy?: boolean }
+): RelaySessionRouteResult | RelaySessionEndpointGateFailure {
+  if (parsed.inputPath === "/cdp" && options.extensionLegacy !== true) {
+    return {
+      code: "extension_legacy_required",
+      message: "Legacy extension relay (/cdp) requires extensionLegacy=true."
+    };
+  }
+  const route: RelaySessionRoute = parsed.inputPath === "/ops"
+    ? "ops"
+    : options.extensionLegacy === true
+      ? "cdp"
+      : "ops";
+  return {
+    route,
+    normalizedEndpoint: `${parsed.baseOrigin}/${route}`
+  };
+}
+
+export function buildLoopbackSessionRelayEndpoint(port: number, options?: { extensionLegacy?: boolean }): string {
+  return `ws://127.0.0.1:${port}/${options?.extensionLegacy === true ? "cdp" : "ops"}`;
+}
+
 export async function resolveRelayEndpoint(options: {
   wsEndpoint: string;
   path: string;

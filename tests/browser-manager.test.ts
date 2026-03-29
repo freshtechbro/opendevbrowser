@@ -116,7 +116,12 @@ const createPage = (nodes: LegacyNode[]) => {
     }),
     evaluate: vi.fn().mockResolvedValue(nodes),
     screenshot: vi.fn(async () => Buffer.from("image")),
-    mouse: { wheel: vi.fn().mockResolvedValue(undefined) },
+    mouse: {
+      wheel: vi.fn().mockResolvedValue(undefined),
+      move: vi.fn().mockResolvedValue(undefined),
+      down: vi.fn().mockResolvedValue(undefined),
+      up: vi.fn().mockResolvedValue(undefined)
+    },
     keyboard: { press: vi.fn().mockResolvedValue(undefined) },
     close: vi.fn().mockResolvedValue(undefined),
     on: emitter.on.bind(emitter),
@@ -353,6 +358,68 @@ describe("BrowserManager", () => {
     const status = await manager.status(result.sessionId);
     expect(status.url).toBeDefined();
   }, 15000);
+
+  it("dispatches managed clicks through page mouse input", async () => {
+    const nodes = [
+      { ref: "r1", role: "link", name: "Open Popup Window", tag: "a", selector: "#open-popup" }
+    ];
+    const { context, page, locator } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    downloadChromeForTesting.mockResolvedValue({ executablePath: "/bin/chrome" });
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({ profile: "default", startUrl: "https://example.com/root" });
+    await manager.snapshot(result.sessionId, "actionables", 500);
+    await manager.click(result.sessionId, "r1");
+
+    expect(page.mouse.move).toHaveBeenCalledWith(320, 240);
+    expect(page.mouse.down).toHaveBeenCalledWith({ button: "left", clickCount: 1 });
+    expect(page.mouse.up).toHaveBeenCalledWith({ button: "left", clickCount: 1 });
+    expect(locator.click).not.toHaveBeenCalled();
+  });
+
+  it("syncs popup pages into managed target listings after click", async () => {
+    const nodes = [
+      { ref: "r1", role: "link", name: "Open Popup Window", tag: "a", selector: "#open-popup" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+    const popup = createPage(nodes);
+    popup.setContext(context);
+    popup.page.url.mockReturnValue("https://example.com/popup");
+    popup.page.title.mockResolvedValue("Popup Window");
+    page.mouse.up.mockImplementationOnce(async () => {
+      context.pages().push(popup.page as never);
+    });
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    downloadChromeForTesting.mockResolvedValue({ executablePath: "/bin/chrome" });
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({ profile: "default", startUrl: "https://example.com/root" });
+    await manager.snapshot(result.sessionId, "actionables", 500);
+
+    const initial = await manager.listTargets(result.sessionId, true);
+    expect(initial.targets).toHaveLength(1);
+    expect(initial.targets[0]).toEqual(expect.objectContaining({ url: "https://example.com/root" }));
+
+    await manager.click(result.sessionId, "r1");
+
+    const listed = await manager.listTargets(result.sessionId, true);
+    expect(context.newPage).not.toHaveBeenCalled();
+    expect(listed.activeTargetId).toBe(initial.activeTargetId);
+    expect(listed.targets).toHaveLength(2);
+    expect(listed.targets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ url: "https://example.com/root" }),
+      expect.objectContaining({ title: "Popup Window", url: "https://example.com/popup" })
+    ]));
+  });
 
   it("imports system Chrome cookies into managed launches before first navigation", async () => {
     const nodes = [

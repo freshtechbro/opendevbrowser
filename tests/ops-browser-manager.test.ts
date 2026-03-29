@@ -1952,6 +1952,69 @@ describe("OpsBrowserManager", () => {
     expect((manager as { opsSessionUrls: Map<string, string> }).opsSessionUrls.get("ops-safe-url")).toBe("https://example.com/root");
   });
 
+  it("recovers an ops session from its stable reconnect tab instead of the active popup target", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return {
+          opsSessionId: "ops-root-proto",
+          activeTargetId: "tab-41",
+          leaseId: "lease-root",
+          url: "https://example.com/root"
+        };
+      }
+      if (command === "targets.use") {
+        return {
+          activeTargetId: "tab-202",
+          url: "https://example.com/popup",
+          title: "Popup"
+        };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    await manager.useTarget(connected.sessionId, "tab-202");
+
+    const managerAny = manager as unknown as {
+      opsSessionTabs: Map<string, number>;
+      opsSessionReconnectTabs: Map<string, number>;
+      recoverOpsSession: (sessionId: string, payload: Record<string, unknown>) => Promise<boolean>;
+    };
+
+    expect(managerAny.opsSessionTabs.get(connected.sessionId)).toBe(202);
+    expect(managerAny.opsSessionReconnectTabs.get(connected.sessionId)).toBe(41);
+
+    requestMock.mockReset();
+    requestMock.mockResolvedValueOnce({
+      opsSessionId: "ops-root-proto-2",
+      activeTargetId: "tab-41",
+      leaseId: "lease-root",
+      url: "https://example.com/root"
+    });
+
+    await expect(managerAny.recoverOpsSession(connected.sessionId, {})).resolves.toBe(true);
+    expect(requestMock).toHaveBeenCalledWith(
+      "session.connect",
+      expect.objectContaining({
+        sessionId: connected.sessionId,
+        tabId: 41,
+        parallelismPolicy: expect.any(Object)
+      }),
+      undefined,
+      30000,
+      "lease-root"
+    );
+    expect(managerAny.opsSessionTabs.get(connected.sessionId)).toBe(41);
+    expect(managerAny.opsSessionReconnectTabs.get(connected.sessionId)).toBe(41);
+  });
+
   it("covers ops recovery, idle disconnect reuse, and protocol session mapping helpers", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const managerAny = manager as unknown as {

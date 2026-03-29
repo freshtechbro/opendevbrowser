@@ -56,6 +56,23 @@ describe("RemoteManager.connectRelay", () => {
     });
   });
 
+  it("passes local base relay endpoints through without forcing extensionLegacy", async () => {
+    const call = vi.fn().mockResolvedValue({
+      sessionId: "session-base",
+      mode: "extension",
+      activeTargetId: "target-base",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+
+    const manager = new RemoteManager({ call } as never);
+    await manager.connectRelay("ws://127.0.0.1:8787");
+
+    expect(call).toHaveBeenCalledWith("session.connect", {
+      wsEndpoint: "ws://127.0.0.1:8787"
+    });
+  });
+
   it("forwards startUrl for /ops relay endpoints", async () => {
     const call = vi.fn().mockResolvedValue({
       sessionId: "session-3",

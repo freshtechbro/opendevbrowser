@@ -260,15 +260,6 @@ const DOM_INNER_TEXT_DECLARATION = `
   }
 `;
 
-const DOM_CLICK_DECLARATION = `
-  function() {
-    /* odb-dom-click */
-    if (this instanceof HTMLElement) {
-      this.click();
-    }
-  }
-`;
-
 const DOM_HOVER_DECLARATION = `
   function() {
     /* odb-dom-hover */
@@ -930,6 +921,11 @@ export class BrowserManager {
   async listTargets(sessionId: string, includeUrls = false): Promise<{ activeTargetId: string | null; targets: TargetInfo[] }> {
     return this.runStructural(sessionId, async () => {
       const managed = this.getManaged(sessionId);
+      try {
+        managed.targets.syncPages(managed.context.pages());
+      } catch {
+        // Best-effort sync only.
+      }
       const targets = await Promise.all(managed.targets.listPageEntries().map(async ({ targetId, page }) => {
         const url = includeUrls ? this.safePageUrl(page, "BrowserManager.listTargets") : undefined;
         const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.listTargets");
@@ -1460,7 +1456,10 @@ export class BrowserManager {
       const startTime = Date.now();
       const previousUrl = page.url();
       await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
-      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_CLICK_DECLARATION, [], resolvedTargetId);
+      const point = await this.resolveRefPointForTarget(managed, ref, resolvedTargetId);
+      await page.mouse.move(point.x, point.y);
+      await page.mouse.down({ button: "left", clickCount: 1 });
+      await page.mouse.up({ button: "left", clickCount: 1 });
       const navigated = page.url() !== previousUrl;
       return { timingMs: Date.now() - startTime, navigated };
     });
