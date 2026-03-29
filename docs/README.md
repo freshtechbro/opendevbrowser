@@ -10,6 +10,8 @@ Canonical documentation map for OpenDevBrowser runtime, extension, and distribut
 - `<public-repo-root>/docs/FIRST_RUN_ONBOARDING.md` - first-time local-package onboarding and first-task verification flow
 - `<public-repo-root>/docs/SURFACE_REFERENCE.md` - canonical command/tool/channel inventory mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`
 - `<public-repo-root>/docs/EXTENSION.md` - extension setup, relay behavior, and diagnostics
+- `<public-repo-root>/docs/DESIGN_CANVAS_TECHNICAL_SPEC.md` - active design-canvas runtime and document architecture reference
+- `<public-repo-root>/docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md` - active code-sync and framework-adapter reference
 - `<public-repo-root>/docs/TROUBLESHOOTING.md` - deterministic recovery and verification guidance
 - `<public-repo-root>/docs/ANNOTATE.md` - annotation workflows and artifact expectations
 - `<public-repo-root>/docs/privacy.md` - extension privacy policy

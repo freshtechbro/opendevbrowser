@@ -12,7 +12,7 @@ Ranked plan for closing the highest-value browser-use and computer-use capabilit
   - CLI/tool/workflow overrides already propagate `challengeAutomationMode`
   - both `BrowserManager` and `OpsBrowserManager` already expose `snapshot`, `cookieList`, `cookieImport`, `debugTraceSnapshot`, pointer, and drag through `createChallengeRuntimeHandle()`
 - March 23 skill-pack governance work is already closed and green:
-  - `node scripts/docs-drift-check.mjs` currently passes at `60` CLI commands, `53` tools, `48` `/ops` commands, and `35` `/canvas` commands
+  - `node scripts/docs-drift-check.mjs` currently passes at `61` CLI commands, `54` tools, `54` `/ops` commands, and `35` `/canvas` commands
   - `tests/docs-drift-check.test.ts` pins challenge-override wording, bundled-skill fallback wording, copied-versus-discoverable inventory wording, and the new skill-pack marker checks
   - `tests/skill-workflow-packs.test.ts` runs the shipped workflow-pack validators end to end
   - research and shopping validator runs are now deterministic fixture checks via `ODB_CLI_VALIDATOR_OVERRIDE` plus `validator-fixture-cli.sh`
