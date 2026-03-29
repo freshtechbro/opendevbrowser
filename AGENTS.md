@@ -98,7 +98,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 53 opendevbrowser_* tool definitions
+│   ├── tools/        # 54 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
@@ -126,7 +126,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Design canvas + code sync | `src/canvas/`, `src/canvas/kits/catalog.ts`, `src/canvas/starters/catalog.ts`, `src/browser/canvas-manager.ts`, `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`, `scripts/canvas-competitive-validation.mjs` | Current canvas technical docs, built-in kit and starter inventory, framework-adapter code sync, BYO plugin contract, validator evidence, manifest persistence, and runtime preview fallback |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
-| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 60 CLI + 53 tools + 48 `/ops` + 35 `/canvas` + `/cdp` map |
+| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 61 CLI + 54 tools + 54 `/ops` + 35 `/canvas` + `/cdp` map |
 
 ## Commands
 
@@ -213,7 +213,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_canvas: createCanvasTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 53 tools
+    // ... 54 tools
   };
 }
 ```
@@ -237,7 +237,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Architecture: `docs/ARCHITECTURE.md`
 - CLI reference: `docs/CLI.md`
 - Surface inventory: `docs/SURFACE_REFERENCE.md`
-- Canvas technical docs: `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`
+- Canvas technical docs: `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`
 - Canvas adapter plugin contract: `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`
 - Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
@@ -252,14 +252,21 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 
 Subdirectory guides override this root file:
 - `src/AGENTS.md` — module boundaries, manager patterns
+- `src/challenges/AGENTS.md` — bounded challenge orchestration plane, evidence, and recovery lanes
 - `src/browser/AGENTS.md` — browser/session module specifics
 - `src/canvas/AGENTS.md` — canvas document store, repo persistence, code-sync specifics
 - `src/cli/AGENTS.md` — CLI command and daemon conventions
+- `src/cli/commands/AGENTS.md` — CLI command handler subdomains and thin-command rules
+- `src/core/AGENTS.md` — bootstrap, DI, and runtime assembly
+- `src/devtools/AGENTS.md` — console/network/exception trackers and redaction rules
+- `src/export/AGENTS.md` — DOM capture, sanitization, and React export constraints
+- `src/integrations/AGENTS.md` — external integration adapters such as Figma import
 - `src/providers/AGENTS.md` — provider system (web/social/shopping), tiers, safety
 - `src/relay/AGENTS.md` — relay protocol and security specifics
 - `src/snapshot/AGENTS.md` — snapshot/ref pipeline specifics
 - `src/tools/AGENTS.md` — tool development patterns
 - `extension/AGENTS.md` — Chrome extension specifics
+- `extension/src/canvas/AGENTS.md` — extension-hosted canvas runtime and design-tab state
 - `extension/src/ops/AGENTS.md` — ops runtime for extension relay
 - `extension/src/services/AGENTS.md` — CDP routing, flat-session handling
 - `docs/AGENTS.md` — documentation source-of-truth and sync rules
