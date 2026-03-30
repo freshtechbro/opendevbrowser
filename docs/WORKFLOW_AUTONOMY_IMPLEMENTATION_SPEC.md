@@ -54,6 +54,7 @@ This document is the execution artifact. The two investigation docs remain the e
 - `src/providers/runtime-factory.ts` remains the canonical fallback and challenge orchestration seam.
 - `src/providers/shopping/index.ts` remains the canonical owner of shopping provider catalog, region diagnostics, and legal checklist validation.
 - `src/providers/{artifacts,constraint,enrichment,errors,normalize,registry,renderer,timebox}.ts` remain deterministic postprocess or policy helpers, not executor-owned logic.
+- `scripts/skill-runtime-scenarios.mjs` remains the canonical lane-schema inventory owner, and `scripts/skill-runtime-audit.mjs` remains its deterministic consumer; shared script modules may centralize duplicated helper constants and shared classify helpers only.
 - CLI and tool wrappers remain thin.
 - Browser-surface packs remain packs.
 
@@ -102,17 +103,25 @@ Recommended contract boundary:
 
 ### Script governance contracts
 Recommended owners:
-- `scripts/shared/workflow-lane-scenarios.mjs`
+- `scripts/skill-runtime-scenarios.mjs` remains the canonical lane-schema inventory and lane-definition owner
+- `scripts/skill-runtime-audit.mjs` remains the deterministic audit consumer of that lane inventory
+- `scripts/shared/workflow-lane-constants.mjs`
 - `scripts/shared/workflow-lane-verdicts.mjs`
 
 Recommended centralized exports:
 - auth-gated provider groups
 - high-friction provider groups
 - timeout buckets
-- optional workflow probe definitions
+- optional workflow probe helper constants where direct-run and live-matrix already duplicate them
 - shared `ENV_LIMITED_CODES`
 - shared verdict/classify helpers
 - strict-gate exemptions and expected-timeout handling
+
+Explicit non-ownership for shared script modules:
+- no lane-definition ownership
+- no audit-domain inventory ownership
+- no reassignment of `scripts/skill-runtime-scenarios.mjs` schema authority
+- no reassignment of `scripts/skill-runtime-audit.mjs` audit derivation authority
 
 ### UNCONFIRMED items
 - `UNCONFIRMED`: whether the workflow substrate should be one file or a small `workflow-*` cluster from phase 1.
@@ -167,8 +176,9 @@ Problem:
 - Large suites such as `tests/providers-workflows-branches.test.ts` and `tests/providers-runtime-factory.test.ts` were not the primary evidence owners in the investigation docs, but they remain important closure gates.
 
 Mitigation:
-1. Treat their exact per-phase blocking subsets as `UNCONFIRMED` until enumerated during implementation.
-2. Do not declare final rollout closure without rerunning them.
+1. Use the explicit minimum per-phase blocking gate matrix in `Validation Sequence` as the phase-close bar.
+2. Treat that matrix as the minimum required subset only; final rollout closure still requires full reruns of the listed branch suites.
+3. Do not declare final rollout closure without rerunning those full suites.
 
 ---
 
@@ -186,7 +196,11 @@ Add the shared workflow plan, checkpoint, trace, and resume contracts, then thre
 3. Add a small helper near `withWorkflowResumeIntent(...)` that wraps current workflow input into that envelope.
 4. Update `runShoppingWorkflow(...)`, `runResearchWorkflow(...)`, and `runProductVideoWorkflow(...)` so they can unwrap a resume envelope while preserving current raw-input entry behavior during the migration.
 5. Update `src/providers/index.ts` resume routing to pass the new envelope through unchanged.
-6. Add producer/router serialization tests that pin resume compatibility and payload shape.
+6. Add `tests/providers-workflow-contracts.test.ts` as a narrow contract suite that covers only:
+   - envelope construction
+   - suspended-intent serialization ownership through `src/providers/types.ts`
+   - the temporary phase-1 dual-shape migration path
+7. Update `tests/providers-resume.test.ts` only as needed to preserve its role as the end-to-end authority for workflow resume routing through `src/providers/index.ts`.
 
 ### Files impacted
 - `src/providers/workflow-contracts.ts` (new file)
@@ -194,6 +208,7 @@ Add the shared workflow plan, checkpoint, trace, and resume contracts, then thre
 - `src/providers/workflows.ts`
 - `src/providers/index.ts`
 - `tests/providers-workflow-contracts.test.ts` (new file)
+- `tests/providers-resume.test.ts`
 
 ### End goal
 The repo has a shared workflow substrate and resume envelope without any workflow behavior change.
@@ -202,8 +217,9 @@ The repo has a shared workflow substrate and resume envelope without any workflo
 - [ ] `workflow.research`, `workflow.shopping`, and `workflow.product_video` still resume through `src/providers/index.ts`
 - [ ] No new `SuspendedIntentKind` values are introduced
 - [ ] The suspended-intent payload contract explicitly carries workflow resume envelopes through `src/providers/types.ts`
-- [ ] Workflow entrypoints still accept existing wrapper payloads
-- [ ] Contract tests pass
+- [ ] Workflow entrypoints still accept existing wrapper payloads during the phase-1 migration window only
+- [ ] `tests/providers-workflow-contracts.test.ts` is limited to envelope construction, serialization, and temporary dual-shape migration coverage
+- [ ] `tests/providers-resume.test.ts` remains the end-to-end resume-authority suite
 - [ ] No change in current workflow outputs
 
 ---
@@ -381,25 +397,23 @@ Move `product_video` onto the shared workflow substrate while preserving determi
 ## Task 6 — Governance-Script Centralization
 
 ### Reasoning
-The reports show that scripts still own duplicated scenario classes, timeout buckets, and verdict logic. That duplication must be centralized after workflow-runner seams stabilize.
+The reports show duplicated helper constants and verdict helpers across `provider-direct-runs` and `provider-live-matrix`. The safe correction is to centralize only those shared helpers while preserving current governance-lane authority: `scripts/skill-runtime-scenarios.mjs` remains the lane-schema inventory owner, and `scripts/skill-runtime-audit.mjs` remains the deterministic consumer of that inventory.
 
 ### What to do
-Centralize scenario and verdict policy into shared script-side modules, then make direct-run, live-matrix, and audit lanes consume those shared owners.
+Centralize only duplicated helper constants and common verdict/classify helpers, then make direct-run and live-matrix import those helpers without reassigning governance-lane ownership.
 
 ### How
-1. Add `scripts/shared/workflow-lane-scenarios.mjs` for shared scenario inventory and probe definitions.
-2. Add `scripts/shared/workflow-lane-verdicts.mjs` for:
-   - `ENV_LIMITED_CODES`
-   - verdict classification
-   - strict expected-timeout handling
-3. Refactor `scripts/provider-direct-runs.mjs` to import the shared scenario and verdict modules.
-4. Refactor `scripts/provider-live-matrix.mjs` to import the same shared modules.
-5. Update `scripts/skill-runtime-scenarios.mjs` and `scripts/skill-runtime-audit.mjs` so they consume centralized lane outputs and do not re-own scenario policy.
-6. Update the matrix JSON only where necessary to reflect the stable runner boundary.
-7. Add parity tests proving the same evidence classifies the same way across direct, matrix, and audit lanes.
+1. Add `scripts/shared/workflow-lane-constants.mjs` for duplicated auth-gated sets, high-friction sets, shopping timeout buckets, optional workflow probe helper constants, and shared `ENV_LIMITED_CODES`.
+2. Add `scripts/shared/workflow-lane-verdicts.mjs` for shared verdict/classify helpers and strict expected-timeout handling already duplicated across governance lanes.
+3. Refactor `scripts/provider-direct-runs.mjs` to import only those shared helper constants and verdict helpers.
+4. Refactor `scripts/provider-live-matrix.mjs` to import the same shared helper constants and verdict helpers.
+5. Keep `scripts/skill-runtime-scenarios.mjs` as the canonical lane-schema inventory and lane-definition owner; do not move lane definitions, audit domains, or matrix ownership into `scripts/shared/`.
+6. Keep `scripts/skill-runtime-audit.mjs` as the deterministic consumer of `scripts/skill-runtime-scenarios.mjs`; it may consume shared helpers but does not become a lane-definition owner.
+7. Update the matrix JSON only where necessary to reflect unchanged lane ownership and helper extraction boundaries.
+8. Add parity tests proving the same evidence classifies the same way across direct, matrix, and audit lanes after helper extraction.
 
 ### Files impacted
-- `scripts/shared/workflow-lane-scenarios.mjs` (new file)
+- `scripts/shared/workflow-lane-constants.mjs` (new file)
 - `scripts/shared/workflow-lane-verdicts.mjs` (new file)
 - `scripts/provider-direct-runs.mjs`
 - `scripts/provider-live-matrix.mjs`
@@ -412,13 +426,14 @@ Centralize scenario and verdict policy into shared script-side modules, then mak
 - `tests/provider-live-matrix.test.ts` (new file, recommended)
 
 ### End goal
-Governance scripts consume one shared source of scenario and verdict policy, eliminating drift between audit lanes.
+Governance scripts share one helper-constant and verdict-helper source where duplication exists, while lane-schema ownership and audit derivation authority stay in their current owners.
 
 ### Acceptance criteria
-- [ ] `provider-direct-runs` and `provider-live-matrix` import the same verdict logic
+- [ ] `provider-direct-runs` and `provider-live-matrix` import the same helper constants and verdict helpers
 - [ ] No duplicated `ENV_LIMITED_CODES` or duplicated shopping timeout groups remain
-- [ ] `scripts/skill-runtime-scenarios.mjs` remains the canonical lane-schema owner with an explicit passing parity check against `skill-runtime-pack-matrix.json`
-- [ ] Audit lane derivation remains deterministic
+- [ ] `scripts/skill-runtime-scenarios.mjs` remains the canonical lane-schema owner
+- [ ] `scripts/skill-runtime-audit.mjs` remains the deterministic audit consumer of that owner
+- [ ] No lane definitions or audit-domain inventory move into `scripts/shared/`
 - [ ] New parity tests prove shared classification behavior
 - [ ] No production runtime policy is moved into scripts
 
@@ -464,23 +479,34 @@ The rollout path is explicit, revertable, and verifiable without runtime flags.
 
 ## File-by-file implementation sequence
 
-1. `src/providers/workflow-contracts.ts` — shared workflow substrate
-2. `src/providers/workflows.ts` — envelope support, then staged workflow extraction
-3. `src/providers/index.ts` — authoritative resume routing updates
-4. `src/providers/shopping-postprocess.ts` — deterministic shopping postprocess seam
-5. `src/providers/shopping-compiler.ts` — shopping compile seam
-6. `src/providers/shopping-executor.ts` — shopping tactical executor
-7. `src/providers/research-compiler.ts` — research compile seam
-8. `src/providers/research-executor.ts` — research tactical executor
-9. `src/providers/product-video-compiler.ts` — deterministic stage model
-10. `scripts/shared/workflow-lane-scenarios.mjs` — central scenario inventory
-11. `scripts/shared/workflow-lane-verdicts.mjs` — central verdict inventory
-12. `scripts/provider-direct-runs.mjs` — shared script-policy consumer
-13. `scripts/provider-live-matrix.mjs` — shared script-policy consumer
-14. `scripts/skill-runtime-scenarios.mjs` — canonical lane schema consumer
-15. `scripts/skill-runtime-audit.mjs` — centralized audit consumer
-16. workflow executor and governance parity tests
-17. docs and skill-pack boundary alignment
+1. `src/providers/workflow-contracts.ts` — shared workflow substrate contracts
+2. `src/providers/types.ts` — runtime-owned suspended-intent serialization updates for workflow envelopes
+3. `src/providers/workflows.ts` — envelope support and workflow entrypoint threading
+4. `src/providers/index.ts` — authoritative resume routing updates
+5. `tests/providers-workflow-contracts.test.ts` — narrow envelope/serialization/dual-shape migration coverage
+6. `tests/providers-resume.test.ts` — preserved end-to-end workflow resume authority
+7. `src/providers/shopping-workflow.ts` — task-2 shopping compile/execute/postprocess seam extraction owner
+8. `src/providers/shopping-postprocess.ts` — deterministic shopping postprocess seam
+9. `tests/providers-shopping-workflow.test.ts` — no-behavior-change shopping seam coverage
+10. `src/providers/shopping-compiler.ts` — shopping bounded plan compiler
+11. `src/providers/shopping-executor.ts` — shopping bounded executor
+12. `tests/providers-shopping-executor.test.ts` — shopping executor determinism and checkpoint coverage
+13. `src/providers/research-compiler.ts` — research compile seam
+14. `src/providers/research-executor.ts` — research bounded executor
+15. `tests/providers-research-executor.test.ts` — research executor coverage
+16. `src/providers/product-video-compiler.ts` — deterministic product-video stage model
+17. `tests/providers-product-video-workflow.test.ts` — product-video substrate coverage
+18. `scripts/shared/workflow-lane-constants.mjs` — shared duplicated governance helper constants
+19. `scripts/shared/workflow-lane-verdicts.mjs` — shared duplicated governance verdict helpers
+20. `scripts/provider-direct-runs.mjs` — shared-helper consumer
+21. `scripts/provider-live-matrix.mjs` — shared-helper consumer
+22. `scripts/skill-runtime-scenarios.mjs` — preserved canonical lane-schema owner with helper imports only if needed
+23. `scripts/skill-runtime-audit.mjs` — preserved deterministic audit consumer with helper imports only if needed
+24. `tests/provider-direct-runs.test.ts` — direct-run governance parity
+25. `tests/provider-live-matrix.test.ts` — live-matrix governance parity
+26. `tests/skill-runtime-scenarios.test.ts` — lane-schema ownership parity
+27. `tests/skill-runtime-audit.test.ts` — audit-lane parity
+28. docs and skill-pack boundary alignment
 
 ---
 
@@ -496,10 +522,17 @@ No new external dependency is currently required.
 
 ## Validation Sequence
 
-Phase-local gates:
-1. relevant new unit tests
-2. relevant existing branch suites
-3. relevant script-lane tests
+### Minimum per-phase blocking gate matrix
+
+| Phase | Scope | Minimum blocking gates before phase close |
+|------|-------|--------------------------------------------|
+| 1 | Task 1 substrate contracts and envelope threading | `tests/providers-workflow-contracts.test.ts`, `tests/providers-resume.test.ts` |
+| 2 | Task 2 shopping compile/execute/postprocess split | `tests/providers-shopping-workflow.test.ts`, owning shopping slices in `tests/providers-workflows-branches.test.ts` |
+| 3 | Task 3 shopping bounded executor | `tests/providers-shopping-executor.test.ts`, owning shopping-executor and shopping-resume slices in `tests/providers-workflows-branches.test.ts` |
+| 4 | Task 4 research bounded executor | `tests/providers-research-executor.test.ts`, owning research slices in `tests/providers-workflows-branches.test.ts` |
+| 5 | Task 5 product-video substrate adoption | `tests/providers-product-video-workflow.test.ts`, owning product-video slices in `tests/providers-workflows-branches.test.ts` |
+| 6 | Task 6 governance-script centralization | `tests/provider-direct-runs.test.ts`, `tests/provider-live-matrix.test.ts`, `tests/skill-runtime-scenarios.test.ts`, `tests/skill-runtime-audit.test.ts` |
+| 7 | Task 7 gate hardening and rollout control | full reruns of `tests/providers-workflows-branches.test.ts` and `tests/providers-runtime-factory.test.ts`, plus full repo gates below |
 
 Repo-wide gates before phase completion:
 1. `npm run lint`
@@ -511,15 +544,14 @@ Repo-wide gates before phase completion:
 7. `npm run test`
 
 Additional required closure gates:
-1. Explicit rerun of `tests/providers-workflows-branches.test.ts`
-2. Explicit rerun of `tests/providers-runtime-factory.test.ts`
-3. `tests/skill-runtime-scenarios.test.ts` after any matrix or lane-schema change
-4. Any workflow probe or matrix lane tests touched by governance centralization
+1. `tests/skill-runtime-scenarios.test.ts` after any matrix or lane-schema change
+2. Any workflow probe or matrix lane tests touched by governance centralization
+3. Explicit confirmation that each phase satisfied its minimum blocking gate row before advancing
 
 Before final rollout closure:
-1. Enumerate the exact blocking subset inside `tests/providers-workflows-branches.test.ts` for each implementation phase.
-2. Enumerate the exact blocking subset inside `tests/providers-runtime-factory.test.ts` for each implementation phase.
-3. Record those enumerations in this spec or a linked execution note before claiming final implementation completion.
+1. Rerun the full `tests/providers-workflows-branches.test.ts` suite.
+2. Rerun the full `tests/providers-runtime-factory.test.ts` suite.
+3. Record completion of every phase's minimum blocking gate row in this spec or a linked execution note before claiming final implementation completion.
 
 ---
 
@@ -563,13 +595,13 @@ Before final rollout closure:
 ## Implementation Readiness Checklist
 
 - [ ] shared workflow substrate owner chosen
-- [ ] `UNCONFIRMED` branch-suite gates enumerated
+- [ ] minimum per-phase blocking gate matrix accepted
+- [ ] Task 1 contract-test vs resume-test ownership boundary accepted
 - [ ] shopping compile/execute/postprocess split accepted as phase 2
 - [ ] shopping executor limited to approved primitives
 - [ ] research executor boundary accepted
 - [ ] `product_video` deterministic boundary accepted
-- [ ] script-side shared scenario owner accepted
-- [ ] script-side shared verdict owner accepted
+- [ ] governance-lane authority preserved while duplicated helper constants are centralized
 - [ ] rollback triggers accepted
 - [ ] repo-wide validation sequence accepted
 
@@ -580,3 +612,4 @@ Before final rollout closure:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-03-29 | Initial implementation spec derived from the two workflow-autonomy investigations |
+| 1.1 | 2026-03-30 | Added explicit per-phase blocking gate matrix, reconciled file sequence with task ownership, clarified Task 1 test authority split, and narrowed Task 6 to helper-only governance centralization |
