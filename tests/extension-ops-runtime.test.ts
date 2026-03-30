@@ -5582,9 +5582,23 @@ describe("OpsRuntime target teardown", () => {
             error: expect.objectContaining({
               code: "execution_failed",
               retryable: true,
-              message: expect.stringContaining("Popup target has not finished attaching yet"),
+              message: "Popup target has not finished attaching yet (stage: attached_root_unavailable; root-target-retry: missing_root_target_id; attached-root: session_missing; terminal: root_debuggee_reattach). Take a new review or snapshot and retry.",
               details: expect.objectContaining({
-                stage: expect.any(String)
+                stage: "attached_root_unavailable",
+                popupTargetId: "target-202",
+                matcher: "resolve_tab_target_id",
+                initialStage: "raw_attach_blocked",
+                rootTargetRetryStage: "missing_root_target_id",
+                attachedRootRecoveryStage: "session_missing",
+                attachedRootRecoveryRetriedAfterRegisterRoot: true,
+                attachedRootRecoveryRegisterRootChanged: false,
+                attachedRootRecoveryRegisterRootAttachTargetChanged: false,
+                attachedRootRecoveryRegisterAttachedRootSessionCalled: false,
+                attachedRootUnavailableTerminalBranch: "root_debuggee_reattach",
+                reattachRecoveryStage: "root_debuggee_attach_blocked",
+                reattachRecoveryReason: "Not allowed",
+                attachedRootRecoveryReason: "attach_target_id_unavailable",
+                reason: "Not allowed"
               })
             })
           })
@@ -5640,6 +5654,10 @@ describe("OpsRuntime target teardown", () => {
         tabId: 101,
         targetId: "target-202",
         stage: "attached_root_unavailable",
+        attachedRootRecoveryAttachTargetId: "target-101",
+        attachedRootRecoveryRetriedAfterRegisterRoot: true,
+        attachedRootUnavailableTerminalBranch: "root_debuggee_reattach",
+        reattachRecoveryStage: "root_debuggee_attach_blocked",
         at: Date.now()
       });
     (router as unknown as { attachChildTarget: CDPRouter["attachChildTarget"] }).attachChildTarget = attachChildTarget;

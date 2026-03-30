@@ -2728,6 +2728,14 @@ describe("CDPRouter", () => {
       rootTargetRetryStage: "attach_null",
       attachedRootRecoveryStage: "attach_failed",
       attachedRootRecoverySource: "record",
+      attachedRootRecoveryAttachTargetId: "target-61",
+      attachedRootRecoveryRetriedAfterRegisterRoot: true,
+      attachedRootRecoveryRegisterRootChanged: false,
+      attachedRootRecoveryRegisterRootAttachTargetChanged: false,
+      attachedRootRecoveryRegisterAttachedRootSessionCalled: false,
+      attachedRootUnavailableTerminalBranch: "root_debuggee_reattach",
+      reattachRecoveryStage: "root_debuggee_attach_blocked",
+      reattachRecoveryReason: "Not allowed",
       attachedRootRecoveryReason: "Not allowed",
       reason: "Not allowed"
     }));
@@ -2779,7 +2787,14 @@ describe("CDPRouter", () => {
       initialStage: "raw_attach_null",
       rootTargetRetryStage: "attach_null",
       attachedRootRecoveryStage: "attach_null",
-      attachedRootRecoverySource: "record"
+      attachedRootRecoverySource: "record",
+      attachedRootRecoveryAttachTargetId: "target-62",
+      attachedRootRecoveryRetriedAfterRegisterRoot: true,
+      attachedRootRecoveryRegisterRootChanged: false,
+      attachedRootRecoveryRegisterRootAttachTargetChanged: false,
+      attachedRootRecoveryRegisterAttachedRootSessionCalled: false,
+      attachedRootUnavailableTerminalBranch: "root_debuggee_reattach",
+      reattachRecoveryStage: "root_debuggee_attach_null"
     }));
   });
 

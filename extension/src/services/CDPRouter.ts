@@ -60,6 +60,20 @@ type ChildTargetAttachedRootRecoverySource =
   | "debugger"
   | "targets";
 
+type ChildTargetUnavailableTerminalBranch =
+  | "initial_attached_root_recovery"
+  | "post_register_root_recovery"
+  | "tab_scoped_root_reattach"
+  | "root_debuggee_reattach";
+
+type ChildTargetReattachRecoveryStage =
+  | "tab_scoped_root_reattach_failed"
+  | "tab_scoped_attach_failed"
+  | "root_debuggee_reattach_failed"
+  | "root_debuggee_attach_null"
+  | "root_debuggee_attach_blocked"
+  | "root_debuggee_attach_failed";
+
 export type ChildTargetAttachDiagnostic = {
   tabId: number;
   targetId: string;
@@ -68,6 +82,14 @@ export type ChildTargetAttachDiagnostic = {
   rootTargetRetryStage?: Exclude<ChildTargetRootTargetRetryStage, "attached">;
   attachedRootRecoveryStage?: Exclude<ChildTargetAttachedRootRecoveryStage, "attached">;
   attachedRootRecoverySource?: ChildTargetAttachedRootRecoverySource;
+  attachedRootRecoveryAttachTargetId?: string;
+  attachedRootRecoveryRetriedAfterRegisterRoot?: boolean;
+  attachedRootRecoveryRegisterRootChanged?: boolean;
+  attachedRootRecoveryRegisterRootAttachTargetChanged?: boolean;
+  attachedRootRecoveryRegisterAttachedRootSessionCalled?: boolean;
+  attachedRootUnavailableTerminalBranch?: ChildTargetUnavailableTerminalBranch;
+  reattachRecoveryStage?: ChildTargetReattachRecoveryStage;
+  reattachRecoveryReason?: string;
   attachedRootRecoveryReason?: string;
   reason?: string;
   at: number;
@@ -127,6 +149,15 @@ type AttachedRootRecoveryResult = {
   debuggerSession: DebuggerSession | null;
   stage: ChildTargetAttachedRootRecoveryStage;
   attachTargetSource?: ChildTargetAttachedRootRecoverySource;
+  attachTargetId?: string;
+  registerAttachedRootSessionCalled?: boolean;
+  reason?: string;
+};
+
+type ReattachChildTargetResult = {
+  sessionId: string | null;
+  terminalBranch?: ChildTargetUnavailableTerminalBranch;
+  stage?: ChildTargetReattachRecoveryStage;
   reason?: string;
 };
 
@@ -307,6 +338,20 @@ export class CDPRouter {
     let initialStage: ChildTargetAttachInitialStage | undefined;
     let directError: unknown = null;
     let rootTargetRetryStage: Exclude<ChildTargetRootTargetRetryStage, "attached"> | undefined;
+    const captureRootRecordState = (): {
+      present: boolean;
+      rootSessionId: string | null;
+      targetId: string | null;
+      attachTargetId: string | null;
+    } => {
+      const record = this.sessions.getByTabId(tabId);
+      return {
+        present: Boolean(record),
+        rootSessionId: record?.rootSessionId ?? null,
+        targetId: record?.targetInfo.targetId ?? null,
+        attachTargetId: record?.attachTargetId ?? null
+      };
+    };
     try {
       const directSessionId = await this.attachChildTargetWithDebuggee(rootDebuggee, targetId);
       if (directSessionId) {
@@ -360,16 +405,31 @@ export class CDPRouter {
       }
     }
     let attachedRootRecovery = await this.ensureAttachedRootSessionWithDiagnostic(tabId);
+    let attachedRootRecoveryRetriedAfterRegisterRoot = false;
+    let attachedRootRecoveryRegisterRootChanged: boolean | undefined;
+    let attachedRootRecoveryRegisterRootAttachTargetChanged: boolean | undefined;
     if (!attachedRootRecovery.debuggerSession) {
+      const beforeRegisterRoot = captureRootRecordState();
       await this.registerRootTab(tabId);
+      const afterRegisterRoot = captureRootRecordState();
+      attachedRootRecoveryRetriedAfterRegisterRoot = true;
+      attachedRootRecoveryRegisterRootChanged = beforeRegisterRoot.present !== afterRegisterRoot.present
+        || beforeRegisterRoot.rootSessionId !== afterRegisterRoot.rootSessionId
+        || beforeRegisterRoot.targetId !== afterRegisterRoot.targetId
+        || beforeRegisterRoot.attachTargetId !== afterRegisterRoot.attachTargetId;
+      attachedRootRecoveryRegisterRootAttachTargetChanged = beforeRegisterRoot.attachTargetId !== afterRegisterRoot.attachTargetId;
       attachedRootRecovery = await this.ensureAttachedRootSessionWithDiagnostic(tabId);
     }
     if (!attachedRootRecovery.debuggerSession) {
-      const reattachedChildSessionId = await this.reattachRootAndAttachChildTarget(tabId, targetId);
-      if (reattachedChildSessionId) {
+      const reattachedChild = await this.reattachRootAndAttachChildTarget(tabId, targetId);
+      if (reattachedChild.sessionId) {
         this.clearChildAttachDiagnostic(tabId, targetId);
-        return reattachedChildSessionId;
+        return reattachedChild.sessionId;
       }
+      const terminalBranch = reattachedChild.terminalBranch
+        ?? (attachedRootRecoveryRetriedAfterRegisterRoot
+          ? "post_register_root_recovery"
+          : "initial_attached_root_recovery");
       this.recordChildAttachDiagnostic(tabId, targetId, {
         stage: "attached_root_unavailable",
         ...(initialStage ? { initialStage } : {}),
@@ -380,11 +440,33 @@ export class CDPRouter {
         ...(attachedRootRecovery.attachTargetSource
           ? { attachedRootRecoverySource: attachedRootRecovery.attachTargetSource }
           : {}),
+        ...(attachedRootRecovery.attachTargetId
+          ? { attachedRootRecoveryAttachTargetId: attachedRootRecovery.attachTargetId }
+          : {}),
+        ...(attachedRootRecoveryRetriedAfterRegisterRoot
+          ? { attachedRootRecoveryRetriedAfterRegisterRoot: true }
+          : {}),
+        ...(typeof attachedRootRecoveryRegisterRootChanged === "boolean"
+          ? { attachedRootRecoveryRegisterRootChanged }
+          : {}),
+        ...(typeof attachedRootRecoveryRegisterRootAttachTargetChanged === "boolean"
+          ? { attachedRootRecoveryRegisterRootAttachTargetChanged }
+          : {}),
+        ...(typeof attachedRootRecovery.registerAttachedRootSessionCalled === "boolean"
+          ? { attachedRootRecoveryRegisterAttachedRootSessionCalled: attachedRootRecovery.registerAttachedRootSessionCalled }
+          : {}),
+        attachedRootUnavailableTerminalBranch: terminalBranch,
+        ...(reattachedChild.stage ? { reattachRecoveryStage: reattachedChild.stage } : {}),
+        ...(reattachedChild.reason ? { reattachRecoveryReason: reattachedChild.reason } : {}),
         ...(attachedRootRecovery.reason
           ? { attachedRootRecoveryReason: attachedRootRecovery.reason }
           : {}),
-        ...((directError || attachedRootRecovery.reason)
-          ? { reason: directError ? getErrorMessage(directError) : attachedRootRecovery.reason }
+        ...((directError || attachedRootRecovery.reason || reattachedChild.reason)
+          ? {
+            reason: directError
+              ? getErrorMessage(directError)
+              : (attachedRootRecovery.reason ?? reattachedChild.reason)
+          }
           : {})
       });
       if (directError) {
@@ -405,7 +487,16 @@ export class CDPRouter {
       this.recordChildAttachDiagnostic(tabId, targetId, {
         stage: "attached_root_attach_null",
         ...(initialStage ? { initialStage } : {}),
-        ...(rootTargetRetryStage ? { rootTargetRetryStage } : {})
+        ...(rootTargetRetryStage ? { rootTargetRetryStage } : {}),
+        ...(attachedRootRecovery.attachTargetSource
+          ? { attachedRootRecoverySource: attachedRootRecovery.attachTargetSource }
+          : {}),
+        ...(attachedRootRecovery.attachTargetId
+          ? { attachedRootRecoveryAttachTargetId: attachedRootRecovery.attachTargetId }
+          : {}),
+        ...(typeof attachedRootRecovery.registerAttachedRootSessionCalled === "boolean"
+          ? { attachedRootRecoveryRegisterAttachedRootSessionCalled: attachedRootRecovery.registerAttachedRootSessionCalled }
+          : {})
       });
       return null;
     } catch (error) {
@@ -414,6 +505,15 @@ export class CDPRouter {
         stage: "attached_root_attach_failed",
         ...(initialStage ? { initialStage } : {}),
         ...(rootTargetRetryStage ? { rootTargetRetryStage } : {}),
+        ...(attachedRootRecovery.attachTargetSource
+          ? { attachedRootRecoverySource: attachedRootRecovery.attachTargetSource }
+          : {}),
+        ...(attachedRootRecovery.attachTargetId
+          ? { attachedRootRecoveryAttachTargetId: attachedRootRecovery.attachTargetId }
+          : {}),
+        ...(typeof attachedRootRecovery.registerAttachedRootSessionCalled === "boolean"
+          ? { attachedRootRecoveryRegisterAttachedRootSessionCalled: attachedRootRecovery.registerAttachedRootSessionCalled }
+          : {}),
         reason: getErrorMessage(error)
       });
       throw error;
@@ -1034,7 +1134,8 @@ export class CDPRouter {
     if (existing) {
       return {
         debuggerSession: existing.debuggerSession,
-        stage: "attached"
+        stage: "attached",
+        registerAttachedRootSessionCalled: false
       };
     }
 
@@ -1042,7 +1143,8 @@ export class CDPRouter {
     if (!record) {
       return {
         debuggerSession: null,
-        stage: "record_missing"
+        stage: "record_missing",
+        registerAttachedRootSessionCalled: false
       };
     }
 
@@ -1064,7 +1166,9 @@ export class CDPRouter {
     if (!attachTargetId) {
       return {
         debuggerSession: null,
-        stage: "session_missing"
+        stage: "session_missing",
+        registerAttachedRootSessionCalled: false,
+        reason: "attach_target_id_unavailable"
       };
     }
     if (recordAttachTargetId !== attachTargetId) {
@@ -1086,7 +1190,9 @@ export class CDPRouter {
         return {
           debuggerSession: null,
           stage: "attach_null",
-          ...(attachTargetSource ? { attachTargetSource } : {})
+          ...(attachTargetSource ? { attachTargetSource } : {}),
+          attachTargetId,
+          registerAttachedRootSessionCalled: false
         };
       }
 
@@ -1101,13 +1207,17 @@ export class CDPRouter {
           targetId: attachTargetId
         },
         stage: "attached",
-        ...(attachTargetSource ? { attachTargetSource } : {})
+        ...(attachTargetSource ? { attachTargetSource } : {}),
+        attachTargetId,
+        registerAttachedRootSessionCalled: true
       };
     } catch (error) {
       return {
         debuggerSession: null,
         stage: "attach_failed",
         ...(attachTargetSource ? { attachTargetSource } : {}),
+        attachTargetId,
+        registerAttachedRootSessionCalled: false,
         reason: getErrorMessage(error)
       };
     }
@@ -1253,22 +1363,72 @@ export class CDPRouter {
     }
   }
 
-  private async reattachRootAndAttachChildTarget(tabId: number, targetId: string): Promise<string | null> {
+  private async reattachRootAndAttachChildTarget(tabId: number, targetId: string): Promise<ReattachChildTargetResult> {
+    let result: ReattachChildTargetResult = { sessionId: null };
     try {
-      const tabScopedRootDebuggee = await this.reattachTabScopedRootDebuggeeForPopup(tabId);
+      let tabScopedRootDebuggee: DebuggerSession;
       try {
-        return await this.attachChildTargetWithDebuggee(tabScopedRootDebuggee, targetId);
+        tabScopedRootDebuggee = await this.reattachTabScopedRootDebuggeeForPopup(tabId);
+      } catch (error) {
+        result = {
+          sessionId: null,
+          terminalBranch: "tab_scoped_root_reattach",
+          stage: "tab_scoped_root_reattach_failed",
+          reason: getErrorMessage(error)
+        };
+        return result;
+      }
+      try {
+        const tabScopedSessionId = await this.attachChildTargetWithDebuggee(tabScopedRootDebuggee, targetId);
+        if (tabScopedSessionId) {
+          result = { sessionId: tabScopedSessionId };
+          return result;
+        }
       } catch (tabScopedError) {
         if (!isAttachBlockedError(tabScopedError) && !this.isStaleTabError(tabScopedError)) {
-          throw tabScopedError;
+          result = {
+            sessionId: null,
+            terminalBranch: "tab_scoped_root_reattach",
+            stage: "tab_scoped_attach_failed",
+            reason: getErrorMessage(tabScopedError)
+          };
+          return result;
         }
       }
-      await this.reattachRootDebuggee(tabId);
-      const rootDebuggee = await this.resolveRootSessionDebuggee(tabId);
-      return await this.attachChildTargetWithDebuggee(rootDebuggee, targetId);
-    } catch {
-      await this.restoreRootAfterChildAttachFailure(tabId);
-      return null;
+
+      try {
+        await this.reattachRootDebuggee(tabId);
+        const rootDebuggee = await this.resolveRootSessionDebuggee(tabId);
+        const rootSessionId = await this.attachChildTargetWithDebuggee(rootDebuggee, targetId);
+        result = rootSessionId
+          ? { sessionId: rootSessionId }
+          : {
+            sessionId: null,
+            terminalBranch: "root_debuggee_reattach",
+            stage: "root_debuggee_attach_null"
+          };
+      } catch (error) {
+        const blocked = isAttachBlockedError(error) || this.isStaleTabError(error);
+        result = {
+          sessionId: null,
+          terminalBranch: "root_debuggee_reattach",
+          stage: blocked ? "root_debuggee_attach_blocked" : "root_debuggee_attach_failed",
+          reason: getErrorMessage(error)
+        };
+      }
+      return result;
+    } catch (error) {
+      result = {
+        sessionId: null,
+        terminalBranch: "root_debuggee_reattach",
+        stage: "root_debuggee_reattach_failed",
+        reason: getErrorMessage(error)
+      };
+      return result;
+    } finally {
+      if (!result.sessionId) {
+        await this.restoreRootAfterChildAttachFailure(tabId);
+      }
     }
   }
 

@@ -315,6 +315,14 @@ type PopupAttachDiagnostic = {
   rootTargetRetryStage?: ChildTargetAttachDiagnostic["rootTargetRetryStage"];
   attachedRootRecoveryStage?: ChildTargetAttachDiagnostic["attachedRootRecoveryStage"];
   attachedRootRecoverySource?: ChildTargetAttachDiagnostic["attachedRootRecoverySource"];
+  attachedRootRecoveryAttachTargetId?: ChildTargetAttachDiagnostic["attachedRootRecoveryAttachTargetId"];
+  attachedRootRecoveryRetriedAfterRegisterRoot?: ChildTargetAttachDiagnostic["attachedRootRecoveryRetriedAfterRegisterRoot"];
+  attachedRootRecoveryRegisterRootChanged?: ChildTargetAttachDiagnostic["attachedRootRecoveryRegisterRootChanged"];
+  attachedRootRecoveryRegisterRootAttachTargetChanged?: ChildTargetAttachDiagnostic["attachedRootRecoveryRegisterRootAttachTargetChanged"];
+  attachedRootRecoveryRegisterAttachedRootSessionCalled?: ChildTargetAttachDiagnostic["attachedRootRecoveryRegisterAttachedRootSessionCalled"];
+  attachedRootUnavailableTerminalBranch?: ChildTargetAttachDiagnostic["attachedRootUnavailableTerminalBranch"];
+  reattachRecoveryStage?: ChildTargetAttachDiagnostic["reattachRecoveryStage"];
+  reattachRecoveryReason?: ChildTargetAttachDiagnostic["reattachRecoveryReason"];
   attachedRootRecoveryReason?: ChildTargetAttachDiagnostic["attachedRootRecoveryReason"];
   refreshPath?: RootRefreshDiagnostic["path"];
   refreshCompleted?: boolean;
@@ -3022,17 +3030,7 @@ export class OpsRuntime {
           stage,
           popupTargetId,
           ...(matcher ? { matcher } : {}),
-          ...(routerDiagnostic?.initialStage ? { initialStage: routerDiagnostic.initialStage } : {}),
-          ...(routerDiagnostic?.rootTargetRetryStage ? { rootTargetRetryStage: routerDiagnostic.rootTargetRetryStage } : {}),
-          ...(routerDiagnostic?.attachedRootRecoveryStage
-            ? { attachedRootRecoveryStage: routerDiagnostic.attachedRootRecoveryStage }
-            : {}),
-          ...(routerDiagnostic?.attachedRootRecoverySource
-            ? { attachedRootRecoverySource: routerDiagnostic.attachedRootRecoverySource }
-            : {}),
-          ...(routerDiagnostic?.attachedRootRecoveryReason
-            ? { attachedRootRecoveryReason: routerDiagnostic.attachedRootRecoveryReason }
-            : {}),
+          ...this.toPopupChildAttachDiagnostic(routerDiagnostic),
           ...this.toPopupRefreshDiagnostic(refreshDiagnostic),
           ...(refreshReasonOverride ? { refreshReason: refreshReasonOverride } : {}),
           ...(targetsLookupFailedReason ? { targetsLookupFailed: true } : {}),
@@ -3053,17 +3051,7 @@ export class OpsRuntime {
         stage,
         popupTargetId,
         ...(matcher ? { matcher } : {}),
-        ...(routerDiagnostic?.initialStage ? { initialStage: routerDiagnostic.initialStage } : {}),
-        ...(routerDiagnostic?.rootTargetRetryStage ? { rootTargetRetryStage: routerDiagnostic.rootTargetRetryStage } : {}),
-        ...(routerDiagnostic?.attachedRootRecoveryStage
-          ? { attachedRootRecoveryStage: routerDiagnostic.attachedRootRecoveryStage }
-          : {}),
-        ...(routerDiagnostic?.attachedRootRecoverySource
-          ? { attachedRootRecoverySource: routerDiagnostic.attachedRootRecoverySource }
-          : {}),
-        ...(routerDiagnostic?.attachedRootRecoveryReason
-          ? { attachedRootRecoveryReason: routerDiagnostic.attachedRootRecoveryReason }
-          : {}),
+        ...this.toPopupChildAttachDiagnostic(routerDiagnostic),
         ...this.toPopupRefreshDiagnostic(refreshDiagnostic),
         ...(refreshReasonOverride ? { refreshReason: refreshReasonOverride } : {}),
         ...(targetsLookupFailedReason ? { targetsLookupFailed: true } : {}),
@@ -3104,6 +3092,54 @@ export class OpsRuntime {
 
   private async waitForPopupAttachRetry(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, POPUP_ATTACH_RETRY_DELAY_MS));
+  }
+
+  private toPopupChildAttachDiagnostic(
+    diagnostic: ChildTargetAttachDiagnostic | null
+  ): Partial<Omit<PopupAttachDiagnostic, "targetId" | "tabId" | "openerTargetId" | "at" | "stage">> {
+    if (!diagnostic) {
+      return {};
+    }
+    return {
+      ...(diagnostic.initialStage ? { initialStage: diagnostic.initialStage } : {}),
+      ...(diagnostic.rootTargetRetryStage ? { rootTargetRetryStage: diagnostic.rootTargetRetryStage } : {}),
+      ...(diagnostic.attachedRootRecoveryStage
+        ? { attachedRootRecoveryStage: diagnostic.attachedRootRecoveryStage }
+        : {}),
+      ...(diagnostic.attachedRootRecoverySource
+        ? { attachedRootRecoverySource: diagnostic.attachedRootRecoverySource }
+        : {}),
+      ...(diagnostic.attachedRootRecoveryAttachTargetId
+        ? { attachedRootRecoveryAttachTargetId: diagnostic.attachedRootRecoveryAttachTargetId }
+        : {}),
+      ...(typeof diagnostic.attachedRootRecoveryRetriedAfterRegisterRoot === "boolean"
+        ? { attachedRootRecoveryRetriedAfterRegisterRoot: diagnostic.attachedRootRecoveryRetriedAfterRegisterRoot }
+        : {}),
+      ...(typeof diagnostic.attachedRootRecoveryRegisterRootChanged === "boolean"
+        ? { attachedRootRecoveryRegisterRootChanged: diagnostic.attachedRootRecoveryRegisterRootChanged }
+        : {}),
+      ...(typeof diagnostic.attachedRootRecoveryRegisterRootAttachTargetChanged === "boolean"
+        ? { attachedRootRecoveryRegisterRootAttachTargetChanged: diagnostic.attachedRootRecoveryRegisterRootAttachTargetChanged }
+        : {}),
+      ...(typeof diagnostic.attachedRootRecoveryRegisterAttachedRootSessionCalled === "boolean"
+        ? {
+          attachedRootRecoveryRegisterAttachedRootSessionCalled:
+            diagnostic.attachedRootRecoveryRegisterAttachedRootSessionCalled
+        }
+        : {}),
+      ...(diagnostic.attachedRootUnavailableTerminalBranch
+        ? { attachedRootUnavailableTerminalBranch: diagnostic.attachedRootUnavailableTerminalBranch }
+        : {}),
+      ...(diagnostic.reattachRecoveryStage
+        ? { reattachRecoveryStage: diagnostic.reattachRecoveryStage }
+        : {}),
+      ...(diagnostic.reattachRecoveryReason
+        ? { reattachRecoveryReason: diagnostic.reattachRecoveryReason }
+        : {}),
+      ...(diagnostic.attachedRootRecoveryReason
+        ? { attachedRootRecoveryReason: diagnostic.attachedRootRecoveryReason }
+        : {})
+    };
   }
 
   private formatDirectAttachDiagnosticSuffix(diagnostic: RootAttachDiagnostic | null): string {
@@ -3178,6 +3214,29 @@ export class OpsRuntime {
         ...(entry.rootTargetRetryStage ? { rootTargetRetryStage: entry.rootTargetRetryStage } : {}),
         ...(entry.attachedRootRecoveryStage ? { attachedRootRecoveryStage: entry.attachedRootRecoveryStage } : {}),
         ...(entry.attachedRootRecoverySource ? { attachedRootRecoverySource: entry.attachedRootRecoverySource } : {}),
+        ...(entry.attachedRootRecoveryAttachTargetId
+          ? { attachedRootRecoveryAttachTargetId: entry.attachedRootRecoveryAttachTargetId }
+          : {}),
+        ...(typeof entry.attachedRootRecoveryRetriedAfterRegisterRoot === "boolean"
+          ? { attachedRootRecoveryRetriedAfterRegisterRoot: entry.attachedRootRecoveryRetriedAfterRegisterRoot }
+          : {}),
+        ...(typeof entry.attachedRootRecoveryRegisterRootChanged === "boolean"
+          ? { attachedRootRecoveryRegisterRootChanged: entry.attachedRootRecoveryRegisterRootChanged }
+          : {}),
+        ...(typeof entry.attachedRootRecoveryRegisterRootAttachTargetChanged === "boolean"
+          ? { attachedRootRecoveryRegisterRootAttachTargetChanged: entry.attachedRootRecoveryRegisterRootAttachTargetChanged }
+          : {}),
+        ...(typeof entry.attachedRootRecoveryRegisterAttachedRootSessionCalled === "boolean"
+          ? {
+            attachedRootRecoveryRegisterAttachedRootSessionCalled:
+              entry.attachedRootRecoveryRegisterAttachedRootSessionCalled
+          }
+          : {}),
+        ...(entry.attachedRootUnavailableTerminalBranch
+          ? { attachedRootUnavailableTerminalBranch: entry.attachedRootUnavailableTerminalBranch }
+          : {}),
+        ...(entry.reattachRecoveryStage ? { reattachRecoveryStage: entry.reattachRecoveryStage } : {}),
+        ...(entry.reattachRecoveryReason ? { reattachRecoveryReason: entry.reattachRecoveryReason } : {}),
         ...(entry.attachedRootRecoveryReason ? { attachedRootRecoveryReason: entry.attachedRootRecoveryReason } : {}),
         ...(entry.refreshPath ? { refreshPath: entry.refreshPath } : {}),
         ...(typeof entry.refreshCompleted === "boolean" ? { refreshCompleted: entry.refreshCompleted } : {}),
@@ -3477,6 +3536,9 @@ export class OpsRuntime {
         : diagnostic.attachedRootRecoveryStage;
       parts.push(`attached-root: ${attachedRootPart}`);
     }
+    if (diagnostic.attachedRootUnavailableTerminalBranch) {
+      parts.push(`terminal: ${diagnostic.attachedRootUnavailableTerminalBranch}`);
+    }
     return ` (${parts.join("; ")})`;
   }
 
@@ -3501,6 +3563,36 @@ export class OpsRuntime {
             : {}),
           ...(diagnostic.attachedRootRecoverySource
             ? { attachedRootRecoverySource: diagnostic.attachedRootRecoverySource }
+            : {}),
+          ...(diagnostic.attachedRootRecoveryAttachTargetId
+            ? { attachedRootRecoveryAttachTargetId: diagnostic.attachedRootRecoveryAttachTargetId }
+            : {}),
+          ...(typeof diagnostic.attachedRootRecoveryRetriedAfterRegisterRoot === "boolean"
+            ? { attachedRootRecoveryRetriedAfterRegisterRoot: diagnostic.attachedRootRecoveryRetriedAfterRegisterRoot }
+            : {}),
+          ...(typeof diagnostic.attachedRootRecoveryRegisterRootChanged === "boolean"
+            ? { attachedRootRecoveryRegisterRootChanged: diagnostic.attachedRootRecoveryRegisterRootChanged }
+            : {}),
+          ...(typeof diagnostic.attachedRootRecoveryRegisterRootAttachTargetChanged === "boolean"
+            ? {
+              attachedRootRecoveryRegisterRootAttachTargetChanged:
+                diagnostic.attachedRootRecoveryRegisterRootAttachTargetChanged
+            }
+            : {}),
+          ...(typeof diagnostic.attachedRootRecoveryRegisterAttachedRootSessionCalled === "boolean"
+            ? {
+              attachedRootRecoveryRegisterAttachedRootSessionCalled:
+                diagnostic.attachedRootRecoveryRegisterAttachedRootSessionCalled
+            }
+            : {}),
+          ...(diagnostic.attachedRootUnavailableTerminalBranch
+            ? { attachedRootUnavailableTerminalBranch: diagnostic.attachedRootUnavailableTerminalBranch }
+            : {}),
+          ...(diagnostic.reattachRecoveryStage
+            ? { reattachRecoveryStage: diagnostic.reattachRecoveryStage }
+            : {}),
+          ...(diagnostic.reattachRecoveryReason
+            ? { reattachRecoveryReason: diagnostic.reattachRecoveryReason }
             : {}),
           ...(diagnostic.attachedRootRecoveryReason
             ? { attachedRootRecoveryReason: diagnostic.attachedRootRecoveryReason }
