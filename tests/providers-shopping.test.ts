@@ -1253,6 +1253,125 @@ describe("shopping providers", () => {
     });
   });
 
+  it("parses inline-style-heavy eBay s-card results without losing the primary price", async () => {
+    const noisyStyle = "display:block;visibility:visible;".repeat(90);
+    const provider = createShoppingProviderById("shopping/ebay", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <ul class="srp-results srp-list clearfix">
+              <li class="s-card s-card--horizontal" style="${noisyStyle}">
+                <div class="su-card-container su-card-container--horizontal" style="${noisyStyle}">
+                  <div class="su-card-container__media" style="${noisyStyle}">
+                    <div class="su-image" style="${noisyStyle}">
+                      <a class="s-card__link image-treatment" href="https://www.ebay.com/itm/298017366287?itmmeta=abc123" style="${noisyStyle}">
+                        <img class="s-card__image" src="https://i.ebayimg.com/images/g/zSEAAeSwUaRpil-q/s-l500.webp" alt="Apple MacBook Pro 2023 A2918 14in M3 10 Core GPU 16GB RAM 512GB SSD Excellent" />
+                      </a>
+                    </div>
+                  </div>
+                  <div class="su-card-container__content" style="${noisyStyle}">
+                    <div class="su-card-container__header" style="${noisyStyle}">
+                      <a class="s-card__link" href="https://www.ebay.com/itm/298017366287?itmmeta=abc123" style="${noisyStyle}">
+                        <div class="s-card__title" style="${noisyStyle}">
+                          <span>Apple MacBook Pro 2023 A2918 14in M3 10 Core GPU 16GB RAM 512GB SSD Excellent</span>
+                          <span class="clipped">Opens in a new window or tab</span>
+                        </div>
+                      </a>
+                      <div class="s-card__subtitle-row" style="${noisyStyle}">
+                        <div class="s-card__subtitle" style="${noisyStyle}"><span>FREE FEDEX 2 DAY - 60 DAY RETURNS - 1 YEAR WARRANTY</span></div>
+                      </div>
+                      <div class="s-card__subtitle-row" style="${noisyStyle}">
+                        <div class="s-card__subtitle" style="${noisyStyle}"><span>Excellent - Refurbished</span></div>
+                      </div>
+                    </div>
+                    <div class="su-card-container__attributes su-card-container__attributes--has-secondary" style="${noisyStyle}">
+                      <div class="su-card-container__attributes__primary" style="${noisyStyle}">
+                        <div class="s-card__attribute-row" style="${noisyStyle}">
+                          <span class="su-styled-text primary bold large-1 s-card__price" style="${noisyStyle}">$1,082.95</span>
+                          <span class="su-styled-text secondary strikethrough large" style="${noisyStyle}">$1,799.00</span>
+                        </div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>Buy It Now</span></div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>+$272.06 delivery</span></div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>Located in United States</span></div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>17+ watchers</span></div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>$5 off 2+ with coupon</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "macbook pro m4 32gb ram", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.ebay.com/itm/298017366287?itmmeta=abc123",
+      title: "Apple MacBook Pro 2023 A2918 14in M3 10 Core GPU 16GB RAM 512GB SSD Excellent"
+    });
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/ebay",
+      price: {
+        amount: 1082.95,
+        currency: "USD"
+      }
+    });
+    expect(rows?.[0]?.attributes.image_urls).toEqual(["https://i.ebayimg.com/images/g/zSEAAeSwUaRpil-q/s-l500.webp"]);
+  });
+
+  it("falls back to aria-label text pricing and generic image extraction for eBay s-card variants", async () => {
+    const provider = createShoppingProviderById("shopping/ebay", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <ul class="srp-results srp-list clearfix">
+              <li class="s-card s-card--horizontal">
+                <a class="s-card__link" href="https://www.ebay.com/sch/i.html?_nkw=macbook+pro+m4+32gb+ram">Search noise card</a>
+              </li>
+              <li class="s-card s-card--horizontal">
+                <a
+                  class="s-card__link image-treatment"
+                  href="https://www.ebay.com/itm/987654321000?itmmeta=xyz123"
+                  aria-label="Refurbished MacBook Pro M4 with 32GB RAM and 1TB SSD for studio editing"
+                >
+                  <img src="https://i.ebayimg.com/images/g/example/s-l500.webp" alt="Refurbished MacBook Pro M4" />
+                </a>
+                <div>USD 1,999.99 4.8 out of 5 205 reviews only 2 left</div>
+              </li>
+            </ul>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "macbook pro m4 32gb ram", limit: 2 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.ebay.com/itm/987654321000?itmmeta=xyz123",
+      title: "Refurbished MacBook Pro M4 with 32GB RAM and 1TB SSD for studio editing"
+    });
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/ebay",
+      price: {
+        amount: 1999.99,
+        currency: "USD"
+      },
+      availability: "limited",
+      rating: 4.8,
+      reviews_count: 205
+    });
+    expect(rows?.[0]?.attributes.image_urls).toEqual(["https://i.ebayimg.com/images/g/example/s-l500.webp"]);
+  });
+
   it("routes target shell pages through browser fallback", async () => {
     const provider = createShoppingProviderById("shopping/target");
     const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({

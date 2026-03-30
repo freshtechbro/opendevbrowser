@@ -706,6 +706,7 @@ const RATING_RE = /([0-5](?:\.[0-9])?)\s*(?:out of 5|\/5)/i;
 const REVIEWS_RE = /([0-9][0-9,]*)\s*(?:ratings|reviews)/i;
 const ANCHOR_RE = /<a\b([^>]*?)href\s*=\s*(?:(["'])(.*?)\2|([^\s>]+))([^>]*)>([\s\S]*?)<\/a>/gi;
 const NEWEGG_CARD_RE = /<div class="item-cell"[\s\S]*?(?=<div class="item-cell"|$)/gi;
+const EBAY_CARD_RE = /<li\b[^>]*class=(["'])[^"']*\bs-card\b[^"']*\1[^>]*>[\s\S]*?<\/li>/gi;
 const GENERIC_NOISE_TITLE_RE = /^(quick view|previous page|next page|home|compare|\([0-9][0-9,]*\))$/i;
 const GENERIC_NOISE_URL_RE = /(?:\/(?:p\/pl|s(?:earch)?|signin|login|orders|cart|promotions|clearance|brandstore)\b|#IsFeedbackTab\b|\/Product\/RSS\b|[?&](?:page|k|d|n)=)/i;
 const DEFAULT_PRODUCT_URL_HINT_RE = /(?:\/dp\/|\/gp\/product\/|\/p\/[a-z0-9-]+|\/product(?:s)?\/|\/item(?:[/?-]|$)|\/sku\/)/i;
@@ -1123,6 +1124,53 @@ const extractNeweggSearchCandidates = (
   return dedupeCandidates(candidates, limit);
 };
 
+const extractEbaySearchCandidates = (
+  html: string,
+  baseUrl: string,
+  profile: ShoppingProviderProfile,
+  limit: number
+): ShoppingSearchCandidate[] => {
+  const candidates: ShoppingSearchCandidate[] = [];
+  for (const match of html.matchAll(EBAY_CARD_RE)) {
+    const cardHtml = match[0];
+    const linkAnchor = findAnchorByClass(cardHtml, "s-card__link");
+    if (!linkAnchor?.href) continue;
+
+    const url = normalizeCandidateUrl(linkAnchor.href, baseUrl, profile);
+    if (!url || !isLikelyProductUrl(url, profile)) continue;
+
+    const titleHtml = /<(?:div|span)\b[^>]*class=(["'])[^"']*\bs-card__title\b[^"']*\1[^>]*>([\s\S]*?)<\/(?:div|span)>/i.exec(cardHtml)?.[2]
+      ?? linkAnchor.innerHtml;
+    const title = extractText(titleHtml).replace(/\bOpens in a new window or tab\b/gi, "").trim()
+      || readAttribute(linkAnchor.tag, "aria-label")
+      || readAttribute(linkAnchor.tag, "title");
+    if (!title || title.length < 20 || GENERIC_NOISE_TITLE_RE.test(title) || isPriceOnlyTitle(title)) continue;
+
+    const text = toSnippet(extractText(cardHtml), 2000);
+    const priceFragment = /<(?:div|span)\b[^>]*class=(["'])[^"']*\bs-card__price\b[^"']*\1[^>]*>([\s\S]*?)<\/(?:div|span)>/i.exec(cardHtml)?.[2]
+      ?? text;
+    const price = parsePrice(priceFragment);
+    const rating = parseRating(text);
+    const reviews = parseReviews(text);
+    const imageUrl = /<img\b[^>]*class=(["'])[^"']*\bs-card__image\b[^"']*\1[^>]*src=(["'])(.*?)\2/i.exec(cardHtml)?.[3]
+      ?? /<img\b[^>]*src=(["'])(.*?)\1/i.exec(cardHtml)?.[2];
+    const availability = parseAvailability(text);
+
+    candidates.push({
+      url,
+      title,
+      text,
+      ...(imageUrl ? { imageUrl: normalizeCandidateUrl(imageUrl, baseUrl, profile) ?? imageUrl } : {}),
+      ...(price.amount > 0 ? { price } : {}),
+      ...(rating > 0 ? { rating } : {}),
+      ...(reviews > 0 ? { reviews } : {}),
+      availability
+    });
+    if (candidates.length >= limit) break;
+  }
+  return dedupeCandidates(candidates, limit);
+};
+
 const extractGenericSearchCandidates = (
   html: string,
   baseUrl: string,
@@ -1174,6 +1222,10 @@ const extractSearchCandidates = (
   profile: ShoppingProviderProfile,
   limit: number
 ): ShoppingSearchCandidate[] => {
+  if (profile.name === "ebay") {
+    const ebay = extractEbaySearchCandidates(html, baseUrl, profile, limit);
+    if (ebay.length > 0) return ebay;
+  }
   if (profile.name === "newegg") {
     const newegg = extractNeweggSearchCandidates(html, baseUrl, profile, limit);
     if (newegg.length > 0) return newegg;
