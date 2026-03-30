@@ -137,6 +137,7 @@ The branch is no longer suffering from five equally active seams. Current repo-b
    - This is the immediate blocker.
    - The continued main-frame warning on `review` after a fresh daemon restart proves the live browser is not yet behaving like the current extension snapshot.
    - Repeat both:
+     - if `http://127.0.0.1:8124/popup-root-anchor.html` is not already live, start the repo-owned support host first: `node scripts/popup-fixture-server.mjs --port 8124 --output-format json`
      - popup runbook: `launch -> review -> click -> targets-list -> review`
      - extension workflow runbook: `shopping run --browser-mode extension`
 
