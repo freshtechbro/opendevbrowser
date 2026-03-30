@@ -5,6 +5,7 @@ import {
   createShoppingProvider,
   createShoppingProviderById,
   createShoppingProviders,
+  getShoppingRegionSupportDiagnostics,
   validateLegalReviewChecklist,
   validateShoppingLegalReviewChecklist,
   type ShoppingProviderProfile
@@ -273,6 +274,10 @@ describe("shopping providers", () => {
       rating: 4.7,
       reviews_count: 81
     });
+  });
+
+  it("returns no region support diagnostics when the requested region is blank", () => {
+    expect(getShoppingRegionSupportDiagnostics(["shopping/walmart"], "   ")).toEqual([]);
   });
 
   it("maps auth/rate-limit/unavailable status codes through the default fetcher", async () => {
@@ -1126,6 +1131,78 @@ describe("shopping providers", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("falls back to a walmart title price when inline-style noise truncates the generic context window", async () => {
+    const noisyPrefix = "inline noise ".repeat(220);
+    const provider = createShoppingProviderById("shopping/walmart", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <div>
+              <a href="/ip/Apple-16-MacBook-Pro-with-M4-Max-Chip-14-Core-CPU-32-Core-GPU-36GB-Memory-1TB-SSD-Space-Black-2024/13733910451?classType=VARIANT&amp;from=/search">
+                <span>${noisyPrefix}</span>
+                <span>
+                  <h3>Apple 16" MacBook Pro with M4 Max Chip 14-Core CPU / 32-Core GPU, 36GB Memory, 1TB SSD, Space Black, 2024 $3,499.00</h3>
+                </span>
+              </a>
+              <div>4.7 out of 5 81 reviews in stock</div>
+            </div>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "macbook pro m4 32gb ram", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.walmart.com/ip/Apple-16-MacBook-Pro-with-M4-Max-Chip-14-Core-CPU-32-Core-GPU-36GB-Memory-1TB-SSD-Space-Black-2024/13733910451?classType=VARIANT&from=%2Fsearch"
+    });
+    expect(rows?.[0]?.attributes.retrievalPath).toBe("shopping:search:result-card");
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/walmart",
+      price: {
+        amount: 3499,
+        currency: "USD"
+      }
+    });
+  });
+
+  it("keeps a zero price when both walmart context and title miss a dollar amount", async () => {
+    const noisyStyle = "background:blue;".repeat(400);
+    const provider = createShoppingProviderById("shopping/walmart", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <div style="${noisyStyle}">
+              <a href="/ip/Apple-16-MacBook-Pro-with-M4-Max-Chip-14-Core-CPU-32-Core-GPU-36GB-Memory-1TB-SSD-Space-Black-2024/13733910451?classType=VARIANT&amp;from=/search">
+                <span style="${noisyStyle}">
+                  <h3 style="${noisyStyle}">Apple 16" MacBook Pro with M4 Max Chip 14-Core CPU / 32-Core GPU, 36GB Memory, 1TB SSD, Space Black, 2024</h3>
+                </span>
+              </a>
+              <div style="${noisyStyle}">4.7 out of 5 81 reviews in stock</div>
+            </div>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "macbook pro m4 32gb ram", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.attributes.retrievalPath).toBe("shopping:search:result-card");
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/walmart",
+      price: {
+        amount: 0,
+        currency: "USD"
+      }
+    });
   });
 
   it("routes best buy international splash pages through browser fallback", async () => {

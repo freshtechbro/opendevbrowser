@@ -811,6 +811,23 @@ const parsePrice = (text: string): { amount: number; currency: string } => {
   };
 };
 
+const resolvePrice = (
+  primaryText: string,
+  ...fallbackTexts: string[]
+): { amount: number; currency: string } => {
+  const primary = parsePrice(primaryText);
+  if (primary.amount > 0) {
+    return primary;
+  }
+  for (const fallbackText of fallbackTexts) {
+    const fallback = parsePrice(fallbackText);
+    if (fallback.amount > 0) {
+      return fallback;
+    }
+  }
+  return primary;
+};
+
 const parseRating = (text: string): number => {
   const match = text.match(RATING_RE);
   if (!match) return 0;
@@ -1195,7 +1212,7 @@ const extractGenericSearchCandidates = (
     const start = Math.max(0, matchIndex - 400);
     const end = Math.min(html.length, matchIndex + inner.length + 1800);
     const context = toSnippet(extractText(html.slice(start, end)), 1800);
-    const price = parsePrice(context);
+    const price = resolvePrice(context, title);
     const rating = parseRating(context);
     const reviews = parseReviews(context);
     const imageUrl = /<img\b[^>]*src=(["'])(.*?)\1/i.exec(inner)?.[2];
