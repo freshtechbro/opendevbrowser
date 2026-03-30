@@ -2,6 +2,7 @@ import * as path from "path";
 import * as os from "os";
 import { readFile } from "fs/promises";
 import type { BrowserManagerLike, ChallengeRuntimeHandle } from "../browser/manager-types";
+import { isOpsRequestTimeoutError } from "../browser/ops-client";
 import type { OpenDevBrowserConfig } from "../config";
 import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
 import { createDefaultRuntime, type RuntimeDefaults, type RuntimeInit } from "./index";
@@ -59,6 +60,7 @@ const DEFAULT_FALLBACK_SHOPPING_SETTLE_TIMEOUT_MS = 15000;
 const DEFAULT_FALLBACK_DEFAULT_SETTLE_TIMEOUT_MS = 5000;
 const DEFAULT_FALLBACK_SHOPPING_CAPTURE_DELAY_MS = 2000;
 const DEFAULT_FALLBACK_DEFAULT_CAPTURE_DELAY_MS = 500;
+const DEFAULT_FALLBACK_SHOPPING_CLONE_MAX_NODES = 5000;
 const SHOPPING_FALLBACK_FLAGS = ["--disable-http2"];
 const SHOPPING_INTERSTITIAL_DIALOG_RE = /\b(?:role\s*=\s*["'](?:dialog|alertdialog)["']|aria-modal\s*=\s*["']true["'])/i;
 const SHOPPING_INTERSTITIAL_TEXT_RE = /\b(?:choose where (?:you(?:'|’)d|you would|to) like to shop|how do you want your items|set your location|confirm your location|choose a store)\b/i;
@@ -280,16 +282,22 @@ const fallbackFailure = (
   message: string,
   cookieDiagnostics?: BrowserFallbackCookieDiagnostics,
   challengeOrchestration?: Record<string, JsonValue>,
-  runtimePolicy?: Record<string, JsonValue>
+  runtimePolicy?: Record<string, JsonValue>,
+  options: {
+    mode?: BrowserFallbackMode;
+    details?: Record<string, JsonValue>;
+  } = {}
 ): BrowserFallbackResponse => ({
   ok: false,
   reasonCode,
   disposition: reasonCode === "env_limited" ? "deferred" : "failed",
+  ...(options.mode ? { mode: options.mode } : {}),
   details: {
     message,
     ...(cookieDiagnostics ? { cookieDiagnostics: toJsonRecord(cookieDiagnostics) } : {}),
     ...(challengeOrchestration ? { challengeOrchestration } : {}),
-    ...(runtimePolicy ? { runtimePolicy } : {})
+    ...(runtimePolicy ? { runtimePolicy } : {}),
+    ...(options.details ? options.details : {})
   }
 });
 
@@ -495,7 +503,7 @@ const waitForFallbackPageToSettle = async (
 const captureFallbackHtml = async (
   manager: BrowserManagerLike,
   sessionId: string,
-  _source: "social" | "shopping" | "web" | "community",
+  source: "social" | "shopping" | "web" | "community",
   captureDelayMs: number
 ): Promise<string> => {
   try {
@@ -514,7 +522,17 @@ const captureFallbackHtml = async (
     if (typeof manager.clonePage !== "function") {
       throw error;
     }
-    const fallbackExport = await manager.clonePage(sessionId, null);
+    if (source === "shopping" && typeof manager.clonePageHtmlWithOptions === "function") {
+      const fallbackHtml = await manager.clonePageHtmlWithOptions(
+        sessionId,
+        null,
+        { maxNodes: DEFAULT_FALLBACK_SHOPPING_CLONE_MAX_NODES }
+      );
+      return fallbackHtml.html;
+    }
+    const fallbackExport = source === "shopping" && typeof manager.clonePageWithOptions === "function"
+      ? await manager.clonePageWithOptions(sessionId, null, { maxNodes: DEFAULT_FALLBACK_SHOPPING_CLONE_MAX_NODES })
+      : await manager.clonePage(sessionId, null);
     const html = readClonePageHtml(fallbackExport.component);
     if (html !== null) {
       return html;
@@ -996,7 +1014,27 @@ export const createBrowserFallbackPort = (
             throw error;
           }
           const message = error instanceof Error ? error.message : String(error);
-          lastFailure = fallbackFailure("env_limited", message, cookieDiagnostics, undefined, runtimePolicyRecord);
+          const timeoutDetails = isOpsRequestTimeoutError(error)
+            ? {
+              opsTimeoutCommand: error.details.command,
+              opsTimeoutMs: error.details.timeoutMs,
+              opsTimeoutRequestId: error.details.requestId,
+              ...(error.details.opsSessionId ? { opsSessionId: error.details.opsSessionId } : {}),
+              ...(error.details.leaseId ? { leaseId: error.details.leaseId } : {}),
+              ...(error.details.stage ? { stage: error.details.stage } : {})
+            }
+            : undefined;
+          lastFailure = fallbackFailure(
+            "env_limited",
+            message,
+            cookieDiagnostics,
+            undefined,
+            runtimePolicyRecord,
+            {
+              mode: toFallbackMode(preferredMode),
+              ...(timeoutDetails ? { details: timeoutDetails } : {})
+            }
+          );
         } finally {
           request.signal?.removeEventListener("abort", abortListener);
           if (sessionId && !preserveSession) {

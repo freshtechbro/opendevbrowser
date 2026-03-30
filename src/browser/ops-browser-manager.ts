@@ -6,6 +6,8 @@ import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoin
 import type { ParallelismGovernorPolicyPayload } from "../relay/protocol";
 import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
 import type {
+  BrowserCloneHtmlResult,
+  BrowserClonePageOptions,
   BrowserCanvasOverlayMountInput,
   BrowserCanvasOverlayResult,
   BrowserCanvasOverlaySelectInput,
@@ -21,7 +23,11 @@ import type { ReactExport } from "../export/react-emitter";
 import { emitReactComponent } from "../export/react-emitter";
 import { extractCss, STYLE_ALLOWLIST, SKIP_STYLE_VALUES } from "../export/css-extract";
 import type { DomCapture } from "../export/dom-capture";
-import { OpsClient } from "./ops-client";
+import {
+  OpsClient,
+  isOpsRequestTimeoutError,
+  withOpsRequestTimeoutDetails
+} from "./ops-client";
 import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
 import { BrowserManager } from "./browser-manager";
@@ -745,19 +751,36 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return await this.requestOps(sessionId, "dom.refPoint", this.withTarget({ ref }, targetId));
   }
 
-  async clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {
+  async clonePageWithOptions(
+    sessionId: string,
+    targetId?: string | null,
+    options: BrowserClonePageOptions = {}
+  ): Promise<ReactExport> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.clonePage(sessionId, targetId);
+      return await this.base.clonePageWithOptions(sessionId, targetId, options);
     }
-    const capture = await this.requestOps<{ capture: DomCapture }>(sessionId, "export.clonePage", this.withTarget({
-      sanitize: !this.config.security.allowUnsafeExport,
-      maxNodes: this.config.export.maxNodes,
-      inlineStyles: this.config.export.inlineStyles,
-      styleAllowlist: Array.from(STYLE_ALLOWLIST),
-      skipStyleValues: Array.from(SKIP_STYLE_VALUES)
-    }, targetId));
-    const css = extractCss(capture.capture);
-    return emitReactComponent(capture.capture, css, { allowUnsafeExport: this.config.security.allowUnsafeExport });
+    const capture = await this.requestClonePageCapture(sessionId, targetId, options);
+    const css = extractCss(capture);
+    return emitReactComponent(capture, css, { allowUnsafeExport: this.config.security.allowUnsafeExport });
+  }
+
+  async clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {
+    return await this.clonePageWithOptions(sessionId, targetId);
+  }
+
+  async clonePageHtmlWithOptions(
+    sessionId: string,
+    targetId?: string | null,
+    options: BrowserClonePageOptions = {}
+  ): Promise<BrowserCloneHtmlResult> {
+    if (!this.opsSessions.has(sessionId)) {
+      return await this.base.clonePageHtmlWithOptions(sessionId, targetId, options);
+    }
+    const capture = await this.requestClonePageCapture(sessionId, targetId, options);
+    return {
+      html: capture.html,
+      ...(capture.warnings ? { warnings: [...capture.warnings] } : {})
+    };
   }
 
   async cloneComponent(sessionId: string, ref: string, targetId?: string | null): Promise<ReactExport> {
@@ -774,6 +797,21 @@ export class OpsBrowserManager implements BrowserManagerLike {
     }, targetId));
     const css = extractCss(capture.capture);
     return emitReactComponent(capture.capture, css, { allowUnsafeExport: this.config.security.allowUnsafeExport });
+  }
+
+  private async requestClonePageCapture(
+    sessionId: string,
+    targetId: string | null | undefined,
+    options: BrowserClonePageOptions
+  ): Promise<DomCapture> {
+    const capture = await this.requestOps<{ capture: DomCapture }>(sessionId, "export.clonePage", this.withTarget({
+      sanitize: !this.config.security.allowUnsafeExport,
+      maxNodes: options.maxNodes ?? this.config.export.maxNodes,
+      inlineStyles: options.inlineStyles ?? this.config.export.inlineStyles,
+      styleAllowlist: Array.from(STYLE_ALLOWLIST),
+      skipStyleValues: Array.from(SKIP_STYLE_VALUES)
+    }, targetId));
+    return capture.capture;
   }
 
   async perfMetrics(sessionId: string, targetId?: string | null): ReturnType<BrowserManagerLike["perfMetrics"]> {
@@ -1060,7 +1098,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
         if (!this.opsClient && this.opsEndpoint) {
           client = await this.ensureOpsClient(this.opsEndpoint);
         }
-      } else if (!isUnknownOpsSessionError(error)) {
+      } else if (!isUnknownOpsSessionError(error) && !isOpsRequestTimeoutError(error)) {
         throw error;
       }
       const recovered = await this.recoverOpsSession(sessionId, payload);
@@ -1258,30 +1296,56 @@ export class OpsBrowserManager implements BrowserManagerLike {
       reconnectPayload.startUrl = fallbackUrl;
     }
 
+    const recoveryDeadlineMs = Date.now() + 30000;
+    const nextRecoveryTimeoutMs = (): number => {
+      const remainingMs = Math.floor(recoveryDeadlineMs - Date.now());
+      return remainingMs > 0 ? remainingMs : 1;
+    };
+    const reconnectStage = (candidatePayload: Record<string, unknown>): string => {
+      if (typeof candidatePayload.tabId === "number") {
+        return "session.connect.tabId";
+      }
+      if (typeof candidatePayload.startUrl === "string") {
+        return "session.connect.startUrl";
+      }
+      return "session.connect";
+    };
+    const reconnectSession = async (
+      candidatePayload: Record<string, unknown>
+    ): Promise<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }> => {
+      const timeoutMs = nextRecoveryTimeoutMs();
+      try {
+        return await client.request<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }>(
+          "session.connect",
+          candidatePayload,
+          undefined,
+          timeoutMs,
+          leaseId
+        );
+      } catch (error) {
+        throw withOpsRequestTimeoutDetails(error, {
+          timeoutMs,
+          stage: reconnectStage(candidatePayload)
+        });
+      }
+    };
+
     let result: { opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string };
     try {
-      result = await client.request<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }>(
-        "session.connect",
-        reconnectPayload,
-        undefined,
-        30000,
-        leaseId
-      );
+      result = await reconnectSession(reconnectPayload);
     } catch (error) {
-      if (!isUnknownOpsTabError(error) || !fallbackUrl || !("tabId" in reconnectPayload)) {
+      if (
+        (!isUnknownOpsTabError(error) && !isOpsRequestTimeoutError(error))
+        || !fallbackUrl
+        || !("tabId" in reconnectPayload)
+      ) {
         throw error;
       }
-      result = await client.request<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }>(
-        "session.connect",
-        {
-          sessionId,
-          parallelismPolicy: this.buildParallelismPolicyPayload(),
-          startUrl: fallbackUrl
-        },
-        undefined,
-        30000,
-        leaseId
-      );
+      result = await reconnectSession({
+        sessionId,
+        parallelismPolicy: this.buildParallelismPolicyPayload(),
+        startUrl: fallbackUrl
+      });
     }
 
     this.opsSessions.add(sessionId);
@@ -1461,7 +1525,8 @@ export class OpsBrowserManager implements BrowserManagerLike {
 
 const isIgnorableOpsDisconnectError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error ?? "");
-  return message.includes("Ops request timed out")
+  return isOpsRequestTimeoutError(error)
+    || message.includes("Ops request timed out")
     || message.includes("[invalid_session] Unknown ops session")
     || message.includes("Ops socket closed");
 };

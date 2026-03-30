@@ -34,6 +34,16 @@ export type BrowserCanvasOverlaySelectInput = {
   selectionHint: Record<string, unknown>;
 };
 
+export type BrowserClonePageOptions = {
+  maxNodes?: number;
+  inlineStyles?: boolean;
+};
+
+export type BrowserCloneHtmlResult = {
+  html: string;
+  warnings?: string[];
+};
+
 export type BrowserCanvasOverlayResult = {
   mountId?: string;
   targetId?: string;
@@ -169,6 +179,16 @@ export type BrowserManagerLike = Pick<BrowserManager,
     mode?: ChallengeAutomationMode
   ) => void;
   createChallengeRuntimeHandle?: () => ChallengeRuntimeHandle;
+  clonePageHtmlWithOptions?: (
+    sessionId: string,
+    targetId?: string | null,
+    options?: BrowserClonePageOptions
+  ) => Promise<BrowserCloneHtmlResult>;
+  clonePageWithOptions?: (
+    sessionId: string,
+    targetId?: string | null,
+    options?: BrowserClonePageOptions
+  ) => ReturnType<BrowserManager["clonePage"]>;
 };
 
 export type ChallengeRuntimeHandle = Pick<BrowserManagerLike,

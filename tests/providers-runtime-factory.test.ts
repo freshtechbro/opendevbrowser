@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { BrowserManagerLike, ChallengeRuntimeHandle } from "../src/browser/manager-types";
+import { OpsRequestTimeoutError } from "../src/browser/ops-client";
 import { ProviderRuntimeError } from "../src/providers/errors";
 import { resolveProviderRuntimePolicy } from "../src/providers/runtime-policy";
 import {
@@ -169,6 +170,10 @@ describe("provider runtime factory", () => {
       withPage: vi.fn(async () => {
         throw new Error("Direct annotate is unavailable via extension ops sessions.");
       }),
+      clonePageHtmlWithOptions: vi.fn(async () => ({
+        html: "<html><body>shopping extension fallback</body></html>",
+        warnings: ["Export truncated at 5000 nodes; 4399 nodes omitted."]
+      })),
       clonePage: vi.fn(async () => ({
         component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension fallback</body></html>\" }} />); }",
         css: ""
@@ -201,10 +206,68 @@ describe("provider runtime factory", () => {
       "ws://127.0.0.1:8787/ops",
       undefined
     );
-    expect(manager.clonePage).toHaveBeenCalledWith("shopping-extension-fallback", null);
+    expect(manager.clonePageHtmlWithOptions).toHaveBeenCalledWith(
+      "shopping-extension-fallback",
+      null,
+      { maxNodes: 5000 }
+    );
+    expect(manager.clonePage).not.toHaveBeenCalled();
     expect(manager.goto).not.toHaveBeenCalled();
     expect(manager.launch).not.toHaveBeenCalled();
     expect(manager.waitForLoad).toHaveBeenCalledWith("shopping-extension-fallback", "networkidle", 15000);
+  });
+
+  it("uses the widened clone-page capture for shopping fallback exports when available", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-expanded-clone" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePageHtmlWithOptions: vi.fn(async () => ({
+        html: "<html><body>shopping extension fallback</body></html>",
+        warnings: ["Export truncated at 5000 nodes; 4399 nodes omitted."]
+      })),
+      clonePageWithOptions: vi.fn(async () => ({
+        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>unexpected component parse</body></html>\" }} />); }",
+        css: ""
+      })),
+      clonePage: vi.fn(async () => ({
+        component: "export default function OpenDevBrowserComponent() { return (<div className=\\\"opendevbrowser-root\\\" dangerouslySetInnerHTML={{ __html: \\\"<html><body>unexpected legacy clone</body></html>\\\" }} />); }",
+        css: ""
+      })),
+      status: vi.fn(async () => ({ mode: "extension", url: "https://www.ebay.com/sch/i.html?_nkw=macbook" })),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/ebay",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-shopping-expanded-clone", ts: "2026-03-30T00:00:00.000Z" },
+      url: "https://www.ebay.com/sch/i.html?_nkw=macbook",
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><body>shopping extension fallback</body></html>"
+      }
+    });
+    expect(manager.clonePageHtmlWithOptions).toHaveBeenCalledWith(
+      "shopping-extension-expanded-clone",
+      null,
+      { maxNodes: 5000 }
+    );
+    expect(manager.clonePageWithOptions).not.toHaveBeenCalled();
+    expect(manager.clonePage).not.toHaveBeenCalled();
   });
 
   it("treats trimmed shopping extension URLs as exact matches and skips a second navigation", async () => {
@@ -756,6 +819,51 @@ describe("provider runtime factory", () => {
       timeoutMs: 1000
     })).rejects.toThrow("Provider request timed out after 1000ms");
     expect(manager.disconnect).toHaveBeenCalledWith("shopping-timeout-session", true);
+  });
+
+  it("preserves extension ops timeout details on deferred fallback failures", async () => {
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-timeout" })),
+      status: vi.fn(async () => ({ mode: "extension", activeTargetId: "tab-1", url: "https://example.com/start" })),
+      goto: vi.fn(async () => {
+        throw new OpsRequestTimeoutError({
+          command: "nav.goto",
+          timeoutMs: 1000,
+          requestId: "ops-goto-timeout",
+          opsSessionId: "ops-proto-timeout",
+          leaseId: "lease-timeout",
+          stage: "nav.goto"
+        });
+      }),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, {
+      extensionWsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+    await expect(port?.resolve({
+      provider: "shopping/ebay",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-shopping-extension-timeout", ts: "2026-03-30T00:00:00.000Z" },
+      url: "https://example.com/search",
+      timeoutMs: 1000,
+      preferredModes: ["extension"]
+    })).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "env_limited",
+      disposition: "deferred",
+      mode: "extension",
+      details: {
+        message: "Ops request timed out",
+        opsTimeoutCommand: "nav.goto",
+        opsTimeoutMs: 1000,
+        opsTimeoutRequestId: "ops-goto-timeout",
+        stage: "nav.goto"
+      }
+    });
+    expect(manager.disconnect).toHaveBeenCalledWith("shopping-extension-timeout", true);
   });
 
   it("aborts fallback navigation when the workflow signal times out", async () => {

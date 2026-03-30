@@ -12,7 +12,7 @@ import { createLogger, createRequestId } from "../core/logging";
 import { ConsoleTracker } from "../devtools/console-tracker";
 import { ExceptionTracker } from "../devtools/exception-tracker";
 import { NetworkTracker } from "../devtools/network-tracker";
-import { captureDom } from "../export/dom-capture";
+import { captureDom, type DomCapture } from "../export/dom-capture";
 import { extractCss } from "../export/css-extract";
 import { emitReactComponent, type ReactExport } from "../export/react-emitter";
 import { RefStore } from "../snapshot/refs";
@@ -29,7 +29,7 @@ import type {
   SessionChallengeSummary,
   SuspendedIntentSummary
 } from "../providers/types";
-import type { BrowserResponseMeta, ChallengeRuntimeHandle } from "./manager-types";
+import type { BrowserClonePageOptions, BrowserResponseMeta, ChallengeRuntimeHandle } from "./manager-types";
 import {
   evaluateTier1Coherence,
   formatTier1Warnings,
@@ -1784,18 +1784,31 @@ export class BrowserManager {
     });
   }
 
+  async clonePageWithOptions(
+    sessionId: string,
+    targetId?: string | null,
+    options: BrowserClonePageOptions = {}
+  ): Promise<ReactExport> {
+    const allowUnsafeExport = this.config.security.allowUnsafeExport;
+    const capture = await this.capturePageCloneWithOptions(sessionId, targetId, options);
+    const css = extractCss(capture);
+    return emitReactComponent(capture, css, { allowUnsafeExport });
+  }
+
   async clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {
-    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
-      const allowUnsafeExport = this.config.security.allowUnsafeExport;
-      const exportConfig = this.config.export;
-      const capture = await captureDom(page, "body", {
-        sanitize: !allowUnsafeExport,
-        maxNodes: exportConfig.maxNodes,
-        inlineStyles: exportConfig.inlineStyles
-      });
-      const css = extractCss(capture);
-      return emitReactComponent(capture, css, { allowUnsafeExport });
-    });
+    return await this.clonePageWithOptions(sessionId, targetId);
+  }
+
+  async clonePageHtmlWithOptions(
+    sessionId: string,
+    targetId?: string | null,
+    options: BrowserClonePageOptions = {}
+  ): Promise<{ html: string; warnings?: string[] }> {
+    const capture = await this.capturePageCloneWithOptions(sessionId, targetId, options);
+    return {
+      html: capture.html,
+      ...(capture.warnings ? { warnings: [...capture.warnings] } : {})
+    };
   }
 
   async cloneComponent(sessionId: string, ref: string, targetId?: string | null): Promise<ReactExport> {
@@ -1832,6 +1845,22 @@ export class BrowserManager {
       } finally {
         await session.detach().catch(() => undefined);
       }
+    });
+  }
+
+  private async capturePageCloneWithOptions(
+    sessionId: string,
+    targetId: string | null | undefined,
+    options: BrowserClonePageOptions = {}
+  ): Promise<DomCapture> {
+    return await this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const allowUnsafeExport = this.config.security.allowUnsafeExport;
+      const exportConfig = this.config.export;
+      return await captureDom(page, "body", {
+        sanitize: !allowUnsafeExport,
+        maxNodes: options.maxNodes ?? exportConfig.maxNodes,
+        inlineStyles: options.inlineStyles ?? exportConfig.inlineStyles
+      });
     });
   }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import type { OpenDevBrowserConfig } from "../src/config";
 import { OpsBrowserManager } from "../src/browser/ops-browser-manager";
+import { OpsRequestTimeoutError } from "../src/browser/ops-client";
 
 const runtimePreviewBridgeMock = vi.hoisted(() => vi.fn().mockResolvedValue({
   ok: true,
@@ -31,31 +32,35 @@ const connectMock = vi.fn().mockResolvedValue({
 });
 const disconnectMock = vi.fn().mockResolvedValue(undefined);
 
-vi.mock("../src/browser/ops-client", () => ({
-  OpsClient: class {
-    url: string;
-    private handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void };
-    constructor(url: string, handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void }) {
-      this.url = url;
-      this.handlers = handlers;
+vi.mock("../src/browser/ops-client", async () => {
+  const actual = await vi.importActual<typeof import("../src/browser/ops-client")>("../src/browser/ops-client");
+  return {
+    ...actual,
+    OpsClient: class {
+      url: string;
+      private handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void };
+      constructor(url: string, handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void }) {
+        this.url = url;
+        this.handlers = handlers;
+      }
+      async connect() {
+        return await connectMock();
+      }
+      async request(...args: unknown[]) {
+        return await requestMock(...args);
+      }
+      disconnect() {
+        disconnectMock();
+      }
+      emitEvent(event: { event?: string; opsSessionId?: string }) {
+        this.handlers.onEvent?.(event);
+      }
+      emitClose() {
+        this.handlers.onClose?.();
+      }
     }
-    async connect() {
-      return await connectMock();
-    }
-    async request(...args: unknown[]) {
-      return await requestMock(...args);
-    }
-    disconnect() {
-      disconnectMock();
-    }
-    emitEvent(event: { event?: string; opsSessionId?: string }) {
-      this.handlers.onEvent?.(event);
-    }
-    emitClose() {
-      this.handlers.onClose?.();
-    }
-  }
-}));
+  };
+});
 
 const makeConfig = (): OpenDevBrowserConfig => ({
   headless: false,
@@ -223,6 +228,8 @@ describe("OpsBrowserManager", () => {
       domIsVisible: vi.fn().mockResolvedValue({ value: true }),
       domIsEnabled: vi.fn().mockResolvedValue({ value: true }),
       domIsChecked: vi.fn().mockResolvedValue({ value: false }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({ html: "<div>component</div>" }),
+      clonePageWithOptions: vi.fn().mockResolvedValue({ component: "component", css: "" }),
       clonePage: vi.fn().mockResolvedValue({ component: "component", css: "" }),
       cloneComponent: vi.fn().mockResolvedValue({ component: "component", css: "" }),
       perfMetrics: vi.fn().mockResolvedValue({ metrics: [] }),
@@ -272,6 +279,8 @@ describe("OpsBrowserManager", () => {
     await manager.domIsVisible("base-session", "ref-1");
     await manager.domIsEnabled("base-session", "ref-1");
     await manager.domIsChecked("base-session", "ref-1");
+    await manager.clonePageHtmlWithOptions("base-session", null, { maxNodes: 2500 });
+    await manager.clonePageWithOptions("base-session", null, { maxNodes: 2500 });
     await manager.clonePage("base-session");
     await manager.cloneComponent("base-session", "ref-1");
     await manager.perfMetrics("base-session");
@@ -291,6 +300,8 @@ describe("OpsBrowserManager", () => {
     expect(base.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
     expect(base.goto).toHaveBeenCalled();
     expect(base.cookieList).toHaveBeenCalledWith("base-session", ["https://example.com"], "req-base-list");
+    expect(base.clonePageHtmlWithOptions).toHaveBeenCalledWith("base-session", null, { maxNodes: 2500 });
+    expect(base.clonePageWithOptions).toHaveBeenCalledWith("base-session", null, { maxNodes: 2500 });
   });
 
   it("delegates pointer primitives to the base manager for non-ops sessions", async () => {
@@ -311,6 +322,24 @@ describe("OpsBrowserManager", () => {
     expect(base.pointerDown).toHaveBeenCalledWith("base-session", 10, 20, undefined, "left", 1);
     expect(base.pointerUp).toHaveBeenCalledWith("base-session", 10, 20, undefined, "left", 1);
     expect(base.drag).toHaveBeenCalledWith("base-session", { x: 1, y: 2 }, { x: 3, y: 4 }, undefined, undefined);
+  });
+
+  it("delegates ref-point resolution to the base manager for non-ops sessions", async () => {
+    const base = {
+      resolveRefPoint: vi.fn().mockResolvedValue({ x: 12, y: 34 })
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+
+    await expect(manager.resolveRefPoint("base-session", "ref-1")).resolves.toEqual({ x: 12, y: 34 });
+    expect(base.resolveRefPoint).toHaveBeenCalledWith("base-session", "ref-1", undefined);
+  });
+
+  it("fails ref-point resolution when the base manager does not expose the helper", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+
+    await expect(manager.resolveRefPoint("base-session", "ref-1")).rejects.toThrow(
+      "Base browser manager does not support ref-point resolution."
+    );
   });
 
   it("passes startUrl when delegating cdp relay connections to the base manager", async () => {
@@ -1292,6 +1321,20 @@ describe("OpsBrowserManager", () => {
     expect(managerAny.buildRelayStatusUrl("not a websocket url")).toBeNull();
   });
 
+  it("ignores invalid remembered recovery urls", () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      opsSessionUrls: Map<string, string>;
+      rememberSessionUrl: (sessionId: string, url: string | null | undefined) => void;
+    };
+
+    managerAny.rememberSessionUrl("ops-bad-url", "not a valid url");
+    managerAny.rememberSessionUrl("ops-ftp-url", "ftp://example.com/file");
+
+    expect(managerAny.opsSessionUrls.has("ops-bad-url")).toBe(false);
+    expect(managerAny.opsSessionUrls.has("ops-ftp-url")).toBe(false);
+  });
+
   it("recovers ops sessions without remembered targets or fallback URLs and preserves the prior lease", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const clientRequest = vi.fn().mockResolvedValue({
@@ -1795,6 +1838,58 @@ describe("OpsBrowserManager", () => {
     });
   });
 
+  it("forwards clone-page overrides through ops export capture", async () => {
+    const domCapture = { html: "<div></div>", styles: {}, warnings: [], inlineStyles: true };
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-clone-options", activeTargetId: "tab-1", leaseId: "lease-clone-options" };
+      }
+      if (command === "export.clonePage") {
+        return { capture: domCapture };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    await manager.clonePageWithOptions("ops-clone-options", null, { maxNodes: 2500 });
+    await expect(manager.clonePageHtmlWithOptions("ops-clone-options", null, { maxNodes: 2500 })).resolves.toEqual({
+      html: "<div></div>",
+      warnings: []
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(
+      "export.clonePage",
+      expect.objectContaining({
+        sanitize: true,
+        maxNodes: 2500,
+        inlineStyles: true
+      }),
+      "ops-clone-options",
+      30000,
+      "lease-clone-options"
+    );
+    expect(requestMock).toHaveBeenNthCalledWith(
+      3,
+      "export.clonePage",
+      expect.objectContaining({
+        sanitize: true,
+        maxNodes: 2500,
+        inlineStyles: true
+      }),
+      "ops-clone-options",
+      30000,
+      "lease-clone-options"
+    );
+  });
+
   it("propagates ops screenshot warnings when writing to a path", async () => {
     requestMock.mockImplementation(async (...args: unknown[]) => {
       const command = args[0] as string;
@@ -2078,6 +2173,50 @@ describe("OpsBrowserManager", () => {
     expect(managerAny.opsSessionTabs.get("ops-2")).toBe(91);
     expect(managerAny.publicSessionIdsByProtocolId.get("ops-4")).toBe("ops-2");
 
+    managerAny.opsLeases.set("ops-timeout-retry", "lease-timeout-retry");
+    managerAny.opsSessionTabs.set("ops-timeout-retry", 99);
+    managerAny.opsSessionUrls.set("ops-timeout-retry", "https://example.com/recovered-timeout");
+    managerAny.opsClient.request = vi.fn()
+      .mockRejectedValueOnce(new OpsRequestTimeoutError({
+        command: "session.connect",
+        timeoutMs: 30000,
+        requestId: "ops-timeout-connect",
+        leaseId: "lease-timeout-retry"
+      }))
+      .mockResolvedValueOnce({
+        opsSessionId: "ops-timeout-recovered",
+        activeTargetId: "tab-109",
+        leaseId: "lease-timeout-recovered",
+        url: "https://example.com/recovered-timeout"
+      });
+
+    await expect(managerAny.recoverOpsSession("ops-timeout-retry", { url: "   " })).resolves.toBe(true);
+    expect(managerAny.opsClient.request).toHaveBeenNthCalledWith(
+      1,
+      "session.connect",
+      expect.objectContaining({
+        sessionId: "ops-timeout-retry",
+        tabId: 99
+      }),
+      undefined,
+      expect.any(Number),
+      "lease-timeout-retry"
+    );
+    expect(managerAny.opsClient.request).toHaveBeenNthCalledWith(
+      2,
+      "session.connect",
+      expect.objectContaining({
+        sessionId: "ops-timeout-retry",
+        startUrl: "https://example.com/recovered-timeout"
+      }),
+      undefined,
+      expect.any(Number),
+      "lease-timeout-retry"
+    );
+    expect(managerAny.opsLeases.get("ops-timeout-retry")).toBe("lease-timeout-recovered");
+    expect(managerAny.opsSessionTabs.get("ops-timeout-retry")).toBe(109);
+    expect(managerAny.publicSessionIdsByProtocolId.get("ops-timeout-recovered")).toBe("ops-timeout-retry");
+
     managerAny.trackProtocolSession("ops-1", "ops-3");
     expect(managerAny.publicSessionIdsByProtocolId.has("ops-2")).toBe(false);
     expect(managerAny.publicSessionIdsByProtocolId.get("ops-3")).toBe("ops-1");
@@ -2203,6 +2342,36 @@ describe("OpsBrowserManager", () => {
     expect(managerAny.opsSessions.has("ops-url")).toBe(true);
   });
 
+  it("surfaces startUrl reconnect timeouts with stageful details", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const timeoutError = new OpsRequestTimeoutError({
+      command: "session.connect",
+      timeoutMs: 30000,
+      requestId: "ops-starturl-timeout"
+    });
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsLeases: Map<string, string>;
+      opsSessionUrls: Map<string, string>;
+      recoverOpsSession: (sessionId: string, payload: Record<string, unknown>) => Promise<boolean>;
+    };
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(timeoutError)
+    };
+    managerAny.opsLeases.set("ops-starturl", "lease-starturl");
+    managerAny.opsSessionUrls.set("ops-starturl", "https://example.com/recover-start");
+
+    const error = await managerAny.recoverOpsSession("ops-starturl", {}).catch((caught) => caught);
+    expect(error).toBeInstanceOf(OpsRequestTimeoutError);
+    expect(error).toMatchObject({
+      details: {
+        command: "session.connect",
+        requestId: "ops-starturl-timeout",
+        stage: "session.connect.startUrl"
+      }
+    });
+  });
+
   it("rethrows session.connect failures without attempting recovery", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const error = new Error("connect failed");
@@ -2277,6 +2446,223 @@ describe("OpsBrowserManager", () => {
 
     await expect(managerAny.requestOps("ops-unrecovered", "targets.list", { includeUrls: true })).rejects.toBe(error);
     expect(managerAny.recoverOpsSession).toHaveBeenCalledWith("ops-unrecovered", { includeUrls: true });
+  });
+
+  it("rethrows the original error when recovery succeeds without a replacement client", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const error = new Error("[invalid_session] Unknown ops session");
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(error)
+    };
+    managerAny.opsLeases.set("ops-client-missing", "lease-client-missing");
+    managerAny.recoverOpsSession = vi.fn().mockImplementation(async () => {
+      managerAny.opsClient = null;
+      return true;
+    });
+
+    await expect(managerAny.requestOps("ops-client-missing", "targets.list", { includeUrls: true })).rejects.toBe(error);
+  });
+
+  it("retries timed-out ops requests after recovering the session", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const timeoutError = new OpsRequestTimeoutError({
+      command: "targets.list",
+      timeoutMs: 30000,
+      requestId: "ops-timeout-request",
+      opsSessionId: "ops-timeout-proto",
+      leaseId: "lease-timeout"
+    });
+    const recoveredClient = {
+      request: vi.fn().mockResolvedValue({ activeTargetId: "tab-202", targets: [] })
+    };
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(timeoutError)
+    };
+    managerAny.opsLeases.set("ops-timeout-recover", "lease-timeout");
+    managerAny.recoverOpsSession = vi.fn().mockImplementation(async () => {
+      managerAny.opsClient = recoveredClient;
+      return true;
+    });
+
+    await expect(managerAny.requestOps("ops-timeout-recover", "targets.list", { includeUrls: true })).resolves.toEqual({
+      activeTargetId: "tab-202",
+      targets: []
+    });
+    expect(managerAny.recoverOpsSession).toHaveBeenCalledWith("ops-timeout-recover", { includeUrls: true });
+    expect(recoveredClient.request).toHaveBeenCalledWith(
+      "targets.list",
+      { includeUrls: true },
+      "ops-timeout-recover",
+      30000,
+      "lease-timeout"
+    );
+  });
+
+  it("returns deferred challenge guidance when manager suppression is active", async () => {
+    const base = { setChallengeOrchestrator: vi.fn() };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const orchestrate = vi.fn();
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+    const managerAny = manager as unknown as {
+      challengeAutomationSuppression: Map<string, number>;
+      maybeOrchestrateChallenge: (
+        sessionId: string,
+        targetId: string | null | undefined,
+        result: Record<string, unknown> & { meta?: Record<string, unknown> }
+      ) => Promise<Record<string, unknown> & { meta?: Record<string, unknown> }>;
+    };
+    managerAny.challengeAutomationSuppression.set("ops-suppressed", 1);
+
+    const result = await managerAny.maybeOrchestrateChallenge("ops-suppressed", "tab-1", {
+      ok: true,
+      meta: {
+        blockerState: "blocked",
+        blocker: { type: "auth_required" },
+        challenge: { challengeId: "challenge-suppressed" }
+      }
+    });
+
+    expect(orchestrate).not.toHaveBeenCalled();
+    expect(result.meta).toMatchObject({
+      challengeOrchestration: {
+        status: "deferred",
+        standDownReason: "suppressed_by_manager",
+        helperEligibility: {
+          allowed: false,
+          standDownReason: "suppressed_by_manager"
+        }
+      }
+    });
+  });
+
+  it("restores nested challenge suppression counts after wrapped actions complete", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      challengeAutomationSuppression: Map<string, number>;
+      withChallengeAutomationSuppressed: <T>(sessionId: string, action: () => Promise<T>) => Promise<T>;
+    };
+    managerAny.challengeAutomationSuppression.set("ops-nested", 1);
+
+    await expect(
+      managerAny.withChallengeAutomationSuppressed("ops-nested", async () => {
+        expect(managerAny.challengeAutomationSuppression.get("ops-nested")).toBe(2);
+        return "ok";
+      })
+    ).resolves.toBe("ok");
+
+    expect(managerAny.challengeAutomationSuppression.get("ops-nested")).toBe(1);
+  });
+
+  it("tolerates suppression bookkeeping disappearing during wrapped actions", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      challengeAutomationSuppression: Map<string, number>;
+      withChallengeAutomationSuppressed: <T>(sessionId: string, action: () => Promise<T>) => Promise<T>;
+    };
+    managerAny.challengeAutomationSuppression.set("ops-missing", 1);
+
+    await expect(
+      managerAny.withChallengeAutomationSuppressed("ops-missing", async () => {
+        managerAny.challengeAutomationSuppression.delete("ops-missing");
+        return "ok";
+      })
+    ).resolves.toBe("ok");
+
+    expect(managerAny.challengeAutomationSuppression.has("ops-missing")).toBe(false);
+  });
+
+  it("classifies suppressed non-auth challenges as unsupported third-party work", async () => {
+    const base = { setChallengeOrchestrator: vi.fn() };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const orchestrate = vi.fn();
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+    const managerAny = manager as unknown as {
+      challengeAutomationSuppression: Map<string, number>;
+      maybeOrchestrateChallenge: (
+        sessionId: string,
+        targetId: string | null | undefined,
+        result: Record<string, unknown> & { meta?: Record<string, unknown> }
+      ) => Promise<Record<string, unknown> & { meta?: Record<string, unknown> }>;
+    };
+    managerAny.challengeAutomationSuppression.set("ops-third-party", 1);
+
+    const result = await managerAny.maybeOrchestrateChallenge("ops-third-party", "tab-1", {
+      ok: true,
+      meta: {
+        blockerState: "blocked",
+        blocker: { type: "challenge_detected" },
+        challenge: { challengeId: "challenge-third-party" }
+      }
+    });
+
+    expect(orchestrate).not.toHaveBeenCalled();
+    expect(result.meta).toMatchObject({
+      challengeOrchestration: {
+        classification: "unsupported_third_party_challenge",
+        status: "deferred",
+        standDownReason: "suppressed_by_manager"
+      }
+    });
+  });
+
+  it("returns blocked challenge results unchanged when no orchestrator is configured", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      maybeOrchestrateChallenge: (
+        sessionId: string,
+        targetId: string | null | undefined,
+        result: Record<string, unknown> & { meta?: Record<string, unknown> }
+      ) => Promise<Record<string, unknown> & { meta?: Record<string, unknown> }>;
+    };
+    const original = {
+      ok: true,
+      meta: {
+        blockerState: "blocked",
+        blocker: { type: "auth_required" },
+        challenge: { challengeId: "challenge-no-orchestrator" }
+      }
+    };
+
+    await expect(managerAny.maybeOrchestrateChallenge("ops-no-orchestrator", "tab-1", original)).resolves.toEqual(original);
+  });
+
+  it("returns the original challenge result when orchestration throws", async () => {
+    const base = { setChallengeOrchestrator: vi.fn() };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const orchestrate = vi.fn().mockRejectedValue(new Error("challenge failed"));
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+    const managerAny = manager as unknown as {
+      maybeOrchestrateChallenge: (
+        sessionId: string,
+        targetId: string | null | undefined,
+        result: Record<string, unknown> & { meta?: Record<string, unknown> }
+      ) => Promise<Record<string, unknown> & { meta?: Record<string, unknown> }>;
+    };
+    const original = {
+      ok: true,
+      meta: {
+        blockerState: "blocked",
+        blocker: { type: "auth_required" },
+        challenge: { challengeId: "challenge-failed" }
+      }
+    };
+
+    await expect(managerAny.maybeOrchestrateChallenge("ops-challenge-error", "tab-1", original)).resolves.toEqual(original);
+    expect(orchestrate).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to the existing lease when recovered sessions do not return a replacement", async () => {

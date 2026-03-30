@@ -4533,16 +4533,34 @@ describe("BrowserManager", () => {
     expect(clonePage.css).toContain(".opendevbrowser-root");
     expect(captureDom).toHaveBeenNthCalledWith(
       1,
+        page,
+        "body",
+        expect.objectContaining({ sanitize: true, maxNodes: 10, inlineStyles: false })
+      );
+
+    const widenedClonePage = await manager.clonePageWithOptions(launch.sessionId, undefined, { maxNodes: 25 });
+    expect(widenedClonePage.component).toContain("OpenDevBrowserComponent");
+    expect(captureDom).toHaveBeenNthCalledWith(
+      2,
       page,
       "body",
-      expect.objectContaining({ sanitize: true, maxNodes: 10, inlineStyles: false })
+      expect.objectContaining({ sanitize: true, maxNodes: 25, inlineStyles: false })
+    );
+
+    const widenedCloneHtml = await manager.clonePageHtmlWithOptions(launch.sessionId, undefined, { maxNodes: 25 });
+    expect(widenedCloneHtml.html).toContain("ok");
+    expect(captureDom).toHaveBeenNthCalledWith(
+      3,
+      page,
+      "body",
+      expect.objectContaining({ sanitize: true, maxNodes: 25, inlineStyles: false })
     );
 
     await manager.snapshot(launch.sessionId, "outline", 500);
     const cloneComponent = await manager.cloneComponent(launch.sessionId, "r1");
     expect(cloneComponent.component).toContain("OpenDevBrowserComponent");
     expect(captureDom).toHaveBeenNthCalledWith(
-      2,
+      4,
       page,
       expect.any(String),
       expect.objectContaining({ sanitize: true, maxNodes: 10, inlineStyles: false })
