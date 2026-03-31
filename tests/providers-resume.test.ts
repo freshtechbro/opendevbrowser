@@ -3,6 +3,8 @@ import { ProviderRuntime } from "../src/providers";
 import { normalizeRecord } from "../src/providers/normalize";
 import type { ProviderAdapter, ProviderContext, ProviderSource, SessionChallengeSummary } from "../src/providers/types";
 
+type WorkflowKind = "research" | "shopping" | "product_video";
+
 const makeProvider = (
   id: string,
   source: ProviderSource,
@@ -56,6 +58,35 @@ const makeChallenge = (
     }
   },
   ...overrides
+});
+
+const workflowResumeInput = (
+  kind: WorkflowKind,
+  input: Record<string, unknown>,
+  options: {
+    checkpoint?: Record<string, unknown>;
+    trace?: Array<Record<string, unknown>>;
+  } = {}
+): { workflow: { kind: WorkflowKind; input: Record<string, unknown> } } => ({
+  workflow: {
+    kind,
+    input,
+    ...(options.checkpoint ? { checkpoint: options.checkpoint } : {}),
+    ...(options.trace ? { trace: options.trace } : {})
+  }
+});
+
+const expectWorkflowSuspendedIntent = (
+  kind: WorkflowKind,
+  input: Record<string, unknown>
+) => expect.objectContaining({
+  kind: `workflow.${kind}`,
+  input: {
+    workflow: expect.objectContaining({
+      kind,
+      input: expect.objectContaining(input)
+    })
+  }
 });
 
 describe("provider runtime resume", () => {
@@ -392,12 +423,12 @@ describe("provider runtime resume", () => {
     const result = await runtime.resumeChallengeIntent(makeChallenge({
       suspendedIntent: {
         kind: "workflow.research",
-        input: {
+        input: workflowResumeInput("research", {
           topic: "resume topic",
           mode: "json",
           sources: ["web"],
           limitPerSource: 1
-        }
+        })
       }
     }));
 
@@ -410,15 +441,137 @@ describe("provider runtime resume", () => {
     expect(search).toHaveBeenCalledWith(
       expect.objectContaining({ query: "resume topic", limit: 1 }),
       expect.objectContaining({
-        suspendedIntent: expect.objectContaining({
-          kind: "workflow.research",
-          input: expect.objectContaining({
-            topic: "resume topic"
-          })
+        suspendedIntent: expectWorkflowSuspendedIntent("research", {
+          topic: "resume topic"
         })
       })
     );
     expect(seenContext?.suspendedIntent?.kind).toBe("workflow.research");
+  });
+
+  it("resumes workflow research from checkpoint state without replaying completed source searches", async () => {
+    let communityContext: ProviderContext | undefined;
+    let fetchContext: ProviderContext | undefined;
+    const webSearch = vi.fn(async () => [normalizeRecord("web/research", "web", {
+      url: "https://example.com/unexpected-web-replay",
+      title: "unexpected web replay"
+    })]);
+    const communitySearch = vi.fn(async (input, context) => {
+      communityContext = context;
+      return [normalizeRecord("community/research", "community", {
+        url: "https://community.example.com/resume-topic",
+        title: input.query,
+        attributes: {
+          retrievalPath: "community:post:url"
+        }
+      })];
+    });
+    const fetch = vi.fn(async (input, context) => {
+      fetchContext = context;
+      return [normalizeRecord("web/research", "web", {
+        url: input.url,
+        title: "checkpointed follow-up",
+        content: "checkpointed follow-up content",
+        attributes: {
+          retrievalPath: "web:fetch:url"
+        }
+      })];
+    });
+    const runtime = new ProviderRuntime({
+      providers: [
+        makeProvider("web/research", "web", { search: webSearch, fetch }),
+        makeProvider("community/research", "community", { search: communitySearch })
+      ]
+    });
+
+    const checkpointedWebSearchResult = {
+      ok: true,
+      records: [normalizeRecord("web/research", "web", {
+        url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fresume-follow-up",
+        title: "resume search shell",
+        content: "resume topic",
+        attributes: {
+          retrievalPath: "web:search:index"
+        }
+      })],
+      trace: { requestId: "research-checkpoint", ts: "2026-03-30T23:15:00.000Z" },
+      partial: false,
+      failures: [],
+      metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+      sourceSelection: "web" as const,
+      providerOrder: ["web/research"]
+    };
+
+    const result = await runtime.resumeChallengeIntent(makeChallenge({
+      suspendedIntent: {
+        kind: "workflow.research",
+        input: workflowResumeInput("research", {
+          topic: "resume topic",
+          mode: "json",
+          sources: ["web", "community"],
+          limitPerSource: 1
+        }, {
+          checkpoint: {
+            stage: "execute",
+            stepId: "search:web",
+            stepIndex: 0,
+            state: {
+              completed_step_ids: ["search:web"],
+              step_results_by_id: {
+                "search:web": checkpointedWebSearchResult
+              }
+            },
+            updatedAt: "2026-03-30T23:15:00.000Z"
+          },
+          trace: [{
+            at: "2026-03-30T23:15:00.000Z",
+            stage: "compile",
+            event: "compile_completed"
+          }]
+        })
+      }
+    }));
+
+    expect(webSearch).not.toHaveBeenCalled();
+    expect(communitySearch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/resume-follow-up" },
+      expect.objectContaining({
+        suspendedIntent: expect.objectContaining({
+          kind: "workflow.research",
+          input: expect.objectContaining({
+            workflow: expect.objectContaining({
+              checkpoint: expect.objectContaining({
+                state: expect.objectContaining({
+                  completed_step_ids: ["search:web", "search:community"]
+                })
+              })
+            })
+          })
+        })
+      })
+    );
+    expect(communityContext?.suspendedIntent).toMatchObject({
+      kind: "workflow.research",
+      input: {
+        workflow: {
+          kind: "research",
+          checkpoint: {
+            state: {
+              completed_step_ids: ["search:web"]
+            }
+          }
+        }
+      }
+    });
+    expect(fetchContext?.suspendedIntent?.kind).toBe("workflow.research");
+    expect((result.records as Array<{ url: string }>).map((record) => record.url)).toEqual(
+      expect.arrayContaining([
+        "https://example.com/resume-follow-up",
+        "https://community.example.com/resume-topic"
+      ])
+    );
   });
 
   it("replays workflow shopping and product-video intents through the shared runtime", async () => {
@@ -477,11 +630,11 @@ describe("provider runtime resume", () => {
     const shopping = await runtime.resumeChallengeIntent(makeChallenge({
       suspendedIntent: {
         kind: "workflow.shopping",
-        input: {
+        input: workflowResumeInput("shopping", {
           query: "workflow shopping item",
           providers: ["shopping/amazon"],
           mode: "json"
-        }
+        })
       }
     }));
     expect((shopping.offers as Array<{ provider: string }>)[0]?.provider).toBe("shopping/amazon");
@@ -490,16 +643,207 @@ describe("provider runtime resume", () => {
     const productVideo = await runtime.resumeChallengeIntent(makeChallenge({
       suspendedIntent: {
         kind: "workflow.product_video",
-        input: {
+        input: workflowResumeInput("product_video", {
           product_url: "https://www.amazon.com/dp/WORKFLOWVIDEO001",
           include_screenshots: false,
           include_all_images: false,
           include_copy: false
-        }
+        }, {
+          checkpoint: {
+            stage: "resume",
+            stepId: "workflow.product_video:resume",
+            stepIndex: 0,
+            state: {
+              completed_step_ids: []
+            },
+            updatedAt: "2026-03-22T12:00:00.000Z"
+          },
+          trace: [{
+            at: "2026-03-22T12:00:00.000Z",
+            stage: "resume",
+            event: "resume_seed"
+          }]
+        })
       }
     }));
     expect((productVideo.product as { provider: string }).provider).toBe("shopping/amazon");
     expect(productVideoContext?.suspendedIntent?.kind).toBe("workflow.product_video");
+    expect(productVideoContext?.suspendedIntent?.input).toMatchObject({
+      workflow: {
+        kind: "product_video",
+        checkpoint: {
+          stage: "execute",
+          stepId: "product_video:fetch_product_detail",
+          state: {
+            completed_step_ids: ["product_video:normalize_input"]
+          }
+        }
+      }
+    });
+    const productVideoTrace = (productVideoContext?.suspendedIntent?.input as {
+      workflow: {
+        trace: Array<{ event: string }>;
+      };
+    }).workflow.trace;
+    expect(productVideoTrace).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "resume_seed" }),
+      expect.objectContaining({ event: "compile_started" }),
+      expect.objectContaining({ event: "compile_completed" }),
+      expect.objectContaining({ event: "pre_suspend_checkpoint" })
+    ]));
+  });
+
+  it("resumes workflow shopping from checkpoint state without replaying completed provider searches", async () => {
+    let walmartContext: ProviderContext | undefined;
+    const amazonSearch = vi.fn(async () => [normalizeRecord("shopping/amazon", "shopping", {
+      url: "https://www.amazon.com/dp/WORKFLOWCHECKPOINT001",
+      title: "checkpointed amazon result",
+      content: "$19.99",
+      attributes: {
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: "WORKFLOWCHECKPOINT001",
+          title: "checkpointed amazon result",
+          url: "https://www.amazon.com/dp/WORKFLOWCHECKPOINT001",
+          price: { amount: 19.99, currency: "USD", retrieved_at: "2026-03-30T22:00:00.000Z" },
+          shipping: { amount: 0, currency: "USD", notes: "free" },
+          availability: "in_stock",
+          rating: 4.7,
+          reviews_count: 12
+        }
+      }
+    })]);
+    const walmartSearch = vi.fn(async (input, context) => {
+      walmartContext = context;
+      return [normalizeRecord("shopping/walmart", "shopping", {
+        url: "https://www.walmart.com/ip/WORKFLOWCHECKPOINT002",
+        title: input.query,
+        content: "$24.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/walmart",
+            product_id: "WORKFLOWCHECKPOINT002",
+            title: input.query,
+            url: "https://www.walmart.com/ip/WORKFLOWCHECKPOINT002",
+            price: { amount: 24.99, currency: "USD", retrieved_at: "2026-03-30T22:00:00.000Z" },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.4,
+            reviews_count: 9
+          }
+        }
+      })];
+    });
+    const runtime = new ProviderRuntime({
+      providers: [
+        makeProvider("shopping/amazon", "shopping", { search: amazonSearch }),
+        makeProvider("shopping/walmart", "shopping", { search: walmartSearch })
+      ]
+    });
+
+    const checkpointedAmazonResult = {
+      ok: true,
+      records: [normalizeRecord("shopping/amazon", "shopping", {
+        url: "https://www.amazon.com/dp/WORKFLOWCHECKPOINT001",
+        title: "checkpointed amazon result",
+        content: "$19.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "WORKFLOWCHECKPOINT001",
+            title: "checkpointed amazon result",
+            url: "https://www.amazon.com/dp/WORKFLOWCHECKPOINT001",
+            price: { amount: 19.99, currency: "USD", retrieved_at: "2026-03-30T22:00:00.000Z" },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.7,
+            reviews_count: 12
+          }
+        }
+      })],
+      trace: { requestId: "shopping-checkpoint", ts: "2026-03-30T22:00:00.000Z" },
+      partial: false,
+      failures: [],
+      metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+      sourceSelection: "shopping" as const,
+      providerOrder: ["shopping/amazon"]
+    };
+
+    const shopping = await runtime.resumeChallengeIntent(makeChallenge({
+      suspendedIntent: {
+        kind: "workflow.shopping",
+        input: workflowResumeInput("shopping", {
+          query: "workflow shopping resume",
+          providers: ["shopping/amazon", "shopping/walmart"],
+          mode: "json"
+        }, {
+          checkpoint: {
+            stage: "execute",
+            stepId: "search:shopping/amazon",
+            stepIndex: 0,
+            state: {
+              completed_step_ids: ["search:shopping/amazon"],
+              step_results_by_id: {
+                "search:shopping/amazon": checkpointedAmazonResult
+              }
+            },
+            updatedAt: "2026-03-30T22:00:00.000Z"
+          },
+          trace: [{
+            at: "2026-03-30T22:00:00.000Z",
+            stage: "compile",
+            event: "compile_completed"
+          }]
+        })
+      }
+    }));
+
+    expect(amazonSearch).not.toHaveBeenCalled();
+    expect(walmartSearch).toHaveBeenCalledTimes(1);
+    expect((shopping.offers as Array<{ provider: string }>).map((offer) => offer.provider)).toEqual(
+      expect.arrayContaining(["shopping/amazon", "shopping/walmart"])
+    );
+    expect(walmartContext?.suspendedIntent).toMatchObject({
+      kind: "workflow.shopping",
+      input: {
+        workflow: {
+          kind: "shopping",
+          checkpoint: {
+            state: {
+              completed_step_ids: ["search:shopping/amazon"]
+            }
+          }
+        }
+      }
+    });
+  });
+
+  it("rejects legacy raw workflow payloads after the phase-1 migration seam collapses", async () => {
+    const runtime = new ProviderRuntime({
+      providers: [
+        makeProvider("web/research", "web", {
+          search: async () => [normalizeRecord("web/research", "web", {
+            url: "https://example.com/raw-workflow",
+            title: "raw workflow"
+          })]
+        })
+      ]
+    });
+
+    await expect(runtime.resumeChallengeIntent(makeChallenge({
+      suspendedIntent: {
+        kind: "workflow.research",
+        input: {
+          topic: "raw workflow payload",
+          mode: "json",
+          sources: ["web"],
+          limitPerSource: 1
+        }
+      }
+    }))).rejects.toMatchObject({
+      code: "invalid_input",
+      message: "Workflow resume payload is missing or malformed."
+    });
   });
 
   it("rejects manual or unresolved challenges before replay", async () => {

@@ -41,13 +41,11 @@ import { createWebProvider, type WebProviderOptions } from "./web";
 import { classifyBlockerSignal } from "./blocker";
 import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, toSnippet } from "./web/extract";
+import { isWorkflowResumePayload, type WorkflowKind, type WorkflowResumeEnvelope } from "./workflow-contracts";
 import {
   runProductVideoWorkflow,
   runResearchWorkflow,
-  runShoppingWorkflow,
-  type ProductVideoRunInput,
-  type ResearchRunInput,
-  type ShoppingRunInput
+  runShoppingWorkflow
 } from "./workflows";
 import type {
   AdaptiveConcurrencyDiagnostics,
@@ -80,6 +78,7 @@ import type {
   SessionChallengeSummary,
   SuspendedIntentKind,
   SuspendedIntentSummary,
+  WorkflowSuspendedIntentKind,
   TraceContext
 } from "./types";
 
@@ -88,6 +87,11 @@ const DEFAULT_PROVIDER_SUSPENDED_INTENT_KIND: Record<ProviderOperation, Suspende
   fetch: "provider.fetch",
   crawl: "provider.crawl",
   post: "provider.post"
+};
+const WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND: Record<WorkflowSuspendedIntentKind, WorkflowKind> = {
+  "workflow.research": "research",
+  "workflow.shopping": "shopping",
+  "workflow.product_video": "product_video"
 };
 
 type SuspendedIntentResumeResult = ProviderAggregateResult | Record<string, unknown>;
@@ -148,6 +152,31 @@ const shouldRecoverSocialDocumentIssue = (
 const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
   typeof value === "object" && value !== null && !Array.isArray(value)
 );
+
+const unwrapWorkflowResumeEnvelope = (
+  kind: WorkflowKind,
+  input: JsonValue
+): WorkflowResumeEnvelope => {
+  if (!isWorkflowResumePayload(input)) {
+    throw new ProviderRuntimeError(
+      "invalid_input",
+      "Workflow resume payload is missing or malformed.",
+      {
+        retryable: false
+      }
+    );
+  }
+  if (input.workflow.kind !== kind) {
+    throw new ProviderRuntimeError(
+      "invalid_input",
+      `Workflow resume payload kind mismatch. Expected ${kind} but received ${input.workflow.kind}.`,
+      {
+        retryable: false
+      }
+    );
+  }
+  return input.workflow;
+};
 
 class Semaphore {
   private active = 0;
@@ -1532,7 +1561,7 @@ export class ProviderRuntime {
     input: ProviderCallResultByOperation[Operation],
     options: ProviderRunOptions
   ): SuspendedIntentSummary {
-    const baseInput = input as unknown as JsonValue;
+    const baseInput = input as unknown as SuspendedIntentSummary["input"];
     const existing = options.suspendedIntent;
     if (existing) {
       return typeof existing.input === "undefined" && typeof baseInput !== "undefined"
@@ -1587,11 +1616,29 @@ export class ProviderRuntime {
           providerIds: intent.provider ? [intent.provider] : options.providerIds
         });
       case "workflow.research":
-        return runResearchWorkflow(this, input as unknown as ResearchRunInput);
+        return runResearchWorkflow(
+          this,
+          unwrapWorkflowResumeEnvelope(
+            WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[intent.kind],
+            input
+          )
+        );
       case "workflow.shopping":
-        return runShoppingWorkflow(this, input as unknown as ShoppingRunInput);
+        return runShoppingWorkflow(
+          this,
+          unwrapWorkflowResumeEnvelope(
+            WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[intent.kind],
+            input
+          )
+        );
       case "workflow.product_video":
-        return runProductVideoWorkflow(this, input as unknown as ProductVideoRunInput);
+        return runProductVideoWorkflow(
+          this,
+          unwrapWorkflowResumeEnvelope(
+            WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[intent.kind],
+            input
+          )
+        );
       case "youtube.transcript":
         return this.fetch(input as unknown as ProviderCallResultByOperation["fetch"], {
           ...options,

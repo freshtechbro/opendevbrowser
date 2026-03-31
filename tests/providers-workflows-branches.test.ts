@@ -6,15 +6,19 @@ import {
   runShoppingWorkflow,
   type ProviderExecutor
 } from "../src/providers/workflows";
+import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
 import type { ResearchRecord } from "../src/providers/enrichment";
 import { SHOPPING_PROVIDER_IDS, SHOPPING_PROVIDER_PROFILES } from "../src/providers/shopping";
 import type {
+  JsonValue,
   NormalizedRecord,
   ProviderAggregateResult,
   ProviderError,
   ProviderFailureEntry,
   ProviderSource
 } from "../src/providers/types";
+
+type WorkflowKind = "research" | "shopping" | "product_video";
 
 const isoHoursAgo = (hours: number): string => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 const isoHoursAhead = (hours: number): string => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
@@ -67,6 +71,19 @@ const toRuntime = (handlers: {
   search: handlers.search ?? (async () => makeAggregate()),
   fetch: handlers.fetch ?? (async () => makeAggregate()),
   ...(handlers.getAntiBotSnapshots ? { getAntiBotSnapshots: handlers.getAntiBotSnapshots } : {})
+});
+
+const expectWorkflowSuspendedIntent = (
+  kind: WorkflowKind,
+  input: Record<string, unknown>
+) => expect.objectContaining({
+  kind: `workflow.${kind}`,
+  input: {
+    workflow: expect.objectContaining({
+      kind,
+      input: expect.objectContaining(input)
+    })
+  }
 });
 
 describe("workflow branch coverage", () => {
@@ -1216,6 +1233,62 @@ describe("workflow branch coverage", () => {
       metrics: {
         sanitized_records: 3,
         final_records: 1
+      }
+    });
+  });
+
+  it("keeps failed_sources derived from search failures only when web follow-up fetches fail", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      ok: false,
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      failures: [makeFailure("web/default", "web", {
+        code: "unavailable",
+        message: "follow-up fetch failed",
+        retryable: false
+      })],
+      metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+    }));
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source !== "web") {
+          return makeAggregate({
+            sourceSelection: source,
+            providerOrder: [`${source}/default`],
+            records: []
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [makeRecord({
+            id: "search-shell",
+            source: "web",
+            provider: "web/default",
+            url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ffollow-up",
+            title: "search shell",
+            content: "resume topic",
+            attributes: {
+              retrievalPath: "web:search:index"
+            }
+          })]
+        });
+      },
+      fetch
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "follow-up failure accounting",
+      sourceSelection: "auto",
+      days: 7,
+      mode: "json"
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        failed_sources: []
       }
     });
   });
@@ -3345,11 +3418,8 @@ describe("workflow branch coverage", () => {
       expect.objectContaining({
         source: "shopping",
         providerIds: ["shopping/amazon"],
-        suspendedIntent: expect.objectContaining({
-          kind: "workflow.product_video",
-          input: expect.objectContaining({
-            product_url: "https://www.amazon.com/dp/example"
-          })
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_url: "https://www.amazon.com/dp/example"
         })
       })
     );
@@ -3368,12 +3438,9 @@ describe("workflow branch coverage", () => {
       expect.objectContaining({
         source: "shopping",
         providerIds: ["shopping/amazon"],
-        suspendedIntent: expect.objectContaining({
-          kind: "workflow.product_video",
-          input: expect.objectContaining({
-            product_url: "https://www.amazon.com/dp/example",
-            provider_hint: "amazon"
-          })
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_url: "https://www.amazon.com/dp/example",
+          provider_hint: "amazon"
         })
       })
     );
@@ -3567,6 +3634,236 @@ describe("workflow branch coverage", () => {
     });
   });
 
+  it("resumes shopping without replaying completed provider searches", async () => {
+    let searchOptions: Record<string, unknown> | undefined;
+    const search = vi.fn(async (input, options) => {
+      searchOptions = options as Record<string, unknown>;
+      expect(options?.providerIds).toEqual(["shopping/walmart"]);
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [makeRecord({
+          id: "resume-walmart",
+          source: "shopping",
+          provider: "shopping/walmart",
+          url: "https://www.walmart.com/ip/resume-walmart",
+          title: input.query,
+          content: "$24.99",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/walmart",
+              product_id: "resume-walmart",
+              title: input.query,
+              url: "https://www.walmart.com/ip/resume-walmart",
+              price: { amount: 24.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.1,
+              reviews_count: 8
+            }
+          }
+        })]
+      });
+    });
+
+    const checkpointedAmazonResult = makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "resume-amazon",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/resume-amazon",
+        title: "Resume Amazon",
+        content: "$19.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "resume-amazon",
+            title: "Resume Amazon",
+            url: "https://www.amazon.com/dp/resume-amazon",
+            price: { amount: 19.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.8,
+            reviews_count: 18
+          }
+        }
+      })]
+    });
+
+    const envelope = buildWorkflowResumeEnvelope("shopping", {
+      query: "resume without replay",
+      providers: ["shopping/amazon", "shopping/walmart"],
+      mode: "json",
+      timeoutMs: 4321,
+      browserMode: "extension",
+      useCookies: true,
+      challengeAutomationMode: "browser_with_helper",
+      cookiePolicyOverride: "required"
+    } as unknown as JsonValue, {
+      checkpoint: {
+        stage: "execute",
+        stepId: "search:shopping/amazon",
+        stepIndex: 0,
+        state: {
+          completed_step_ids: ["search:shopping/amazon"],
+          step_results_by_id: {
+            "search:shopping/amazon": checkpointedAmazonResult
+          }
+        },
+        updatedAt: "2026-03-30T22:00:00.000Z"
+      },
+      trace: [{
+        at: "2026-03-30T22:00:00.000Z",
+        stage: "compile",
+        event: "compile_completed"
+      }]
+    });
+
+    const output = await runShoppingWorkflow(toRuntime({ search }), envelope);
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(searchOptions).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/walmart"],
+      timeoutMs: 4321,
+      runtimePolicy: {
+        browserMode: "extension",
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      },
+      suspendedIntent: {
+        kind: "workflow.shopping",
+        input: {
+          workflow: {
+            checkpoint: {
+              state: {
+                completed_step_ids: ["search:shopping/amazon"]
+              }
+            }
+          }
+        }
+      }
+    });
+    expect((output.offers as Array<{ provider: string }>).map((offer) => offer.provider)).toEqual(
+      expect.arrayContaining(["shopping/amazon", "shopping/walmart"])
+    );
+  });
+
+  it("forwards timeout, browser mode, and cookie overrides through shopping search and derived fetch steps", async () => {
+    let searchOptions: Record<string, unknown> | undefined;
+    let fetchOptions: Record<string, unknown> | undefined;
+    const search = vi.fn(async (_input, options) => {
+      searchOptions = options as Record<string, unknown>;
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "derived-fetch-search-index",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/s?k=derived+fetch",
+          title: "Search Results",
+          attributes: {
+            retrievalPath: "shopping:search:index",
+            links: ["https://www.amazon.com/dp/DERIVEDFETCH001"]
+          }
+        })]
+      });
+    });
+    const fetch = vi.fn(async (_input, options) => {
+      fetchOptions = options as Record<string, unknown>;
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "derived-fetch-offer",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/DERIVEDFETCH001",
+          title: "Derived Fetch Offer",
+          content: "$59.99",
+          attributes: {
+            retrievalPath: "shopping:search:result-card",
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "DERIVEDFETCH001",
+              title: "Derived Fetch Offer",
+              url: "https://www.amazon.com/dp/DERIVEDFETCH001",
+              price: { amount: 59.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.6,
+              reviews_count: 16
+            }
+          }
+        })]
+      });
+    });
+
+    const output = await runShoppingWorkflow(toRuntime({ search, fetch }), {
+      query: "derived fetch",
+      providers: ["shopping/amazon"],
+      timeoutMs: 4321,
+      browserMode: "extension",
+      useCookies: true,
+      challengeAutomationMode: "browser_with_helper",
+      cookiePolicyOverride: "required",
+      mode: "json"
+    });
+
+    expect(searchOptions).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      timeoutMs: 4321,
+      runtimePolicy: {
+        browserMode: "extension",
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      },
+      suspendedIntent: {
+        kind: "workflow.shopping",
+        input: {
+          workflow: {
+            checkpoint: {
+              stepId: "search:shopping/amazon",
+              state: {
+                completed_step_ids: []
+              }
+            }
+          }
+        }
+      }
+    });
+    expect(fetchOptions).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      timeoutMs: 4321,
+      runtimePolicy: {
+        browserMode: "extension",
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      },
+      suspendedIntent: {
+        kind: "workflow.shopping",
+        input: {
+          workflow: {
+            checkpoint: {
+              state: {
+                completed_step_ids: ["search:shopping/amazon"]
+              }
+            }
+          }
+        }
+      }
+    });
+    expect((output.offers as Array<{ provider: string }>)[0]?.provider).toBe("shopping/amazon");
+  });
+
   it("keeps auto shopping preserved extension challenges as single-run manual-yield outcomes", async () => {
     const search = vi.fn(async (_input, options) => {
       const providerId = options?.providerIds?.[0] ?? "shopping/walmart";
@@ -3702,14 +3999,11 @@ describe("workflow branch coverage", () => {
       source: "shopping",
       providerIds: ["shopping/amazon"],
       timeoutMs: 4321,
-      suspendedIntent: expect.objectContaining({
-        kind: "workflow.shopping",
-        input: expect.objectContaining({
-          query: "product timeout forwarded",
-          providers: ["amazon"],
-          mode: "json",
-          timeoutMs: 4321
-        })
+      suspendedIntent: expectWorkflowSuspendedIntent("shopping", {
+        query: "product timeout forwarded",
+        providers: ["amazon"],
+        mode: "json",
+        timeoutMs: 4321
       })
     }));
     expect(fetch).toHaveBeenCalledWith(
@@ -3718,13 +4012,117 @@ describe("workflow branch coverage", () => {
         source: "shopping",
         providerIds: ["shopping/amazon"],
         timeoutMs: 4321,
-        suspendedIntent: expect.objectContaining({
-          kind: "workflow.product_video",
-          input: expect.objectContaining({
-            product_name: "product timeout forwarded",
-            provider_hint: "amazon",
-            timeoutMs: 4321
-          })
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_name: "product timeout forwarded",
+          provider_hint: "amazon",
+          timeoutMs: 4321
+        })
+      })
+    );
+  });
+
+  it("forwards runtime-policy overrides through product-video resolution and detail fetch", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "product-runtime-policy-forwarded-search",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/product-runtime-policy-forwarded",
+        title: "Product Runtime Policy Forwarded",
+        content: "$44.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "product-runtime-policy-forwarded-search",
+            title: "Product Runtime Policy Forwarded",
+            url: "https://www.amazon.com/dp/product-runtime-policy-forwarded",
+            price: { amount: 44.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.5,
+            reviews_count: 19
+          }
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "product-runtime-policy-forwarded-fetch",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/product-runtime-policy-forwarded",
+        title: "Product Runtime Policy Forwarded",
+        content: "Feature one with enough detail. Feature two with enough detail.",
+        attributes: {
+          links: [],
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "product-runtime-policy-forwarded-fetch",
+            title: "Product Runtime Policy Forwarded",
+            url: "https://www.amazon.com/dp/product-runtime-policy-forwarded",
+            price: { amount: 44.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.5,
+            reviews_count: 19
+          }
+        }
+      })]
+    }));
+
+    await runProductVideoWorkflow(toRuntime({ search, fetch }), {
+      product_name: "product runtime policy forwarded",
+      provider_hint: "amazon",
+      timeoutMs: 4321,
+      useCookies: true,
+      challengeAutomationMode: "browser_with_helper",
+      cookiePolicyOverride: "required",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      timeoutMs: 4321,
+      runtimePolicy: {
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      },
+      suspendedIntent: expectWorkflowSuspendedIntent("shopping", {
+        query: "product runtime policy forwarded",
+        providers: ["amazon"],
+        mode: "json",
+        timeoutMs: 4321,
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      })
+    }));
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://www.amazon.com/dp/product-runtime-policy-forwarded" },
+      expect.objectContaining({
+        source: "shopping",
+        providerIds: ["shopping/amazon"],
+        timeoutMs: 4321,
+        runtimePolicy: {
+          useCookies: true,
+          challengeAutomationMode: "browser_with_helper",
+          cookiePolicyOverride: "required"
+        },
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_name: "product runtime policy forwarded",
+          provider_hint: "amazon",
+          timeoutMs: 4321,
+          useCookies: true,
+          challengeAutomationMode: "browser_with_helper",
+          cookiePolicyOverride: "required"
         })
       })
     );
@@ -3878,14 +4276,11 @@ describe("workflow branch coverage", () => {
       expect(options).toMatchObject({
         source: "shopping",
         providerIds: ["shopping/amazon"],
-        suspendedIntent: {
-          kind: "workflow.shopping",
-          input: expect.objectContaining({
-            query: "hint resolved product",
-            providers: ["amazon"],
-            mode: "json"
-          })
-        }
+        suspendedIntent: expectWorkflowSuspendedIntent("shopping", {
+          query: "hint resolved product",
+          providers: ["amazon"],
+          mode: "json"
+        })
       });
       return makeAggregate({
         sourceSelection: "shopping",
@@ -3954,12 +4349,9 @@ describe("workflow branch coverage", () => {
       expect.objectContaining({
         source: "shopping",
         providerIds: ["shopping/amazon"],
-        suspendedIntent: expect.objectContaining({
-          kind: "workflow.product_video",
-          input: expect.objectContaining({
-            product_name: "hint resolved product",
-            provider_hint: "amazon"
-          })
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_name: "hint resolved product",
+          provider_hint: "amazon"
         })
       })
     );

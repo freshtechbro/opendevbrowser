@@ -3,6 +3,7 @@ import type {
   ChallengeAutomationModeSource,
   ChallengeAutomationStandDownReason
 } from "../challenges/types";
+import type { WorkflowResumeEnvelope } from "./workflow-contracts";
 
 export type ProviderSource = "web" | "community" | "social" | "shopping";
 export type ProviderSelection = "auto" | ProviderSource | "all";
@@ -445,8 +446,18 @@ export type SuspendedIntentKind =
   | "workflow.shopping"
   | "workflow.product_video"
   | "youtube.transcript";
+export type WorkflowSuspendedIntentKind =
+  | "workflow.research"
+  | "workflow.shopping"
+  | "workflow.product_video";
 export type BrowserFallbackDisposition = "completed" | "challenge_preserved" | "deferred" | "failed";
 export type SessionChallengeStatus = "active" | "resolved" | "deferred" | "expired";
+
+export type WorkflowResumePayload = {
+  workflow: WorkflowResumeEnvelope;
+};
+
+export type SuspendedIntentInput = JsonValue | WorkflowResumePayload;
 
 export interface SuspendedIntentSummary {
   kind: SuspendedIntentKind;
@@ -454,7 +465,7 @@ export interface SuspendedIntentSummary {
   source?: ProviderSource;
   operation?: ProviderOperation;
   note?: string;
-  input?: JsonValue;
+  input?: SuspendedIntentInput;
 }
 
 export interface ChallengeTimelineEntry {
