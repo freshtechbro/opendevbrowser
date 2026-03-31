@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { classifyRecords } from "../scripts/live-direct-utils.mjs";
 import {
+  DIRECT_ENV_LIMITED_CODES,
+  DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS,
+  SOCIAL_POST_CASES
+} from "../scripts/shared/workflow-lane-constants.mjs";
+import {
   buildProviderCases,
   classifyDaemonPreflight,
   evaluateMacroCase,
@@ -48,6 +53,15 @@ describe("provider-direct-runs", () => {
     expect(socialPost?.args).toContain("browser_with_helper");
   });
 
+  it("builds social post probes from the shared governance inventory", () => {
+    const cases = buildProviderCases(parseArgs(["--include-social-posts"]));
+    const ids = cases
+      .filter((entry) => entry.id.startsWith("provider.social.") && entry.id.endsWith(".post"))
+      .map((entry) => entry.id);
+
+    expect(ids).toEqual(SOCIAL_POST_CASES.map((entry) => entry.id));
+  });
+
   it("requests helper-capable challenge mode for shopping cases", () => {
     const cases = buildProviderCases(parseArgs(["--include-high-friction", "--include-auth-gated"]));
     const target = cases.find((entry) => entry.id === "provider.shopping.target.search");
@@ -73,11 +87,11 @@ describe("provider-direct-runs", () => {
     const target = cases.find((entry) => entry.id === "provider.shopping.target.search");
     const temu = cases.find((entry) => entry.id === "provider.shopping.temu.search");
 
-    expect(ebay?.args).toContain("120000");
-    expect(costco?.args).toContain("120000");
-    expect(walmart?.args).toContain("120000");
-    expect(target?.args).toContain("180000");
-    expect(temu?.args).toContain("120000");
+    expect(ebay?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/ebay"));
+    expect(costco?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/costco"));
+    expect(walmart?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/walmart"));
+    expect(target?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/target"));
+    expect(temu?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/temu"));
   });
 
   it("classifies daemon preflight failures before provider cases run", () => {
@@ -132,6 +146,7 @@ describe("provider-direct-runs", () => {
   });
 
   it("treats timeout-only provider failures as fail instead of env-limited", () => {
+    expect(DIRECT_ENV_LIMITED_CODES.has("timeout")).toBe(false);
     expect(classifyRecords(0, [
       {
         error: {

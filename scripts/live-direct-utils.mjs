@@ -3,6 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { DIRECT_ENV_LIMITED_CODES } from "./shared/workflow-lane-constants.mjs";
+import {
+  classifyLaneRecords,
+  normalizedCodesFromFailures,
+  summarizeFailures
+} from "./shared/workflow-lane-verdicts.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const CLI = path.join(ROOT, "dist", "cli", "index.js");
@@ -11,21 +17,7 @@ export const DEFAULT_CLI_TIMEOUT_MS = 120_000;
 export const DEFAULT_NODE_TIMEOUT_MS = 900_000;
 export const INSTALL_AUTOSTART_SKIP_ENV_VAR = "OPDEVBROWSER_SKIP_INSTALL_AUTOSTART_RECONCILIATION";
 
-export const ENV_LIMITED_CODES = new Set([
-  "unavailable",
-  "env_limited",
-  "auth",
-  "rate_limited",
-  "upstream",
-  "network",
-  "token_required",
-  "challenge_detected",
-  "cooldown_active",
-  "policy_blocked",
-  "caption_missing",
-  "transcript_unavailable",
-  "strategy_unapproved"
-]);
+export const ENV_LIMITED_CODES = DIRECT_ENV_LIMITED_CODES;
 
 export function ensureCliBuilt() {
   if (!fs.existsSync(CLI)) {
@@ -324,63 +316,17 @@ export function finalizeReport(report, { strictGate = false } = {}) {
   return report;
 }
 
-export function normalizedCodesFromFailures(failures) {
-  if (!Array.isArray(failures)) return [];
-  return failures
-    .map((entry) => entry?.error?.reasonCode || entry?.error?.code)
-    .filter((value) => typeof value === "string");
-}
-
-export function summarizeFailures(failures, limit = 3) {
-  if (!Array.isArray(failures)) return [];
-  return failures.slice(0, limit).map((entry) => {
-    const error = entry?.error ?? {};
-    return {
-      provider: typeof entry?.provider === "string" ? entry.provider : null,
-      code: typeof error.code === "string" ? error.code : null,
-      reasonCode: typeof error.reasonCode === "string" ? error.reasonCode : null,
-      message: typeof error.message === "string" ? error.message.slice(0, 220) : null
-    };
-  });
-}
+export { normalizedCodesFromFailures, summarizeFailures };
 
 export function classifyRecords(recordsCount, failures, {
   allowExpectedUnavailable = false,
   allowNoRecordsNoFailures = false
 } = {}) {
-  if (recordsCount > 0) {
-    return { status: "pass", detail: null };
-  }
-
-  const normalizedFailures = Array.isArray(failures) ? failures : [];
-  const reasonCodes = normalizedCodesFromFailures(normalizedFailures);
-  if (reasonCodes.length > 0 && reasonCodes.every((code) => ENV_LIMITED_CODES.has(code))) {
-    return {
-      status: "env_limited",
-      detail: `reason_codes=${reasonCodes.join(",")}`
-    };
-  }
-
-  if (allowExpectedUnavailable && normalizedFailures.length > 0) {
-    return {
-      status: "env_limited",
-      detail: "expected_unavailable_by_surface"
-    };
-  }
-
-  if (allowNoRecordsNoFailures && normalizedFailures.length === 0) {
-    return {
-      status: "env_limited",
-      detail: "no_records_no_failures"
-    };
-  }
-
-  return {
-    status: "fail",
-    detail: normalizedFailures.length > 0
-      ? `unexpected_reason_codes=${reasonCodes.join(",") || "none"}`
-      : "no_records_no_failures"
-  };
+  return classifyLaneRecords(recordsCount, failures, {
+    envLimitedCodes: DIRECT_ENV_LIMITED_CODES,
+    allowExpectedUnavailable,
+    allowNoRecordsNoFailures
+  });
 }
 
 export function pushStep(report, step, {

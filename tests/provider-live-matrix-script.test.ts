@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   buildLiveRegressionEnv,
+  classifyMatrixRecords,
   parseArgs,
   REQUIRED_PLAYWRIGHT_CORE_FILES
 } from "../scripts/provider-live-matrix.mjs";
+import {
+  MATRIX_ENV_LIMITED_CODES,
+  MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS
+} from "../scripts/shared/workflow-lane-constants.mjs";
 
 describe("provider-live-matrix parseArgs", () => {
   it("enables strict release defaults with --release-gate", () => {
@@ -42,5 +47,21 @@ describe("provider-live-matrix parseArgs", () => {
   it("treats Playwright server registry files as integrity sentinels", () => {
     expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/index.js");
     expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/registry/index.js");
+  });
+
+  it("keeps timeout env-limited for matrix classification and preserves the shared target timeout bucket", () => {
+    expect(MATRIX_ENV_LIMITED_CODES.has("timeout")).toBe(true);
+    expect(MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/target")).toBe("120000");
+    expect(classifyMatrixRecords(0, [
+      {
+        error: {
+          code: "timeout",
+          message: "Provider request timed out after 120000ms"
+        }
+      }
+    ])).toEqual({
+      status: "env_limited",
+      reason: "reason_codes=timeout"
+    });
   });
 });

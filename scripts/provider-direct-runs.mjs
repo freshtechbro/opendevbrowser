@@ -5,6 +5,12 @@ import {
   socialPlatformsForMode
 } from "./provider-live-scenarios.mjs";
 import {
+  AUTH_GATED_SHOPPING_PROVIDERS,
+  DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS,
+  HIGH_FRICTION_SHOPPING_PROVIDERS,
+  SOCIAL_POST_CASES
+} from "./shared/workflow-lane-constants.mjs";
+import {
   classifyRecords,
   defaultArtifactPath,
   ensureCliBuilt,
@@ -31,22 +37,6 @@ const HELP_TEXT = [
   "  --quiet                      Suppress per-step progress logging",
   "  --help                       Show help"
 ].join("\n");
-
-const AUTH_GATED_SHOPPING_PROVIDERS = new Set(["shopping/costco", "shopping/macys"]);
-const HIGH_FRICTION_SHOPPING_PROVIDERS = new Set(["shopping/bestbuy"]);
-const SHOPPING_PROVIDER_TIMEOUT_MS = new Map([
-  ["shopping/bestbuy", "120000"],
-  ["shopping/ebay", "120000"],
-  ["shopping/walmart", "120000"],
-  ["shopping/target", "180000"],
-  ["shopping/costco", "120000"],
-  ["shopping/temu", "120000"]
-]);
-const SOCIAL_POST_CASES = [
-  { id: "provider.social.x.post", expression: '@social.post("x", "me", "ship realworld test", true, true)' },
-  { id: "provider.social.instagram.post", expression: '@social.post("instagram", "me", "ship realworld test", true, true)' },
-  { id: "provider.social.facebook.post", expression: '@social.post("facebook", "me", "ship realworld test", true, true)' }
-];
 const MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE = "browser_with_helper";
 const MACRO_CHALLENGE_ARGS = ["--challenge-automation-mode", MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE];
 
@@ -299,7 +289,7 @@ function buildProviderCases(options) {
         "--mode",
         "json",
         "--timeout-ms",
-        SHOPPING_PROVIDER_TIMEOUT_MS.get(provider) ?? "45000",
+        DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get(provider) ?? "45000",
         ...MACRO_CHALLENGE_ARGS,
         "--use-cookies"
       ]
