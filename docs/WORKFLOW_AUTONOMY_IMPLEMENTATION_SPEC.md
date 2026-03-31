@@ -423,7 +423,7 @@ Centralize only duplicated helper constants and common verdict/classify helpers,
 - `tests/provider-direct-runs.test.ts`
 - `tests/skill-runtime-scenarios.test.ts`
 - `tests/skill-runtime-audit.test.ts`
-- `tests/provider-live-matrix.test.ts` (new file, recommended)
+- `tests/provider-live-matrix-script.test.ts`
 
 ### End goal
 Governance scripts share one helper-constant and verdict-helper source where duplication exists, while lane-schema ownership and audit derivation authority stay in their current owners.
@@ -503,7 +503,7 @@ The rollout path is explicit, revertable, and verifiable without runtime flags.
 22. `scripts/skill-runtime-scenarios.mjs` — preserved canonical lane-schema owner with helper imports only if needed
 23. `scripts/skill-runtime-audit.mjs` — preserved deterministic audit consumer with helper imports only if needed
 24. `tests/provider-direct-runs.test.ts` — direct-run governance parity
-25. `tests/provider-live-matrix.test.ts` — live-matrix governance parity
+25. `tests/provider-live-matrix-script.test.ts` — live-matrix governance parity
 26. `tests/skill-runtime-scenarios.test.ts` — lane-schema ownership parity
 27. `tests/skill-runtime-audit.test.ts` — audit-lane parity
 28. docs and skill-pack boundary alignment
@@ -531,7 +531,7 @@ No new external dependency is currently required.
 | 3 | Task 3 shopping bounded executor | `tests/providers-shopping-executor.test.ts`, owning shopping-executor and shopping-resume slices in `tests/providers-workflows-branches.test.ts` |
 | 4 | Task 4 research bounded executor | `tests/providers-research-executor.test.ts`, owning research slices in `tests/providers-workflows-branches.test.ts` |
 | 5 | Task 5 product-video substrate adoption | `tests/providers-product-video-workflow.test.ts`, owning product-video slices in `tests/providers-workflows-branches.test.ts` |
-| 6 | Task 6 governance-script centralization | `tests/provider-direct-runs.test.ts`, `tests/provider-live-matrix.test.ts`, `tests/skill-runtime-scenarios.test.ts`, `tests/skill-runtime-audit.test.ts` |
+| 6 | Task 6 governance-script centralization | `tests/provider-direct-runs.test.ts`, `tests/provider-live-matrix-script.test.ts`, `tests/skill-runtime-scenarios.test.ts`, `tests/skill-runtime-audit.test.ts` |
 | 7 | Task 7 gate hardening and rollout control | full reruns of `tests/providers-workflows-branches.test.ts` and `tests/providers-runtime-factory.test.ts`, plus full repo gates below |
 
 Repo-wide gates before phase completion:
@@ -613,3 +613,4 @@ Before final rollout closure:
 |---------|------|---------|
 | 1.0 | 2026-03-29 | Initial implementation spec derived from the two workflow-autonomy investigations |
 | 1.1 | 2026-03-30 | Added explicit per-phase blocking gate matrix, reconciled file sequence with task ownership, clarified Task 1 test authority split, and narrowed Task 6 to helper-only governance centralization |
+| 1.2 | 2026-03-31 | Corrected the confirmed Task 6 matrix-test owner seam from `tests/provider-live-matrix.test.ts` to `tests/provider-live-matrix-script.test.ts` across the file list, implementation sequence, and blocking gate matrix |
