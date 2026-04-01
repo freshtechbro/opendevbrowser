@@ -1,7 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
-import { parseNumberFlag } from "../../utils/parse";
+import { parseBooleanFlag, parseNumberFlag } from "../../utils/parse";
 
 type LaunchArgs = {
   profile?: string;
@@ -19,13 +19,6 @@ type LaunchArgs = {
 
 const MIN_LAUNCH_CALL_TIMEOUT_MS = 30_000;
 const LAUNCH_CALL_TIMEOUT_BUFFER_MS = 5_000;
-
-const parseBooleanFlag = (value: string, flag: string): boolean => {
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "true" || normalized === "1") return true;
-  if (normalized === "false" || normalized === "0") return false;
-  throw createUsageError(`Invalid ${flag}: ${value}`);
-};
 
 function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
   const parsed: LaunchArgs = { flags: [] };

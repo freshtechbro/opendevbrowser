@@ -284,6 +284,58 @@ describe("challenge action loop", () => {
     expect(gotoResult.reusedCookies).toBe(true);
   });
 
+  it("prefers chooser account rows before the alternate-account path", async () => {
+    const result = await runChallengeActionLoop({
+      handle: makeHandle([
+        "[r1] button \"bishop@example.com\"",
+        "[r2] button \"team@example.com\"",
+        "[r3] button \"Use another account\""
+      ].join("\n"), {
+        clearOnRef: "r1"
+      }),
+      sessionId: "session-chooser",
+      initialBundle: makeBundle({
+        url: "https://accounts.google.com/v3/signin/identifier",
+        title: "Choose an account",
+        snapshot: [
+          "[r1] button \"bishop@example.com\"",
+          "[r2] button \"team@example.com\"",
+          "[r3] button \"Use another account\""
+        ].join("\n")
+      }),
+      decision: makeDecision(["session_reuse", "auth_navigation", "verification"]),
+      config
+    });
+
+    expect(result.executedSteps[0]).toMatchObject({ kind: "click", ref: "r1" });
+    expect(result.reusedExistingSession).toBe(true);
+  });
+
+  it("prefers Google, then GitHub, then Apple when auth navigation is required", async () => {
+    const result = await runChallengeActionLoop({
+      handle: makeHandle([
+        "[r1] button \"Continue with Apple\"",
+        "[r2] button \"Continue with GitHub\"",
+        "[r3] button \"Continue with Google\""
+      ].join("\n"), {
+        clearOnRef: "r3"
+      }),
+      sessionId: "session-social-auth",
+      initialBundle: makeBundle({
+        snapshot: [
+          "[r1] button \"Continue with Apple\"",
+          "[r2] button \"Continue with GitHub\"",
+          "[r3] button \"Continue with Google\""
+        ].join("\n"),
+        cookieCount: 0
+      }),
+      decision: makeDecision(["auth_navigation", "verification"]),
+      config
+    });
+
+    expect(result.executedSteps[0]).toMatchObject({ kind: "click", ref: "r3" });
+  });
+
   it("fills non-secret fields from task data and avoids secret-bearing names", async () => {
     const handle = makeHandle("[r3] textbox \"Email\"\n[r4] textbox \"Password\"");
     const result = await runChallengeActionLoop({

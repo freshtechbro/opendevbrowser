@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS } from "../src/cli/args";
-import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_REFERENCE_ENTRIES, HELP_TOOL_ENTRIES } from "../src/cli/help";
+import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_FLAG_GROUPS, HELP_REFERENCE_ENTRIES, HELP_TOOL_ENTRIES } from "../src/cli/help";
 import { TOOL_SURFACE_ENTRIES } from "../src/tools/surface";
 
 describe("cli help parity", () => {
@@ -49,5 +49,13 @@ describe("cli help parity", () => {
     expect(labels).toContain("opendevbrowser --help");
     expect(labels).toContain("opendevbrowser help");
     expect(labels).toContain("src/cli/help.ts");
+  });
+
+  it("documents the temporary-profile default for one-shot run commands", () => {
+    const persistProfileEntry = HELP_FLAG_GROUPS
+      .flatMap((group) => group.flags)
+      .find((entry) => entry.flag === "--persist-profile");
+
+    expect(persistProfileEntry?.description).toContain("`run` uses a temporary profile by default");
   });
 });

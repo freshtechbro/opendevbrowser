@@ -20,7 +20,7 @@ type LogFields = {
   data?: unknown;
 };
 
-type LogSink = (entry: LogEnvelope) => void;
+export type LogSink = (entry: LogEnvelope) => void;
 
 const SECRET_KEY_PATTERN = /(token|secret|password|authorization|cookie|api[-_]?key|session)/i;
 const SECRET_VALUE_PATTERN = /(bearer\s+[a-z0-9._-]+|sk_[a-z0-9_-]+|pk_[a-z0-9_-]+|eyJ[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+)/gi;
@@ -73,7 +73,17 @@ const defaultSink: LogSink = (entry) => {
   console.log(payload);
 };
 
-export function createLogger(moduleName: string, sink: LogSink = defaultSink): {
+export const stderrSink: LogSink = (entry) => {
+  process.stderr.write(`${JSON.stringify(entry)}\n`);
+};
+
+let configuredDefaultSink: LogSink = defaultSink;
+
+export function setDefaultLogSink(sink?: LogSink | null): void {
+  configuredDefaultSink = sink ?? defaultSink;
+}
+
+export function createLogger(moduleName: string, sink?: LogSink): {
   debug: (event: string, fields?: LogFields) => LogEnvelope;
   info: (event: string, fields?: LogFields) => LogEnvelope;
   warn: (event: string, fields?: LogFields) => LogEnvelope;
@@ -91,7 +101,7 @@ export function createLogger(moduleName: string, sink: LogSink = defaultSink): {
       ...(fields.traceId ? { traceId: fields.traceId } : {}),
       ...(typeof fields.data === "undefined" ? {} : { data: redactSensitive(fields.data) })
     };
-    sink(entry);
+    (sink ?? configuredDefaultSink)(entry);
     return entry;
   };
 

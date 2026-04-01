@@ -24,6 +24,17 @@ export function parseNumberFlag(value: string, flag: string, options: NumberFlag
   return parsed;
 }
 
+export function parseBooleanFlag(value: string, flag: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false;
+  }
+  throw createUsageError(`Invalid ${flag}: ${value}`);
+}
+
 export function parseOptionalStringFlag(rawArgs: string[], flag: string): string | undefined {
   for (let i = 0; i < rawArgs.length; i += 1) {
     const arg = rawArgs[i];

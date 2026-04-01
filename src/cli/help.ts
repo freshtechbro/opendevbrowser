@@ -338,7 +338,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--cdp-port", description: "CDP port for host/port connect mode." },
       { flag: "--headless", description: "Launch a managed browser in headless mode.", example: "opendevbrowser launch --no-extension --headless" },
       { flag: "--profile", description: "Use a named browser profile directory." },
-      { flag: "--persist-profile", description: "Keep the generated profile directory after exit." },
+      { flag: "--persist-profile", description: "Keep the generated profile directory after exit. `run` uses a temporary profile by default unless this flag is enabled." },
       { flag: "--chrome-path", description: "Use a specific Chrome, Chromium, or CfT binary." },
       { flag: "--start-url", description: "Open this URL immediately after launch or connect." },
       { flag: "--flag", description: "Pass one or more extra Chrome CLI flags." },

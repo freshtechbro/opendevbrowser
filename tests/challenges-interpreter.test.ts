@@ -59,6 +59,24 @@ describe("challenge interpreter", () => {
     expect(result.continuityOpportunities).toContain("existing_session");
   });
 
+  it("treats chooser-based account selection as existing-session reuse even without cookies", () => {
+    const bundle = buildBundle({
+      url: "https://accounts.google.com/v3/signin/identifier",
+      title: "Choose an account",
+      blockerType: "auth_required",
+      reasonCode: "token_required",
+      snapshot: [
+        "[r1] button \"bishop@example.com\"",
+        "[r2] button \"Use another account\""
+      ].join("\n"),
+      cookieCount: 0
+    });
+
+    const result = interpretChallengeEvidence(bundle);
+    expect(result.classification).toBe("existing_session_reuse");
+    expect(result.authState).toBe("session_reusable");
+  });
+
   it("classifies unsupported third-party challenge pages distinctly", () => {
     const bundle = buildBundle({
       url: "https://example.com/challenge",

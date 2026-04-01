@@ -1,6 +1,7 @@
 import { readFileSync } from "fs";
 import { createOpenDevBrowserCore } from "../../core";
 import type { ParsedArgs } from "../args";
+import { parseBooleanFlag } from "../utils/parse";
 import { writeOutput } from "../output";
 import { createUsageError, EXIT_USAGE } from "../errors";
 
@@ -45,7 +46,19 @@ function parseRunArgs(rawArgs: string[]): RunArgs {
       continue;
     }
     if (arg === "--persist-profile") {
-      parsed.persistProfile = true;
+      const value = rawArgs[i + 1];
+      if (value && !value.startsWith("--")) {
+        parsed.persistProfile = parseBooleanFlag(value, "--persist-profile");
+        i += 1;
+      } else {
+        parsed.persistProfile = true;
+      }
+      continue;
+    }
+    if (arg?.startsWith("--persist-profile=")) {
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --persist-profile");
+      parsed.persistProfile = parseBooleanFlag(value, "--persist-profile");
       continue;
     }
     if (arg === "--chrome-path") {
@@ -137,7 +150,7 @@ export async function runScriptCommand(args: ParsedArgs) {
     startUrl: runArgs.startUrl,
     chromePath: runArgs.chromePath,
     flags: runArgs.flags.length ? runArgs.flags : undefined,
-    persistProfile: runArgs.persistProfile
+    persistProfile: runArgs.persistProfile ?? false
   });
 
   try {
@@ -154,3 +167,5 @@ export async function runScriptCommand(args: ParsedArgs) {
     core.cleanup();
   }
 }
+
+export const __test__ = { parseRunArgs };

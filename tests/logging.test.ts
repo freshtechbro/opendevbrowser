@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
-import { __test__, createLogger, redactSensitive } from "../src/core/logging";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { __test__, createLogger, redactSensitive, setDefaultLogSink, stderrSink } from "../src/core/logging";
 
 describe("logging", () => {
+  afterEach(() => {
+    setDefaultLogSink(null);
+    vi.restoreAllMocks();
+  });
+
   it("emits structured envelopes", () => {
     const entries: unknown[] = [];
     const logger = createLogger("test", (entry) => entries.push(entry));
@@ -123,5 +128,16 @@ describe("logging", () => {
     expect(auditEntry.level).toBe("audit");
     expect(auditEntry.traceId).toBe("trace-1");
     expect(auditEntry.data).toEqual(["value", "[REDACTED]"]);
+  });
+
+  it("uses the configured default sink when no explicit sink is provided", () => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const logger = createLogger("configured-default");
+
+    setDefaultLogSink(stderrSink);
+    logger.info("info.event", { requestId: "req-4" });
+
+    expect(writeSpy).toHaveBeenCalled();
+    expect(String(writeSpy.mock.calls[0]?.[0] ?? "")).toContain("\"module\":\"configured-default\"");
   });
 });

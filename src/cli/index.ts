@@ -73,6 +73,7 @@ import { runResearchCommand } from "./commands/research";
 import { runShoppingCommand } from "./commands/shopping";
 import { runProductVideoCommand } from "./commands/product-video";
 import { extractExtension } from "../extension-extractor";
+import { setDefaultLogSink, stderrSink } from "../core/logging";
 import { flushOutputAndExit, writeOutput } from "./output";
 import type { InstallMode } from "./args";
 import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_USAGE } from "./errors";
@@ -200,6 +201,7 @@ async function main(): Promise<void> {
     const args = parseArgs(process.argv);
     parseSucceeded = true;
     outputFormat = args.outputFormat;
+    setDefaultLogSink(stderrSink);
     const outputOptions = { format: args.outputFormat, quiet: args.quiet };
 
     const emitResult = (result: CommandResult, payload?: Record<string, unknown>) => {

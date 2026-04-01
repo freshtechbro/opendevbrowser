@@ -34,7 +34,9 @@ const detectClassification = (
   const blockerType = bundle.blocker?.type;
   const reasonCode = bundle.blocker?.reasonCode ?? bundle.challenge?.reasonCode;
   const isLogin = bundle.continuity.likelyLoginPage;
-  const hasReuse = bundle.continuity.hasPreservedSession || bundle.continuity.canReuseExistingCookies;
+  const hasReuse = bundle.continuity.hasPreservedSession
+    || bundle.continuity.canReuseExistingCookies
+    || bundle.continuity.sessionReuseRefs.length > 0;
   const humanVerification = bundle.continuity.likelyHumanVerification
     || HUMAN_RE.test(bundle.snapshotText ?? "")
     || reasonCode === "challenge_detected";

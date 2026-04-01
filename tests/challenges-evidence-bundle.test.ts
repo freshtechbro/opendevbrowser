@@ -146,6 +146,35 @@ describe("challenge evidence bundle", () => {
     expect(bundle.continuity.hasNonSecretTaskData).toBe(false);
   });
 
+  it("extracts chooser account rows as reusable sessions even without cookies and defers 'Use another account'", () => {
+    const bundle = buildChallengeEvidenceBundle({
+      status: {
+        mode: "extension",
+        activeTargetId: "tab-chooser",
+        url: "https://accounts.google.com/v3/signin/identifier",
+        title: "Choose an account",
+        meta: {
+          blockerState: "active"
+        }
+      },
+      snapshot: {
+        content: [
+          "[r1] button \"bishop@example.com\"",
+          "[r2] button \"team@example.com\"",
+          "[r3] button \"Use another account\"",
+          "[r4] link \"Help\""
+        ].join("\n")
+      },
+      cookieCount: 0,
+      canImportCookies: false
+    });
+
+    expect(bundle.continuity.likelySessionPicker).toBe(true);
+    expect(bundle.continuity.sessionReuseRefs).toEqual(["r1", "r2"]);
+    expect(bundle.continuity.loginRefs).toContain("r3");
+    expect(bundle.continuity.sessionReuseRefs).not.toContain("r3");
+  });
+
   it("defaults clear blocker state, keeps nameless actionables, and ignores missing network urls", () => {
     const bundle = buildChallengeEvidenceBundle({
       status: {
