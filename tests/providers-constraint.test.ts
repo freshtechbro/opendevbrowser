@@ -34,6 +34,48 @@ describe("provider constraint helpers", () => {
       reasonCode: "challenge_detected",
       blockerType: "anti_bot_challenge"
     });
+
+    expect(classifyProviderIssue({
+      url: "https://x.com/search?q=browser+automation",
+      providerShell: "social_js_required_shell",
+      browserRequired: true,
+      message: "JavaScript is not available."
+    })).toEqual({
+      reasonCode: "env_limited",
+      blockerType: "env_limited",
+      constraint: {
+        kind: "render_required",
+        evidenceCode: "social_js_required_shell",
+        providerShell: "social_js_required_shell",
+        message: "JavaScript is not available."
+      }
+    });
+
+    expect(classifyProviderIssue({
+      url: "https://business.x.com/en/ads-guide",
+      providerShell: "social_first_party_help_shell",
+      browserRequired: true,
+      message: "How X Ads work"
+    })).toEqual({
+      reasonCode: "env_limited",
+      blockerType: "env_limited",
+      constraint: {
+        kind: "render_required",
+        evidenceCode: "social_first_party_help_shell",
+        providerShell: "social_first_party_help_shell",
+        message: "How X Ads work"
+      }
+    });
+
+    expect(classifyProviderIssue({
+      url: "https://www.reddit.com/search/?q=browser+automation",
+      providerShell: "social_verification_wall",
+      browserRequired: true,
+      message: "Please wait for verification."
+    })).toEqual({
+      reasonCode: "challenge_detected",
+      blockerType: "anti_bot_challenge"
+    });
   });
 
   it("classifies generic env-limited blocker messages and browser-required fallback without shells", () => {

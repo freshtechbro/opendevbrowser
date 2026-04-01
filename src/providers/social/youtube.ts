@@ -152,6 +152,10 @@ const normalizeEscapedValue = (value: string): string => {
     .replace(/\\u002F/g, "/");
 };
 
+const decodeJsonText = (value: string): string => decodeHtml(normalizeEscapedValue(value));
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const parseVideoId = (url: string): string | null => {
   try {
     const parsed = new URL(url);
@@ -166,6 +170,93 @@ const parseVideoId = (url: string): string | null => {
   } catch {
     return null;
   }
+};
+
+const normalizeYouTubeVideoLink = (url: string): string | null => {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname !== "youtu.be"
+      && hostname !== "youtube.com"
+      && hostname !== "www.youtube.com"
+      && !hostname.endsWith(".youtube.com")
+    ) {
+      return null;
+    }
+    const videoId = parseVideoId(url);
+    return videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+  } catch {
+    return null;
+  }
+};
+
+const YOUTUBE_SEARCH_SHELL_RE = /\b(?:about press copyright contact us creators advertise developers terms privacy policy|google for developers skip to main content youtube)\b/i;
+
+const extractSearchResultSegment = (html: string, videoId: string): string | null => {
+  const marker = new RegExp(`"videoId"\\s*:\\s*"${escapeRegExp(videoId)}"`);
+  const match = marker.exec(html);
+  if (!match || typeof match.index !== "number") return null;
+  const start = match.index;
+  if (start < 0) return null;
+
+  const nextPattern = /"videoRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"/g;
+  nextPattern.lastIndex = start + match[0].length;
+  const nextMatch = nextPattern.exec(html);
+  const nextStart = typeof nextMatch?.index === "number" ? nextMatch.index : -1;
+  return html.slice(start, nextStart >= 0 ? nextStart : undefined);
+};
+
+const extractTextRuns = (value: string): string[] => {
+  return Array.from(value.matchAll(/"text":"([^"]+)"/g))
+    .map((match) => decodeJsonText(match[1] ?? ""))
+    .filter((entry) => entry.length > 0);
+};
+
+const extractPrimarySearchResult = (
+  html: string,
+  videoId: string
+): {
+  title?: string;
+  content?: string;
+  channel?: string;
+} | null => {
+  const segment = extractSearchResultSegment(html, videoId);
+  if (!segment) return null;
+
+  const title = firstNonEmptyMatch(segment, [
+    /"title"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([^"]+)"/
+  ]);
+  const channel = firstNonEmptyMatch(segment, [
+    /"longBylineText"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([^"]+)"/,
+    /"ownerText"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([^"]+)"/,
+    /"shortBylineText"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([^"]+)"/
+  ]);
+  const published = firstNonEmptyMatch(segment, [
+    /"publishedTimeText"\s*:\s*\{\s*"simpleText"\s*:\s*"([^"]+)"/
+  ]);
+  const views = firstNonEmptyMatch(segment, [
+    /"viewCountText"\s*:\s*\{\s*"simpleText"\s*:\s*"([^"]+)"/,
+    /"shortViewCountText"\s*:\s*\{\s*"simpleText"\s*:\s*"([^"]+)"/
+  ]);
+  const snippetBlock = segment.match(/"detailedMetadataSnippets"\s*:\s*\[\s*\{\s*"snippetText"\s*:\s*\{\s*"runs"\s*:\s*\[(.*?)\]\}/s)?.[1] ?? null;
+  const snippet = snippetBlock ? extractTextRuns(snippetBlock).join(" ").trim() : "";
+
+  const contentParts = [
+    snippet,
+    channel ? `Channel: ${channel}.` : "",
+    published ? `Published: ${published}.` : "",
+    views ? `Views: ${views}.` : ""
+  ].filter((part) => part.length > 0);
+
+  const content = contentParts.join(" ").trim();
+  if (!title && !content) return null;
+
+  return {
+    ...(title ? { title } : {}),
+    ...(content ? { content } : {}),
+    ...(channel ? { channel } : {})
+  };
 };
 
 const firstNonEmptyMatch = (html: string, patterns: RegExp[]): string | null => {
@@ -358,23 +449,57 @@ const buildSearch = (options: YouTubeProviderOptions["search"]) => {
     const lookupUrl = isHttpUrl(query)
       ? query
       : `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+    const directUrlQuery = isHttpUrl(query);
     const page = await fetchPage(lookupUrl, context);
     const extracted = extractStructuredContent(page.html, page.url);
-    const firstVideoId = page.html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/)?.[1] ?? null;
-    const watchUrl = firstVideoId ? `https://www.youtube.com/watch?v=${firstVideoId}` : page.url;
+    const extractedVideoLinks = [...new Set(
+      extracted.links
+        .map((link) => normalizeYouTubeVideoLink(link))
+        .filter((link): link is string => typeof link === "string" && link.length > 0)
+    )];
+    const firstVideoId = page.html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/)?.[1] ?? null;
+    const extractedVideoId = extractedVideoLinks[0] ? parseVideoId(extractedVideoLinks[0]) : null;
+    const resolvedVideoId = firstVideoId ?? (!directUrlQuery ? extractedVideoId : null) ?? parseVideoId(page.url);
+    const watchUrl = !directUrlQuery && resolvedVideoId ? `https://www.youtube.com/watch?v=${resolvedVideoId}` : page.url;
+    const primaryResult = resolvedVideoId ? extractPrimarySearchResult(page.html, resolvedVideoId) : null;
+    const genericSearchShell = YOUTUBE_SEARCH_SHELL_RE.test(extracted.text);
+    const fallbackTitle = toSnippet(extracted.text, 120);
+    const fallbackContent = toSnippet(extracted.text, 1800);
+    if (genericSearchShell && !resolvedVideoId) {
+      throw new ProviderRuntimeError(
+        "unavailable",
+        `YouTube search returned generic site chrome for ${lookupUrl}`,
+        {
+          provider: "social/youtube",
+          source: "social",
+          retryable: true,
+          reasonCode: "env_limited",
+          details: {
+            url: page.url,
+            status: page.status,
+            browserRequired: true,
+            providerShell: "youtube_search_shell",
+            message: toSnippet(extracted.text, 400)
+          }
+        }
+      );
+    }
+    const safeFallbackTitle = genericSearchShell ? "" : fallbackTitle;
+    const safeFallbackContent = genericSearchShell ? "" : fallbackContent;
 
     return [{
       url: watchUrl,
-      title: toSnippet(extracted.text, 120) || `YouTube search: ${query}`,
-      content: toSnippet(extracted.text, 1800),
+      title: (primaryResult?.title ?? safeFallbackTitle) || `YouTube search: ${query}`,
+      content: primaryResult?.content ?? safeFallbackContent,
       confidence: 0.62,
       attributes: {
         platform: "youtube",
         query,
         status: page.status,
         retrievalPath: isHttpUrl(query) ? "social:youtube:search:url" : "social:youtube:search:index",
-        video_id: firstVideoId,
-        links: extracted.links.slice(0, 20)
+        video_id: resolvedVideoId,
+        ...(primaryResult?.channel ? { channel: primaryResult.channel } : {}),
+        links: extractedVideoLinks.slice(0, 20)
       }
     }];
   };

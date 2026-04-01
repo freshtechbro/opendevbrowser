@@ -1128,7 +1128,6 @@ describe("shopping provider branches", () => {
       details: {
         blockerType: "anti_bot_challenge",
         reasonCode: "challenge_detected",
-        providerShell: "temu_challenge_shell",
         title: "Temu verification"
       }
     });
@@ -1185,6 +1184,79 @@ describe("shopping provider branches", () => {
     });
   });
 
+  it("does not treat Target product-grid pages as shells when a real /p/ product link is present", async () => {
+    const provider = createShoppingProviderById("shopping/target", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head><title>"wireless mouse" : Target</title></head>
+            <body>
+              <script>window.__TGT_DATA__ = {"slots":{"1200":{"metadata":{"components":[{"placement_id":"WEB-search-product-grid-default"}]}}}}</script>
+              <a href="https://www.target.com/p/logitech-signature-m650-wireless-mouse/-/A-89123456">
+                Logitech Signature wireless mouse with sculpted support and silent wheel
+              </a>
+              <div>USD 39.99 4.7 out of 5 205 reviews in stock</div>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "wireless mouse", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.target.com/p/logitech-signature-m650-wireless-mouse/-/A-89123456",
+      title: "Logitech Signature wireless mouse with sculpted support and silent wheel"
+    });
+    expect(rows?.[0]?.attributes.retrievalPath).toBe("shopping:search:result-card");
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 39.99,
+        currency: "USD"
+      },
+      availability: "in_stock",
+      rating: 4.7,
+      reviews_count: 205
+    });
+  });
+
+  it("normalizes Target product-grid rows to unknown availability when the card has no stock signal", async () => {
+    const provider = createShoppingProviderById("shopping/target", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head><title>"wireless mouse" : Target</title></head>
+            <body>
+              <script>window.__TGT_DATA__ = {"slots":{"1200":{"metadata":{"components":[{"placement_id":"WEB-search-product-grid-default"}]}}}}</script>
+              <a href="https://www.target.com/p/logitech-signature-m650-wireless-mouse/-/A-89123456">
+                Logitech Signature wireless mouse with sculpted support and silent wheel
+              </a>
+              <div>USD 39.99 4.7 out of 5 205 reviews</div>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "wireless mouse", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 39.99,
+        currency: "USD"
+      },
+      availability: "unknown",
+      rating: 4.7,
+      reviews_count: 205
+    });
+  });
+
   it("does not misclassify Temu pages as challenge shells when kwcdn assets are present without challenge markers", async () => {
     const provider = createShoppingProviderById("shopping/temu", {
       fetcher: async ({ url }) => ({
@@ -1222,6 +1294,33 @@ describe("shopping provider branches", () => {
       },
       rating: 4.5,
       reviews_count: 88
+    });
+  });
+
+  it("flags obfuscated Temu challenge shells even without kwcdn asset markers", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <head><title>Temu verification</title></head>
+          <body>
+            challenge
+            <script>function _0xa1b2(){return "gate";}</script>
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+    const provider = createShoppingProviderById("shopping/temu");
+
+    await expect(provider.search?.({ query: "wireless mouse" }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "challenge_detected",
+      details: {
+        blockerType: "anti_bot_challenge",
+        reasonCode: "challenge_detected",
+        title: "Temu verification"
+      }
     });
   });
 

@@ -118,13 +118,23 @@ interface ShoppingSearchCandidate {
   text: string;
   brand?: string;
   imageUrl?: string;
-  price?: {
-    amount: number;
-    currency: string;
-  };
+  price?: ResolvedShoppingPrice;
   rating?: number;
   reviews?: number;
   availability?: "in_stock" | "limited" | "out_of_stock" | "unknown";
+}
+
+type ShoppingPriceSource =
+  | "structured_metadata"
+  | "search_card_context"
+  | "search_title_inline"
+  | "unresolved";
+
+interface ResolvedShoppingPrice {
+  amount: number;
+  currency: string;
+  source: ShoppingPriceSource;
+  trustworthy: boolean;
 }
 
 export type ShoppingFetcher = (args: {
@@ -704,6 +714,9 @@ const PRICE_SYMBOL_RE = /([$€£])\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1
 const PRICE_CODE_RE = /\b(USD|CAD|EUR|GBP)\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/i;
 const RATING_RE = /([0-5](?:\.[0-9])?)\s*(?:out of 5|\/5)/i;
 const REVIEWS_RE = /([0-9][0-9,]*)\s*(?:ratings|reviews)/i;
+const FETCH_TEXT_PRICE_TOKEN_RE = /(?:\b(?:USD|CAD|EUR|GBP)\s*[0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?|[$€£]\s*[0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/gi;
+const FETCH_TEXT_PRICE_NEGATIVE_PREFIX_RE = /\b(?:customer review|reviews?|ratings?|stars?)\b/i;
+const FETCH_TEXT_PRICE_MAX_PREFIX_CHARS = 180;
 const ANCHOR_RE = /<a\b([^>]*?)href\s*=\s*(?:(["'])(.*?)\2|([^\s>]+))([^>]*)>([\s\S]*?)<\/a>/gi;
 const NEWEGG_CARD_RE = /<div class="item-cell"[\s\S]*?(?=<div class="item-cell"|$)/gi;
 const EBAY_CARD_RE = /<li\b[^>]*class=(["'])[^"']*\bs-card\b[^"']*\1[^>]*>[\s\S]*?<\/li>/gi;
@@ -811,21 +824,57 @@ const parsePrice = (text: string): { amount: number; currency: string } => {
   };
 };
 
+const resolveFetchTextPrice = (text: string): ResolvedShoppingPrice | undefined => {
+  const normalized = normalizePriceText(text);
+  for (const match of normalized.matchAll(FETCH_TEXT_PRICE_TOKEN_RE)) {
+    const token = match[0]?.trim();
+    const index = match.index ?? -1;
+    if (!token || index < 0 || index > FETCH_TEXT_PRICE_MAX_PREFIX_CHARS) {
+      continue;
+    }
+    if (FETCH_TEXT_PRICE_NEGATIVE_PREFIX_RE.test(normalized.slice(0, index))) {
+      continue;
+    }
+    const price = parsePrice(token);
+    if (price.amount <= 0) {
+      continue;
+    }
+    return {
+      ...price,
+      source: "search_card_context",
+      trustworthy: false
+    };
+  }
+  return undefined;
+};
+
 const resolvePrice = (
   primaryText: string,
   ...fallbackTexts: string[]
-): { amount: number; currency: string } => {
+): ResolvedShoppingPrice => {
   const primary = parsePrice(primaryText);
   if (primary.amount > 0) {
-    return primary;
+    return {
+      ...primary,
+      source: "search_card_context",
+      trustworthy: true
+    };
   }
   for (const fallbackText of fallbackTexts) {
     const fallback = parsePrice(fallbackText);
     if (fallback.amount > 0) {
-      return fallback;
+      return {
+        ...fallback,
+        source: "search_title_inline",
+        trustworthy: true
+      };
     }
   }
-  return primary;
+  return {
+    ...primary,
+    source: "unresolved",
+    trustworthy: false
+  };
 };
 
 const parseRating = (text: string): number => {
@@ -1090,6 +1139,15 @@ const dedupeCandidates = (candidates: ShoppingSearchCandidate[], limit: number):
   return [...deduped.values()];
 };
 
+const toSearchCandidatePrice = (
+  price: { amount: number; currency: string },
+  source: ShoppingPriceSource = "search_card_context"
+): ResolvedShoppingPrice => ({
+  ...price,
+  source,
+  trustworthy: price.amount > 0
+});
+
 const extractNeweggSearchCandidates = (
   html: string,
   baseUrl: string,
@@ -1131,7 +1189,7 @@ const extractNeweggSearchCandidates = (
       text,
       ...(brand ? { brand: extractText(brand) } : {}),
       ...(imageUrl ? { imageUrl: normalizeCandidateUrl(imageUrl, baseUrl, profile) ?? imageUrl } : {}),
-      ...(price.amount > 0 ? { price } : {}),
+      ...(price.amount > 0 ? { price: toSearchCandidatePrice(price) } : {}),
       ...(Number.isFinite(rating) && rating > 0 ? { rating } : {}),
       ...(Number.isFinite(reviews) && reviews > 0 ? { reviews } : {}),
       availability
@@ -1178,7 +1236,7 @@ const extractEbaySearchCandidates = (
       title,
       text,
       ...(imageUrl ? { imageUrl: normalizeCandidateUrl(imageUrl, baseUrl, profile) ?? imageUrl } : {}),
-      ...(price.amount > 0 ? { price } : {}),
+      ...(price.amount > 0 ? { price: toSearchCandidatePrice(price) } : {}),
       ...(rating > 0 ? { rating } : {}),
       ...(reviews > 0 ? { reviews } : {}),
       availability
@@ -1275,12 +1333,20 @@ const deriveOfferAttributes = (args: {
     amount: number;
     currency: string;
   };
+  priceSource?: ShoppingPriceSource;
+  priceIsTrustworthy?: boolean;
   rating?: number;
   reviews?: number;
   availability?: "in_stock" | "limited" | "out_of_stock" | "unknown";
+  allowTextPriceFallback?: boolean;
 }): Record<string, JsonValue> => {
   const nowIso = new Date().toISOString();
-  const price = args.price ?? parsePrice(args.text);
+  const fallbackPrice = args.allowTextPriceFallback === false ? { amount: 0, currency: DEFAULT_CURRENCY } : parsePrice(args.text);
+  const price = args.price ?? fallbackPrice;
+  const priceSource = price.amount > 0
+    ? (args.priceSource ?? (args.price ? "structured_metadata" : "search_card_context"))
+    : "unresolved";
+  const priceIsTrustworthy = args.priceIsTrustworthy ?? Boolean(args.price);
   const rating = args.rating ?? parseRating(args.text);
   const reviews = args.reviews ?? parseReviews(args.text);
   const availability = args.availability ?? parseAvailability(args.text);
@@ -1300,6 +1366,8 @@ const deriveOfferAttributes = (args: {
         currency: price.currency,
         retrieved_at: nowIso
       },
+      price_source: priceSource,
+      price_is_trustworthy: priceIsTrustworthy,
       shipping: {
         amount: 0,
         currency: price.currency,
@@ -1433,10 +1501,17 @@ const createDefaultSearch = (
           rank: index + 1,
           ...(candidate.brand ? { brand: candidate.brand } : {}),
           ...(candidate.imageUrl ? { imageUrl: candidate.imageUrl } : {}),
-          ...(candidate.price ? { price: candidate.price } : {}),
+          ...(candidate.price ? {
+            price: {
+              amount: candidate.price.amount,
+              currency: candidate.price.currency
+            },
+            priceSource: candidate.price.source,
+            priceIsTrustworthy: candidate.price.trustworthy
+          } : {}),
           ...(candidate.rating ? { rating: candidate.rating } : {}),
           ...(candidate.reviews ? { reviews: candidate.reviews } : {}),
-          ...(candidate.availability ? { availability: candidate.availability } : {})
+          availability: candidate.availability ?? "unknown"
         }),
         rank: index + 1,
         retrievalPath: "shopping:search:result-card",
@@ -1451,9 +1526,7 @@ const createDefaultSearch = (
       providerErrorCodeFromReasonCode(reasonCode),
       reasonCode === "token_required"
         ? `Authentication required for ${fetched.url}`
-        : reasonCode === "challenge_detected"
-          ? `Detected anti-bot challenge while retrieving ${fetched.url}`
-          : `Browser assistance required for ${fetched.url}`,
+        : `Detected anti-bot challenge while retrieving ${fetched.url}`,
       {
         provider: providerId,
         source: SHOPPING_SOURCE,
@@ -1491,7 +1564,6 @@ const createDefaultSearch = (
         retrievalPath: isHttpUrl(query) ? "shopping:search:url" : "shopping:search:index",
         ...(pageIssue ? { reasonCode: pageIssue.reasonCode } : {}),
         ...(pageIssue?.blockerType ? { blockerType: pageIssue.blockerType } : {}),
-        ...(pageIssue?.constraint ? { constraint: pageIssue.constraint } : {}),
         ...browserFallbackObservationAttributes(fetched.browserFallback)
       }
     }
@@ -1514,6 +1586,14 @@ const createDefaultFetch = (
   });
   const extracted = extractStructuredContent(fetched.html, fetched.url);
   const title = toSnippet(extracted.text, 120) || fetched.url;
+  const extractedPrice = extracted.metadata.price
+    ? {
+      amount: extracted.metadata.price.amount,
+      currency: extracted.metadata.price.currency,
+      source: "structured_metadata" as const,
+      trustworthy: true
+    }
+    : resolveFetchTextPrice(extracted.text);
 
   return {
     url: fetched.url,
@@ -1528,12 +1608,18 @@ const createDefaultFetch = (
         rank: 1,
         ...(extracted.metadata.brand ? { brand: extracted.metadata.brand } : {}),
         ...(extracted.metadata.imageUrls.length > 0 ? { imageUrls: extracted.metadata.imageUrls } : {}),
-        ...(extracted.metadata.price ? {
+        ...(extractedPrice ? {
           price: {
-            amount: extracted.metadata.price.amount,
-            currency: extracted.metadata.price.currency
-          }
-        } : {})
+            amount: extractedPrice.amount,
+            currency: extractedPrice.currency
+          },
+          priceSource: extractedPrice.source,
+          priceIsTrustworthy: extractedPrice.trustworthy
+        } : {
+          priceSource: "unresolved" as const,
+          priceIsTrustworthy: false
+        }),
+        allowTextPriceFallback: false
       }),
       status: fetched.status,
       links: dedupeLinks(extracted.links, 30),

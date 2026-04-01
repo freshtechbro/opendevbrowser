@@ -73,6 +73,69 @@ const toRuntime = (handlers: {
   ...(handlers.getAntiBotSnapshots ? { getAntiBotSnapshots: handlers.getAntiBotSnapshots } : {})
 });
 
+const WALMART_PREOWNED_AIRPODS_URL = "https://www.walmart.com/ip/Pre-Owned-Apple-AirPods-Pro-2nd-Generation-Lightning/19336719172?classType=REGULAR&conditionGroupCode=3&from=%2Fsearch";
+const WALMART_NEW_AIRPODS_URL = "https://www.walmart.com/ip/Apple-AirPods-Pro-2nd-Generation-with-MagSafe-Case-USB-C/5689912134?classType=REGULAR&from=%2Fsearch";
+
+const makeWalmartPreownedAirpodsRecord = (): NormalizedRecord => makeRecord({
+  id: "walmart-preowned-airpods",
+  source: "shopping",
+  provider: "shopping/walmart",
+  url: WALMART_PREOWNED_AIRPODS_URL,
+  title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning - Walmart.com Skip to Main Content Pickup or delivery? Cancel …",
+  content: [
+    "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning",
+    "Key item features",
+    "‌Richer audio experience Apple-designed H2 chip, the new force behind AirPods Pro, pushes advanced audio performance even further.",
+    "Brand Apple Color White View full specifications Current price is USD $139.99",
+    "Free shipping",
+    "Sold and shipped by TheRightOne"
+  ].join(" "),
+  attributes: {
+    brand: "Apple",
+    shopping_offer: {
+      provider: "shopping/walmart",
+      product_id: "shopping/walmart:1:aHR0cHM6",
+      title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning - Walmart.com Skip to Main Content Pickup or delivery? Cancel …",
+      url: WALMART_PREOWNED_AIRPODS_URL,
+      price: { amount: 139.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+      shipping: { amount: 0, currency: "USD", notes: "free" },
+      availability: "in_stock",
+      rating: 3.8,
+      reviews_count: 2158
+    }
+  }
+});
+
+const makeWalmartNewAirpodsRecord = (): NormalizedRecord => makeRecord({
+  id: "walmart-new-airpods",
+  source: "shopping",
+  provider: "shopping/walmart",
+  url: WALMART_NEW_AIRPODS_URL,
+  title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C) - Walmart.com",
+  content: [
+    "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C)",
+    "Key item features",
+    "Adaptive audio and active noise cancellation for focused listening.",
+    "Brand Apple View full specifications Current price is USD $189.99",
+    "Free shipping",
+    "Sold and shipped by Walmart"
+  ].join(" "),
+  attributes: {
+    brand: "Apple",
+    shopping_offer: {
+      provider: "shopping/walmart",
+      product_id: "walmart-new-airpods",
+      title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C) - Walmart.com",
+      url: WALMART_NEW_AIRPODS_URL,
+      price: { amount: 189.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+      shipping: { amount: 0, currency: "USD", notes: "free" },
+      availability: "in_stock",
+      rating: 4.7,
+      reviews_count: 325
+    }
+  }
+});
+
 const expectWorkflowSuspendedIntent = (
   kind: WorkflowKind,
   input: Record<string, unknown>
@@ -345,6 +408,74 @@ describe("workflow branch coverage", () => {
     expect(alerts).toEqual([]);
   });
 
+  it("downgrades degraded alerts to warning once recovery lowers the ratio below the degraded threshold", async () => {
+    const provider = "web/recovery-waiting-pending";
+    let callCount = 0;
+    const runtime = toRuntime({
+      search: async () => {
+        callCount += 1;
+        if (callCount <= 2) {
+          return makeAggregate({
+            ok: false,
+            sourceSelection: "web",
+            providerOrder: [provider],
+            failures: [makeFailure(provider, "web", {
+              code: "rate_limited",
+              message: "rate limited",
+              retryable: true
+            })],
+            metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: [provider],
+          records: [makeRecord({
+            id: `healthy-${callCount}`,
+            source: "web",
+            provider
+          })]
+        });
+      }
+    });
+
+    await runResearchWorkflow(runtime, {
+      topic: "recovery waiting pending seed one",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+    await runResearchWorkflow(runtime, {
+      topic: "recovery waiting pending seed two",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    let recoveryOutput: Record<string, unknown> | null = null;
+    for (let index = 0; index < 7; index += 1) {
+      recoveryOutput = await runResearchWorkflow(runtime, {
+        topic: `recovery waiting pending healthy ${index}`,
+        sourceSelection: "web",
+        days: 1,
+        mode: "json"
+      });
+    }
+    if (!recoveryOutput) {
+      throw new Error("expected recovery output");
+    }
+    const alerts = (recoveryOutput.meta as {
+      alerts: Array<{ provider: string; state: string; reason: string }>;
+    }).alerts;
+    const recoveryAlert = alerts.find((alert) => alert.provider === provider);
+
+    expect(recoveryAlert).toEqual(expect.objectContaining({
+      provider,
+      state: "warning",
+      reason: "signal ratio >= 15%"
+    }));
+  });
+
   it("uses runtime snapshots to emit degraded challenge and cooldown alerts", async () => {
     const runtime = toRuntime({
       search: async () => makeAggregate({
@@ -451,6 +582,54 @@ describe("workflow branch coverage", () => {
       })
     ]));
     expect(alerts.filter((alert) => alert.signal === "transcript_unavailable")).toHaveLength(1);
+  });
+
+  it("uses runtime snapshot ratios to emit degraded alerts without preserved sessions or cooldowns", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/x"],
+        failures: [makeFailure("social/x", "social", {
+          code: "rate_limited",
+          message: "rate limited",
+          reasonCode: "rate_limited"
+        })],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      }),
+      getAntiBotSnapshots: () => [{
+        providerId: "social/x",
+        activeChallenges: 0,
+        recentChallengeRatio: 0.3,
+        recentRateLimitRatio: 0.3,
+        cooldownUntilMs: 0
+      }]
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "runtime snapshot degraded ratio alerts",
+      sourceSelection: "social",
+      days: 1,
+      mode: "json"
+    });
+
+    const alerts = (output.meta as {
+      alerts: Array<{ provider: string; signal: string; state: string; reason: string }>;
+    }).alerts;
+    expect(alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "social/x",
+        signal: "anti_bot_challenge",
+        state: "degraded",
+        reason: "signal ratio >= 25%"
+      }),
+      expect.objectContaining({
+        provider: "social/x",
+        signal: "rate_limited",
+        state: "degraded",
+        reason: "signal ratio >= 25%"
+      })
+    ]));
   });
 
   it("orders research records by timebox status and date confidence", () => {
@@ -766,7 +945,7 @@ describe("workflow branch coverage", () => {
     expect(workflowTestUtils.toProviderSource("custom/unknown")).toBeNull();
   });
 
-  it("covers signal recovery helper branches across degraded cooldown windows", () => {
+  it("covers pure nextSignalState recovery helper branches outside end-to-end tracked-window alert emission", () => {
     expect(workflowTestUtils.nextSignalState("degraded", true, false, 0)).toEqual({
       state: "warning",
       healthyWindows: 0
@@ -783,6 +962,31 @@ describe("workflow branch coverage", () => {
       state: "degraded",
       healthyWindows: 0
     });
+  });
+
+  it("covers workflow helper branches for resume payload wrapping, brand parsing, and http url validation", () => {
+    const rawPayload = workflowTestUtils.buildWorkflowResumePayload("workflow.research", {
+      topic: "browser automation"
+    } as JsonValue);
+    expect(rawPayload.workflow).toMatchObject({
+      kind: "research",
+      input: { topic: "browser automation" }
+    });
+
+    const existingEnvelope = buildWorkflowResumeEnvelope("shopping", {
+      query: "portable monitor"
+    } as JsonValue);
+    expect(
+      workflowTestUtils.buildWorkflowResumePayload("workflow.shopping", existingEnvelope)
+    ).toEqual({ workflow: existingEnvelope });
+
+    expect(
+      workflowTestUtils.inferBrandFromContent("Brand Acme Audio keeps setup simple for travel.")
+    ).toBe("Acme Audio keeps setup simple for travel");
+
+    expect(workflowTestUtils.isValidHttpUrl("http://shop.example/item")).toBe(true);
+    expect(workflowTestUtils.isValidHttpUrl("https://shop.example/item")).toBe(true);
+    expect(workflowTestUtils.isValidHttpUrl("ftp://shop.example/item")).toBe(false);
   });
 
   it("covers helper branches for feature sanitization and price parsing", () => {
@@ -2223,6 +2427,7 @@ describe("workflow branch coverage", () => {
               title: "Fallback Amazon",
               content: "£99.50 only 2 left 4.2 out of 5 1,500 reviews",
               attributes: {
+                retrievalPath: "shopping:search:result-card",
                 shopping_offer: {
                   provider: providerId,
                   product_id: "",
@@ -2336,6 +2541,7 @@ describe("workflow branch coverage", () => {
           url: undefined,
           content: "Fallback text includes €1,299.00 and details",
           attributes: {
+            retrievalPath: "shopping:search:result-card",
             shopping_offer: {
               provider: "shopping/others",
               product_id: "",
@@ -3124,6 +3330,116 @@ describe("workflow branch coverage", () => {
     });
   });
 
+  it("fails research runs when every gathered record sanitizes away without explicit provider failures", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source === "web") {
+          return makeAggregate({
+            sourceSelection: "web",
+            providerOrder: ["web/default"],
+            records: [makeRecord({
+              id: "duckduckgo-shell",
+              source: "web",
+              provider: "web/default",
+              url: "https://html.duckduckgo.com/html",
+              title: "https://html.duckduckgo.com/html",
+              content: "browser automation blockers at DuckDuckGo",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            })]
+          });
+        }
+        if (source === "community") {
+          return makeAggregate({
+            sourceSelection: "community",
+            providerOrder: ["community/default"],
+            records: [makeRecord({
+              id: "reddit-login-shell",
+              source: "community",
+              provider: "community/default",
+              url: "https://www.reddit.com/login",
+              title: "https://www.reddit.com/login",
+              content: "Welcome to Reddit. Log in to continue.",
+              attributes: {
+                retrievalPath: "community:fetch:url"
+              }
+            })]
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "social",
+          providerOrder: ["social/default"],
+          records: [makeRecord({
+            id: "bluesky-js-shell",
+            source: "social",
+            provider: "social/default",
+            url: "https://bsky.app/search?q=browser+automation+blockers",
+            title: "Bluesky search",
+            content: "JavaScript is not available.",
+            attributes: {
+              retrievalPath: "social:fetch:url"
+            }
+          })]
+        });
+      }
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "browser automation blockers",
+      sourceSelection: "auto",
+      days: 14,
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced only shell records and no usable results"
+    );
+  });
+
+  it("fails research runs when sanitized survivors all fall outside the requested timebox without explicit provider failures", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [
+          makeRecord({
+            id: "duckduckgo-shell",
+            source: "web",
+            provider: "web/default",
+            url: "https://html.duckduckgo.com/html",
+            title: "https://html.duckduckgo.com/html",
+            content: "browser automation blockers at DuckDuckGo",
+            attributes: {
+              retrievalPath: "web:search:index"
+            }
+          }),
+          makeRecord({
+            id: "historic-launch-roundup",
+            source: "web",
+            provider: "web/default",
+            url: "https://example.com/agentic-browser-launches",
+            title: "Agentic browser tooling launches roundup",
+            content: "A detailed roundup of agentic browser tooling launches and operator workflows from earlier this quarter.",
+            timestamp: isoHoursAgo(24 * 90),
+            attributes: {
+              retrievalPath: "web:fetch:url"
+            }
+          })
+        ]
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "agentic browser tooling launches",
+      sourceSelection: "web",
+      from: isoHoursAgo(72),
+      to: isoHoursAhead(1),
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced no usable in-timebox results after sanitization."
+    );
+  });
+
   it("caps research web follow-up fetches and ignores malformed search redirect urls", async () => {
     const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
       sourceSelection: "web",
@@ -3528,6 +3844,70 @@ describe("workflow branch coverage", () => {
       providerIds: ["shopping/amazon"],
       timeoutMs: 4321
     }));
+  });
+
+  it("preserves shopping timeout failures in structured workflow output", async () => {
+    const output = await runShoppingWorkflow(toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        records: [],
+        partial: false,
+        failures: [{
+          provider: "shopping/ebay",
+          source: "shopping",
+          error: {
+            code: "timeout",
+            message: "Browser fallback timed out after 15000ms",
+            retryable: true,
+            details: {
+              stage: "capture",
+              timeoutMs: 15000
+            }
+          }
+        }],
+        metrics: {
+          attempted: 1,
+          succeeded: 0,
+          failed: 1,
+          retries: 0,
+          latencyMs: 15000
+        },
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        error: {
+          code: "timeout",
+          message: "Browser fallback timed out after 15000ms",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        }
+      })
+    }), {
+      query: "portable monitor",
+      providers: ["shopping/ebay"],
+      mode: "json"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      failures: [{
+        provider: "shopping/ebay",
+        error: {
+          code: "timeout",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        }
+      }],
+      metrics: {
+        total_offers: 0,
+        failed_providers: ["shopping/ebay"]
+      }
+    });
   });
 
   it("forwards explicit shopping browser-mode overrides into provider run options", async () => {
@@ -4924,6 +5304,441 @@ describe("workflow branch coverage", () => {
     expect(output.screenshots).toEqual([]);
   });
 
+  it("fails honestly when storefront chrome leaves only a polluted marketplace overlay price on a marketplace PDP", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "marketplace-overlay-product",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/B0CHWRXH8B",
+          title: "Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics",
+          content: [
+            "Shipper / Seller mrhumanitygives.com",
+            "See current price, availability, shipping cost, and delivery date on mrhumanitygives.com.",
+            "Continue to site.",
+            "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging, White",
+            "Visit the Apple Store",
+            "Brand Apple",
+            "About this item",
+            "RICHER AUDIO EXPERIENCE - The Apple-designed H2 chip helps to create more intelligent noise cancellation and deeply immersive sound.",
+            "NEXT-LEVEL ACTIVE NOISE CANCELLATION - Up to 2x more Active Noise Cancellation for dramatically less noise when you want to focus.",
+            "Report an issue with this product or seller",
+            "About this item From the Brand From the Author Similar Product information Questions Reviews"
+          ].join(" "),
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0CHWRXH8B",
+              title: "Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics",
+              url: "https://www.amazon.com/dp/B0CHWRXH8B",
+              price: { amount: 36.25, currency: "CAD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "CAD", notes: "unknown" },
+              availability: "out_of_stock",
+              rating: 4.7,
+              reviews_count: 28_597
+            }
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: "https://www.amazon.com/dp/B0CHWRXH8B",
+      text: async () => [
+        "<html><head>",
+        "<title>Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics</title>",
+        "<meta property=\"og:site_name\" content=\"Amazon\" />",
+        "<meta name=\"description\" content=\"Shipper / Seller Main content\" />",
+        "</head><body>",
+        "<ul>",
+        "<li>Shipper / Seller</li>",
+        "<li>Main content</li>",
+        "<li>About this item</li>",
+        "<li>Buying options</li>",
+        "<li>Compare with similar items</li>",
+        "</ul>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "https://www.amazon.com/dp/B0CHWRXH8B",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    })).rejects.toThrow(
+      "Amazon requires manual browser follow-up; this run did not determine a reliable PDP price."
+    );
+  });
+
+  it("uses refreshed trustworthy PDP pricing after suppressing a polluted marketplace overlay price", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "marketplace-overlay-refreshed-price",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/B0CHWRXH8B",
+          title: "Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics",
+          content: [
+            "Shipper / Seller mrhumanitygives.com",
+            "See current price, availability, shipping cost, and delivery date on mrhumanitygives.com.",
+            "Continue to site.",
+            "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging, White",
+            "Visit the Apple Store",
+            "Brand Apple",
+            "About this item",
+            "RICHER AUDIO EXPERIENCE - The Apple-designed H2 chip helps to create more intelligent noise cancellation and deeply immersive sound.",
+            "NEXT-LEVEL ACTIVE NOISE CANCELLATION - Up to 2x more Active Noise Cancellation for dramatically less noise when you want to focus.",
+            "Report an issue with this product or seller"
+          ].join(" "),
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0CHWRXH8B",
+              title: "Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics",
+              url: "https://www.amazon.com/dp/B0CHWRXH8B",
+              price: { amount: 36.25, currency: "CAD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "CAD", notes: "unknown" },
+              availability: "out_of_stock",
+              rating: 4.7,
+              reviews_count: 28_597
+            }
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: "https://www.amazon.com/dp/B0CHWRXH8B",
+      text: async () => [
+        "<html><head>",
+        "<title>Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics</title>",
+        "<meta property=\"og:site_name\" content=\"Amazon\" />",
+        "<meta name=\"description\" content=\"Apple AirPods Pro (2nd Generation) with USB-C deliver adaptive audio and all-day comfort.\" />",
+        "<script type=\"application/ld+json\">",
+        JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "Product",
+          name: "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging",
+          brand: { "@type": "Brand", name: "Apple" },
+          offers: { "@type": "Offer", price: 249.99, priceCurrency: "USD" },
+          description: "Apple AirPods Pro (2nd Generation) with USB-C deliver adaptive audio and all-day comfort."
+        }),
+        "</script>",
+        "</head><body>",
+        "<ul>",
+        "<li>The Apple-designed H2 chip helps to create more intelligent noise cancellation and deeply immersive sound.</li>",
+        "<li>Up to 2x more Active Noise Cancellation for dramatically less noise when you want to focus.</li>",
+        "</ul>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://www.amazon.com/dp/B0CHWRXH8B",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 249.99,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "Apple",
+      title: "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging",
+      copy: "Apple AirPods Pro (2nd Generation) with USB-C deliver adaptive audio and all-day comfort."
+    });
+    expect((output.product as { features: string[] }).features).toEqual([
+      "The Apple-designed H2 chip helps to create more intelligent noise cancellation and deeply immersive sound.",
+      "Up to 2x more Active Noise Cancellation for dramatically less noise when you want to focus."
+    ]);
+  });
+
+  it("prefers Walmart key item features over retailer branding, specs, and shipping chrome", async () => {
+    const productUrl = "https://www.walmart.com/ip/FIFINE-USB-Microphone-for-Recording-Computer-Condenser-Mic-Plug-Play-in-PC-Laptop-for-Meeting-Voice-Overs-Black-K669/5635598352?adsRedirect=true&classType=VARIANT";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [makeRecord({
+          id: "walmart-feature-section-product",
+          source: "shopping",
+          provider: "shopping/walmart",
+          url: productUrl,
+          title: "Free Shipping! FIFINE USB Microphone for PC PS5 Gaming Streaming Recording with Gain Control Metal Condenser - Walmart.com",
+          content: [
+            "Pickup or delivery? Cancel",
+            "Visit the FIFINE Store",
+            "FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings",
+            "Key item features",
+            "Clear Audio : Durable metal construction and a 16mm capsule reduce vibrations and focus on mouth sounds, rejecting 70% of fan/AC noise for clear output.",
+            "Precise Control : An integrated volume knob allows for smooth and stable sound adjustment, enabling precise volume setting for meetings or voice recording without software.",
+            "Robust Build : Features a solid, sturdy metal design with a stable tripod stand, making it convenient for voice-overs or livestreams.",
+            "Universal Connectivity : Comes with a Type-B to Type-C USB cable, offering plug-and-play compatibility with PC, PS4, and PS5 for gaming or recording.",
+            "Portable Design : The PC microphone is only 4.8 inches long, lightweight, and portable, suitable for urgent meetings during business trips or outdoor communication.",
+            "Included Accessories : The box contains one condenser microphone with a USB cable, one tripod stand, and a user manual.",
+            "Technical Specifications : Model K669B is a cardioid condenser microphone with a USB connector, a frequency range of 80Hz-20KHz, and -43±3dB sensitivity.",
+            "View all item details Generated by AI Specs Connection USB Microphone polar pattern Cardioid Mic tech Condenser",
+            "Departments Services"
+          ].join(" "),
+          attributes: {
+            brand: "Walmart.com",
+            shopping_offer: {
+              provider: "shopping/walmart",
+              product_id: "5635598352",
+              title: "Free Shipping! FIFINE USB Microphone for PC PS5 Gaming Streaming Recording with Gain Control Metal Condenser - Walmart.com",
+              url: productUrl,
+              price: { amount: 23.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.6,
+              reviews_count: 191
+            }
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: productUrl,
+      text: async () => [
+        "<html><head>",
+        "<title>FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings - Walmart.com</title>",
+        "<meta property=\"og:title\" content=\"FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings - Walmart.com\" />",
+        "<meta property=\"og:site_name\" content=\"Walmart.com\" />",
+        "<meta name=\"description\" content=\"Free Shipping! FIFINE USB Microphone for PC PS5 Gaming Streaming Recording with Gain Control Metal Condenser\" />",
+        "</head><body>",
+        "<ul>",
+        "<li>Connection</li>",
+        "<li>Microphone polar pattern</li>",
+        "<li>Mic tech</li>",
+        "<li>Freq range</li>",
+        "<li>Maximum sound pressure level</li>",
+        "</ul>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 23.99,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "FIFINE",
+      title: "FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings",
+      copy: expect.stringContaining("Durable metal construction and a 16mm capsule reduce vibrations")
+    });
+    expect((output.product as { copy: string }).copy).not.toContain("Free Shipping!");
+    expect((output.product as { copy: string }).copy).not.toContain("Departments");
+    expect((output.product as { features: string[] }).features).toEqual([
+      "Durable metal construction and a 16mm capsule reduce vibrations and focus on mouth sounds, rejecting 70% of fan/AC noise for clear output.",
+      "An integrated volume knob allows for smooth and stable sound adjustment, enabling precise volume setting for meetings or voice recording without software.",
+      "Features a solid, sturdy metal design with a stable tripod stand, making it convenient for voice-overs or livestreams.",
+      "Comes with a Type-B to Type-C USB cable, offering plug-and-play compatibility with PC, PS4, and PS5 for gaming or recording.",
+      "The PC microphone is only 4.8 inches long, lightweight, and portable, suitable for urgent meetings during business trips or outdoor communication.",
+      "The box contains one condenser microphone with a USB cable, one tripod stand, and a user manual."
+    ]);
+  });
+
+  it("strips Walmart storefront chrome from direct product-video title and brand output without a metadata refresh", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [makeWalmartPreownedAirpodsRecord()]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: WALMART_PREOWNED_AIRPODS_URL,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 139.99,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "Apple",
+      title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning",
+      provider: "shopping/walmart",
+      url: WALMART_PREOWNED_AIRPODS_URL
+    });
+  });
+
+  it("prefers a new Walmart listing over a pre-owned listing for generic product-name resolution while keeping the resolved PDP output clean", async () => {
+    const search = vi.fn(async (_input, options) => {
+      expect(options?.providerIds).toEqual(["shopping/walmart"]);
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [
+          makeRecord({
+            id: "walmart-search-match-preowned",
+            source: "shopping",
+            provider: "shopping/walmart",
+            url: WALMART_PREOWNED_AIRPODS_URL,
+            title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning",
+            content: "$139.99",
+            attributes: {
+              shopping_offer: {
+                provider: "shopping/walmart",
+                product_id: "walmart-search-match-preowned",
+                title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning",
+                url: WALMART_PREOWNED_AIRPODS_URL,
+                price: { amount: 139.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 3.8,
+                reviews_count: 2158
+              }
+            }
+          }),
+          makeRecord({
+            id: "walmart-search-match-new",
+            source: "shopping",
+            provider: "shopping/walmart",
+            url: WALMART_NEW_AIRPODS_URL,
+            title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C)",
+            content: "$189.99",
+            attributes: {
+              shopping_offer: {
+                provider: "shopping/walmart",
+                product_id: "walmart-search-match-new",
+                title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C)",
+                url: WALMART_NEW_AIRPODS_URL,
+                price: { amount: 189.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.7,
+                reviews_count: 325
+              }
+            }
+          })
+        ]
+      });
+    });
+    const fetch = vi.fn(async (_input, options) => {
+      expect(options?.providerIds).toEqual(["shopping/walmart"]);
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [makeWalmartNewAirpodsRecord()]
+      });
+    });
+
+    const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), {
+      product_name: "Apple AirPods Pro 2nd Generation",
+      provider_hint: "shopping/walmart",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(output.pricing).toMatchObject({
+      amount: 189.99,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "Apple",
+      title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C)",
+      provider: "shopping/walmart",
+      url: WALMART_NEW_AIRPODS_URL
+    });
+  });
+
+  it("prefers the eBay product summary over marketplace navigation chrome in product-video outputs", async () => {
+    const productUrl = "https://www.ebay.com/p/4062765295?iid=327063271610";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "ebay-product-summary",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: productUrl,
+          title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White for sale online | eBay Skip to main content",
+          content: [
+            "Hi! Sign in or register Deals Brand Outlet Gift Cards Help & Contact Sell Watchlist Expand Watch List My eBay Expand My eBay Summary",
+            "Expand Cart Loading...",
+            "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White for sale online | eBay",
+            "Condition: New New",
+            "The Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case is a premium pair of wireless earbuds designed for an immersive listening experience.",
+            "With Active Noise Cancellation and water-resistant features, these white earbuds provide high-quality sound in a sleek and compact design.",
+            "The built-in microphone and Bluetooth connectivity ensure hands-free calls and easy connection to your devices.",
+            "Perfect for those who value style, functionality, and convenience in their audio accessories.",
+            "Buy It Now Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C)...",
+            "Sign in to check out Check out as guest Add to cart Adding to your cart See all details Oops!",
+            "About this product Product Identifiers Brand Apple MPN MTJV3AM/A UPC 0195949052484 Model Apple AirPods Pro (2nd generation)",
+            "All listings for this product Ratings and Reviews"
+          ].join(" "),
+          attributes: {
+            brand: "eBay",
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "4062765295",
+              title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White for sale online | eBay",
+              url: productUrl,
+              price: { amount: 110, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "unknown" },
+              availability: "in_stock",
+              rating: 4.1,
+              reviews_count: 325
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 110,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "Apple",
+      title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White",
+      copy: expect.stringContaining("With Active Noise Cancellation and water-resistant features")
+    });
+    expect((output.product as { copy: string }).copy).not.toContain("Expand Cart Loading");
+    expect((output.product as { copy: string }).copy).not.toContain("Watchlist");
+    expect((output.product as { features: string[] }).features).toEqual([
+      "The Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case is a premium pair of wireless earbuds designed for an immersive listening experience.",
+      "With Active Noise Cancellation and water-resistant features, these white earbuds provide high-quality sound in a sleek and compact design.",
+      "The built-in microphone and Bluetooth connectivity ensure hands-free calls and easy connection to your devices.",
+      "Perfect for those who value style, functionality, and convenience in their audio accessories."
+    ]);
+  });
+
   it("refreshes malformed shopping-offer payloads and still resolves stable product output", async () => {
     const makeRuntime = (shoppingOffer: unknown) => toRuntime({
       fetch: async () => makeAggregate({
@@ -5224,5 +6039,400 @@ describe("workflow branch coverage", () => {
     await expect(runProductVideoWorkflow(emptyRuntime, {
       product_url: "https://shop.example/item"
     })).rejects.toThrow("Product details unavailable");
+  });
+
+  it("tracks research sanitization reason counts across multiple shell variants", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [
+          makeRecord({
+            id: "community-index-shell",
+            url: "https://www.reddit.com/search?q=browser+automation",
+            title: "Community search index",
+            content: "Search index",
+            attributes: {
+              retrievalPath: "community:search:index"
+            }
+          }),
+          makeRecord({
+            id: "duckduckgo-index-shell",
+            url: "https://duckduckgo.com/?q=browser+automation",
+            title: "DuckDuckGo",
+            content: "Result overview",
+            attributes: {
+              retrievalPath: "web:search:index"
+            }
+          }),
+          makeRecord({
+            id: "generic-results-shell",
+            url: "https://example.com/result",
+            title: "https://example.com/result",
+            content: "Skip to main content",
+            attributes: {
+              retrievalPath: "social:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "search-results-shell",
+            url: "https://example.com/search?q=browser+automation",
+            title: "Search page",
+            content: "Search results",
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "url-search-shell",
+            url: "https://example.com/search?q=deep+browser+automation",
+            title: "https://example.com/search?q=deep+browser+automation",
+            content: "Detailed page body",
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "duckduckgo-redirect-shell",
+            url: "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fbrowser-automation",
+            title: "Redirect result",
+            content: "Detailed page body",
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "duckduckgo-html-shell",
+            url: "https://html.duckduckgo.com/html/?q=browser+automation",
+            title: "HTML shell",
+            content: "Detailed page body",
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "login-shell",
+            url: "https://example.com/login",
+            title: "Sign in",
+            content: "Continue with Google"
+          }),
+          makeRecord({
+            id: "js-shell",
+            url: "https://example.com/article",
+            title: "Article",
+            content: "You need to enable JavaScript"
+          }),
+          makeRecord({
+            id: "not-found-shell",
+            url: "https://example.com/missing",
+            title: "Error 404",
+            content: "Page not found"
+          }),
+          makeRecord({
+            id: "usable-record",
+            url: "https://example.com/usable-record",
+            title: "Usable record",
+            content: "Concrete browser automation field notes with reproducible details."
+          })
+        ]
+      })
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "research shell inventory",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    const metrics = (output.meta as {
+      metrics: {
+        total_records: number;
+        sanitized_records: number;
+        sanitized_reason_distribution: Record<string, number>;
+        sanitizedReasonDistribution: Record<string, number>;
+      };
+    }).metrics;
+
+    expect(metrics.total_records).toBe(11);
+    expect(metrics.sanitized_records).toBe(10);
+    expect(metrics.sanitized_reason_distribution).toEqual({
+      search_index_shell: 2,
+      search_results_shell: 5,
+      login_shell: 1,
+      js_required_shell: 1,
+      not_found_shell: 1
+    });
+    expect(metrics.sanitizedReasonDistribution).toEqual(metrics.sanitized_reason_distribution);
+  });
+
+  it("fails research when only out-of-timebox records remain after sanitization", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "stale-usable-record",
+          url: "https://example.com/stale-record",
+          title: "Stale usable record",
+          content: "Concrete browser automation field notes.",
+          timestamp: "2020-01-01T00:00:00.000Z"
+        })]
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "stale browser automation incident",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    })).rejects.toThrow("Research workflow produced no usable in-timebox results after sanitization.");
+  });
+
+  it("rejects mismatched research and shopping workflow envelopes", async () => {
+    const runtime = toRuntime({});
+    const shoppingEnvelope = buildWorkflowResumeEnvelope("shopping", {
+      query: "kind mismatch shopping",
+      mode: "json"
+    } as unknown as JsonValue);
+    const researchEnvelope = buildWorkflowResumeEnvelope("research", {
+      topic: "kind mismatch research",
+      days: 1,
+      mode: "json"
+    } as unknown as JsonValue);
+
+    await expect(runResearchWorkflow(runtime, shoppingEnvelope)).rejects.toThrow(
+      "Research workflow envelope kind mismatch. Expected research but received shopping."
+    );
+    await expect(runShoppingWorkflow(runtime, researchEnvelope)).rejects.toThrow(
+      "Shopping workflow envelope kind mismatch. Expected shopping but received research."
+    );
+  });
+
+  it("keeps only structured challenge-orchestration diagnostics in shopping metrics", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [
+          makeRecord({
+            id: "challenge-orchestration-offer",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/dp/challenge-orchestration-offer",
+            title: "Challenge Orchestration Offer",
+            content: "$49.99",
+            attributes: {
+              browser_fallback_challenge_orchestration: {
+                status: "recorded"
+              },
+              browser_fallback_reason_code: "challenge_detected",
+              browser_fallback_mode: "managed_headed",
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "challenge-orchestration-offer",
+                title: "Challenge Orchestration Offer",
+                url: "https://www.amazon.com/dp/challenge-orchestration-offer",
+                price: { amount: 49.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.3,
+                reviews_count: 27
+              }
+            }
+          }),
+          makeRecord({
+            id: "challenge-orchestration-noise",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/dp/challenge-orchestration-noise",
+            title: "Noise",
+            attributes: {
+              browser_fallback_challenge_orchestration: [],
+              browser_fallback_reason_code: "challenge_detected",
+              browser_fallback_mode: "extension"
+            }
+          })
+        ],
+        failures: [
+          makeFailure("shopping/amazon", "shopping", {
+            code: "unavailable",
+            message: "challenge preserved",
+            reasonCode: "challenge_detected",
+            details: {
+              challengeOrchestration: {
+                status: "deferred",
+                mode: "browser_with_helper"
+              },
+              browserFallbackReasonCode: "challenge_detected",
+              browserFallbackMode: "extension"
+            }
+          }),
+          makeFailure("shopping/amazon", "shopping", {
+            code: "unavailable",
+            message: "bad challenge diagnostics",
+            details: {
+              challengeOrchestration: []
+            }
+          }),
+          makeFailure("shopping/amazon", "shopping", {
+            code: "unavailable",
+            message: "structured challenge diagnostics without fallback metadata",
+            details: {
+              challengeOrchestration: {
+                status: "pending"
+              }
+            }
+          })
+        ]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "challenge orchestration metrics",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+
+    const metrics = (output.meta as {
+      metrics: {
+        challenge_orchestration: Array<Record<string, unknown>>;
+        challengeOrchestration: Array<Record<string, unknown>>;
+        browser_fallback_modes_observed: string[];
+        browserFallbackModesObserved: string[];
+      };
+    }).metrics;
+
+    expect(metrics.challenge_orchestration).toHaveLength(3);
+    expect(metrics.challenge_orchestration).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "shopping/amazon",
+        source: "shopping",
+        reasonCode: "challenge_detected",
+        browserFallbackReasonCode: "challenge_detected",
+        browserFallbackMode: "extension",
+        status: "deferred",
+        mode: "browser_with_helper"
+        }),
+        expect.objectContaining({
+          provider: "shopping/amazon",
+          source: "shopping",
+          browserFallbackReasonCode: "challenge_detected",
+          browserFallbackMode: "managed_headed",
+          status: "recorded"
+        }),
+        expect.objectContaining({
+        provider: "shopping/amazon",
+        source: "shopping",
+        status: "pending"
+      })
+    ]));
+    expect(metrics.challengeOrchestration).toEqual(metrics.challenge_orchestration);
+    expect(metrics.browser_fallback_modes_observed).toEqual(["extension", "managed_headed"]);
+    expect(metrics.browserFallbackModesObserved).toEqual(metrics.browser_fallback_modes_observed);
+  });
+
+  it("rejects product-video urls that use non-http protocols even when they parse cleanly", async () => {
+    const runtime = toRuntime({});
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "ftp://example.com/item"
+    })).rejects.toThrow("product_url must be an http(s) URL");
+  });
+
+  it("accepts plain http product-video urls and continues into product retrieval", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        ok: true,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "plain-http-product",
+          url: "http://shop.example/item",
+          title: "Plain HTTP Product",
+          content: "A concise product summary with stable detail copy."
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "http://shop.example/item"
+    });
+
+    expect((output.product as { url: string; title: string }).url).toBe("http://shop.example/item");
+    expect((output.product as { url: string; title: string }).title).toBe("Plain HTTP Product");
+  });
+
+  it("derives product brands from top-brand and product-identifier copy when storefront labels are absent", async () => {
+    const topBrandRuntime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "top-brand-product",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/top-brand-product",
+          title: "Amazon.com: Noise Canceling Headphones : Electronics",
+          content: "Top Brand: Bose. Noise Canceling Headphones About this item Immersive audio. All-day battery life.",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "top-brand-product",
+              title: "Amazon.com: Noise Canceling Headphones : Electronics",
+              url: "https://www.amazon.com/dp/top-brand-product",
+              price: { amount: 199, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.8,
+              reviews_count: 120
+            }
+          }
+        })]
+      })
+    });
+    const identifierRuntime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "identifier-brand-product",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: "https://www.ebay.com/p/identifier-brand-product",
+          title: "Wireless Earbuds for sale online | eBay",
+          content: "About this product Product Identifiers Brand Acme Audio MPN A1 UPC 000000000000 Model Wireless Earbuds",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "identifier-brand-product",
+              title: "Wireless Earbuds for sale online | eBay",
+              url: "https://www.ebay.com/p/identifier-brand-product",
+              price: { amount: 89, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.2,
+              reviews_count: 48
+            }
+          }
+        })]
+      })
+    });
+
+    const topBrandOutput = await runProductVideoWorkflow(topBrandRuntime, {
+      product_url: "https://www.amazon.com/dp/top-brand-product",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+    const identifierOutput = await runProductVideoWorkflow(identifierRuntime, {
+      product_url: "https://www.ebay.com/p/identifier-brand-product",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect((topBrandOutput.product as { brand: string }).brand).toBe("Bose");
+    expect((identifierOutput.product as { brand: string }).brand).toBe("Acme Audio");
   });
 });

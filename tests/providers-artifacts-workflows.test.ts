@@ -165,6 +165,9 @@ describe("artifact and workflow runtime", () => {
   });
 
   it("runs research workflow with strict source resolution and artifacts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-15T00:00:00.000Z"));
+
     const runtime = toRuntime({
       search: vi.fn(async (_input, options) => {
         const source = options?.source ?? "web";
@@ -177,7 +180,7 @@ describe("artifact and workflow runtime", () => {
               url: `https://example.com/${source}/inside`,
               title: `${source} inside`,
               content: `${source} content`,
-              timestamp: "2026-03-10T00:00:00.000Z",
+              timestamp: "2026-02-10T00:00:00.000Z",
               confidence: 0.8,
               attributes: {}
             },

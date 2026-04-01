@@ -201,7 +201,132 @@ describe("shopping providers", () => {
       price: {
         amount: 59.99,
         currency: "USD"
-      }
+      },
+      price_source: "structured_metadata",
+      price_is_trustworthy: true
+    });
+  });
+
+  it("keeps fetch pricing at zero when a PDP only exposes review-body dollar amounts", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head>
+              <title>Wireless Earbuds Ultra</title>
+            </head>
+            <body>
+              <main>
+                Wireless Earbuds Ultra deliver active noise cancellation and all-day comfort.
+                Customer review: I actually prefer my knockoff $70 earbuds for music.
+              </main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://www.amazon.com/dp/B0REVIEW701" }, context);
+
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/amazon",
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      price_source: "unresolved",
+      price_is_trustworthy: false
+    });
+  });
+
+  it("keeps fetch pricing at zero when an early customer-review prefix reaches a dollar amount", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <body>
+              <main>
+                Customer review: $70 sounded fair for the backup pair, but Wireless Earbuds Ultra is the actual product page.
+              </main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://www.amazon.com/dp/B0REVIEW702" }, context);
+
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      price_source: "unresolved",
+      price_is_trustworthy: false
+    });
+  });
+
+  it("keeps fetch pricing at zero when the first PDP price token appears beyond the bounded prefix window", async () => {
+    const intro = "Wireless Earbuds Ultra deliver active noise cancellation and all-day comfort. ".repeat(4);
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <body>
+              <main>
+                ${intro}
+                Buy now for $129.99 after reading the full feature summary.
+              </main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://www.amazon.com/dp/B0LONGPREFIX" }, context);
+
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      price_source: "unresolved",
+      price_is_trustworthy: false
+    });
+  });
+
+  it("recovers a PDP text price when metadata is absent and the first price token appears early", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <body>
+              <main>
+                $129.99 Wireless Earbuds Ultra deliver active noise cancellation and all-day comfort.
+              </main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://www.amazon.com/dp/B0TEXTPRICE" }, context);
+
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 129.99,
+        currency: "USD"
+      },
+      price_source: "search_card_context",
+      price_is_trustworthy: false
     });
   });
 
@@ -278,6 +403,27 @@ describe("shopping providers", () => {
 
   it("returns no region support diagnostics when the requested region is blank", () => {
     expect(getShoppingRegionSupportDiagnostics(["shopping/walmart"], "   ")).toEqual([]);
+  });
+
+  it("fills storefront domains only for known providers in region support diagnostics", () => {
+    expect(getShoppingRegionSupportDiagnostics(["shopping/walmart", "shopping/unknown"], "us")).toEqual([
+      {
+        provider: "shopping/walmart",
+        requestedRegion: "us",
+        enforced: false,
+        strategy: "default_storefront",
+        storefrontDomain: "walmart.com",
+        reason: "provider_search_path_ignores_region"
+      },
+      {
+        provider: "shopping/unknown",
+        requestedRegion: "us",
+        enforced: false,
+        strategy: "default_storefront",
+        storefrontDomain: null,
+        reason: "provider_search_path_ignores_region"
+      }
+    ]);
   });
 
   it("maps auth/rate-limit/unavailable status codes through the default fetcher", async () => {
@@ -1167,7 +1313,9 @@ describe("shopping providers", () => {
       price: {
         amount: 3499,
         currency: "USD"
-      }
+      },
+      price_source: "search_title_inline",
+      price_is_trustworthy: true
     });
   });
 
@@ -1449,6 +1597,48 @@ describe("shopping providers", () => {
     expect(rows?.[0]?.attributes.image_urls).toEqual(["https://i.ebayimg.com/images/g/example/s-l500.webp"]);
   });
 
+  it("falls back to title attributes and raw generic image urls for sparse eBay s-card variants", async () => {
+    const provider = createShoppingProviderById("shopping/ebay", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <ul class="srp-results srp-list clearfix">
+              <li class="s-card s-card--horizontal">
+                <a
+                  class="s-card__link image-treatment"
+                  href="https://www.ebay.com/itm/555555555555?itmmeta=sparse123"
+                  title="Portable Monitor Delta with fold-flat stand and travel sleeve"
+                >
+                  <img src="http://[oops" alt="Portable Monitor Delta" />
+                </a>
+                <div>Buy It Now only 1 left</div>
+              </li>
+            </ul>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "portable monitor", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.ebay.com/itm/555555555555?itmmeta=sparse123",
+      title: "Portable Monitor Delta with fold-flat stand and travel sleeve"
+    });
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/ebay",
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      availability: "limited"
+    });
+    expect(rows?.[0]?.attributes.image_urls).toEqual(["http://[oops"]);
+  });
+
   it("routes target shell pages through browser fallback", async () => {
     const provider = createShoppingProviderById("shopping/target");
     const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
@@ -1525,6 +1715,29 @@ describe("shopping providers", () => {
           kind: "session_required",
           evidenceCode: "auth_required",
           message: "Sign In | Costco Please sign in to continue."
+        }
+      })
+    });
+  });
+
+  it("surfaces auth-required no-candidate shopping shells even when title and body text are absent", async () => {
+    const provider = createShoppingProviderById("shopping/costco", {
+      fetcher: async ({ url }) => ({
+        status: 401,
+        url,
+        html: "<html><body></body></html>"
+      })
+    });
+
+    await expect(provider.search?.({ query: "wireless mouse", limit: 1 }, context)).rejects.toMatchObject({
+      code: "auth",
+      reasonCode: "token_required",
+      message: "Authentication required for https://www.costco.com/CatalogSearch?dept=All&keyword=wireless%20mouse",
+      details: expect.objectContaining({
+        blockerType: "auth_required",
+        constraint: {
+          kind: "session_required",
+          evidenceCode: "auth_required"
         }
       })
     });
@@ -1725,6 +1938,7 @@ describe("shopping providers", () => {
         provider: "shopping/temu",
         operation: "search",
         reasonCode: "env_limited",
+        timeoutMs: 1000,
         details: expect.objectContaining({
           browserRequired: true,
           providerShell: "temu_empty_shell",
@@ -1733,6 +1947,48 @@ describe("shopping providers", () => {
             evidenceCode: "temu_empty_shell"
           })
         })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps raw shopping fetches capped while browser fallback uses the caller timeout budget", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+        html: "<html><body><a href=\"https://www.temu.com/g-601099522700389.html\">Ergonomic mouse</a><div>USD 18.99 4.5 out of 5 88 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          timeoutMs: 120000,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/temu",
+        operation: "search",
+        timeoutMs: 120000
       }));
     } finally {
       vi.unstubAllGlobals();

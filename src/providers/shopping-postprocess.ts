@@ -15,7 +15,8 @@ import { extractText, toSnippet } from "./web/extract";
 import type { CompiledShoppingWorkflow, ShoppingWorkflowRun } from "./shopping-workflow";
 
 export const LOOKS_LIKE_URL_RE = /^https?:\/\/\S+$/i;
-const PRICE_SCAN_RE = /([$€£])\s*([0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/g;
+const PRICE_TOKEN_RE = /((?:US\$|CA\$|C\$|USD|CAD|EUR|GBP|[$€£]))\s*([0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/gi;
+const CONTEXTUAL_PRICE_TOKEN_RE = /(?:connect to any carrier later|starting at|starts at|starting from|from|buy now for|buy for)\s*((?:US\$|CA\$|C\$|USD|CAD|EUR|GBP|[$€£]))\s*([0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/gi;
 const PRODUCT_COPY_CUTOFF_PATTERNS = [
   /frequently asked questions/i,
   /footer footnotes/i,
@@ -25,7 +26,7 @@ const PRODUCT_COPY_CUTOFF_PATTERNS = [
   /privacy policy/i,
   /terms of use/i
 ] as const;
-const PRODUCT_FEATURE_NOISE_RE = /\b(?:frequently asked questions|footnote|carrier deals|connect to any carrier later|at&t|t-mobile|verizon|boost mobile|applecare|privacy policy|terms of use|returns?|refunds?|bill credits?|trade[- ]?in|required|monthly|\/mo\b|deductible|service fee|more ways to shop)\b/i;
+const PRODUCT_FEATURE_NOISE_RE = /\b(?:frequently asked questions|footnote|carrier deals|connect to any carrier later|at&t|t-mobile|verizon|boost mobile|applecare|privacy policy|terms of use|returns?|refunds?|bill credits?|trade[- ]?in|required|monthly|\/mo\b|deductible|service fee|more ways to shop|shipper\s*\/\s*seller|main content|about this item|buying options|compare with similar items|search opt|cart shift|home shift|orders shift|add to cart shift|show\/hide shortcuts|image unavailable|brief content visible|full content visible|see more product details)\b/i;
 const PRODUCT_PRICE_NEGATIVE_CONTEXT_RE = /\b(?:save(?: up to)?|trade[- ]?in|bill credits?|credit|credits|off\b|monthly|per month|\/mo\b|deductible|service fee|activation fee)\b/i;
 const PRODUCT_PRICE_POSITIVE_CONTEXT_RE = /\b(?:starting at|starts at|starting from|from|connect to any carrier later|buy now|buy for|unlocked)\b/i;
 const SHOPPING_INTENT_STOP_WORDS = new Set([
@@ -76,6 +77,8 @@ const SHOPPING_ACCESSORY_KEYWORDS = new Set([
   "stand",
   "stands"
 ]);
+const USED_INVENTORY_QUERY_RE = /\b(?:used|pre owned|preowned|refurbished|renewed|open box|openbox)\b/i;
+const USED_INVENTORY_URL_RE = /\b(?:conditiongroupcode=3|used|pre-?owned|refurbished|renewed|open-?box)\b/i;
 const KNOWN_BRAND_BY_HOST_SUFFIX: Record<string, string> = {
   "aliexpress.com": "AliExpress",
   "amazon.com": "Amazon",
@@ -89,12 +92,22 @@ const KNOWN_BRAND_BY_HOST_SUFFIX: Record<string, string> = {
   "temu.com": "Temu",
   "walmart.com": "Walmart"
 };
+const REGION_CURRENCY_BY_REGION: Record<string, string> = {
+  us: "USD",
+  ca: "CAD",
+  gb: "GBP",
+  uk: "GBP",
+  eu: "EUR"
+};
 
 const hash = (value: string): string => createHash("sha1").update(value).digest("hex").slice(0, 16);
 
 export const normalizePlainText = (value: string | undefined): string => {
   if (!value) return "";
-  return extractText(value).replace(/\s+/g, " ").trim();
+  return extractText(value)
+    .replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 };
 
 const normalizeShoppingIntentText = (value: string | undefined): string => {
@@ -118,6 +131,13 @@ const hasAccessoryMarker = (value: string | undefined): boolean => {
 };
 
 const isAccessoryQuery = (query: string): boolean => hasAccessoryMarker(query);
+
+const queryRequestsUsedInventory = (query: string): boolean => USED_INVENTORY_QUERY_RE.test(normalizeShoppingIntentText(query));
+
+const offerLooksUsedInventory = (offer: ShoppingOffer): boolean => {
+  const normalizedOffer = normalizeShoppingIntentText(`${offer.title} ${offer.url}`);
+  return USED_INVENTORY_QUERY_RE.test(normalizedOffer) || USED_INVENTORY_URL_RE.test(offer.url);
+};
 
 const normalizeFeatureEntry = (value: string): string | null => {
   const normalized = normalizePlainText(value);
@@ -194,9 +214,17 @@ const parseMatchedPrice = (currencySymbol: string | undefined, rawAmount: string
   if (!currencySymbol || !rawAmount) return null;
   const amount = Number(rawAmount.replace(/,/g, ""));
   if (!Number.isFinite(amount) || amount <= 0) return null;
+  const normalizedCurrency = currencySymbol.trim().toUpperCase();
+  const currency = normalizedCurrency === "€"
+    ? "EUR"
+    : normalizedCurrency === "£"
+      ? "GBP"
+      : normalizedCurrency === "CAD" || normalizedCurrency === "CA$" || normalizedCurrency === "C$"
+        ? "CAD"
+        : "USD";
   return {
     amount,
-    currency: currencySymbol === "€" ? "EUR" : currencySymbol === "£" ? "GBP" : "USD"
+    currency
   };
 };
 
@@ -210,12 +238,13 @@ export const asNumber = (value: unknown): number => {
 };
 
 export const parsePriceFromContent = (content: string | undefined): { amount: number; currency: string } => {
-  const normalized = normalizePlainText(content);
+  const normalized = normalizePlainText(content)
+    .replace(/([$€£])\s+/g, "$1")
+    .replace(/\b(?:US\$|CA\$|C\$|USD|CAD|EUR|GBP)\s+/gi, (match) => `${match.trim().toUpperCase()} `)
+    .replace(/(\d)\s*([.,])\s*(\d{2})/g, "$1$2$3");
   if (!normalized) return { amount: 0, currency: "USD" };
 
-  const contextualMatches = [...normalized.matchAll(
-    /(?:connect to any carrier later|starting at|starts at|starting from|from|buy now for|buy for)\s*([$€£])\s*([0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/gi
-  )]
+  const contextualMatches = [...normalized.matchAll(CONTEXTUAL_PRICE_TOKEN_RE)]
     .map((match) => parseMatchedPrice(match[1], match[2]))
     .filter((entry): entry is { amount: number; currency: string } => entry !== null)
     .sort((left, right) => left.amount - right.amount);
@@ -223,7 +252,7 @@ export const parsePriceFromContent = (content: string | undefined): { amount: nu
     return contextualMatches[0]!;
   }
 
-  const candidates = [...normalized.matchAll(PRICE_SCAN_RE)]
+  const candidates = [...normalized.matchAll(PRICE_TOKEN_RE)]
     .map((match) => {
       const parsed = parseMatchedPrice(match[1], match[2]);
       if (!parsed) return null;
@@ -253,12 +282,13 @@ export const parsePriceFromContent = (content: string | undefined): { amount: nu
 const scoreShoppingOfferIntent = (
   query: string,
   offer: ShoppingOffer
-): { intentScore: number; accessoryPenalty: number; directMatch: boolean } => {
+): { intentScore: number; accessoryPenalty: number; usedInventoryPenalty: number; directMatch: boolean } => {
   const queryTokens = tokenizeShoppingIntent(query);
   if (queryTokens.length === 0) {
     return {
       intentScore: 0,
       accessoryPenalty: 0,
+      usedInventoryPenalty: 0,
       directMatch: false
     };
   }
@@ -279,15 +309,18 @@ const scoreShoppingOfferIntent = (
   const exactPhrase = normalizedQuery.length > 0 && normalizedOffer.includes(normalizedQuery);
   const directMatch = exactPhrase || importantMatches.length >= Math.min(queryTokens.length, 3);
   const accessoryPenalty = !isAccessoryQuery(query) && hasAccessoryMarker(offerText) ? 6 : 0;
+  const usedInventoryPenalty = !queryRequestsUsedInventory(query) && offerLooksUsedInventory(offer) ? 10 : 0;
   const intentScore = (importantMatches.length * 3)
     + ((matchedTokens.length - importantMatches.length) * 1.5)
     + (exactPhrase ? 4 : 0)
     + (directMatch ? 2 : 0)
-    - accessoryPenalty;
+    - accessoryPenalty
+    - usedInventoryPenalty;
 
   return {
     intentScore,
     accessoryPenalty,
+    usedInventoryPenalty,
     directMatch
   };
 };
@@ -320,10 +353,20 @@ export const extractShoppingOffer = (record: NormalizedRecord, now: Date): Shopp
   const nested = (record.attributes.shopping_offer ?? {}) as Record<string, unknown>;
   const nestedPrice = (nested.price ?? {}) as Record<string, unknown>;
   const nestedShipping = (nested.shipping ?? {}) as Record<string, unknown>;
-
-  const fallbackPrice = parsePriceFromContent(record.content);
-  const priceAmount = asNumber(nestedPrice.amount) || fallbackPrice.amount;
-  const priceCurrency = typeof nestedPrice.currency === "string" && nestedPrice.currency.trim()
+  const retrievalPath = typeof record.attributes.retrievalPath === "string"
+    ? record.attributes.retrievalPath
+    : "";
+  const hasNestedPrice = asNumber(nestedPrice.amount) > 0;
+  const priceSource = typeof nested.price_source === "string" ? nested.price_source : "unresolved";
+  const priceIsTrustworthy = nested.price_is_trustworthy === true;
+  const allowContentFallback = retrievalPath === "shopping:search:result-card"
+    || retrievalPath === "shopping:search:url"
+    || priceIsTrustworthy
+    || priceSource === "search_card_context"
+    || priceSource === "search_title_inline";
+  const fallbackPrice = allowContentFallback ? parsePriceFromContent(record.content) : { amount: 0, currency: "USD" };
+  const priceAmount = hasNestedPrice ? asNumber(nestedPrice.amount) : fallbackPrice.amount;
+  const priceCurrency = hasNestedPrice && typeof nestedPrice.currency === "string" && nestedPrice.currency.trim()
     ? nestedPrice.currency
     : fallbackPrice.currency;
   const retrievedAt = typeof nestedPrice.retrieved_at === "string" && nestedPrice.retrieved_at.trim()
@@ -377,6 +420,21 @@ export const extractShoppingOffer = (record: NormalizedRecord, now: Date): Shopp
 
   offer.deal_score = computeDealScore(offer, now);
   return offer;
+};
+
+const resolveExpectedCurrencyForRegion = (region: string | undefined): string | null => {
+  if (!region) return null;
+  return REGION_CURRENCY_BY_REGION[region.trim().toLowerCase()] ?? null;
+};
+
+const offerMatchesRegionCurrency = (
+  offer: ShoppingOffer,
+  expectedCurrency: string | null
+): boolean => {
+  if (!expectedCurrency) {
+    return true;
+  }
+  return offer.price.currency.trim().toUpperCase() === expectedCurrency;
 };
 
 export const dedupeOffers = (offers: ShoppingOffer[]): ShoppingOffer[] => {
@@ -599,6 +657,11 @@ export const postprocessShoppingWorkflow = (
     ...run,
     offerRecords: run.result.records.filter((record) => isLikelyOfferRecord(record))
   }));
+  const expectedCurrency = resolveExpectedCurrencyForRegion(compiled.region);
+  const runsWithExtractedOffers = runsWithOfferRecords.map((run) => ({
+    ...run,
+    extractedOffers: run.offerRecords.map((record) => extractShoppingOffer(record, compiled.now))
+  }));
   const extractedOffers = runsWithOfferRecords
     .flatMap((run) => run.offerRecords)
     .map((record) => extractShoppingOffer(record, compiled.now));
@@ -607,6 +670,7 @@ export const postprocessShoppingWorkflow = (
   const offers = rankOffers(
     dedupeOffers(extractedOffers.filter((offer) => {
       if (offer.price.amount <= 0) return false;
+      if (!offerMatchesRegionCurrency(offer, expectedCurrency)) return false;
       if (typeof compiled.budget !== "number") return true;
       return offer.price.amount <= compiled.budget;
     })),
@@ -614,18 +678,23 @@ export const postprocessShoppingWorkflow = (
     compiled.query
   );
 
-  const failures = runsWithOfferRecords.flatMap((run) => {
+  const failures = runsWithExtractedOffers.flatMap((run) => {
     if (run.result.failures.length > 0) {
       return run.result.failures;
     }
-    if (run.offerRecords.length > 0) {
+    if (
+      run.extractedOffers.some((offer) => (
+        offer.price.amount > 0
+        && offerMatchesRegionCurrency(offer, expectedCurrency)
+      ))
+    ) {
       return [];
     }
     return [createEmptyShoppingResultFailure(run.providerId, compiled.query, run.result.records)];
   });
 
   return {
-    records: runsWithOfferRecords.flatMap((run) => run.result.records),
+    records: runsWithExtractedOffers.flatMap((run) => run.result.records),
     failures,
     offers,
     zeroPriceExcluded

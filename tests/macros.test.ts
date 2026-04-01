@@ -414,6 +414,1042 @@ describe("macro parser + registry", () => {
     });
   });
 
+  it("rejects shell-only macro search results", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "duckduckgo-challenge",
+            source: "web" as const,
+            provider: "web/default",
+            url: "https://duckduckgo.com",
+            title: "https://duckduckgo.com",
+            content: "Unfortunately, bots use DuckDuckGo too. Please complete the following challenge.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "web:search:index",
+              extractionQuality: {
+                contentChars: 78
+              }
+            }
+          },
+          {
+            id: "duckduckgo-index",
+            source: "web" as const,
+            provider: "web/default",
+            url: "https://html.duckduckgo.com/html",
+            title: "https://html.duckduckgo.com/html",
+            content: "",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "web:search:index",
+              extractionQuality: {
+                contentChars: 0
+              }
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "web" as const,
+        providerOrder: ["web/default"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "web",
+        operation: "search",
+        input: {
+          query: "macro shell",
+          providerId: "web/default"
+        }
+      },
+      provenance: {
+        macro: "web.search",
+        provider: "web/default",
+        resolvedQuery: "macro shell",
+        pack: "core:web",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records");
+  });
+
+  it("rejects shell-only community search results gated by Reddit verification walls", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "reddit-verification-wall",
+            source: "community" as const,
+            provider: "community/default",
+            url: "https://www.reddit.com/answers/example?q=browser+automation",
+            title: "https://www.reddit.com/answers/example?q=browser+automation",
+            content: "Reddit - The heart of the internet. Please wait for verification. Skip to main content.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "community" as const,
+        providerOrder: ["community/default"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "community",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "community/default"
+        }
+      },
+      provenance: {
+        macro: "community.search",
+        provider: "community/default",
+        resolvedQuery: "browser automation",
+        pack: "core:community",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records (challenge_shell).");
+  });
+
+  it("keeps web search results usable when a surviving document record uses the URL as its title", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "duckduckgo-shell",
+            source: "web" as const,
+            provider: "web/default",
+            url: "https://html.duckduckgo.com/html",
+            title: "https://html.duckduckgo.com/html",
+            content: "query at DuckDuckGo",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.75,
+            attributes: {
+              retrievalPath: "web:search:index",
+              extractionQuality: {
+                contentChars: 700
+              }
+            }
+          },
+          {
+            id: "real-result",
+            source: "web" as const,
+            provider: "web/default",
+            url: "https://developer.chrome.com/docs/extensions/reference/api/debugger",
+            title: "https://developer.chrome.com/docs/extensions/reference/api/debugger",
+            content: "",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.7,
+            attributes: {
+              retrievalPath: "web:search:index",
+              extractionQuality: {
+                contentChars: 0
+              }
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "web" as const,
+        providerOrder: ["web/default"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    const output = await executeMacroResolution({
+      action: {
+        source: "web",
+        operation: "search",
+        input: {
+          query: "chrome debugger attach",
+          providerId: "web/default"
+        }
+      },
+      provenance: {
+        macro: "web.search",
+        provider: "web/default",
+        resolvedQuery: "chrome debugger attach",
+        pack: "core:web",
+        args: { positional: [], named: {} }
+      }
+    }, runtime);
+
+    expect(output.records).toHaveLength(2);
+    expect(output.records[0]?.url).toBe("https://developer.chrome.com/docs/extensions/reference/api/debugger");
+    expect(output.records[1]?.url).toBe("https://html.duckduckgo.com/html");
+  });
+
+  it("keeps community search macro passes when a Reddit verification wall appears alongside a usable result", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "reddit-verification-wall",
+            source: "community" as const,
+            provider: "community/default",
+            url: "https://www.reddit.com/answers/example?q=browser+automation",
+            title: "https://www.reddit.com/answers/example?q=browser+automation",
+            content: "Reddit - The heart of the internet. Please wait for verification. Skip to main content.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          },
+          {
+            id: "usable-community-record",
+            source: "community" as const,
+            provider: "community/default",
+            url: "https://forum.example.com/t/browser-automation-checklist",
+            title: "Browser automation checklist",
+            content: "A working checklist for diagnosing browser automation failures across real sites.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.8,
+            attributes: {
+              retrievalPath: "community:search:index"
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "community" as const,
+        providerOrder: ["community/default"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    const result = await executeMacroResolution({
+      action: {
+        source: "community",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "community/default"
+        }
+      },
+      provenance: {
+        macro: "community.search",
+        provider: "community/default",
+        resolvedQuery: "browser automation",
+        pack: "core:community",
+        args: { positional: [], named: {} }
+      }
+    }, runtime);
+
+    expect(result.records).toHaveLength(2);
+  });
+
+  it("rejects shell-only X social search results gated by javascript-required shells", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "x-js-shell",
+            source: "social" as const,
+            provider: "social/x",
+            url: "https://x.com/search?q=browser+automation&f=live&page=1",
+            title: "X search",
+            content: "JavaScript is disabled in this browser. Please enable JavaScript.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:search:index"
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/x"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/x"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/x",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records (social_js_required_shell).");
+  });
+
+  it("keeps single-record X social macro results when warning text coexists with a usable X link", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "x-mixed-search-record",
+            source: "social" as const,
+            provider: "social/x",
+            url: "https://x.com/search?q=browser+automation&f=live&page=1",
+            title: "X search",
+            content: "JavaScript is disabled in this browser. Please enable JavaScript. Top Latest People Media Lists.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.8,
+            attributes: {
+              retrievalPath: "social:search:index",
+              links: [
+                "https://x.com/acct/status/1"
+              ]
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/x"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    const result = await executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/x"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/x",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime);
+
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]?.attributes.links).toContain("https://x.com/acct/status/1");
+  });
+
+  it("rejects shell-only X social macro results when only policy and help links are present", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "x-search-shell",
+            source: "social" as const,
+            provider: "social/x",
+            url: "https://x.com/search?q=browser+automation&f=live&page=1",
+            title: "X search",
+            content: "JavaScript is disabled in this browser. Please enable JavaScript. Something went wrong, but don't fret.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:search:index",
+              links: [
+                "https://x.com/privacy",
+                "https://x.com/tos",
+                "https://t.co",
+                "https://help.x.com/using-x/x-supported-browsers"
+              ]
+            }
+          },
+          {
+            id: "x-legal-shell",
+            source: "social" as const,
+            provider: "social/x",
+            url: "https://legal.x.com/de/imprint.html",
+            title: "Legal",
+            content: "Imprint",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:fetch:url"
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/x"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/x"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/x",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records");
+  });
+
+  it("rejects shell-only X social macro results when only first-party metadata links are present", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "x-search-shell",
+            source: "social" as const,
+            provider: "social/x",
+            url: "https://x.com/search?q=browser+automation&f=live&page=1",
+            title: "X search",
+            content: "JavaScript is not available. We’ve detected that JavaScript is disabled in this browser.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:search:index",
+              links: [
+                "https://x.com/os-x.xml",
+                "https://x.com/manifest.json",
+                "https://x.com/os-grok.xml",
+                "https://help.x.com/using-x/x-supported-browsers"
+              ]
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/x"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/x"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/x",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records (social_js_required_shell).");
+  });
+
+  it("rejects shell-only Reddit social search results gated by verification walls", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "reddit-verification-wall",
+            source: "social" as const,
+            provider: "social/reddit",
+            url: "https://www.reddit.com/search/?q=browser+automation",
+            title: "Reddit search",
+            content: "Please wait for verification.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:search:index"
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/reddit"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/reddit"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/reddit",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records (social_verification_wall).");
+  });
+
+  it("rejects shell-only Reddit social search results that land on non-content routes", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "reddit-submit-shell",
+            source: "social" as const,
+            provider: "social/reddit",
+            url: "https://www.reddit.com/submit",
+            title: "Submit to Reddit",
+            content: "Submit to Reddit",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:fetch:url"
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/reddit"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/reddit"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/reddit",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records (social_render_shell).");
+  });
+
+  it("rejects shell-only Bluesky social search results that land on first-party docs", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "bluesky-help-shell",
+            source: "social" as const,
+            provider: "social/bluesky",
+            url: "https://atproto.com/guides/overview",
+            title: "AT Protocol",
+            content: "Overview",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:fetch:url"
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/bluesky"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/bluesky"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/bluesky",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records (social_first_party_help_shell).");
+  });
+
+  it("rejects logged-out Bluesky search results when only feed and help links are present", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "bluesky-search-shell",
+            source: "social" as const,
+            provider: "social/bluesky",
+            url: "https://bsky.app/search?q=browser+automation&page=1",
+            title: "Explore - Bluesky",
+            content: "Search is currently unavailable when logged out. Bluesky JavaScript Required.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:search:index",
+              links: [
+                "https://bsky.app/profile/trending.bsky.app/feed/665497821",
+                "https://blueskyweb.zendesk.com/hc/en-us"
+              ]
+            }
+          },
+          {
+            id: "bluesky-help-shell",
+            source: "social" as const,
+            provider: "social/bluesky",
+            url: "https://blueskyweb.zendesk.com/hc/en-us",
+            title: "Bluesky Help",
+            content: "Help center",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:fetch:url"
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/bluesky"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/bluesky"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/bluesky",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records");
+  });
+
+  it("rejects feed-only Bluesky js-required search results", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "bluesky-feed-only-shell",
+            source: "social" as const,
+            provider: "social/bluesky",
+            url: "https://bsky.app/search?q=browser+automation&page=1",
+            title: "Bluesky Search",
+            content: "Bluesky JavaScript Required Top Latest.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:search:index",
+              links: [
+                "https://bsky.app/profile/trending.bsky.app/feed/665497821"
+              ]
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/bluesky"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/bluesky"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/bluesky",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records (social_js_required_shell).");
+  });
+
+  it("rejects signed-in Bluesky navigation-only search results when only profile and shell links are present", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "bluesky-nav-shell",
+            source: "social" as const,
+            provider: "social/bluesky",
+            url: "https://bsky.app/search?page=1&q=browser+automation+bluesky",
+            title: "bluesky search: browser automation bluesky",
+            content: "All languages Top Latest People Feeds Home Explore Notifications Chat Feeds Lists Saved Profile Settings New Post Feedback Privacy Terms Help",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:search:index",
+              links: [
+                "https://bsky.app/notifications",
+                "https://bsky.app/messages",
+                "https://bsky.app/feeds",
+                "https://bsky.app/lists",
+                "https://bsky.app/saved",
+                "https://bsky.app/profile/freshtechbro.bsky.social",
+                "https://bsky.app/settings"
+              ]
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/bluesky"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/bluesky"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/bluesky",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records (social_render_shell).");
+  });
+
+  it("keeps social search macro passes when a shell record appears alongside a usable X result", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "x-js-shell",
+            source: "social" as const,
+            provider: "social/x",
+            url: "https://x.com/search?q=browser+automation&f=live&page=1",
+            title: "X search",
+            content: "JavaScript is disabled in this browser. Please enable JavaScript.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              retrievalPath: "social:search:index"
+            }
+          },
+          {
+            id: "usable-x-post",
+            source: "social" as const,
+            provider: "social/x",
+            url: "https://x.com/acct/status/1",
+            title: "Browser automation on X",
+            content: "A real X post about browser automation.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.8,
+            attributes: {
+              retrievalPath: "social:fetch:url"
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/x"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    const result = await executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/x"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/x",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime);
+
+    expect(result.records).toHaveLength(2);
+  });
+
+  it("rejects shell-only macro fetch results with truncated chrome bodies", async () => {
+    const runtime = {
+      search: async () => {
+        throw new Error("unused");
+      },
+      fetch: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "mdn-fetch",
+            source: "web" as const,
+            provider: "web/default",
+            url: "https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelector",
+            title: "Document: querySelector() method - Web APIs | MDN",
+            content: "\"The",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {
+              links: Array.from({ length: 30 }, (_, index) => `https://example.com/${index}`),
+              extractionQuality: {
+                contentChars: 4
+              }
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "web" as const,
+        providerOrder: ["web/default"],
+        meta: {
+          provenance: {
+            retrievalPath: "fetch:developer.mozilla.org"
+          }
+        }
+      }),
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    await expect(executeMacroResolution({
+      action: {
+        source: "web",
+        operation: "fetch",
+        input: {
+          url: "https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelector",
+          providerId: "web/default"
+        }
+      },
+      provenance: {
+        macro: "web.fetch",
+        provider: "web/default",
+        resolvedQuery: "https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelector",
+        pack: "core:web",
+        args: { positional: [], named: {} }
+      }
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records");
+  });
+
   it("forwards challenge automation mode into provider run options", async () => {
     let receivedOptions: Record<string, unknown> | undefined;
     const runtime = {

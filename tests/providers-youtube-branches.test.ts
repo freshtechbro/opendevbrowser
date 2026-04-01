@@ -101,6 +101,129 @@ describe("youtube provider branches", () => {
     });
   });
 
+  it("rejects generic YouTube search chrome as an env-limited shell", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <body>
+            About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+
+    await expect(provider.search?.({ query: "browser automation youtube" }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "env_limited",
+      details: expect.objectContaining({
+        providerShell: "youtube_search_shell",
+        browserRequired: true
+      })
+    });
+  });
+
+  it("extracts the first real search result without carrying generic site chrome into the record", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <body>
+            <script>
+              var ytInitialData = {
+                "contents": {
+                  "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                      "sectionListRenderer": {
+                        "contents": [{
+                          "itemSectionRenderer": {
+                            "contents": [{
+                              "videoRenderer": {
+                                "videoId": "StC_uaWoiOs",
+                                "title": { "runs": [{ "text": "This is how I automated a YouTube Channel (n8n + No-code)" }] },
+                                "longBylineText": { "runs": [{ "text": "Builders Central" }] },
+                                "publishedTimeText": { "simpleText": "4 months ago" },
+                                "viewCountText": { "simpleText": "98,017 views" },
+                                "detailedMetadataSnippets": [{
+                                  "snippetText": {
+                                    "runs": [
+                                      { "text": "In this video, we explained how to build an automated content workflow." }
+                                    ]
+                                  }
+                                }]
+                              }
+                            }]
+                          }
+                        }]
+                      }
+                    }
+                  }
+                }
+              };
+            </script>
+            <footer>
+              About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy
+            </footer>
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "browser automation youtube" }, context);
+
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.youtube.com/watch?v=StC_uaWoiOs",
+      title: "This is how I automated a YouTube Channel (n8n + No-code)"
+    });
+    expect(records?.[0]?.content).toContain("Builders Central");
+    expect(records?.[0]?.content).toContain("98,017 views");
+    expect(records?.[0]?.content).not.toMatch(/About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy/i);
+    expect(records?.[0]?.attributes).toMatchObject({
+      retrievalPath: "social:youtube:search:index",
+      video_id: "StC_uaWoiOs",
+      channel: "Builders Central",
+      links: []
+    });
+  });
+
+  it("keeps a recovered watch link when search HTML only exposes footer chrome around the result page", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <body>
+            <a href="/watch?v=StC_uaWoiOs">Watch</a>
+            <footer>
+              About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy
+            </footer>
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "browser automation youtube" }, context);
+
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.youtube.com/watch?v=StC_uaWoiOs",
+      title: "YouTube search: browser automation youtube"
+    });
+    expect(records?.[0]?.content ?? "").toBe("");
+    expect(records?.[0]?.attributes).toMatchObject({
+      retrievalPath: "social:youtube:search:index",
+      video_id: "StC_uaWoiOs",
+      links: ["https://www.youtube.com/watch?v=StC_uaWoiOs"]
+    });
+  });
+
   it("summarizes long english transcripts without translation when full transcript is disabled", async () => {
     const provider = createYouTubeProvider(withDefaultYouTubeOptions());
     const videoUrl = "https://youtu.be/abc123def45";

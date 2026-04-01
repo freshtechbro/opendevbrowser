@@ -22,6 +22,7 @@ const makeDeps = () => {
       const source = options?.source ?? "web";
       const providerId = options?.providerIds?.[0] ?? `${source}/default`;
       const price = providerId.includes("others") ? 10 : 20;
+      const timestamp = new Date().toISOString();
       return {
         ok: true,
         records: [{
@@ -31,7 +32,7 @@ const makeDeps = () => {
           url: `https://example.com/${providerId}`,
           title: `${input.query} ${providerId}`,
           content: `$${price}`,
-          timestamp: "2026-02-16T00:00:00.000Z",
+          timestamp,
           confidence: 0.8,
           attributes: {
             shopping_offer: {
@@ -39,7 +40,7 @@ const makeDeps = () => {
               product_id: `${providerId}-product`,
               title: `${input.query} ${providerId}`,
               url: `https://example.com/${providerId}`,
-              price: { amount: price, currency: "USD", retrieved_at: "2026-02-16T00:00:00.000Z" },
+              price: { amount: price, currency: "USD", retrieved_at: timestamp },
               shipping: { amount: 0, currency: "USD", notes: "free" },
               availability: "in_stock",
               rating: 4.5,

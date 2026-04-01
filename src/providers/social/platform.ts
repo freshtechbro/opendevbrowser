@@ -3,6 +3,12 @@ import { normalizeRecords } from "../normalize";
 import { assertPostPolicy, type PostPolicyHook } from "../shared/post-policy";
 import { isLikelyDocumentUrl } from "../shared/traversal-url";
 import { canonicalizeUrl } from "../web/crawler";
+import {
+  isAllowedSocialSearchExpansionUrl,
+  isFirstPartySocialSearchRoute,
+  prioritizeSocialSearchLinks,
+  selectUsableSocialSearchLinks
+} from "./search-quality";
 import type {
   JsonValue,
   NormalizedRecord,
@@ -37,6 +43,7 @@ interface SocialTraversalNode {
   page: number;
   hop: number;
   parent: string;
+  carryForwardAttributes?: Record<string, JsonValue>;
 }
 
 export interface SocialTraversalBudget {
@@ -151,7 +158,29 @@ const coerceStringArray = (value: JsonValue | undefined): string[] => {
   return value.filter((entry): entry is string => typeof entry === "string");
 };
 
+const CARRY_FORWARD_SOCIAL_SEARCH_ATTRIBUTE_KEYS = new Set([
+  "links",
+  "page",
+  "query",
+  "retrievalPath",
+  "status"
+]);
+
+const pickCarryForwardSocialSearchAttributes = (
+  attributes?: Record<string, JsonValue>
+): Record<string, JsonValue> | undefined => {
+  if (!attributes) return undefined;
+  const carried = Object.entries(attributes).reduce<Record<string, JsonValue>>((result, [key, value]) => {
+    if (CARRY_FORWARD_SOCIAL_SEARCH_ATTRIBUTE_KEYS.has(key) || key.startsWith("browser_fallback_")) {
+      result[key] = value;
+    }
+    return result;
+  }, {});
+  return Object.keys(carried).length > 0 ? carried : undefined;
+};
+
 const extractLinks = (
+  platform: SocialPlatformProfile["platform"],
   row: { attributes?: Record<string, JsonValue>; content?: string },
   fallbackUrl: string
 ): string[] => {
@@ -165,10 +194,20 @@ const extractLinks = (
   const deduped = new Set<string>();
   for (const candidate of [...attributeLinks, ...contentLinks]) {
     const canonical = canonicalizeUrl(candidate);
-    if (!isHttpUrl(canonical) || canonical === fallbackUrl || !isLikelyDocumentUrl(canonical)) continue;
+    if (
+      !isHttpUrl(canonical)
+      || canonical === fallbackUrl
+      || !isLikelyDocumentUrl(canonical)
+      || !isAllowedSocialSearchExpansionUrl(platform, canonical)
+    ) {
+      continue;
+    }
     deduped.add(canonical);
   }
-  return [...deduped].sort((left, right) => left.localeCompare(right));
+  if (isFirstPartySocialSearchRoute(platform, fallbackUrl)) {
+    return selectUsableSocialSearchLinks(platform, fallbackUrl, [...deduped]);
+  }
+  return prioritizeSocialSearchLinks(platform, fallbackUrl, [...deduped]);
 };
 
 const qualityFlags = (args: {
@@ -292,47 +331,63 @@ export const createSocialPlatformProvider = (
     }> = [];
 
     for (let page = 1; page <= traversal.pageLimit && rows.length < traversal.maxRecords; page += 1) {
-      const pageRows = await options.search({
-        ...input,
-        filters: {
-          ...(input.filters ?? {}),
-          page
+      let pageRows: SocialSearchRecord[];
+      try {
+        pageRows = await options.search({
+          ...input,
+          filters: {
+            ...(input.filters ?? {}),
+            page
+          }
+        }, context);
+      } catch (error) {
+        if (page > 1 && rows.length > 0 && shouldSkipExpansionError(error)) {
+          break;
         }
-      }, context);
+        throw error;
+      }
 
       for (const row of sortRows(pageRows)) {
         const canonical = canonicalizeUrl(row.url);
         if (!isHttpUrl(canonical) || seen.has(canonical)) continue;
         seen.add(canonical);
 
-        rows.push({
-          ...row,
-          url: canonical,
-          attributes: {
-            ...(row.attributes ?? {}),
-            traversal: {
-              page,
-              hop: 0
-            },
-            extractionQuality: qualityFlags({
-              url: canonical,
-              title: row.title,
-              content: row.content,
-              page,
-              hop: 0,
-              expandedLinks: 0
-            })
-          }
-        });
-        if (rows.length >= traversal.maxRecords) break;
+        const links = extractLinks(profile.platform, row, canonical).slice(0, traversal.expansionPerRecord);
+        const keepRow = !isFirstPartySocialSearchRoute(profile.platform, canonical);
+        const carryForwardAttributes = keepRow
+          ? undefined
+          : pickCarryForwardSocialSearchAttributes(row.attributes);
 
-        const links = extractLinks(row, canonical).slice(0, traversal.expansionPerRecord);
+        if (keepRow) {
+          rows.push({
+            ...row,
+            url: canonical,
+            attributes: {
+              ...(row.attributes ?? {}),
+              traversal: {
+                page,
+                hop: 0
+              },
+              extractionQuality: qualityFlags({
+                url: canonical,
+                title: row.title,
+                content: row.content,
+                page,
+                hop: 0,
+                expandedLinks: links.length
+              })
+            }
+          });
+          if (rows.length >= traversal.maxRecords) break;
+        }
+
         for (const link of links) {
           queue.push({
             url: link,
             page,
             hop: 1,
-            parent: canonical
+            parent: canonical,
+            ...(carryForwardAttributes ? { carryForwardAttributes } : {})
           });
         }
       }
@@ -361,7 +416,7 @@ export const createSocialPlatformProvider = (
       if (!isHttpUrl(resolvedUrl) || seen.has(resolvedUrl)) continue;
       seen.add(resolvedUrl);
 
-      const links = extractLinks(fetched, resolvedUrl).slice(0, traversal.expansionPerRecord);
+      const links = extractLinks(profile.platform, fetched, resolvedUrl).slice(0, traversal.expansionPerRecord);
       rows.push({
         url: resolvedUrl,
         title: fetched.title,
@@ -369,6 +424,7 @@ export const createSocialPlatformProvider = (
         confidence: 0.6,
         attributes: {
           ...(fetched.attributes ?? {}),
+          ...(next.carryForwardAttributes ?? {}),
           traversal: {
             page: next.page,
             hop: next.hop,
@@ -407,7 +463,7 @@ export const createSocialPlatformProvider = (
     }
     const row = await options.fetch(input, context);
     const resolvedUrl = canonicalizeUrl(row.url ?? input.url);
-    const links = extractLinks(row, resolvedUrl);
+    const links = extractLinks(profile.platform, row, resolvedUrl);
     return normalizeSocialRows(providerId, profile, [{
       url: resolvedUrl,
       title: row.title,

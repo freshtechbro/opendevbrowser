@@ -651,7 +651,8 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode)
         },
         core.config,
-        core.manager
+        core.manager,
+        core.browserFallbackPort
       );
     case "research.run":
       return runResearchWorkflow(
@@ -1759,7 +1760,8 @@ function parseFallbackMacro(expression: string, defaultProvider?: string): {
 async function resolveMacroExpression(
   options: MacroResolveOptions,
   config: Pick<OpenDevBrowserCore["config"], "blockerDetectionThreshold" | "security" | "providers">,
-  manager: OpenDevBrowserCore["manager"]
+  manager: OpenDevBrowserCore["manager"],
+  browserFallbackPort: OpenDevBrowserCore["browserFallbackPort"]
 ): Promise<{
   runtime: "macros" | "fallback";
   resolution: MacroResolution;
@@ -1803,6 +1805,7 @@ async function resolveMacroExpression(
       createConfiguredProviderRuntime({
         config,
         manager,
+        browserFallbackPort,
         ...(macroTimeoutMs !== null
           ? {
             init: {

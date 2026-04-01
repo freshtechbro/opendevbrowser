@@ -469,6 +469,17 @@ describe("provider runtime branches", () => {
   it("provides real default retrieval transports for web/community/social runtime paths", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
       const url = String(input);
+      if (url.startsWith("https://x.com/search")) {
+        return {
+          status: 200,
+          url,
+          text: async () => [
+            "<html><body><main>content for social search</main>",
+            "<a href=\"https://x.com/opendevbrowser/status/123\">result</a>",
+            "</body></html>"
+          ].join("")
+        };
+      }
       return {
         status: 200,
         url,
@@ -877,6 +888,43 @@ describe("provider runtime branches", () => {
           text: async () => "<html><body><main>index fallback</main></body></html>"
         };
       }
+      if (url.includes("redirect%20index%20links")) {
+        return {
+          status: 200,
+          url,
+          text: async () => `
+            <html><body>
+              <a href="https://duckduckgo.com/l/?uddg=${encodeURIComponent("https://developer.mozilla.org/en-US/docs/Web/API/Window/open")}">redirect</a>
+              <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/open">direct-duplicate</a>
+            </body></html>
+          `
+        };
+      }
+      if (url.includes("mixed%20ddg%20shells")) {
+        return {
+          status: 200,
+          url,
+          text: async () => `
+            <html><body>
+              <a href="https://html.duckduckgo.com/html">ddg-shell</a>
+              <a href="https://developer.chrome.com/docs/devtools/protocol-monitor">protocol-monitor</a>
+              <a href="https://developer.chrome.com/docs/extensions/reference/api/debugger">debugger-api</a>
+            </body></html>
+          `
+        };
+      }
+      if (url.includes("shell%20only%20ddg")) {
+        return {
+          status: 200,
+          url,
+          text: async () => `
+            <html><body>
+              <a href="https://html.duckduckgo.com/html">ddg-shell</a>
+              <a href="https://duckduckgo.com/lite/?q=browser%20automation">ddg-lite-shell</a>
+            </body></html>
+          `
+        };
+      }
       if (url.startsWith("https://example.com/community-query")) {
         return {
           status: 200,
@@ -902,7 +950,11 @@ describe("provider runtime branches", () => {
         return {
           status: 200,
           url,
-          text: async () => "<html><body><main>social index query</main></body></html>"
+          text: async () => [
+            "<html><body><main>social index query</main>",
+            "<a href=\"https://x.com/opendevbrowser/status/456\">social result</a>",
+            "</body></html>"
+          ].join("")
         };
       }
       return {
@@ -941,6 +993,45 @@ describe("provider runtime branches", () => {
       expect(webIndex.records[0]?.url).toContain("/dup");
       expect(webIndex.records[0]?.attributes?.retrievalPath).toBe("web:search:index");
       expect(webIndex.records[1]?.attributes?.rank).toBe(2);
+
+      const webIndexRedirects = await runtime.search(
+        { query: "redirect index links", limit: 20 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+      expect(webIndexRedirects.ok).toBe(true);
+      expect(webIndexRedirects.records).toHaveLength(1);
+      expect(webIndexRedirects.records[0]?.url).toBe("https://developer.mozilla.org/en-US/docs/Web/API/Window/open");
+      expect(webIndexRedirects.records[0]?.attributes?.retrievalPath).toBe("web:search:index");
+      expect(webIndexRedirects.records[0]?.attributes?.rank).toBe(1);
+
+      const webMixedDdg = await runtime.search(
+        { query: "mixed ddg shells", limit: 20 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+      expect(webMixedDdg.ok).toBe(true);
+      expect(webMixedDdg.records).toHaveLength(2);
+      expect(webMixedDdg.records.map((record) => record.url)).toEqual([
+        "https://developer.chrome.com/docs/devtools/protocol-monitor",
+        "https://developer.chrome.com/docs/extensions/reference/api/debugger"
+      ]);
+      expect(webMixedDdg.records.every((record) => !record.url.includes("duckduckgo.com"))).toBe(true);
+      expect(webMixedDdg.records[0]?.attributes?.rank).toBe(1);
+      expect(webMixedDdg.records[1]?.attributes?.rank).toBe(2);
+      expect(webMixedDdg.records[0]?.attributes?.retrievalPath).toBe("web:search:index");
+
+      const webShellOnlyDdg = await runtime.search(
+        { query: "shell only ddg", limit: 20 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+      expect(webShellOnlyDdg.ok).toBe(true);
+      expect(webShellOnlyDdg.records).toHaveLength(1);
+      const webShellOnlyFallbackUrl = new URL(webShellOnlyDdg.records[0]?.url ?? "");
+      expect(webShellOnlyFallbackUrl.hostname).toBe("duckduckgo.com");
+      expect(webShellOnlyFallbackUrl.pathname).toBe("/html");
+      expect(webShellOnlyFallbackUrl.searchParams.get("q")).toBe("shell only ddg");
+      expect(webShellOnlyFallbackUrl.searchParams.get("ia")).toBe("web");
+      expect(webShellOnlyDdg.records[0]?.attributes?.rank).toBeUndefined();
+      expect(webShellOnlyDdg.records[0]?.attributes?.retrievalPath).toBe("web:search:index");
 
       const webIndexNoLinks = await runtime.search(
         { query: "empty index links", limit: 20 },
@@ -985,7 +1076,7 @@ describe("provider runtime branches", () => {
         { source: "social", providerIds: ["social/x"] }
       );
       expect(socialIndex.ok).toBe(true);
-      expect(socialIndex.records[0]?.confidence).toBe(0.58);
+      expect(socialIndex.records[0]?.confidence).toBe(0.6);
       expect(socialIndex.records[0]?.attributes?.page).toBe(1);
       expect(socialIndex.records[0]?.attributes?.retrievalPath).toBe("social:search:index");
     } finally {
@@ -1035,9 +1126,18 @@ describe("provider runtime branches", () => {
         { source: "social", providerIds: ["social/x"] }
       );
 
-      expect(result.ok).toBe(true);
-      expect(result.records[0]?.attributes?.retrievalPath).toBe("social:search:index");
-      expect(String(result.records[0]?.content ?? "")).toContain("manual interaction required");
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        reasonCode: "env_limited",
+        details: {
+          providerShell: "social_render_shell",
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "social_render_shell"
+          }
+        }
+      });
     } finally {
       vi.unstubAllGlobals();
     }

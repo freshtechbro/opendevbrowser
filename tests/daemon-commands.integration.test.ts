@@ -1104,6 +1104,8 @@ describe("daemon-commands integration", () => {
 
   it("forwards macro timeoutMs into provider runtime budgets", async () => {
     const core = makeCore();
+    const browserFallbackPort = { resolve: vi.fn() };
+    (core as OpenDevBrowserCore & { browserFallbackPort?: typeof browserFallbackPort }).browserFallbackPort = browserFallbackPort as never;
     const runtimeSpy = vi.spyOn(providerRuntimeFactoryModule, "createConfiguredProviderRuntime").mockReturnValue({} as never);
     const executeSpy = vi.spyOn(macroExecuteModule, "executeMacroResolution").mockResolvedValue({
       records: [],
@@ -1137,6 +1139,7 @@ describe("daemon-commands integration", () => {
     expect(runtimeSpy).toHaveBeenCalledWith(expect.objectContaining({
       config: core.config,
       manager: core.manager,
+      browserFallbackPort,
       init: {
         budgets: {
           timeoutMs: {

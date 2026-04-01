@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PRODUCT_VIDEO_STEP_IDS,
   compileProductVideoExecutionPlan,
@@ -85,6 +85,10 @@ const productVideoInput = (overrides: Partial<ProductVideoRunInput> = {}): Produ
   include_all_images: false,
   include_copy: false,
   ...overrides
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("product-video substrate adoption", () => {
@@ -408,6 +412,167 @@ describe("product-video substrate adoption", () => {
       })
     );
     expect((output.product as { provider: string }).provider).toBe("shopping/amazon");
+  });
+
+  it("skips shopping resolution offers that do not contain a usable product url", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      records: [
+        makeRecord({
+          id: "resolved-search-record-empty-url",
+          url: "",
+          title: "Top ranked but unusable offer",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0EMPTYURL",
+              title: "Top ranked but unusable offer",
+              url: "",
+              price: { amount: 19.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.9,
+              reviews_count: 100
+            }
+          }
+        }),
+        makeRecord({
+          id: "resolved-search-record-valid-url",
+          url: "https://www.amazon.com/dp/B0PHASE5003",
+          title: "Resolved Product Video Fixture",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0PHASE5003",
+              title: "Resolved Product Video Fixture",
+              url: "https://www.amazon.com/dp/B0PHASE5003",
+              price: { amount: 31.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.7,
+              reviews_count: 11
+            }
+          }
+        })
+      ]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [makeRecord({
+        id: "resolved-fetch-record-valid-url",
+        url: "https://www.amazon.com/dp/B0PHASE5003",
+        title: "Resolved Product Video Fixture"
+      })]
+    }));
+
+    await runProductVideoWorkflow(toRuntime({ search, fetch }), productVideoInput({
+      product_url: undefined,
+      product_name: "Phase 5 product video",
+      provider_hint: "amazon"
+    }));
+
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://www.amazon.com/dp/B0PHASE5003" },
+      expect.objectContaining({
+        providerIds: ["shopping/amazon"]
+      })
+    );
+  });
+
+  it("keeps usable product detail records even when fetch reports a non-ok aggregate", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      ok: false,
+      error: {
+        code: "unavailable",
+        message: "upstream warning",
+        retryable: false
+      },
+      failures: [makeFailure("shopping/amazon", "shopping", {
+        code: "unavailable",
+        message: "upstream warning",
+        retryable: false
+      })],
+      records: [makeRecord({
+        id: "non-ok-detail-record",
+        url: "https://www.amazon.com/dp/B0PHASE5004",
+        title: "Recovered Detail Record"
+      })]
+    }));
+
+    const output = await runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: "https://www.amazon.com/dp/B0PHASE5004"
+    }));
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect((output.product as { title: string }).title).toBe("Recovered Detail Record");
+  });
+
+  it("fails honestly when an external seller overlay suppresses the only product price on a marketplace PDP", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [makeRecord({
+        id: "overlay-priced-record",
+        title: "Apple AirPods Pro",
+        content: "CAD 36.13 See current price, availability, shipping cost, and delivery date on mrhumanitygives.com. Continue to site. Shipper / Seller mrhumanitygives.com.",
+        attributes: {
+          links: [],
+          brand: "Apple",
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "B0PHASE5005",
+            title: "Apple AirPods Pro",
+            url: "https://www.amazon.com/dp/B0PHASE5005",
+            price: { amount: 36.13, currency: "CAD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "CAD", notes: "unknown" },
+            availability: "out_of_stock",
+            rating: 4.7,
+            reviews_count: 0
+          }
+        }
+      })]
+    }));
+
+    await expect(runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: "https://www.amazon.com/dp/B0PHASE5005"
+    }))).rejects.toThrow(
+      "Amazon requires manual browser follow-up; this run did not determine a reliable PDP price."
+    );
+  });
+
+  it("fails honestly when an Amazon PDP only contains review-body price pollution and no trustworthy price source", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [makeRecord({
+        id: "review-body-price-record",
+        title: "Apple AirPods Pro",
+        content: "Customer review: I actually prefer my knockoff $70 earbuds for music.",
+        attributes: {
+          links: [],
+          brand: "Apple",
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "B0PHASE5006",
+            title: "Apple AirPods Pro",
+            url: "https://www.amazon.com/dp/B0PHASE5006",
+            price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            price_source: "unresolved",
+            price_is_trustworthy: false,
+            shipping: { amount: 0, currency: "USD", notes: "unknown" },
+            availability: "out_of_stock",
+            rating: 4.7,
+            reviews_count: 11
+          }
+        }
+      })]
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: "https://www.amazon.com/dp/B0PHASE5006",
+      text: async () => "<html><head><title>Apple AirPods Pro</title></head><body><main>Customer review: I actually prefer my knockoff $70 earbuds for music.</main></body></html>"
+    })) as unknown as typeof fetch);
+
+    await expect(runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: "https://www.amazon.com/dp/B0PHASE5006"
+    }))).rejects.toThrow(
+      "Amazon requires manual browser follow-up; this run did not determine a reliable PDP price."
+    );
   });
 
   it("reuses checkpointed resolution and fetch state without replaying completed adaptive steps", async () => {

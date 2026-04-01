@@ -61,6 +61,9 @@ const DEFAULT_FALLBACK_DEFAULT_SETTLE_TIMEOUT_MS = 5000;
 const DEFAULT_FALLBACK_SHOPPING_CAPTURE_DELAY_MS = 2000;
 const DEFAULT_FALLBACK_DEFAULT_CAPTURE_DELAY_MS = 500;
 const DEFAULT_FALLBACK_SHOPPING_CLONE_MAX_NODES = 5000;
+const DEFAULT_FALLBACK_SOCIAL_CLONE_MAX_NODES = 5000;
+const SOCIAL_EXTENSION_RETRY_DELAY_MS = 500;
+const FALLBACK_CAPTURE_MIN_CONTENT_BUDGET_MS = 250;
 const SHOPPING_FALLBACK_FLAGS = ["--disable-http2"];
 const SHOPPING_INTERSTITIAL_DIALOG_RE = /\b(?:role\s*=\s*["'](?:dialog|alertdialog)["']|aria-modal\s*=\s*["']true["'])/i;
 const SHOPPING_INTERSTITIAL_TEXT_RE = /\b(?:choose where (?:you(?:'|’)d|you would|to) like to shop|how do you want your items|set your location|confirm your location|choose a store)\b/i;
@@ -75,6 +78,31 @@ const isExplicitShoppingExtensionRequest = (request: BrowserFallbackRequest): bo
     && preferredModes?.length === 1
     && preferredModes[0] === "extension";
 };
+
+const shouldAttachExtensionStartUrl = (request: BrowserFallbackRequest): boolean => (
+  request.source === "social"
+  || (request.source === "shopping" && !isExplicitShoppingExtensionRequest(request))
+);
+
+const SOCIAL_EXTENSION_MODE_ATTEMPTS = 3;
+
+const resolveSocialExtensionModeAttempts = (
+  request: BrowserFallbackRequest,
+  preferredMode: string
+): number => preferredMode === "extension" && request.source === "social"
+  ? SOCIAL_EXTENSION_MODE_ATTEMPTS
+  : 1;
+
+const waitForSocialExtensionRetryGap = async (): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, SOCIAL_EXTENSION_RETRY_DELAY_MS));
+};
+
+const resolveFallbackNavigationWaitUntil = (
+  source: BrowserFallbackRequest["source"],
+  mode: "extension" | "managed_headed"
+): "load" | "domcontentloaded" => source === "shopping" && mode === "managed_headed"
+  ? "domcontentloaded"
+  : "load";
 
 const normalizeComparableUrl = (value: string | undefined): string | undefined => {
   if (!value) return undefined;
@@ -506,6 +534,11 @@ const captureFallbackHtml = async (
   source: "social" | "shopping" | "web" | "community",
   captureDelayMs: number
 ): Promise<string> => {
+  const cloneOptions = source === "shopping"
+    ? { maxNodes: DEFAULT_FALLBACK_SHOPPING_CLONE_MAX_NODES }
+    : source === "social"
+      ? { maxNodes: DEFAULT_FALLBACK_SOCIAL_CLONE_MAX_NODES }
+      : {};
   try {
     return await manager.withPage(sessionId, null, async (page: unknown) => {
       const candidate = page as {
@@ -522,16 +555,16 @@ const captureFallbackHtml = async (
     if (typeof manager.clonePage !== "function") {
       throw error;
     }
-    if (source === "shopping" && typeof manager.clonePageHtmlWithOptions === "function") {
+    if (typeof manager.clonePageHtmlWithOptions === "function") {
       const fallbackHtml = await manager.clonePageHtmlWithOptions(
         sessionId,
         null,
-        { maxNodes: DEFAULT_FALLBACK_SHOPPING_CLONE_MAX_NODES }
+        cloneOptions
       );
       return fallbackHtml.html;
     }
-    const fallbackExport = source === "shopping" && typeof manager.clonePageWithOptions === "function"
-      ? await manager.clonePageWithOptions(sessionId, null, { maxNodes: DEFAULT_FALLBACK_SHOPPING_CLONE_MAX_NODES })
+    const fallbackExport = source !== "web" && source !== "community" && typeof manager.clonePageWithOptions === "function"
+      ? await manager.clonePageWithOptions(sessionId, null, cloneOptions)
       : await manager.clonePage(sessionId, null);
     const html = readClonePageHtml(fallbackExport.component);
     if (html !== null) {
@@ -616,6 +649,11 @@ export const createBrowserFallbackPort = (
   helperBridgeEnabled = true
 ): BrowserFallbackPort | undefined => {
   if (!manager) return undefined;
+  const disconnectFallbackSession = (sessionId: string) => {
+    void manager.disconnect(sessionId, true).catch(() => {
+      // Best effort cleanup for fallback sessions.
+    });
+  };
   const defaults: BrowserFallbackCookieConfig = {
     policy: cookieDefaults.policy ?? DEFAULT_COOKIE_POLICY,
     source: cookieDefaults.source ?? DEFAULT_COOKIE_SOURCE
@@ -656,6 +694,88 @@ export const createBrowserFallbackPort = (
         }
         return Math.max(1, Math.min(requestedMs, remainingMs));
       };
+      const resolveRemainingFallbackBudgetMs = (stage: string): number | null => {
+        ensureNotAborted(stage);
+        if (fallbackDeadlineMs === null) {
+          return null;
+        }
+        const remainingMs = Math.floor(fallbackDeadlineMs - Date.now());
+        if (remainingMs <= 0) {
+          throw createTimeoutError(stage);
+        }
+        return remainingMs;
+      };
+      const resolveEffectiveFallbackCaptureDelayMs = (
+        source: BrowserFallbackRequest["source"],
+        requestedDelayMs?: number
+      ): number => {
+        const requested = sanitizeFallbackDelayMs(
+          requestedDelayMs,
+          resolveFallbackCaptureDelayMs(source)
+        );
+        const remainingMs = resolveRemainingFallbackBudgetMs("capture");
+        if (remainingMs === null) {
+          return requested;
+        }
+        if (remainingMs <= FALLBACK_CAPTURE_MIN_CONTENT_BUDGET_MS) {
+          return 0;
+        }
+        return Math.max(
+          0,
+          Math.min(requested, remainingMs - FALLBACK_CAPTURE_MIN_CONTENT_BUDGET_MS)
+        );
+      };
+      const runWithinFallbackDeadline = async <T>(
+        stage: string,
+        task: () => Promise<T>
+      ): Promise<T> => {
+        ensureNotAborted(stage);
+
+        const taskPromise = Promise.resolve().then(task);
+        void taskPromise.catch(() => {
+          // Keep late follow-on failures from surfacing after the deadline winner settles.
+        });
+        const racers: Array<Promise<T>> = [taskPromise];
+        const cleanup: Array<() => void> = [];
+
+        if (fallbackDeadlineMs !== null) {
+          const remainingMs = Math.floor(fallbackDeadlineMs - Date.now());
+          if (remainingMs <= 0) {
+            throw createTimeoutError(stage);
+          }
+          racers.push(new Promise<T>((_resolve, reject) => {
+            const timer = setTimeout(() => {
+              reject(createTimeoutError(stage));
+            }, remainingMs);
+            cleanup.push(() => clearTimeout(timer));
+          }));
+        }
+
+        if (request.signal) {
+          const signal = request.signal;
+          racers.push(new Promise<T>((_resolve, reject) => {
+            if (signal.aborted) {
+              reject(createTimeoutError(stage));
+              return;
+            }
+            const onAbort = () => {
+              reject(createTimeoutError(stage));
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            cleanup.push(() => {
+              signal.removeEventListener("abort", onAbort);
+            });
+          }));
+        }
+
+        try {
+          return await Promise.race(racers);
+        } finally {
+          for (const dispose of cleanup) {
+            dispose();
+          }
+        }
+      };
 
       const resolveFallbackRuntimePolicy = (sessionChallengeAutomationMode?: ChallengeAutomationMode) => (
         request.runtimePolicy ?? resolveProviderRuntimePolicy({
@@ -680,6 +800,8 @@ export const createBrowserFallbackPort = (
       );
 
       for (const preferredMode of preferredModes) {
+        const maxModeAttempts = resolveSocialExtensionModeAttempts(request, preferredMode);
+        for (let modeAttempt = 1; modeAttempt <= maxModeAttempts; modeAttempt += 1) {
         let sessionId: string | null = null;
         let preserveSession = false;
         let navigatedDuringAttach = false;
@@ -688,11 +810,10 @@ export const createBrowserFallbackPort = (
         let runtimePolicyRecord = baseRuntimePolicyRecord;
         let policy = runtimePolicy.cookies.policy;
         const cookieDiagnostics = baseCookieDiagnostics(policy, defaults.source);
+        let retryModeAttempt = false;
         const abortListener = () => {
           if (sessionId) {
-            void manager.disconnect(sessionId, true).catch(() => {
-              // Best effort abort cleanup for fallback sessions.
-            });
+            disconnectFallbackSession(sessionId);
           }
         };
         request.signal?.addEventListener("abort", abortListener, { once: true });
@@ -703,7 +824,7 @@ export const createBrowserFallbackPort = (
               lastFailure = fallbackFailure("env_limited", "Extension fallback requires a relay endpoint.", cookieDiagnostics, undefined, runtimePolicyRecord);
               continue;
             }
-            const attachOptions = request.source === "shopping" && !isExplicitShoppingExtensionRequest(request)
+            const attachOptions = shouldAttachExtensionStartUrl(request)
               ? { startUrl: requestUrl }
               : undefined;
             const attached = await manager.connectRelay(transportDefaults.extensionWsEndpoint, attachOptions);
@@ -791,7 +912,7 @@ export const createBrowserFallbackPort = (
                 await manager.goto(
                   sessionId,
                   requestUrl,
-                  "load",
+                  resolveFallbackNavigationWaitUntil(request.source, toFallbackMode(preferredMode)),
                   clampStepTimeoutMs(DEFAULT_FALLBACK_NAVIGATION_TIMEOUT_MS, "goto")
                 );
               } catch (error) {
@@ -840,21 +961,28 @@ export const createBrowserFallbackPort = (
               continue;
             }
           }
+          if (sessionId === null) {
+            lastFailure = fallbackFailure(
+              "env_limited",
+              "Browser fallback session was not established.",
+              cookieDiagnostics,
+              undefined,
+              runtimePolicyRecord,
+              {
+                mode: toFallbackMode(preferredMode)
+              }
+            );
+            continue;
+          }
+          const activeSessionId = sessionId;
 
-          const html = await captureFallbackHtml(
+          const html = await runWithinFallbackDeadline("capture", async () => captureFallbackHtml(
             manager,
-            sessionId,
+            activeSessionId,
             request.source,
-            clampStepTimeoutMs(
-              sanitizeFallbackDelayMs(
-                request.captureDelayMs,
-                resolveFallbackCaptureDelayMs(request.source)
-              ),
-              "capture"
-            )
-          );
-          const status = await manager.status(sessionId);
-          ensureNotAborted("status");
+            resolveEffectiveFallbackCaptureDelayMs(request.source, request.captureDelayMs)
+          ));
+          const status = await runWithinFallbackDeadline("status", async () => manager.status(activeSessionId));
           const resolvedUrl = status.url ?? requestUrl;
           const blocker = detectFallbackPageBlocker(request.source, html, resolvedUrl);
           if (blocker) {
@@ -873,26 +1001,26 @@ export const createBrowserFallbackPort = (
               let challengeOrchestrationRecord = buildFallbackChallengeOrchestration({
                 manager,
                 request,
-                sessionId,
+                sessionId: activeSessionId,
                 runtimePolicy,
                 helperBridgeEnabled,
                 invoked: false,
                 reason: "Fallback reached a preserve-eligible blocker before challenge orchestration ran."
               });
               if (challengeOrchestrator) {
-                const orchestration = await challengeOrchestrator.orchestrate({
+                const orchestration = await runWithinFallbackDeadline("challenge_orchestration", async () => challengeOrchestrator.orchestrate({
                   handle: createFallbackChallengeRuntimeHandle(manager),
-                  sessionId,
+                  sessionId: activeSessionId,
                   targetId: status.activeTargetId ?? undefined,
                   policy: runtimePolicy.challenge,
                   canImportCookies: runtimePolicy.challenge.mode !== "off",
                   fallbackDisposition: disposition
-                });
+                }));
                 challengeOrchestrationRecord = {
                   ...(buildFallbackChallengeOrchestration({
                     manager,
                     request,
-                    sessionId,
+                    sessionId: activeSessionId,
                     runtimePolicy,
                     helperBridgeEnabled,
                     invoked: true,
@@ -902,17 +1030,20 @@ export const createBrowserFallbackPort = (
                 };
                 const verifiedBundle = orchestration.action.verification.bundle;
                 if (verifiedBundle?.blockerState === "clear") {
-                  const refreshedStatus = await manager.status(sessionId);
+                  const refreshedStatus = await runWithinFallbackDeadline("status_refresh", async () => manager.status(activeSessionId));
                   const refreshedUrl = refreshedStatus.url ?? resolvedUrl;
-                  const refreshedHtml = await captureFallbackHtml(
+                  const refreshedHtml = await runWithinFallbackDeadline("capture_refresh", async () => captureFallbackHtml(
                     manager,
-                    sessionId,
+                    activeSessionId,
                     request.source,
-                    sanitizeFallbackDelayMs(
-                      request.captureDelayMs,
-                      resolveFallbackCaptureDelayMs(request.source)
+                    clampStepTimeoutMs(
+                      sanitizeFallbackDelayMs(
+                        request.captureDelayMs,
+                        resolveFallbackCaptureDelayMs(request.source)
+                      ),
+                      "capture_refresh"
                     )
-                  );
+                  ));
                   return {
                     ok: true,
                     reasonCode,
@@ -1024,24 +1155,33 @@ export const createBrowserFallbackPort = (
               ...(error.details.stage ? { stage: error.details.stage } : {})
             }
             : undefined;
-          lastFailure = fallbackFailure(
-            "env_limited",
-            message,
-            cookieDiagnostics,
-            undefined,
-            runtimePolicyRecord,
-            {
-              mode: toFallbackMode(preferredMode),
-              ...(timeoutDetails ? { details: timeoutDetails } : {})
-            }
-          );
+          retryModeAttempt = preferredMode === "extension"
+            && request.source === "social"
+            && modeAttempt < maxModeAttempts;
+          if (!retryModeAttempt) {
+            lastFailure = fallbackFailure(
+              "env_limited",
+              message,
+              cookieDiagnostics,
+              undefined,
+              runtimePolicyRecord,
+              {
+                mode: toFallbackMode(preferredMode),
+                ...(timeoutDetails ? { details: timeoutDetails } : {})
+              }
+            );
+          }
         } finally {
           request.signal?.removeEventListener("abort", abortListener);
           if (sessionId && !preserveSession) {
-            await manager.disconnect(sessionId, true).catch(() => {
-              // Best effort cleanup for fallback sessions.
-            });
+            disconnectFallbackSession(sessionId);
           }
+        }
+          if (retryModeAttempt) {
+            await waitForSocialExtensionRetryGap();
+            continue;
+          }
+          break;
         }
       }
 

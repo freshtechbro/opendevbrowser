@@ -4,7 +4,7 @@ import {
   providerErrorCodeFromReasonCode,
   toProviderError
 } from "./errors";
-import { applyProviderIssueHint, classifyProviderIssue } from "./constraint";
+import { applyProviderIssueHint, classifyProviderIssue, type ProviderIssueHint } from "./constraint";
 import { createExecutionMetadata, normalizeFailure, normalizeSuccess, createTraceContext } from "./normalize";
 import { selectProviders } from "./policy";
 import { ProviderRegistry, type ProviderAntiBotSnapshot } from "./registry";
@@ -34,6 +34,12 @@ import {
   type SocialProviderOptions,
   type SocialProvidersOptions
 } from "./social";
+import {
+  detectSocialSearchShell,
+  isFirstPartySocialSearchRoute,
+  prioritizeSocialSearchLinks,
+  selectUsableSocialSearchLinks
+} from "./social/search-quality";
 import { createShoppingProviders, type ShoppingProvidersOptions } from "./shopping";
 import { providerRequestHeaders } from "./shared/request-headers";
 import { isLikelyDocumentUrl } from "./shared/traversal-url";
@@ -96,9 +102,11 @@ const WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND: Record<WorkflowSuspendedIntentKind
 
 type SuspendedIntentResumeResult = ProviderAggregateResult | Record<string, unknown>;
 
-const EXTENSION_FIRST_SOCIAL_RECOVERY_PLATFORMS = new Set<SocialPlatform>(["linkedin"]);
+const EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS = new Set<SocialPlatform>(["x", "reddit", "bluesky", "linkedin"]);
+const EXTENSION_MINIMAL_TRAVERSAL_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["linkedin"]);
 const EXTENSION_FIRST_FALLBACK_MODES: BrowserFallbackMode[] = ["extension", "managed_headed"];
 const SOCIAL_BROWSER_RECOVERY_REASON_CODES = new Set<ProviderReasonCode>(["challenge_detected"]);
+const SEARCH_RENDER_RECOVERY_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit"]);
 
 const withPrioritizedFallbackModes = (
   prioritized: readonly BrowserFallbackMode[],
@@ -110,7 +118,7 @@ const buildSocialRecoveryHints = (
   options: SocialProviderOptions | undefined
 ): ProviderRecoveryHints | undefined => {
   const existing = options?.recoveryHints?.();
-  if (!EXTENSION_FIRST_SOCIAL_RECOVERY_PLATFORMS.has(platform)) {
+  if (!EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS.has(platform)) {
     return existing;
   }
   return {
@@ -127,7 +135,7 @@ const buildSocialDefaultTraversal = (
   options: SocialProviderOptions | undefined
 ): SocialProviderOptions["defaultTraversal"] => {
   const existing = options?.defaultTraversal;
-  if (!EXTENSION_FIRST_SOCIAL_RECOVERY_PLATFORMS.has(platform)) {
+  if (!EXTENSION_MINIMAL_TRAVERSAL_SOCIAL_PLATFORMS.has(platform)) {
     return existing;
   }
   return {
@@ -140,13 +148,19 @@ const buildSocialDefaultTraversal = (
 
 const shouldRecoverSocialDocumentIssue = (
   platform: SocialPlatform,
-  reasonCode: ProviderReasonCode
+  operation: "search" | "fetch",
+  issue: ProviderIssueHint
 ): boolean => {
-  if (SOCIAL_BROWSER_RECOVERY_REASON_CODES.has(reasonCode)) {
+  if (SOCIAL_BROWSER_RECOVERY_REASON_CODES.has(issue.reasonCode)) {
     return true;
   }
-  return reasonCode === "token_required"
-    && EXTENSION_FIRST_SOCIAL_RECOVERY_PLATFORMS.has(platform);
+  if (issue.reasonCode === "token_required" && EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS.has(platform)) {
+    return true;
+  }
+  return operation === "search"
+    && SEARCH_RENDER_RECOVERY_SOCIAL_PLATFORMS.has(platform)
+    && issue.reasonCode === "env_limited"
+    && issue.constraint?.kind === "render_required";
 };
 
 const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
@@ -344,11 +358,46 @@ const stripUrls = (value: string): string => {
   return value.replace(/https?:\/\/[^\s]+/gi, " ").replace(/\s+/g, " ").trim();
 };
 
+const unwrapDuckDuckGoRedirect = (value: string): string => {
+  try {
+    const parsed = new URL(value);
+    if (
+      /(^|\.)duckduckgo\.com$/i.test(parsed.hostname)
+      && (parsed.pathname === "/l" || parsed.pathname === "/l/")
+    ) {
+      const redirect = parsed.searchParams.get("uddg");
+      if (redirect && isHttpUrl(redirect)) {
+        return canonicalizeUrl(redirect);
+      }
+    }
+  } catch {
+    return value;
+  }
+  return value;
+};
+
+const isDuckDuckGoSearchShellUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    if (!/(^|\.)duckduckgo\.com$/i.test(host)) {
+      return false;
+    }
+    if (pathname === "/l" || pathname === "/l/") {
+      return false;
+    }
+    return pathname === "/" || pathname === "/html" || pathname === "/html/" || pathname === "/lite" || pathname === "/lite/";
+  } catch {
+    return false;
+  }
+};
+
 const normalizeHttpLink = (candidate: string, baseUrl: string): string | null => {
   try {
     const resolved = new URL(candidate, baseUrl).toString();
     if (!isHttpUrl(resolved)) return null;
-    return canonicalizeUrl(resolved);
+    return unwrapDuckDuckGoRedirect(canonicalizeUrl(resolved));
   } catch {
     return null;
   }
@@ -1926,7 +1975,9 @@ const withDefaultWebOptions = (
       });
 
       const limit = Math.max(1, Math.min(input.limit ?? 5, 10));
-      const links = dedupeLinks(document.links, document.url, limit);
+      const links = dedupeLinks(document.links, document.url, limit * 2)
+        .filter((url) => !isDuckDuckGoSearchShellUrl(url))
+        .slice(0, limit);
       const searchPath = isHttpUrl(query) ? "web:search:url" : "web:search:index";
       if (links.length === 0) {
         return [{
@@ -2033,28 +2084,51 @@ const withDefaultSocialPlatformOptions = (
   const providerId = options?.id ?? `social/${platform}`;
   const extensionFirstRecoveryHints = buildSocialRecoveryHints(platform, options);
   const defaultTraversal = buildSocialDefaultTraversal(platform, options);
-  const describeDocumentIssue = (document: RuntimeFetchedDocument) => {
+  const describeDocumentIssue = (operation: "search" | "fetch", document: RuntimeFetchedDocument) => {
     const extracted = extractStructuredContent(document.html, document.url);
     const title = typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined;
     const pageMessage = toSnippet(stripUrls(extracted.text), 1600);
-    const issue = classifyProviderIssue({
-      url: document.url,
-      title,
-      message: pageMessage,
-      status: document.status,
-      providerErrorCode: "unavailable",
-      retryable: true
-    });
+    const shell = operation === "search"
+      ? detectSocialSearchShell(platform, {
+        url: document.url,
+        title,
+        content: pageMessage,
+        links: extracted.links
+      })
+      : null;
+    const usableSearchLinks = operation === "search"
+      ? selectUsableSocialSearchLinks(platform, document.url, extracted.links)
+      : [];
+    const hasUsableSearchEvidence = operation === "search"
+      && isFirstPartySocialSearchRoute(platform, document.url)
+      && usableSearchLinks.length > 0;
+    const issue = hasUsableSearchEvidence && !shell
+      ? null
+      : classifyProviderIssue({
+        url: document.url,
+        title,
+        message: pageMessage,
+        status: document.status,
+        providerErrorCode: "unavailable",
+        retryable: true,
+        ...(shell ?? {})
+      });
     return {
       extracted,
       title,
       pageMessage,
+      usableSearchLinks,
       issue,
       details: applyProviderIssueHint({
         status: document.status,
         url: document.url,
         ...(title ? { title } : {}),
-        ...(pageMessage ? { message: pageMessage } : {})
+        ...(pageMessage ? { message: pageMessage } : {}),
+        ...(shell ? {
+          providerShell: shell.providerShell,
+          browserRequired: true,
+          platform
+        } : {})
       }, issue)
     };
   };
@@ -2085,7 +2159,7 @@ const withDefaultSocialPlatformOptions = (
     context: ProviderContext
   ): Promise<{ document: RuntimeFetchedDocument } & ReturnType<typeof describeDocumentIssue>> => {
     let currentDocument = document;
-    let described = describeDocumentIssue(currentDocument);
+    let described = describeDocumentIssue(operation, currentDocument);
     const initialIssue = described.issue;
     if (!initialIssue) {
       return { document: currentDocument, ...described };
@@ -2093,7 +2167,7 @@ const withDefaultSocialPlatformOptions = (
     if (initialIssue.reasonCode === "env_limited" && !initialIssue.constraint) {
       return { document: currentDocument, ...described };
     }
-    if (!shouldRecoverSocialDocumentIssue(platform, initialIssue.reasonCode)) {
+    if (!shouldRecoverSocialDocumentIssue(platform, operation, initialIssue)) {
       throw toIssueError(currentDocument, described);
     }
 
@@ -2129,7 +2203,7 @@ const withDefaultSocialPlatformOptions = (
         links: extracted.links,
         browserFallback: toBrowserFallbackObservation(fallback)
       };
-      described = describeDocumentIssue(currentDocument);
+      described = describeDocumentIssue(operation, currentDocument);
       if (!described.issue || (described.issue.reasonCode === "env_limited" && !described.issue.constraint)) {
         return { document: currentDocument, ...described };
       }
@@ -2157,7 +2231,11 @@ const withDefaultSocialPlatformOptions = (
         recoveryHints: extensionFirstRecoveryHints
       });
       const { document: resolvedDocument, extracted, pageMessage } = await resolveFallbackDocumentIfNeeded("search", document, context);
-      const links = dedupeLinks(resolvedDocument.links, resolvedDocument.url, 20);
+      const links = dedupeLinks(
+        selectUsableSocialSearchLinks(platform, resolvedDocument.url, resolvedDocument.links),
+        resolvedDocument.url,
+        20
+      );
 
       return [{
         url: resolvedDocument.url,
