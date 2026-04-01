@@ -589,7 +589,7 @@ export class BrowserManager {
         targets.registerExistingPages(pages);
       }
 
-      const activeTargetId = targets.getActiveTargetId();
+      const initialActiveTargetId = targets.getActiveTargetId();
 
       const refStore = new RefStore();
       const snapshotter = new Snapshotter(refStore);
@@ -623,7 +623,7 @@ export class BrowserManager {
 
       warnings.push(...await this.bootstrapSystemChromeCookies(managed, executablePath));
 
-      if (options.startUrl && activeTargetId) {
+      if (options.startUrl && initialActiveTargetId) {
         await this.goto(sessionId, options.startUrl, "load", 30000, { browser, context, targets });
       }
 
@@ -646,7 +646,13 @@ export class BrowserManager {
         });
       }
 
-      return { sessionId, mode: "managed", activeTargetId, warnings, wsEndpoint: wsEndpoint || undefined };
+      return {
+        sessionId,
+        mode: "managed",
+        activeTargetId: targets.getActiveTargetId(),
+        warnings,
+        wsEndpoint: wsEndpoint || undefined
+      };
     } catch (error) {
       const launchMessage = error instanceof Error ? error.message : "Unknown error";
       const profileLockMessage = this.buildProfileLockLaunchMessage(launchMessage, profileDir);
@@ -690,6 +696,7 @@ export class BrowserManager {
     const startUrl = options.startUrl?.trim();
     if (startUrl && result.activeTargetId) {
       await this.goto(result.sessionId, startUrl);
+      return { ...result, activeTargetId: this.getManaged(result.sessionId).targets.getActiveTargetId() };
     }
     return result;
   }
@@ -704,6 +711,7 @@ export class BrowserManager {
     const startUrl = options?.startUrl?.trim();
     if (startUrl && result.activeTargetId) {
       await this.goto(result.sessionId, startUrl);
+      return { ...result, activeTargetId: this.getManaged(result.sessionId).targets.getActiveTargetId() };
     }
     return result;
   }

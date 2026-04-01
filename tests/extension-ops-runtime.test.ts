@@ -4715,6 +4715,75 @@ describe("OpsRuntime target teardown", () => {
     expect(sent.some((message) => message.type === "ops_error" && message.error?.code === "restricted_url")).toBe(false);
   });
 
+  it("recovers a blocked attach during session.connect startUrl reuse before returning cdp_attach_failed", async () => {
+    vi.useFakeTimers();
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
+    const cdp = {
+      attach: vi.fn()
+        .mockRejectedValueOnce(new Error("Not allowed"))
+        .mockRejectedValueOnce(new Error("Not allowed"))
+        .mockResolvedValueOnce(undefined),
+      detachTab: vi.fn(async () => undefined),
+      markClientClosed: vi.fn(),
+      setDiscoverTargetsEnabled: vi.fn(async () => undefined),
+      configureAutoAttach: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const createMock = globalThis.chrome.tabs.create as unknown as ReturnType<typeof vi.fn>;
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    createMock.mockImplementation((_createProperties, callback) => {
+      callback?.({
+        id: 405,
+        status: "loading",
+        url: "chrome://newtab/",
+        title: "New Tab"
+      } as chrome.tabs.Tab);
+    });
+    getMock.mockResolvedValue({
+      id: 405,
+      status: "complete",
+      url: "https://bsky.app/search?q=browser+automation+bluesky",
+      title: "Search - Bluesky"
+    } as chrome.tabs.Tab);
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }),
+      cdp: cdp as never
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-session-connect-start-url-retry",
+      clientId: "client-1",
+      command: "session.connect",
+      payload: {
+        startUrl: "https://bsky.app/search?q=browser+automation+bluesky"
+      }
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.waitFor(() => {
+      expect(cdp.attach).toHaveBeenCalledTimes(3);
+      expect(cdp.markClientClosed).toHaveBeenCalledTimes(1);
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-session-connect-start-url-retry",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-405",
+              url: "https://bsky.app/search?q=browser+automation+bluesky",
+              title: "Search - Bluesky"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(sent.some((message) => message.type === "ops_error" && message.error?.code === "cdp_attach_failed")).toBe(false);
+  });
+
   it("reuses a requested sessionId and tabId for session.connect recovery", async () => {
     const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
     const cdp = {
@@ -4947,6 +5016,100 @@ describe("OpsRuntime target teardown", () => {
           expect.objectContaining({
             type: "ops_error",
             requestId: "req-session-launch-root-attach-stage",
+            error: expect.objectContaining({
+              code: "cdp_attach_failed",
+              message: "Not allowed (origin: root_attach; stage: root_debugger_attach_failed)",
+              details: expect.objectContaining({
+                origin: "root_attach",
+                stage: "root_debugger_attach_failed",
+                attachBy: "tabId",
+                reason: "Not allowed"
+              })
+            })
+          })
+        ])
+      );
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "[opendevbrowser]",
+      expect.stringContaining("\"context\":\"ops.direct_attach_stage\"")
+    );
+  });
+
+  it("surfaces root attach diagnostics in session.connect startUrl cdp_attach_failed responses after recovery is exhausted", async () => {
+    vi.useFakeTimers();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sent: Array<{
+      type?: string;
+      requestId?: string;
+      payload?: unknown;
+      error?: { code?: string; message?: string; details?: Record<string, unknown> };
+    }> = [];
+    const cdp = {
+      attach: vi.fn().mockImplementation(async () => {
+        throw new Error("Not allowed");
+      }),
+      detachTab: vi.fn(async () => undefined),
+      markClientClosed: vi.fn(),
+      getLastRootAttachDiagnostic: vi.fn(() => ({
+        tabId: 406,
+        origin: "root_attach" as const,
+        stage: "root_debugger_attach_failed" as const,
+        attachBy: "tabId" as const,
+        reason: "Not allowed",
+        at: Date.now()
+      })),
+      setDiscoverTargetsEnabled: vi.fn(async () => undefined),
+      configureAutoAttach: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const createMock = globalThis.chrome.tabs.create as unknown as ReturnType<typeof vi.fn>;
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    createMock.mockImplementation((_createProperties, callback) => {
+      callback?.({
+        id: 406,
+        status: "loading",
+        url: "chrome://newtab/",
+        title: "New Tab"
+      } as chrome.tabs.Tab);
+    });
+    getMock.mockResolvedValue({
+      id: 406,
+      status: "complete",
+      url: "https://bsky.app/search?q=browser+automation+bluesky",
+      title: "Search - Bluesky"
+    } as chrome.tabs.Tab);
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as {
+        type?: string;
+        requestId?: string;
+        payload?: unknown;
+        error?: { code?: string; message?: string; details?: Record<string, unknown> };
+      }),
+      cdp: cdp as never
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-session-connect-start-url-root-attach-stage",
+      clientId: "client-1",
+      command: "session.connect",
+      payload: {
+        startUrl: "https://bsky.app/search?q=browser+automation+bluesky"
+      }
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.waitFor(() => {
+      expect(cdp.markClientClosed).toHaveBeenCalledTimes(1);
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_error",
+            requestId: "req-session-connect-start-url-root-attach-stage",
             error: expect.objectContaining({
               code: "cdp_attach_failed",
               message: "Not allowed (origin: root_attach; stage: root_debugger_attach_failed)",
@@ -5357,6 +5520,412 @@ describe("OpsRuntime target teardown", () => {
         })
       ])
     );
+  });
+
+  it("allows follow-up nav.wait commands on the synthetic root target after html data preview navigation", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 101,
+      status: "complete",
+      url: "https://example.com/",
+      title: "Example Domain"
+    } as chrome.tabs.Tab);
+    const executeScriptMock = globalThis.chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>;
+    executeScriptMock.mockImplementation((_details, callback?: (results?: chrome.scripting.InjectionResult<unknown>[]) => void) => {
+      callback?.([{ result: { title: "Synthetic Preview" } } as chrome.scripting.InjectionResult<unknown>]);
+    });
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://example.com/" });
+    const syntheticUrl = "data:text/html;charset=utf-8,%3Ctitle%3ESynthetic%20Preview%3C%2Ftitle%3E%3Ch1%3Ehello%3C%2Fh1%3E";
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-data-goto-followup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.goto",
+      payload: {
+        targetId: "tab-101",
+        url: syntheticUrl,
+        timeoutMs: 1000
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-data-goto-followup",
+            payload: expect.objectContaining({
+              finalUrl: syntheticUrl
+            })
+          })
+        ])
+      );
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-data-wait-followup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.wait",
+      payload: {
+        targetId: "tab-101",
+        timeoutMs: 1000
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-data-wait-followup",
+            payload: expect.objectContaining({
+              timingMs: expect.any(Number)
+            })
+          })
+        ])
+      );
+    });
+
+    expect(sent.some((message) => message.type === "ops_error" && message.requestId === "req-data-wait-followup")).toBe(false);
+  });
+
+  it("allows follow-up page.screenshot commands on the synthetic root target after html data preview navigation", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async (_debuggee, method) => {
+        if (method === "Page.captureScreenshot") {
+          return { data: "ZmFrZQ==" };
+        }
+        return {};
+      })
+    };
+
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 101,
+      status: "complete",
+      url: "https://example.com/",
+      title: "Example Domain"
+    } as chrome.tabs.Tab);
+    const executeScriptMock = globalThis.chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>;
+    executeScriptMock.mockImplementation((_details, callback?: (results?: chrome.scripting.InjectionResult<unknown>[]) => void) => {
+      callback?.([{ result: { title: "Synthetic Preview" } } as chrome.scripting.InjectionResult<unknown>]);
+    });
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://example.com/" });
+    const syntheticUrl = "data:text/html;charset=utf-8,%3Ctitle%3ESynthetic%20Preview%3C%2Ftitle%3E%3Ch1%3Ehello%3C%2Fh1%3E";
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-data-goto-screenshot-followup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.goto",
+      payload: {
+        targetId: "tab-101",
+        url: syntheticUrl,
+        timeoutMs: 1000
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-data-goto-screenshot-followup",
+            payload: expect.objectContaining({
+              finalUrl: syntheticUrl
+            })
+          })
+        ])
+      );
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-data-screenshot-followup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.screenshot",
+      payload: {
+        targetId: "tab-101"
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-data-screenshot-followup",
+            payload: expect.objectContaining({
+              base64: "ZmFrZQ=="
+            })
+          })
+        ])
+      );
+    });
+
+    expect(sent.some((message) => (
+      message.type === "ops_error"
+      && message.requestId === "req-data-screenshot-followup"
+      && message.error?.code === "restricted_url"
+    ))).toBe(false);
+  });
+
+  it("allows follow-up devtools.perf commands on the synthetic root target after html data preview navigation", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async (_debuggee, method) => {
+        if (method === "Performance.getMetrics") {
+          return {
+            metrics: [{ name: "LayoutCount", value: 1 }]
+          };
+        }
+        return {};
+      })
+    };
+
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 101,
+      status: "complete",
+      url: "https://example.com/",
+      title: "Example Domain"
+    } as chrome.tabs.Tab);
+    const executeScriptMock = globalThis.chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>;
+    executeScriptMock.mockImplementation((_details, callback?: (results?: chrome.scripting.InjectionResult<unknown>[]) => void) => {
+      callback?.([{ result: { title: "Synthetic Preview" } } as chrome.scripting.InjectionResult<unknown>]);
+    });
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://example.com/" });
+    const syntheticUrl = "data:text/html;charset=utf-8,%3Ctitle%3ESynthetic%20Preview%3C%2Ftitle%3E%3Ch1%3Ehello%3C%2Fh1%3E";
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-data-goto-perf-followup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.goto",
+      payload: {
+        targetId: "tab-101",
+        url: syntheticUrl,
+        timeoutMs: 1000
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-data-goto-perf-followup",
+            payload: expect.objectContaining({
+              finalUrl: syntheticUrl
+            })
+          })
+        ])
+      );
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-data-perf-followup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "devtools.perf",
+      payload: {
+        targetId: "tab-101"
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-data-perf-followup",
+            payload: expect.objectContaining({
+              metrics: [{ name: "LayoutCount", value: 1 }]
+            })
+          })
+        ])
+      );
+    });
+
+    expect(sent.some((message) => (
+      message.type === "ops_error"
+      && message.requestId === "req-data-perf-followup"
+      && message.error?.code === "restricted_url"
+    ))).toBe(false);
+  });
+
+  it("allows follow-up page.screenshot commands on registered canvas targets after html preview navigation", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      sendCommand: vi.fn(async (_debuggee, method) => {
+        if (method === "Page.captureScreenshot") {
+          return { data: "ZmFrZQ==" };
+        }
+        return {};
+      })
+    };
+
+    globalThis.chrome.runtime.getURL = vi.fn((path: string) => `chrome-extension://test/${path}`);
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockImplementation(async (tabId: number) => {
+      if (tabId === 202) {
+        return {
+          id: 202,
+          status: "complete",
+          url: "chrome-extension://test/canvas.html",
+          title: "Canvas"
+        } as chrome.tabs.Tab;
+      }
+      return {
+        id: 101,
+        status: "complete",
+        url: "https://example.com/root",
+        title: "Root Page"
+      } as chrome.tabs.Tab;
+    });
+    const executeScriptMock = globalThis.chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>;
+    executeScriptMock.mockImplementation((_details, callback?: (results?: chrome.scripting.InjectionResult<unknown>[]) => void) => {
+      callback?.([{ result: { title: "Synthetic Preview" } } as chrome.scripting.InjectionResult<unknown>]);
+    });
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", {
+      url: "https://example.com/root",
+      title: "Root Page"
+    });
+    sessions.addTarget(session.id, 202, {
+      url: "chrome-extension://test/canvas.html",
+      title: "Canvas"
+    });
+    session.activeTargetId = "tab-101";
+    const syntheticUrl = "data:text/html;charset=utf-8,%3Ctitle%3ESynthetic%20Preview%3C%2Ftitle%3E%3Ch1%3Ehello%3C%2Fh1%3E";
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-canvas-data-goto",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "nav.goto",
+      payload: {
+        targetId: "tab-202",
+        url: syntheticUrl,
+        timeoutMs: 1000
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-canvas-data-goto",
+            payload: expect.objectContaining({
+              finalUrl: syntheticUrl
+            })
+          })
+        ])
+      );
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-canvas-screenshot-followup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.screenshot",
+      payload: {
+        targetId: "tab-202"
+      }
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-canvas-screenshot-followup",
+            payload: expect.objectContaining({
+              base64: "ZmFrZQ=="
+            })
+          })
+        ])
+      );
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-root-status-followup",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "session.status",
+      payload: {}
+    });
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-root-status-followup",
+            payload: expect.objectContaining({
+              activeTargetId: "tab-101",
+              url: "https://example.com/root",
+              title: "Root Page"
+            })
+          })
+        ])
+      );
+    });
+
+    expect(sent.some((message) => (
+      message.type === "ops_error"
+      && message.requestId === "req-canvas-screenshot-followup"
+      && message.error?.code === "restricted_url"
+    ))).toBe(false);
   });
 
   it("returns retry guidance when a popup target has not finished attaching", async () => {

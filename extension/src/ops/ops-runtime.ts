@@ -1019,6 +1019,7 @@ export class OpsRuntime {
     const payload = isRecord(message.payload) ? message.payload : {};
     const parallelismPolicy = parseParallelismPolicy(payload.parallelismPolicy);
     const startUrl = typeof payload.startUrl === "string" ? payload.startUrl : undefined;
+    const isStartUrlConnect = message.command === "session.connect" && typeof startUrl === "string";
     const requestedSessionId = typeof payload.sessionId === "string" && payload.sessionId.trim().length > 0
       ? payload.sessionId.trim()
       : undefined;
@@ -1064,7 +1065,7 @@ export class OpsRuntime {
     }
     const activeTabId = activeTab.id;
 
-    const resolvedTab = startUrl
+    let resolvedTab = startUrl
       ? await this.tabs.waitForTabComplete(activeTabId)
         .catch(() => undefined)
         .then(async () => await this.tabs.getTab(activeTabId) ?? activeTab)
@@ -1079,7 +1080,12 @@ export class OpsRuntime {
     }
 
     try {
-      await this.attachTargetTab(activeTabId);
+      const refreshedTab = isStartUrlConnect
+        ? await this.attachStartUrlConnectTab(activeTabId)
+        : (await this.attachTargetTab(activeTabId), null);
+      if (refreshedTab) {
+        resolvedTab = refreshedTab;
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Debugger attach failed";
       this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
@@ -2364,6 +2370,23 @@ export class OpsRuntime {
     }
   }
 
+  private async attachStartUrlConnectTab(tabId: number): Promise<chrome.tabs.Tab | null> {
+    try {
+      await this.attachTargetTab(tabId);
+      return null;
+    } catch (error) {
+      if (!isAttachBlockedError(error)) {
+        throw error;
+      }
+    }
+
+    this.cdp.markClientClosed();
+    await this.tabs.waitForTabComplete(tabId).catch(() => undefined);
+    const refreshedTab = await this.tabs.getTab(tabId);
+    await this.attachTargetTab(tabId);
+    return refreshedTab ?? null;
+  }
+
   private async enableTargetDomains(tabId: number): Promise<void> {
     try {
       await this.cdp.setDiscoverTargetsEnabled?.(true);
@@ -3287,12 +3310,12 @@ export class OpsRuntime {
     }
     if (target.url) {
       const restriction = isRestrictedUrl(target.url);
-      if (restriction.restricted && !this.isAllowedCanvasTargetUrl(target.url)) {
+      if (restriction.restricted && !this.isAllowedCanvasRestrictionTarget(session, targetId, target)) {
         this.sendError(message, buildError("restricted_url", restriction.message ?? "Restricted tab.", false));
         return null;
       }
     }
-    if (target.synthetic && !target.sessionId) {
+    if (target.synthetic && !target.sessionId && !this.isSyntheticRootPreviewTarget(session, targetId, target)) {
       this.sendPopupAttachPendingError(message, session, targetId);
       return null;
     }
@@ -3301,6 +3324,40 @@ export class OpsRuntime {
       return null;
     }
     return target;
+  }
+
+  private isAllowedCanvasRestrictionTarget(
+    session: OpsSession,
+    targetId: string,
+    target: ResolvedOpsTarget
+  ): boolean {
+    if (this.isAllowedCanvasTargetUrl(target.url)) {
+      return true;
+    }
+    if (isHtmlDataUrl(target.url ?? "") && this.isRegisteredCanvasTarget(session, targetId)) {
+      return true;
+    }
+    return this.isSyntheticRootPreviewTarget(session, targetId, target)
+      && isHtmlDataUrl(target.url ?? "");
+  }
+
+  private isRegisteredCanvasTarget(session: OpsSession, targetId: string): boolean {
+    return this.isAllowedCanvasTargetUrl(session.targets.get(targetId)?.url);
+  }
+
+  private isSyntheticRootPreviewTarget(
+    session: OpsSession,
+    _targetId: string,
+    target: ResolvedOpsTarget
+  ): boolean {
+    const rootSynthetic = this.sessions.getSyntheticTarget(session.id, session.targetId);
+    const effectiveUrl = target.url ?? rootSynthetic?.url;
+    return isHtmlDataUrl(rootSynthetic?.url ?? "")
+      && isHtmlDataUrl(effectiveUrl ?? "")
+      && !rootSynthetic?.openerTargetId
+      && rootSynthetic?.tabId === session.tabId
+      && !target.openerTargetId
+      && target.tabId === session.tabId;
   }
 
   private isAllowedCanvasTargetUrl(rawUrl: string | undefined): boolean {

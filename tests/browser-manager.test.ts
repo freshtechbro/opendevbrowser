@@ -740,8 +740,11 @@ describe("BrowserManager", () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
-    await manager.launch({ startUrl: "https://example.com" });
+    const result = await manager.launch({ startUrl: "https://example.com" });
+    const status = await manager.status(result.sessionId);
     expect(page.goto).toHaveBeenCalledWith("https://example.com", expect.objectContaining({ waitUntil: "load" }));
+    expect(result.activeTargetId).toBe(status.activeTargetId);
+    expect(status.url).toBe("https://example.com");
   });
 
   it("skips startUrl when no active target exists", async () => {
@@ -891,11 +894,14 @@ describe("BrowserManager", () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
-    await manager.connect({ host: "127.0.0.1", port: 9222, startUrl: "https://example.com/start" });
+    const result = await manager.connect({ host: "127.0.0.1", port: 9222, startUrl: "https://example.com/start" });
+    const status = await manager.status(result.sessionId);
     expect(page.goto).toHaveBeenCalledWith("https://example.com/start", {
       waitUntil: "load",
       timeout: 30000
     });
+    expect(result.activeTargetId).toBe(status.activeTargetId);
+    expect(status.url).toBe("https://example.com/start");
   });
 
   it("connects via relay endpoint", async () => {
@@ -974,6 +980,42 @@ describe("BrowserManager", () => {
       waitUntil: "load",
       timeout: 30000
     });
+  });
+
+  it("returns the navigated relay target after startUrl switches away from a blank tab", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("about:blank");
+    page.goto.mockRejectedValue(new Error("should not use blank page"));
+
+    const stable = createPage(nodes);
+    stable.setContext(context);
+    context.pages().push(stable.page as never);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp", { startUrl: "https://example.com/start" });
+    const status = await manager.status(result.sessionId);
+    const targets = await manager.listTargets(result.sessionId, true);
+    const navigatedTarget = targets.targets.find((entry) => entry.url === "https://example.com/start");
+
+    expect(stable.page.goto).toHaveBeenCalledWith("https://example.com/start", {
+      waitUntil: "load",
+      timeout: 30000
+    });
+    expect(page.goto).not.toHaveBeenCalled();
+    expect(result.activeTargetId).toBe(status.activeTargetId);
+    expect(result.activeTargetId).toBe(navigatedTarget?.targetId);
   });
 
   it("retries legacy relay connect when the extension drops the first /cdp attach", async () => {
