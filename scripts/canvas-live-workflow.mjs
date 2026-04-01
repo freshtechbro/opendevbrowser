@@ -82,6 +82,10 @@ const SURFACE_CONFIG = {
     connect: true,
     connectArgs: ["connect", "--ws-endpoint", "ws://127.0.0.1:8787/cdp", "--extension-legacy"],
     gotoUrl: "https://example.com/?canvas-cdp-preview=1",
+    connectAttempts: 2,
+    connectTimeoutMs: 45_000,
+    gotoTimeoutMs: 30_000,
+    statusTimeoutMs: 15_000,
     closeBrowser: false,
     includeInventoryHistory: false,
     includeFeedback: false,
@@ -167,6 +171,12 @@ function canvas(command, params, timeoutMs = 60_000) {
 
 function classifyWorkflowFailure(surface, detail) {
   const normalized = String(detail ?? "").toLowerCase();
+  if (normalized.includes("[restricted_url]") || normalized.includes("restricted url scheme")) {
+    return {
+      status: surface === "extension" || surface === "cdp" ? "env_limited" : "fail",
+      detail
+    };
+  }
   if (
     normalized.includes("extension not connected")
     || normalized.includes("extension relay connection failed")
@@ -185,6 +195,13 @@ function classifyWorkflowFailure(surface, detail) {
   return { status: "fail", detail };
 }
 
+function disconnectSession(sessionId, closeBrowser) {
+  runCli(
+    ["disconnect", "--session-id", sessionId, ...(closeBrowser ? ["--close-browser"] : [])],
+    { allowFailure: true, timeoutMs: DISCONNECT_WRAPPER_TIMEOUT_MS }
+  );
+}
+
 async function establishSession(config) {
   if (!config.connect) {
     const launch = runCli(config.launchArgs, { timeoutMs: 300_000 }).json;
@@ -197,15 +214,20 @@ async function establishSession(config) {
   }
 
   let lastError = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  const attempts = config.connectAttempts ?? 3;
+  const connectTimeoutMs = config.connectTimeoutMs ?? 300_000;
+  const gotoTimeoutMs = config.gotoTimeoutMs ?? 120_000;
+  const statusTimeoutMs = config.statusTimeoutMs ?? 120_000;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    let sessionId = null;
     try {
-      const connected = runCli(config.connectArgs, { timeoutMs: 300_000 }).json;
-      const sessionId = connected.data.sessionId;
+      const connected = runCli(config.connectArgs, { timeoutMs: connectTimeoutMs }).json;
+      sessionId = connected.data.sessionId;
       runCli(
         ["goto", "--session-id", sessionId, "--url", config.gotoUrl, "--wait-until", "load", "--timeout-ms", "30000"],
-        { timeoutMs: 120_000 }
+        { timeoutMs: gotoTimeoutMs }
       );
-      const refreshed = runCli(["status", "--session-id", sessionId], { timeoutMs: 120_000 }).json;
+      const refreshed = runCli(["status", "--session-id", sessionId], { timeoutMs: statusTimeoutMs }).json;
       return {
         sessionId,
         activeTargetId: refreshed.data.activeTargetId,
@@ -214,7 +236,10 @@ async function establishSession(config) {
       };
     } catch (error) {
       lastError = error;
-      if (attempt < 3) {
+      if (sessionId) {
+        disconnectSession(sessionId, config.closeBrowser === true);
+      }
+      if (attempt < attempts) {
         await sleep(2_000);
       }
     }
@@ -492,8 +517,7 @@ async function main() {
     }
   } finally {
     if (sessionId && !disconnected) {
-      const disconnectArgs = ["disconnect", "--session-id", sessionId, ...(config.closeBrowser ? ["--close-browser"] : [])];
-      runCli(disconnectArgs, { allowFailure: true, timeoutMs: DISCONNECT_WRAPPER_TIMEOUT_MS });
+      disconnectSession(sessionId, config.closeBrowser === true);
     }
     writeJson(options.out, artifact);
     console.log(JSON.stringify({
@@ -514,3 +538,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 }
 
 export { parseArgs };
+export { classifyWorkflowFailure };
