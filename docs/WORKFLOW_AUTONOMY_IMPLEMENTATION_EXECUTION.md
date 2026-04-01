@@ -62,6 +62,26 @@ Status rule:
   - `prompt-exports/2026-03-30-151252-plan-ebay-timeout-walmart-followon-oracle-brief.md`
   - `prompt-exports/2026-03-30-151252-plan-ebay-timeout-walmart-followon-oracle.md`
 
+### Current branch proof refresh
+- Refresh timestamp:
+  - `2026-04-01 17:04:39 CDT`
+- Branch state:
+  - `codex/workflow-stability-20260331`
+- Current tree note:
+  - post-rollout workflow-stability work touches closure-proof owners beyond the original startup snapshot
+- Current proof refresh scope:
+  - `src/providers/runtime-factory.ts`
+  - `src/providers/shopping/index.ts`
+  - `src/providers/workflows.ts`
+  - `tests/canvas-code-sync-manager.test.ts`
+  - `tests/providers-runtime-factory.test.ts`
+  - `tests/providers-shopping.test.ts`
+  - `tests/providers-shopping-branches.test.ts`
+  - `tests/providers-workflows-branches.test.ts`
+- Refresh rule:
+  - the historical phase rows remain the implementation record for the autonomy rollout
+  - the validation log entries appended on `2026-04-01` are the current-tree proof refresh for closure-sensitive gates and sentinel tests
+
 ### Commit exclusions
 - Never commit:
   - `CONTINUITY.md`
@@ -384,3 +404,10 @@ No open gaps remain.
 | 2026-03-31 01:37:05 CDT | phase-7 | final repo-wide gate bundle (`npm run lint`, `npm run typecheck`, `npm run build`, `npm run extension:build`, `node scripts/docs-drift-check.mjs`, `git diff --check`, `npm run test`) | pass | final docs-adjusted tree passed end to end: 214 test files passed, 1 skipped, 2900 tests passed, 97.07 branch coverage |
 | 2026-03-31 01:37:05 CDT | phase-7 | final closure audit | pass | reread the full spec, reconciled every task and acceptance row against the final code and changed file set, cleared the gap register, and confirmed the final docs stayed within the fixed category boundary |
 | 2026-03-31 01:37:05 CDT | phase-7 | prohibited-outcome audit (`rg -n "workflow\\.data_extraction|workflow\\.login|workflow\\.form_testing|featureFlag|feature_flag|shadow path|shadow_path|compatibility toggle|backward compatibility" ...changed workflow files...`) | pass | zero matches across the changed workflow, script, and owner-test files; no feature flags, shadow paths, widened workflow kinds, or compatibility toggles were introduced |
+| 2026-04-01 16:45:14 CDT | proof-refresh | `npx vitest run tests/canvas-code-sync-manager.test.ts -t "debounces watcher callbacks, survives status refresh races, ignores unchanged hashes, and degrades on watcher read failures" --coverage.enabled=false` | pass | current-tree watcher-flake repair passed in isolation before broader gate reruns |
+| 2026-04-01 16:45:14 CDT | proof-refresh | repeat isolated watcher test 10 times | pass | repeated-target stress loop stayed green on the same patch set |
+| 2026-04-01 16:46:09 CDT | proof-refresh | `npx vitest run tests/canvas-code-sync-manager.test.ts --coverage.enabled=false` | pass | full canvas code-sync manager suite passed after the test-local stabilization |
+| 2026-04-01 16:59:56 CDT | proof-refresh | `npm run test` | pass | current tree passed end to end: 216 test files passed, 1 skipped, 3047 tests passed, global branch coverage recovered to `97.00%` |
+| 2026-04-01 17:00:00 CDT | proof-refresh | repo-wide non-test gate bundle (`npm run lint`, `npm run typecheck`, `npm run build`, `npm run extension:build`, `node scripts/docs-drift-check.mjs`, `git diff --check`) | pass | current tree stayed green across lint, types, build, extension build, docs drift, and diff hygiene after the coverage repair |
+| 2026-04-01 17:03:54 CDT | proof-refresh | `npx vitest run tests/providers-workflows-branches.test.ts tests/providers-runtime-factory.test.ts --coverage.enabled=false` | pass | explicit current-tree rerun passed: 2 files, 187 tests green |
+| 2026-04-01 17:04:39 CDT | proof-refresh | `git status --short --branch` | pass | current branch is `codex/workflow-stability-20260331`; proof refresh recorded against the live tree instead of the original startup snapshot |
