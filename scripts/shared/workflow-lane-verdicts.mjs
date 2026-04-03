@@ -1,3 +1,5 @@
+import { ENV_LIMITED_SHELL_ONLY_REASONS } from "./workflow-lane-constants.mjs";
+
 export function normalizedCodesFromFailures(failures) {
   if (!Array.isArray(failures)) return [];
   return failures
@@ -11,6 +13,38 @@ function failureMessages(failures) {
     .map((entry) => entry?.error?.message)
     .filter((value) => typeof value === "string")
     .map((value) => value.toLowerCase());
+}
+
+function normalizeShellOnlyReasons(shellOnlyReasons) {
+  if (!Array.isArray(shellOnlyReasons)) return [];
+  return shellOnlyReasons
+    .map((entry) => typeof entry === "string" ? entry.trim() : "")
+    .filter(Boolean);
+}
+
+export function classifyShellOnlyReasons(
+  shellOnlyReasons,
+  {
+    envLimitedReasons = ENV_LIMITED_SHELL_ONLY_REASONS
+  } = {}
+) {
+  const normalizedReasons = normalizeShellOnlyReasons(shellOnlyReasons);
+  if (normalizedReasons.length === 0) {
+    return null;
+  }
+  return {
+    status: normalizedReasons.every((reason) => envLimitedReasons.has(reason)) ? "env_limited" : "fail",
+    detail: `shell_only_records=${normalizedReasons.join(",")}`,
+    shellOnlyReasons: normalizedReasons
+  };
+}
+
+export function parseShellOnlyFailureDetail(detail, options) {
+  const match = /(?:^|:\s*)Macro execution returned only shell records \(([^)]+)\)\.?$/i.exec(String(detail ?? "").trim());
+  if (!match) {
+    return null;
+  }
+  return classifyShellOnlyReasons(match[1].split(","), options);
 }
 
 export function summarizeFailures(failures, limit = 3) {

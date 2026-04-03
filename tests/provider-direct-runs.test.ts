@@ -179,6 +179,134 @@ describe("provider-direct-runs", () => {
     expect(step.detail).toBe("Request timed out after 120000ms");
   });
 
+  it("treats a raw Temu timeout boundary as env-limited instead of a hard failure", () => {
+    const step = evaluateShoppingCase({
+      id: "provider.shopping.temu.search",
+      providerId: "shopping/temu",
+      args: ["shopping", "run"]
+    }, {
+      status: 1,
+      detail: "Request timed out after 125000ms",
+      json: null
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("Request timed out after 125000ms");
+  });
+
+  it("prefers structured macro failures over non-zero raw challenge detail", () => {
+    const step = evaluateMacroCase({
+      id: "provider.community.search.keyword",
+      providerId: "community/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 1,
+      detail: "Challenge detected while resolving provider output.",
+      json: {
+        data: {
+          execution: {
+            records: [],
+            failures: [
+              {
+                error: {
+                  code: "timeout",
+                  message: "Provider request timed out after 120000ms"
+                }
+              }
+            ],
+            meta: {
+              providerOrder: ["community/default"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("unexpected_reason_codes=timeout");
+    expect(step.data).toMatchObject({
+      hasExecutionPayload: true,
+      reasonCodes: ["timeout"],
+      shellOnlyReasons: []
+    });
+  });
+
+  it("prefers structured shopping boundaries over non-zero raw auth detail", () => {
+    const step = evaluateShoppingCase({
+      id: "provider.shopping.target.search",
+      providerId: "shopping/target",
+      args: ["shopping", "run"]
+    }, {
+      status: 1,
+      detail: "Authentication required before continuing.",
+      json: {
+        data: {
+          offers: [],
+          meta: {
+            failures: [
+              {
+                error: {
+                  code: "unavailable",
+                  reasonCode: "env_limited",
+                  details: {
+                    constraint: {
+                      kind: "render_required",
+                      evidenceCode: "target_shell_page"
+                    },
+                    providerShell: "target_shell_page",
+                    blockerReason: "render_required"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("reason_codes=env_limited");
+    expect(step.data).toMatchObject({
+      reasonCodes: ["env_limited"],
+      providerShell: "target_shell_page",
+      constraintKind: "render_required"
+    });
+  });
+
+  it("keeps non-zero raw auth detail blocking when macro execution payload is missing", () => {
+    const step = evaluateMacroCase({
+      id: "provider.community.search.keyword",
+      providerId: "community/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 1,
+      detail: "Authentication required before continuing.",
+      json: null
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("Authentication required before continuing.");
+    expect(step.data).toMatchObject({
+      hasExecutionPayload: false,
+      shellOnlyReasons: []
+    });
+  });
+
+  it("keeps non-zero raw challenge detail blocking when shopping payload is missing", () => {
+    const step = evaluateShoppingCase({
+      id: "provider.shopping.target.search",
+      providerId: "shopping/target",
+      args: ["shopping", "run"]
+    }, {
+      status: 1,
+      detail: "Challenge detected while loading provider page.",
+      json: null
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("Challenge detected while loading provider page.");
+  });
+
   it("fails macro cases when the CLI exits zero without an execution payload", () => {
     const step = evaluateMacroCase({
       id: "provider.community.search.url",

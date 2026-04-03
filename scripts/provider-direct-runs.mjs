@@ -11,6 +11,10 @@ import {
   SOCIAL_POST_CASES
 } from "./shared/workflow-lane-constants.mjs";
 import {
+  classifyShellOnlyReasons,
+  parseShellOnlyFailureDetail
+} from "./shared/workflow-lane-verdicts.mjs";
+import {
   classifyRecords,
   defaultArtifactPath,
   ensureCliBuilt,
@@ -41,14 +45,6 @@ const MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE = "browser_with_helper";
 const MACRO_CHALLENGE_ARGS = ["--challenge-automation-mode", MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE];
 const LINKEDIN_TIMEOUT_RETRY_DETAIL_RE = /\b(?:request|provider request) timed out after \d+ms\b/i;
 const YOUTUBE_GENERIC_SHELL_RETRY_DETAIL = "shell_only_records=generic_shell";
-const ENV_LIMITED_SHELL_ONLY_REASONS = new Set([
-  "challenge_shell",
-  "search_shell",
-  "social_render_shell",
-  "social_js_required_shell",
-  "social_first_party_help_shell",
-  "social_verification_wall"
-]);
 
 const DIRECT_WEB_COMMUNITY_CASES = [
   {
@@ -91,38 +87,6 @@ export function classifyDaemonPreflight(result) {
     status: result.status === 0 ? "pass" : "fail",
     detail: result.status === 0 ? null : result.detail,
     data: result.json?.data ?? null
-  };
-}
-
-function isEnvLimitedDetail(detail) {
-  const normalized = String(detail ?? "").toLowerCase();
-  return normalized.includes("env_limited")
-    || normalized.includes("auth")
-    || normalized.includes("rate limit")
-    || normalized.includes("challenge")
-    || normalized.includes("unavailable")
-    || normalized.includes("restricted");
-}
-
-function parseShellOnlyFailureDetail(detail) {
-  const match = /^Macro execution returned only shell records \(([^)]+)\)\.?$/i.exec(String(detail ?? "").trim());
-  if (!match) {
-    return null;
-  }
-  const shellOnlyReasons = match[1]
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (shellOnlyReasons.length === 0) {
-    return null;
-  }
-  const status = shellOnlyReasons.every((reason) => ENV_LIMITED_SHELL_ONLY_REASONS.has(reason))
-    ? "env_limited"
-    : "fail";
-  return {
-    status,
-    detail: `shell_only_records=${shellOnlyReasons.join(",")}`,
-    shellOnlyReasons
   };
 }
 
@@ -221,7 +185,8 @@ function collectMacroBrowserFallback(execution) {
 }
 
 function collectShoppingExecution(result) {
-  const data = result.json?.data ?? {};
+  const hasDataPayload = isJsonRecord(result.json?.data);
+  const data = hasDataPayload ? result.json.data : {};
   const offers = Array.isArray(data.offers) ? data.offers : [];
   const failures = Array.isArray(data.meta?.failures) ? data.meta.failures : [];
   const firstFailure = failures[0] ?? null;
@@ -233,7 +198,8 @@ function collectShoppingExecution(result) {
     failures,
     firstFailure,
     blocker,
-    metrics
+    metrics,
+    hasDataPayload
   };
 }
 
@@ -689,11 +655,33 @@ function classifyMacroRecordQuality(testCase, execution) {
   }
 
   const uniqueReasons = [...new Set(reasons)];
-  return {
-    status: uniqueReasons.every((reason) => ENV_LIMITED_SHELL_ONLY_REASONS.has(reason)) ? "env_limited" : "fail",
-    detail: `shell_only_records=${uniqueReasons.join(",")}`,
-    shellOnlyReasons: uniqueReasons
+  return classifyShellOnlyReasons(uniqueReasons);
+}
+
+function classifyRawFailureDetail(detail) {
+  return parseShellOnlyFailureDetail(detail) ?? {
+    status: "fail",
+    detail,
+    shellOnlyReasons: []
   };
+}
+
+function resolveDirectHarnessVerdict({ classified, detail, preferClassified }) {
+  const rawFailure = classifyRawFailureDetail(detail);
+  return {
+    rawFailure,
+    verdict: preferClassified ? classified : rawFailure
+  };
+}
+
+function isTimeoutDetail(detail) {
+  return /timed out|timeout/i.test(String(detail ?? ""));
+}
+
+function isTemuTimeoutBoundary(testCase, result) {
+  return testCase?.providerId === "shopping/temu"
+    && result?.status !== 0
+    && isTimeoutDetail(result?.detail);
 }
 
 function buildProviderCases(options) {
@@ -848,7 +836,6 @@ function evaluateMacroCase(testCase, result) {
   const challengeOrchestration = collectMacroChallengeOrchestration(execution);
   const browserFallback = collectMacroBrowserFallback(execution);
   const macroMetadata = collectRequestedChallengeMetadata(testCase.args);
-  const shellOnlyFailureDetail = parseShellOnlyFailureDetail(result.detail);
   if (result.status === 0 && !execution.hasExecutionPayload) {
     return {
       id: testCase.id,
@@ -889,15 +876,18 @@ function evaluateMacroCase(testCase, result) {
         }
       )
     );
+  const { rawFailure, verdict } = resolveDirectHarnessVerdict({
+    classified,
+    detail: result.detail,
+    preferClassified: execution.hasExecutionPayload
+  });
 
   return {
     id: testCase.id,
     providerId: testCase.providerId,
     command: testCase.args,
-    status: result.status === 0
-      ? classified.status
-      : (shellOnlyFailureDetail?.status ?? (isEnvLimitedDetail(result.detail) ? "env_limited" : "fail")),
-    detail: result.status === 0 ? classified.detail : (shellOnlyFailureDetail?.detail ?? result.detail),
+    status: verdict.status,
+    detail: verdict.detail,
     data: {
       records: execution.records.length,
       failures: execution.failures.length,
@@ -906,7 +896,9 @@ function evaluateMacroCase(testCase, result) {
       blockerType: execution.execution?.meta?.blocker?.type ?? null,
       failureSamples: summarizeFailures(execution.failures),
       linkedinAuthWall,
-      shellOnlyReasons: shellOnlyClassification?.shellOnlyReasons ?? shellOnlyFailureDetail?.shellOnlyReasons ?? [],
+      shellOnlyReasons: execution.hasExecutionPayload
+        ? (shellOnlyClassification?.shellOnlyReasons ?? [])
+        : rawFailure.shellOnlyReasons,
       hasExecutionPayload: execution.hasExecutionPayload,
       challengeOrchestration,
       browserFallbackMode: browserFallback.browserFallbackMode,
@@ -982,17 +974,27 @@ function evaluateShoppingCase(testCase, result) {
   const browserFallback = collectShoppingBrowserFallback(execution);
   const reasonCodes = normalizedCodesFromFailures(execution.failures);
   const classified = classifyRecords(execution.offers.length, execution.failures);
+  const { verdict } = resolveDirectHarnessVerdict({
+    classified,
+    detail: result.detail,
+    preferClassified: execution.hasDataPayload || result.status === 0
+  });
   const firstFailure = execution.firstFailure;
   const failureDetails = firstFailure?.error?.details ?? {};
   const shoppingMetadata = collectRequestedChallengeMetadata(testCase.args);
+  const temuTimeoutBoundary = isTemuTimeoutBoundary(testCase, result);
+  const resolvedStatus = temuTimeoutBoundary
+    ? "env_limited"
+    : verdict.status;
+  const resolvedDetail = temuTimeoutBoundary
+    ? result.detail
+    : verdict.detail;
   return {
     id: testCase.id,
     providerId: testCase.providerId,
     command: testCase.args,
-    status: result.status === 0
-      ? classified.status
-      : (isEnvLimitedDetail(result.detail) ? "env_limited" : "fail"),
-    detail: result.status === 0 ? classified.detail : result.detail,
+    status: resolvedStatus,
+    detail: resolvedDetail,
     data: {
       offers: execution.offers.length,
       failures: execution.failures.length,

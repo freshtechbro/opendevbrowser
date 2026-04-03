@@ -210,6 +210,37 @@ describe("workflow CLI commands", () => {
     );
   });
 
+  it("prefers explicit camelCase workflow summaries in completion messages", async () => {
+    callDaemon.mockResolvedValue({
+      meta: {
+        primaryConstraintSummary: "Manual browser follow-up is required before provider resolution can continue.",
+        failures: [{
+          provider: "shopping/costco",
+          error: {
+            code: "auth",
+            reasonCode: "token_required",
+            details: {
+              constraint: {
+                kind: "session_required",
+                evidenceCode: "auth_required"
+              }
+            }
+          }
+        }]
+      }
+    });
+
+    const result = await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless mouse",
+      "--providers=shopping/costco"
+    ]));
+
+    expect(result.message).toBe(
+      "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required before provider resolution can continue."
+    );
+  });
+
   it("supports explicit timeout for macro-resolve execution", async () => {
     callDaemon.mockResolvedValue({ ok: true });
 

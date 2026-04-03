@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "../src/cli/args";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { deriveCliToolPairs } from "../scripts/shared/workflow-inventory.mjs";
 import { createMockProviderRuntime } from "./provider-runtime-mock";
 
 vi.mock("@opencode-ai/plugin", async () => {
@@ -12,50 +13,7 @@ vi.mock("@opencode-ai/plugin", async () => {
   return { tool: toolFn };
 });
 
-const CLI_TO_TOOL_PAIRS = [
-  ["launch", "opendevbrowser_launch"],
-  ["connect", "opendevbrowser_connect"],
-  ["disconnect", "opendevbrowser_disconnect"],
-  ["status", "opendevbrowser_status"],
-  ["targets-list", "opendevbrowser_targets_list"],
-  ["target-use", "opendevbrowser_target_use"],
-  ["target-new", "opendevbrowser_target_new"],
-  ["target-close", "opendevbrowser_target_close"],
-  ["page", "opendevbrowser_page"],
-  ["pages", "opendevbrowser_list"],
-  ["page-close", "opendevbrowser_close"],
-  ["goto", "opendevbrowser_goto"],
-  ["wait", "opendevbrowser_wait"],
-  ["snapshot", "opendevbrowser_snapshot"],
-  ["click", "opendevbrowser_click"],
-  ["hover", "opendevbrowser_hover"],
-  ["press", "opendevbrowser_press"],
-  ["check", "opendevbrowser_check"],
-  ["uncheck", "opendevbrowser_uncheck"],
-  ["type", "opendevbrowser_type"],
-  ["select", "opendevbrowser_select"],
-  ["scroll", "opendevbrowser_scroll"],
-  ["scroll-into-view", "opendevbrowser_scroll_into_view"],
-  ["dom-html", "opendevbrowser_dom_get_html"],
-  ["dom-text", "opendevbrowser_dom_get_text"],
-  ["dom-attr", "opendevbrowser_get_attr"],
-  ["dom-value", "opendevbrowser_get_value"],
-  ["dom-visible", "opendevbrowser_is_visible"],
-  ["dom-enabled", "opendevbrowser_is_enabled"],
-  ["dom-checked", "opendevbrowser_is_checked"],
-  ["run", "opendevbrowser_run"],
-  ["console-poll", "opendevbrowser_console_poll"],
-  ["network-poll", "opendevbrowser_network_poll"],
-  ["clone-page", "opendevbrowser_clone_page"],
-  ["clone-component", "opendevbrowser_clone_component"],
-  ["perf", "opendevbrowser_perf"],
-  ["screenshot", "opendevbrowser_screenshot"],
-  ["debug-trace-snapshot", "opendevbrowser_debug_trace_snapshot"],
-  ["cookie-import", "opendevbrowser_cookie_import"],
-  ["cookie-list", "opendevbrowser_cookie_list"],
-  ["macro-resolve", "opendevbrowser_macro_resolve"],
-  ["annotate", "opendevbrowser_annotate"]
-] as const;
+const CLI_TO_TOOL_PAIRS = deriveCliToolPairs();
 
 const parseToolResponse = (value: string): Record<string, unknown> => JSON.parse(value) as Record<string, unknown>;
 

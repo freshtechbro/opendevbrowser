@@ -29,7 +29,7 @@ export interface ShoppingOffer {
 const toCurrency = (value: number): string => `$${value.toFixed(2)}`;
 
 const primaryConstraintSummaryFromMeta = (meta: Record<string, unknown>): string | null => {
-  const summary = meta.primaryConstraintSummary ?? meta.primary_constraint_summary;
+  const summary = meta.primaryConstraintSummary;
   return typeof summary === "string" && summary.trim().length > 0
     ? summary.trim()
     : null;

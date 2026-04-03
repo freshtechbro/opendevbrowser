@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildLiveRegressionEnv,
   classifyMatrixRecords,
+  NESTED_LIVE_REGRESSION_TIMEOUT_MS,
   parseArgs,
-  REQUIRED_PLAYWRIGHT_CORE_FILES
+  REQUIRED_PLAYWRIGHT_CORE_FILES,
+  WORKFLOW_RESEARCH_PROBE_ARGS,
+  WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS
 } from "../scripts/provider-live-matrix.mjs";
 import {
   MATRIX_ENV_LIMITED_CODES,
@@ -50,8 +53,13 @@ describe("provider-live-matrix parseArgs", () => {
   });
 
   it("keeps timeout env-limited for matrix classification and preserves the shared target timeout bucket", () => {
+    expect(NESTED_LIVE_REGRESSION_TIMEOUT_MS).toBe(1_500_000);
     expect(MATRIX_ENV_LIMITED_CODES.has("timeout")).toBe(true);
     expect(MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/target")).toBe("120000");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("--timeout-ms");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("120000");
+    expect(WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS).toContain("scripts/youtube-transcript-live-probe.mjs");
+    expect(WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS).toContain("--youtube-mode");
     expect(classifyMatrixRecords(0, [
       {
         error: {

@@ -89,6 +89,7 @@ export interface ResearchRunInput {
   mode: RenderMode;
   includeEngagement?: boolean;
   limitPerSource?: number;
+  timeoutMs?: number;
   outputDir?: string;
   ttlHours?: number;
   useCookies?: boolean;
@@ -482,11 +483,14 @@ const withPrimaryConstraintMeta = (
       ...meta,
       primary_constraint: primaryIssue,
       primaryConstraint: primaryIssue,
-      primary_constraint_summary: primaryIssue.summary,
       primaryConstraintSummary: primaryIssue.summary
     }
     : meta;
 };
+
+const selectResearchPrimaryConstraintFailures = (
+  failures: ProviderFailureEntry[]
+): ProviderFailureEntry[] => failures.filter((failure) => failure.error.code !== "timeout");
 
 const mergeRuntimePolicyInput = (
   options: ProviderRunOptions,
@@ -1614,7 +1618,8 @@ export const runResearchWorkflow = async (
     stepEnvelope: WorkflowResumeEnvelope
   ): ProviderRunOptions => {
     const stepOptions = withChallengeAutomationOverride(withCookieOverrides({
-      source: step.input.source
+      source: step.input.source,
+      ...(typeof workflowInput.timeoutMs === "number" ? { timeoutMs: workflowInput.timeoutMs } : {})
     }, workflowInput), workflowInput);
 
     return withWorkflowResumeEnvelopeIntent(
@@ -1686,6 +1691,7 @@ export const runResearchWorkflow = async (
     throw new Error("Research workflow produced no usable results after post-processing.");
   }
 
+  const primaryConstraintFailures = selectResearchPrimaryConstraintFailures(mergedFailures);
   const meta = withPrimaryConstraintMeta({
     timebox: resolvedTimebox,
     selection: withExcludedProviders({
@@ -1700,7 +1706,6 @@ export const runResearchWorkflow = async (
       within_timebox: withinTimebox.length,
       final_records: ranked.length,
       failed_sources: execution.searchRuns.filter((run) => !run.result.ok).map((run) => run.source),
-      reason_code_distribution: reasonCodeDistribution,
       reasonCodeDistribution,
       transcript_strategy_failures: transcriptStrategyFailures,
       transcriptStrategyFailures,
@@ -1717,7 +1722,7 @@ export const runResearchWorkflow = async (
     },
     failures: mergedFailures,
     alerts: buildWorkflowAlerts(runtime, mergedFailures)
-  } as Record<string, unknown>, mergedFailures);
+  } as Record<string, unknown>, primaryConstraintFailures);
 
   const rendered = renderResearch({
     mode: workflowInput.mode,
@@ -1870,7 +1875,6 @@ export const runShoppingWorkflow = async (
     metrics: {
       total_offers: offers.length,
       failed_providers: failures.map((entry) => entry.provider),
-      reason_code_distribution: reasonCodeDistribution,
       reasonCodeDistribution,
       transcript_strategy_failures: transcriptStrategyFailures,
       transcriptStrategyFailures,
@@ -2089,8 +2093,7 @@ export const runProductVideoWorkflow = async (
       });
 
       const offers = shoppingResult.offers as ShoppingOffer[];
-      const resolutionSummary = (shoppingResult.meta as Record<string, unknown>).primaryConstraintSummary
-        ?? (shoppingResult.meta as Record<string, unknown>).primary_constraint_summary;
+      const resolutionSummary = (shoppingResult.meta as Record<string, unknown>).primaryConstraintSummary;
       if (offers.length === 0) {
         throw new Error(
           typeof resolutionSummary === "string"
@@ -2346,6 +2349,7 @@ export const runProductVideoWorkflow = async (
   const transcriptDurability = summarizeTranscriptDurability(details.records, details.failures);
   const cookieDiagnostics = summarizeCookieDiagnostics(details.failures, details.records);
   const antiBotPressure = summarizeAntiBotPressure(details.failures);
+  const primaryIssue = summarizePrimaryProviderIssue(details.failures);
 
   return {
     path: bundle.basePath,
@@ -2357,7 +2361,7 @@ export const runProductVideoWorkflow = async (
     meta: {
       alerts: buildWorkflowAlerts(runtime, details.failures),
       failures: details.failures,
-      reason_code_distribution: reasonCodeDistribution,
+      ...(primaryIssue ? { primaryConstraintSummary: primaryIssue.summary } : {}),
       reasonCodeDistribution,
       transcript_strategy_failures: transcriptStrategyFailures,
       transcriptStrategyFailures,

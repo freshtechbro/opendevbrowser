@@ -1441,6 +1441,257 @@ describe("workflow branch coverage", () => {
     });
   });
 
+  it("forwards explicit timeout overrides through research search and follow-up fetch", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [makeRecord({
+        id: "research-timeout-forwarded-search",
+        source: "web",
+        provider: "web/default",
+        url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fresearch-timeout-forwarded",
+        title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fresearch-timeout-forwarded",
+        content: "browser automation timeout forwarded",
+        attributes: {
+          retrievalPath: "web:search:index"
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [makeRecord({
+        id: "research-timeout-forwarded-fetch",
+        source: "web",
+        provider: "web/default",
+        url: "https://example.com/research-timeout-forwarded",
+        title: "Research Timeout Forwarded",
+        content: "Concrete browser automation notes with reproducible details.",
+        attributes: {
+          retrievalPath: "web:fetch:url"
+        }
+      })]
+    }));
+
+    await runResearchWorkflow(toRuntime({ search, fetch }), {
+      topic: "browser automation timeout forwarded",
+      sourceSelection: "web",
+      days: 7,
+      timeoutMs: 4321,
+      mode: "json"
+    });
+
+    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      source: "web",
+      timeoutMs: 4321,
+      suspendedIntent: expectWorkflowSuspendedIntent("research", {
+        topic: "browser automation timeout forwarded",
+        sourceSelection: "web",
+        days: 7,
+        timeoutMs: 4321,
+        mode: "json"
+      })
+    }));
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/research-timeout-forwarded" },
+      expect.objectContaining({
+        source: "web",
+        timeoutMs: 4321,
+        suspendedIntent: expectWorkflowSuspendedIntent("research", {
+          topic: "browser automation timeout forwarded",
+          sourceSelection: "web",
+          days: 7,
+          timeoutMs: 4321,
+          mode: "json"
+        })
+      })
+    );
+  });
+
+  it("preserves research timeout failures in structured workflow output", async () => {
+    const output = await runResearchWorkflow(toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        records: [],
+        partial: false,
+        failures: [makeFailure("web/default", "web", {
+          code: "timeout",
+          message: "Browser fallback timed out after 15000ms",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        })],
+        metrics: {
+          attempted: 1,
+          succeeded: 0,
+          failed: 1,
+          retries: 0,
+          latencyMs: 15000
+        },
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        error: {
+          code: "timeout",
+          message: "Browser fallback timed out after 15000ms",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        }
+      })
+    }), {
+      topic: "browser automation timeout",
+      sourceSelection: "web",
+      days: 7,
+      mode: "json"
+    });
+
+    expect(output.records).toEqual([]);
+    expect(output.meta).toMatchObject({
+      failures: [{
+        provider: "web/default",
+        error: {
+          code: "timeout",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        }
+      }],
+      metrics: {
+        failed_sources: ["web"]
+      }
+    });
+    expect((output.meta as {
+      failures: Array<{ error: { reasonCode?: string } }>;
+    }).failures[0]?.error.reasonCode).not.toBe("env_limited");
+  });
+
+  it("does not synthesize primary constraint summaries for timeout-only research failures", async () => {
+    const output = await runResearchWorkflow(toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/x"],
+        records: [],
+        partial: false,
+        failures: [makeFailure("social/x", "social", {
+          code: "timeout",
+          message: "Rendered social search timed out after 15000ms",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000,
+            browserRequired: true,
+            providerShell: "social_render_shell"
+          }
+        })],
+        metrics: {
+          attempted: 1,
+          succeeded: 0,
+          failed: 1,
+          retries: 0,
+          latencyMs: 15000
+        }
+      })
+    }), {
+      topic: "browser automation timeout masking",
+      sourceSelection: "social",
+      days: 7,
+      mode: "compact"
+    });
+
+    expect(output.summary).toBe("No records matched the requested timebox.");
+    expect(output.meta).not.toHaveProperty("primary_constraint");
+    expect(output.meta).not.toHaveProperty("primaryConstraint");
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
+    expect(output.meta).not.toHaveProperty("primaryConstraintSummary");
+    expect((output.meta as {
+      failures: Array<{ error: { code?: string; reasonCode?: string } }>;
+    }).failures[0]?.error).toMatchObject({
+      code: "timeout"
+    });
+    expect((output.meta as {
+      failures: Array<{ error: { reasonCode?: string } }>;
+    }).failures[0]?.error.reasonCode).not.toBe("env_limited");
+  });
+
+  it("keeps real research primary constraint summaries when timeout failures are mixed with auth failures", async () => {
+    const output = await runResearchWorkflow(toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/x", "social/linkedin"],
+        records: [],
+        partial: false,
+        failures: [
+          makeFailure("social/x", "social", {
+            code: "timeout",
+            message: "Rendered social search timed out after 15000ms",
+            retryable: true,
+            details: {
+              stage: "capture",
+              timeoutMs: 15000,
+              browserRequired: true,
+              providerShell: "social_render_shell"
+            }
+          }),
+          makeFailure("social/linkedin", "social", {
+            code: "auth",
+            message: "Authentication required",
+            retryable: false,
+            reasonCode: "token_required",
+            details: {
+              blockerType: "auth_required",
+              constraint: {
+                kind: "session_required",
+                evidenceCode: "auth_required"
+              }
+            }
+          })
+        ],
+        metrics: {
+          attempted: 2,
+          succeeded: 0,
+          failed: 2,
+          retries: 0,
+          latencyMs: 15001
+        }
+      })
+    }), {
+      topic: "browser automation linkedin timeout masking",
+      sourceSelection: "social",
+      days: 7,
+      mode: "compact"
+    });
+
+    expect((output.meta as {
+      failures: Array<{ provider: string; error: { code?: string } }>;
+    }).failures).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "social/x",
+        error: expect.objectContaining({
+          code: "timeout"
+        })
+      }),
+      expect.objectContaining({
+        provider: "social/linkedin",
+        error: expect.objectContaining({
+          code: "auth"
+        })
+      })
+    ]));
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Linkedin requires login or an existing session."
+    });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
+    expect(output.summary).toContain("Primary constraint: Linkedin requires login or an existing session.");
+  });
+
   it("keeps failed_sources derived from search failures only when web follow-up fetches fail", async () => {
     const fetch = vi.fn(async () => makeAggregate({
       ok: false,
@@ -1550,9 +1801,9 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Linkedin requires login or an existing session.",
       primaryConstraintSummary: "Linkedin requires login or an existing session."
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("No records matched the requested timebox.");
     expect(output.summary).toContain("Primary constraint: Linkedin requires login or an existing session.");
   });
@@ -2682,11 +2933,12 @@ describe("workflow branch coverage", () => {
       metrics: {
         total_offers: 0,
         failed_providers: ["shopping/amazon"],
-        reason_code_distribution: {
+        reasonCodeDistribution: {
           env_limited: 1
         }
       }
     });
+    expect((output.meta as { metrics: Record<string, unknown> }).metrics).not.toHaveProperty("reason_code_distribution");
   });
 
   it("preserves restricted-target blockers when empty shopping runs only surface browser-owned URLs", async () => {
@@ -2810,7 +3062,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Costco requires login or an existing session.",
       primaryConstraintSummary: "Costco requires login or an existing session.",
       failures: [{
         provider: "shopping/costco",
@@ -2828,6 +3079,7 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Costco requires login or an existing session.");
   });
 
@@ -2864,7 +3116,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Target requires a live browser-rendered page.",
       primaryConstraintSummary: "Target requires a live browser-rendered page.",
       failures: [{
         provider: "shopping/target",
@@ -2881,6 +3132,7 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Target requires a live browser-rendered page.");
   });
 
@@ -2936,7 +3188,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Costco requires login or an existing session.",
       primaryConstraintSummary: "Costco requires login or an existing session.",
       failures: [{
         provider: "shopping/costco",
@@ -2954,6 +3205,7 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
 
     const failureDetails = ((output.meta as {
       failures: Array<{ error: { details: Record<string, unknown> } }>;
@@ -3013,7 +3265,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Temu hit an anti-bot challenge that requires manual completion.",
       primaryConstraintSummary: "Temu hit an anti-bot challenge that requires manual completion.",
       failures: [{
         provider: "shopping/temu",
@@ -3027,6 +3278,7 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Temu hit an anti-bot challenge that requires manual completion.");
   });
 
@@ -3057,7 +3309,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.",
       primaryConstraintSummary: "Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.",
       failures: [{
         provider: "shopping/costco",
@@ -3070,6 +3321,7 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.");
   });
 
@@ -3121,7 +3373,6 @@ describe("workflow branch coverage", () => {
 
     const metrics = (output.meta as {
       metrics: {
-        reason_code_distribution: Record<string, number>;
         reasonCodeDistribution: Record<string, number>;
         transcript_strategy_failures: Record<string, number>;
         transcriptStrategyFailures: Record<string, number>;
@@ -3154,12 +3405,12 @@ describe("workflow branch coverage", () => {
       };
     }).metrics;
 
-    expect(metrics.reason_code_distribution).toMatchObject({
+    expect(metrics.reasonCodeDistribution).toMatchObject({
       caption_missing: 1,
       transcript_unavailable: 1
     });
-    expect(metrics.reasonCodeDistribution).toEqual(metrics.reason_code_distribution);
-    expect(metrics.reason_code_distribution.internal).toBeUndefined();
+    expect(metrics).not.toHaveProperty("reason_code_distribution");
+    expect(metrics.reasonCodeDistribution.internal).toBeUndefined();
     expect(metrics.transcript_strategy_failures).toEqual({
       "native_caption_parse:caption_missing": 2
     });
@@ -5782,6 +6033,60 @@ describe("workflow branch coverage", () => {
     expect((fromString.product as { title: string }).title).toBe("https://fallback.example/device");
     expect((fromMissingPrice.product as { brand: string; title: string }).brand).toBe("Fallback Site");
     expect((fromMissingPrice.product as { title: string }).title).toBe("https://fallback.example/device");
+  });
+
+  it("emits canonical product-video summary keys when detail fetch succeeds with follow-up failures", async () => {
+    const productUrl = "https://www.costco.com/studio-display.html";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/costco"],
+        records: [makeRecord({
+          id: "costco-product-video-summary",
+          source: "shopping",
+          provider: "shopping/costco",
+          url: productUrl,
+          title: "Studio Display",
+          content: "Brilliant OLED panel with stable product detail copy.",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/costco",
+              product_id: "costco-product-video-summary",
+              title: "Studio Display",
+              url: productUrl,
+              price: { amount: 699, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.7,
+              reviews_count: 21
+            }
+          }
+        })],
+        failures: [makeFailure("shopping/costco", "shopping", {
+          code: "unavailable",
+          message: "Costco login required",
+          retryable: false,
+          reasonCode: "auth_required"
+        })],
+        metrics: { attempted: 1, succeeded: 1, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Costco requires login or an existing session.",
+      reasonCodeDistribution: {
+        auth_required: 1
+      }
+    });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
+    expect(output.meta).not.toHaveProperty("reason_code_distribution");
   });
 
   it("sanitizes noisy feature lists and ignores negative-context promotional prices", async () => {

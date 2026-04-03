@@ -573,7 +573,7 @@ describe("artifact and workflow runtime", () => {
       failures: Array<{ provider: string; error: { reasonCode?: string; details?: { noOfferRecords?: boolean } } }>;
       metrics: {
         failed_providers: string[];
-        reason_code_distribution: Record<string, number>;
+        reasonCodeDistribution: Record<string, number>;
       };
     })).toMatchObject({
       failures: [{
@@ -587,11 +587,12 @@ describe("artifact and workflow runtime", () => {
       }],
       metrics: {
         failed_providers: ["shopping/walmart"],
-        reason_code_distribution: {
+        reasonCodeDistribution: {
           env_limited: 1
         }
       }
     });
+    expect((output.meta as { metrics: Record<string, unknown> }).metrics).not.toHaveProperty("reason_code_distribution");
   });
 
   it("summarizes shopping challenge orchestration from successful browser-assisted records", async () => {
@@ -833,7 +834,7 @@ describe("artifact and workflow runtime", () => {
     expect((output.meta as {
       failures: Array<{ provider: string; error: { reasonCode?: string; details?: { blockerType?: string; title?: string } } }>;
       metrics: {
-        reason_code_distribution: Record<string, number>;
+        reasonCodeDistribution: Record<string, number>;
       };
     })).toMatchObject({
       failures: [{
@@ -847,11 +848,12 @@ describe("artifact and workflow runtime", () => {
         }
       }],
       metrics: {
-        reason_code_distribution: {
+        reasonCodeDistribution: {
           token_required: 1
         }
       }
     });
+    expect((output.meta as { metrics: Record<string, unknown> }).metrics).not.toHaveProperty("reason_code_distribution");
   });
 
   it("filters search-index and asset rows out of shopping offers", async () => {

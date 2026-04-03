@@ -44,6 +44,14 @@ export const MATRIX_ENV_LIMITED_CODES = new Set([
   ...BASE_ENV_LIMITED_CODES,
   "timeout"
 ]);
+export const ENV_LIMITED_SHELL_ONLY_REASONS = new Set([
+  "challenge_shell",
+  "search_shell",
+  "social_render_shell",
+  "social_js_required_shell",
+  "social_first_party_help_shell",
+  "social_verification_wall"
+]);
 
 export const SOCIAL_POST_CASES = [
   { id: "provider.social.x.post", expression: '@social.post("x", "me", "ship realworld test", true, true)' },

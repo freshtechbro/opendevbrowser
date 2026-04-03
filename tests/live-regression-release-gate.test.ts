@@ -4,7 +4,10 @@ import {
   buildExtensionOpsLaunchArgs,
   evaluateRealWorldScenarioPack,
   hasDirtyRelayClients,
+  isAnnotationPendingCompletion,
   parseCliOptions,
+  resolveMacroFailureOutcome,
+  resolveRpcFailureOutcome,
   shouldStopDaemonAfterRun,
   shouldUseGlobalEnv,
   summarize
@@ -131,5 +134,57 @@ describe("live-regression release-gate options", () => {
       "--start-url",
       "https://example.com/?extension-legacy=matrix"
     ]);
+  });
+
+  it("downgrades shell-only macro challenge boundaries to env_limited", () => {
+    expect(resolveMacroFailureOutcome(
+      "Macro execution returned only shell records (challenge_shell)."
+    )).toEqual({
+      status: "env_limited",
+      detail: "shell_only_records=challenge_shell"
+    });
+    expect(resolveMacroFailureOutcome(
+      "Macro execution returned only shell records (social_js_required_shell)."
+    )).toEqual({
+      status: "env_limited",
+      detail: "shell_only_records=social_js_required_shell"
+    });
+    expect(resolveMacroFailureOutcome(
+      "CLI failed (macro-resolve --execute --expression @web.search(\"openai\", 3) --timeout-ms 120000): Macro execution returned only shell records (challenge_shell)."
+    )).toEqual({
+      status: "env_limited",
+      detail: "shell_only_records=challenge_shell"
+    });
+  });
+
+  it("keeps truncated fetch shell-only failures blocking", () => {
+    expect(resolveMacroFailureOutcome(
+      "Macro execution returned only shell records (truncated_fetch_shell)."
+    )).toEqual({
+      status: "fail",
+      detail: "shell_only_records=truncated_fetch_shell"
+    });
+  });
+
+  it("downgrades rpc macro shell-only boundaries to env_limited", () => {
+    expect(resolveRpcFailureOutcome(
+      "feature.rpc.macro_resolve_execute",
+      "CLI failed (rpc --unsafe-internal --name macro.resolve --params {\"expression\":\"@web.search(\\\"openai\\\", 3)\",\"execute\":true}): Macro execution returned only shell records (challenge_shell)."
+    )).toEqual({
+      status: "env_limited",
+      detail: "shell_only_records=challenge_shell"
+    });
+    expect(resolveRpcFailureOutcome(
+      "feature.rpc.relay_status",
+      "CLI failed (rpc --unsafe-internal --name relay.status): transport down"
+    )).toEqual({
+      status: "fail",
+      detail: "CLI failed (rpc --unsafe-internal --name relay.status): transport down"
+    });
+  });
+
+  it("recognizes annotate manual-completion waits as expected timeout state", () => {
+    expect(isAnnotationPendingCompletion("Annotation UI started and is waiting for manual completion.")).toBe(true);
+    expect(isAnnotationPendingCompletion("Timed out waiting for annotation completion.")).toBe(false);
   });
 });

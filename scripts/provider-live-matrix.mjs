@@ -25,6 +25,10 @@ import {
   normalizedCodesFromFailures,
   summarizeFailures
 } from './shared/workflow-lane-verdicts.mjs';
+import {
+  DEFAULT_YOUTUBE_TRANSCRIPT_MODE,
+  YOUTUBE_TRANSCRIPT_PROBE_STEP_ID
+} from './youtube-transcript-live-probe.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'dist', 'cli', 'index.js');
@@ -50,6 +54,10 @@ const EXTENSION_LAUNCH_RECOVERY_RETRIES = Math.max(
   1,
   Number.parseInt(process.env.PROVIDER_LIVE_EXTENSION_LAUNCH_RETRIES ?? '1', 10) || 1
 );
+export const NESTED_LIVE_REGRESSION_TIMEOUT_MS = Math.max(
+  900_000,
+  Number.parseInt(process.env.PROVIDER_LIVE_NESTED_LIVE_REGRESSION_TIMEOUT_MS ?? '1500000', 10) || 1_500_000
+);
 const EXTENSION_HEAVY_NAV_TARGETS = new Set([
   'youtube.search',
   'instagram.explore',
@@ -63,6 +71,26 @@ const BROWSER_REALWORLD_TARGETS = [
   { id: 'instagram.explore', url: 'https://www.instagram.com/explore/' },
   { id: 'facebook.search', url: 'https://www.facebook.com/search/top/?q=browser%20automation' },
   { id: 'linkedin.search', url: 'https://www.linkedin.com/search/results/content/?keywords=browser%20automation' }
+];
+export const WORKFLOW_RESEARCH_PROBE_ARGS = [
+  'research',
+  'run',
+  '--topic',
+  'browser automation production blockers',
+  '--source-selection',
+  'all',
+  '--mode',
+  'json',
+  '--limit-per-source',
+  '4',
+  '--timeout-ms',
+  '120000'
+];
+export const WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS = [
+  'scripts/youtube-transcript-live-probe.mjs',
+  '--quiet',
+  '--youtube-mode',
+  DEFAULT_YOUTUBE_TRANSCRIPT_MODE
 ];
 
 const ownedHeadlessMarkers = new Set();
@@ -1163,7 +1191,10 @@ async function main() {
           useGlobalEnv: options.useGlobalEnv,
           stopDaemon: false
         });
-        const mode = runNode(matrixArgs, liveMatrixEnv, { allowFailure: true, timeoutMs: 900000 });
+        const mode = runNode(matrixArgs, liveMatrixEnv, {
+          allowFailure: true,
+          timeoutMs: NESTED_LIVE_REGRESSION_TIMEOUT_MS
+        });
         const parsed = mode.json;
         const releaseGateFailure = options.strictGate && mode.status !== 0;
         const nonStrictStatus = mode.status === 0 ? 'pass' : ((parsed?.counts?.fail ?? 1) === 0 ? 'env_limited' : 'fail');
@@ -1506,7 +1537,7 @@ async function main() {
 
     if (options.runWorkflows) {
       try {
-        const research = runCli(env, ['research', 'run', '--topic', 'browser automation production blockers', '--source-selection', 'all', '--mode', 'json', '--limit-per-source', '4'], {
+        const research = runCli(env, WORKFLOW_RESEARCH_PROBE_ARGS, {
           allowFailure: true,
           timeoutMs: 240000
         });
@@ -1543,9 +1574,39 @@ async function main() {
       } catch (error) {
         pushStep({ id: 'workflow.product_video.amazon', status: 'fail', detail: String(error) });
       }
+
+      try {
+        const transcriptOut = runtime.tempRoot
+          ? path.join(runtime.tempRoot, 'youtube-transcript-live-probe.json')
+          : `/tmp/odb-youtube-transcript-live-probe-matrix-${Date.now()}.json`;
+        const transcript = runNode(
+          [...WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS, '--out', transcriptOut],
+          env,
+          { allowFailure: true, timeoutMs: 240000 }
+        );
+        const summary = transcript.json?.summary ?? null;
+        const status = typeof summary?.status === 'string'
+          ? summary.status
+          : 'fail';
+        const detail = typeof summary?.detail === 'string'
+          ? summary.detail
+          : (transcript.stderr || transcript.stdout || 'youtube_transcript_probe_failed');
+        pushStep({
+          id: YOUTUBE_TRANSCRIPT_PROBE_STEP_ID,
+          status,
+          detail,
+          data: {
+            artifactPath: transcript.json?.out ?? transcriptOut,
+            ...(summary?.data ?? {})
+          }
+        });
+      } catch (error) {
+        pushStep({ id: YOUTUBE_TRANSCRIPT_PROBE_STEP_ID, status: 'fail', detail: String(error) });
+      }
     } else {
       pushStep({ id: 'workflow.research.all_sources', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
       pushStep({ id: 'workflow.product_video.amazon', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
+      pushStep({ id: YOUTUBE_TRANSCRIPT_PROBE_STEP_ID, status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
     }
 
     if (options.strictGate) {
