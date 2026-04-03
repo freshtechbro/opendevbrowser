@@ -113,6 +113,45 @@ describe("live-regression-direct", () => {
     });
   });
 
+  it("waits through one transient daemon-status failure before classifying extension loss", async () => {
+    const statuses = [
+      {
+        status: 1,
+        json: null,
+        detail: "Daemon not running. Start with `opendevbrowser serve`."
+      },
+      {
+        status: 0,
+        json: {
+          data: {
+            relay: {
+              extensionHandshakeComplete: true
+            }
+          }
+        }
+      }
+    ];
+
+    const result = await waitForExtensionReconnect({
+      scenario: { id: "feature.annotate.relay", requiresExtension: true },
+      initialExtensionReady: true,
+      reconnectGraceMs: 5,
+      pollMs: 0,
+      statusReader: () => statuses.shift() ?? statuses.at(-1)
+    });
+
+    expect(result).toEqual({
+      status: 0,
+      json: {
+        data: {
+          relay: {
+            extensionHandshakeComplete: true
+          }
+        }
+      }
+    });
+  });
+
   it("parses trailing pretty-printed child JSON blocks", () => {
     const parsed = parseJsonFromStdout([
       "/tmp/example-artifact.json",

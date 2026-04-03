@@ -667,6 +667,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           mode: optionalRenderMode(params.mode) ?? "compact",
           includeEngagement: optionalBoolean(params.includeEngagement),
           limitPerSource: optionalNumber(params.limitPerSource, "limitPerSource"),
+          timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
           outputDir: optionalString(params.outputDir),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           useCookies: optionalBoolean(params.useCookies),

@@ -1069,6 +1069,32 @@ describe("daemon-commands integration", () => {
     );
   });
 
+  it("forwards research timeoutMs through the daemon router", async () => {
+    const core = makeCore();
+    const workflowSpy = vi.spyOn(workflowModule, "runResearchWorkflow").mockResolvedValue({
+      records: [],
+      meta: {}
+    });
+
+    await handleDaemonCommand(core, {
+      name: "research.run",
+      params: {
+        topic: "Timeout Research",
+        mode: "json",
+        timeoutMs: 45000
+      }
+    });
+
+    expect(workflowSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        topic: "Timeout Research",
+        mode: "json",
+        timeoutMs: 45000
+      })
+    );
+  });
+
   it("threads browserFallbackPort into daemon shopping workflows", async () => {
     const core = makeCore();
     const browserFallbackPort = { resolve: vi.fn() };

@@ -30,7 +30,7 @@ export async function waitForExtensionReconnect({
   const relay = currentDaemonStatus.json?.data?.relay ?? null;
   const extensionReady = relay?.extensionHandshakeComplete === true;
 
-  if (!scenario.requiresExtension || !initialExtensionReady || extensionReady || currentDaemonStatus.status !== 0) {
+  if (!scenario.requiresExtension || !initialExtensionReady || extensionReady) {
     return currentDaemonStatus;
   }
 
@@ -38,10 +38,10 @@ export async function waitForExtensionReconnect({
   while (Date.now() < deadline) {
     await sleep(pollMs);
     currentDaemonStatus = statusReader();
-    if (currentDaemonStatus.status !== 0) {
-      break;
-    }
-    if (currentDaemonStatus.json?.data?.relay?.extensionHandshakeComplete === true) {
+    if (
+      currentDaemonStatus.status === 0
+      && currentDaemonStatus.json?.data?.relay?.extensionHandshakeComplete === true
+    ) {
       break;
     }
   }

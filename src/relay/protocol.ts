@@ -197,6 +197,8 @@ export type OpsErrorResponse = {
 
 export type OpsEventType =
   | "ops_session_created"
+  | "ops_session_released"
+  | "ops_session_reclaimed"
   | "ops_session_closed"
   | "ops_session_expired"
   | "ops_tab_closed"

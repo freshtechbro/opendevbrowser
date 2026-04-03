@@ -472,7 +472,9 @@ export class OpsRuntime {
     this.cdp.markClientClosed();
     const sessions = this.sessions.listOwnedBy(clientId);
     for (const session of sessions) {
-      this.markSessionClosing(session, "ops_session_expired");
+      if (this.markSessionClosing(session, "ops_session_expired")) {
+        this.emitSessionEvent(session, "ops_session_released");
+      }
     }
   }
 
@@ -1107,13 +1109,7 @@ export class OpsRuntime {
 
     await this.enableSessionDomains(session);
 
-    this.sendEvent({
-      type: "ops_event",
-      clientId,
-      opsSessionId: session.id,
-      event: "ops_session_created",
-      payload: { tabId: session.tabId, targetId: session.targetId }
-    });
+    this.emitSessionEvent(session, "ops_session_created");
 
     this.sendResponse(message, {
       opsSessionId: session.id,
@@ -3800,13 +3796,7 @@ export class OpsRuntime {
     for (const target of session.targets.values()) {
       void this.cdp.detachTab(target.tabId).catch(() => undefined);
     }
-    this.sendEvent({
-      type: "ops_event",
-      clientId: session.ownerClientId,
-      opsSessionId: session.id,
-      event,
-      payload: { tabId: session.tabId, targetId: session.targetId }
-    });
+    this.emitSessionEvent(session, event);
   }
 
   private handleClosedTarget(tabId: number, event: OpsEvent["event"]): void {
@@ -3929,8 +3919,20 @@ export class OpsRuntime {
     this.sendEnvelope(event);
   }
 
-  private markSessionClosing(session: OpsSession, reason: OpsEvent["event"]): void {
-    if (session.state === "closing") return;
+  private emitSessionEvent(session: OpsSession, event: OpsEvent["event"]): void {
+    this.sendEvent({
+      type: "ops_event",
+      clientId: session.ownerClientId,
+      opsSessionId: session.id,
+      event,
+      payload: { tabId: session.tabId, targetId: session.targetId }
+    });
+  }
+
+  private markSessionClosing(session: OpsSession, reason: OpsEvent["event"]): boolean {
+    if (session.state === "closing") {
+      return false;
+    }
     session.state = "closing";
     session.closingReason = reason;
     session.expiresAt = Date.now() + SESSION_TTL_MS;
@@ -3942,14 +3944,19 @@ export class OpsRuntime {
       }
     }, SESSION_TTL_MS);
     this.closingTimers.set(session.id, timeoutId as unknown as number);
+    return true;
   }
 
   private reclaimSession(session: OpsSession, clientId: string): void {
+    const wasClosing = session.state === "closing";
     session.ownerClientId = clientId;
     session.state = "active";
     session.expiresAt = undefined;
     session.closingReason = undefined;
     this.clearClosingTimer(session.id);
+    if (wasClosing) {
+      this.emitSessionEvent(session, "ops_session_reclaimed");
+    }
   }
 
   private clearClosingTimer(sessionId: string): void {

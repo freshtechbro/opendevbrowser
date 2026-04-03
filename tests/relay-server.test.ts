@@ -1745,6 +1745,10 @@ describe("RelayServer", () => {
     const forwardedHello = await nextMessage(extension);
     expect(forwardedHello.type).toBe("ops_hello");
 
+    const statusResponse = await fetch(`http://127.0.0.1:${started.port}/status`);
+    const statusData = await statusResponse.json();
+    expect(statusData.opsConnected).toBe(false);
+
     const response = await nextMessageWithTimeout(ops, 3000);
     expect(response).toMatchObject({
       type: "ops_error",
@@ -2250,6 +2254,54 @@ describe("RelayServer", () => {
     extension.send(JSON.stringify({ id: 2, result: { sessionId: "s-attach" } }));
     const response = await nextMessage(cdp);
     expect(response.result).toEqual({ sessionId: "s-attach" });
+
+    cdp.close();
+    extension.close();
+  });
+
+  it("releases and restores cdp attach blocking across the ops reclaim lifecycle", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const cdp = await connect(`${started.url}/cdp`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 45 } }));
+    await waitForHandshakeAck(extension);
+
+    extension.send(JSON.stringify({
+      type: "ops_event",
+      event: "ops_session_created",
+      payload: { tabId: 777 }
+    }));
+
+    cdp.send(JSON.stringify({ id: 4, method: "Target.attachToTarget", params: { targetId: "tab-777" } }));
+    const blocked = await nextMessage(cdp);
+    expect(blocked.error).toEqual({ message: "cdp_attach_blocked: target is owned by an ops session" });
+
+    extension.send(JSON.stringify({
+      type: "ops_event",
+      event: "ops_session_released",
+      payload: { tabId: 777 }
+    }));
+
+    const forwardedPromise = nextMessage(extension);
+    cdp.send(JSON.stringify({ id: 5, method: "Target.attachToTarget", params: { targetId: "tab-777" } }));
+    const forwarded = await forwardedPromise;
+    expect(forwarded.method).toBe("forwardCDPCommand");
+    extension.send(JSON.stringify({ id: 5, result: { sessionId: "s-reclaimed" } }));
+    const releasedResponse = await nextMessage(cdp);
+    expect(releasedResponse.result).toEqual({ sessionId: "s-reclaimed" });
+
+    extension.send(JSON.stringify({
+      type: "ops_event",
+      event: "ops_session_reclaimed",
+      payload: { tabId: 777 }
+    }));
+
+    cdp.send(JSON.stringify({ id: 6, method: "Target.attachToTarget", params: { targetId: "tab-777" } }));
+    const reblocked = await nextMessage(cdp);
+    expect(reblocked.error).toEqual({ message: "cdp_attach_blocked: target is owned by an ops session" });
 
     cdp.close();
     extension.close();
@@ -4089,6 +4141,207 @@ describe("RelayServer", () => {
       const statusBody = JSON.parse(String(vi.mocked(response.end).mock.calls[0]?.[0] ?? "{}")) as Record<string, unknown>;
       expect(statusBody.running).toBe(false);
       expect(statusBody.port).toBeUndefined();
+      });
     });
+
+  it("expires stale handshake-rate-limit windows", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      handshakeAttempts: Map<string, { count: number; resetAt: number }>;
+      isHandshakeRateLimited: (ip: string, path: string) => boolean;
+    };
+
+    internal.handshakeAttempts.set("/ops:127.0.0.1", {
+      count: (RelayServer as unknown as { MAX_HANDSHAKE_ATTEMPTS: number }).MAX_HANDSHAKE_ATTEMPTS,
+      resetAt: Date.now() - 1
+    });
+
+    expect(internal.isHandshakeRateLimited("127.0.0.1", "/ops")).toBe(false);
+    expect(internal.handshakeAttempts.has("/ops:127.0.0.1")).toBe(false);
+  });
+
+  it("tracks ops hello acknowledgements only when a client id is present", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      pendingOpsHelloAcks: Map<string, ReturnType<typeof setTimeout>>;
+      readyOpsClients: Set<string>;
+      handleOpsExtensionMessage: (message: Record<string, unknown>) => void;
+    };
+
+    vi.useFakeTimers();
+    try {
+      internal.pendingOpsHelloAcks.set("ops-client", setTimeout(() => undefined, 1000));
+
+      internal.handleOpsExtensionMessage({
+        type: "ops_hello_ack",
+        clientId: "ops-client"
+      });
+
+      expect(internal.readyOpsClients.has("ops-client")).toBe(true);
+      expect(internal.pendingOpsHelloAcks.has("ops-client")).toBe(false);
+
+      internal.readyOpsClients.clear();
+      internal.handleOpsExtensionMessage({
+        type: "ops_hello_ack"
+      });
+
+      expect(internal.readyOpsClients.size).toBe(0);
+    } finally {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears ready ops state only for hello errors with a client id", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      pendingOpsHelloAcks: Map<string, ReturnType<typeof setTimeout>>;
+      readyOpsClients: Set<string>;
+      handleOpsExtensionMessage: (message: Record<string, unknown>) => void;
+      clearPendingOpsHelloAck: (clientId: string) => void;
+    };
+
+    vi.useFakeTimers();
+    try {
+      internal.pendingOpsHelloAcks.set("ops-client", setTimeout(() => undefined, 1000));
+      internal.readyOpsClients.add("ops-client");
+
+      internal.handleOpsExtensionMessage({
+        type: "ops_error",
+        requestId: "ops_hello",
+        clientId: "ops-client"
+      });
+
+      expect(internal.pendingOpsHelloAcks.has("ops-client")).toBe(false);
+      expect(internal.readyOpsClients.has("ops-client")).toBe(false);
+
+      internal.pendingOpsHelloAcks.set("ops-client", setTimeout(() => undefined, 1000));
+      internal.readyOpsClients.add("ops-client");
+
+      internal.handleOpsExtensionMessage({
+        type: "ops_error",
+        requestId: "ops_hello"
+      });
+
+      expect(internal.pendingOpsHelloAcks.has("ops-client")).toBe(true);
+      expect(internal.readyOpsClients.has("ops-client")).toBe(true);
+      internal.clearPendingOpsHelloAck("ops-client");
+    } finally {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not emit ops hello timeout side effects after the pending ack is cleared", () => {
+    server = new RelayServer();
+    const client = {
+      readyState: WebSocket.OPEN,
+      close: vi.fn(),
+      send: vi.fn()
+    } as unknown as WebSocket;
+    const internal = server as unknown as {
+      opsClients: Map<string, WebSocket>;
+      trackPendingOpsHelloAck: (clientId: string) => void;
+      clearPendingOpsHelloAck: (clientId: string) => void;
+      sendOpsError: (clientId: string, error: unknown, requestId?: string) => void;
+    };
+    const sendOpsError = vi.spyOn(internal, "sendOpsError").mockImplementation(() => undefined);
+
+    vi.useFakeTimers();
+    try {
+      internal.opsClients.set("ops-client", client);
+      internal.trackPendingOpsHelloAck("ops-client");
+      internal.clearPendingOpsHelloAck("ops-client");
+
+      vi.advanceTimersByTime((RelayServer as unknown as { OPS_HELLO_ACK_TIMEOUT_MS: number }).OPS_HELLO_ACK_TIMEOUT_MS);
+
+      expect(sendOpsError).not.toHaveBeenCalled();
+      expect(client.close).not.toHaveBeenCalled();
+    } finally {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("closes open ops clients when the hello acknowledgement times out", () => {
+    server = new RelayServer();
+    const client = {
+      readyState: WebSocket.OPEN,
+      close: vi.fn(),
+      send: vi.fn()
+    } as unknown as WebSocket;
+    const internal = server as unknown as {
+      opsClients: Map<string, WebSocket>;
+      readyOpsClients: Set<string>;
+      pendingOpsHelloAcks: Map<string, ReturnType<typeof setTimeout>>;
+      trackPendingOpsHelloAck: (clientId: string) => void;
+      sendOpsError: (clientId: string, error: unknown, requestId?: string) => void;
+    };
+    const sendOpsError = vi.spyOn(internal, "sendOpsError").mockImplementation(() => undefined);
+
+    vi.useFakeTimers();
+    try {
+      internal.opsClients.set("ops-client", client);
+      internal.readyOpsClients.add("ops-client");
+      internal.trackPendingOpsHelloAck("ops-client");
+
+      vi.advanceTimersByTime((RelayServer as unknown as { OPS_HELLO_ACK_TIMEOUT_MS: number }).OPS_HELLO_ACK_TIMEOUT_MS);
+
+      expect(sendOpsError).toHaveBeenCalledWith(
+        "ops-client",
+        expect.objectContaining({
+          code: "ops_unavailable",
+          details: { reason: "ops_hello_timeout" }
+        }),
+        "ops_hello"
+      );
+      expect(client.close).toHaveBeenCalledWith(1011, "ops_hello_timeout");
+      expect(internal.pendingOpsHelloAcks.has("ops-client")).toBe(false);
+      expect(internal.readyOpsClients.has("ops-client")).toBe(false);
+    } finally {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not close non-open ops clients when the hello acknowledgement times out", () => {
+    server = new RelayServer();
+    const client = {
+      readyState: WebSocket.CLOSING,
+      close: vi.fn(),
+      send: vi.fn()
+    } as unknown as WebSocket;
+    const internal = server as unknown as {
+      opsClients: Map<string, WebSocket>;
+      readyOpsClients: Set<string>;
+      pendingOpsHelloAcks: Map<string, ReturnType<typeof setTimeout>>;
+      trackPendingOpsHelloAck: (clientId: string) => void;
+      sendOpsError: (clientId: string, error: unknown, requestId?: string) => void;
+    };
+    const sendOpsError = vi.spyOn(internal, "sendOpsError").mockImplementation(() => undefined);
+
+    vi.useFakeTimers();
+    try {
+      internal.opsClients.set("ops-client", client);
+      internal.readyOpsClients.add("ops-client");
+      internal.trackPendingOpsHelloAck("ops-client");
+
+      vi.advanceTimersByTime((RelayServer as unknown as { OPS_HELLO_ACK_TIMEOUT_MS: number }).OPS_HELLO_ACK_TIMEOUT_MS);
+
+      expect(sendOpsError).toHaveBeenCalledWith(
+        "ops-client",
+        expect.objectContaining({
+          code: "ops_unavailable",
+          details: { reason: "ops_hello_timeout" }
+        }),
+        "ops_hello"
+      );
+      expect(client.close).not.toHaveBeenCalled();
+      expect(internal.pendingOpsHelloAcks.has("ops-client")).toBe(false);
+      expect(internal.readyOpsClients.has("ops-client")).toBe(false);
+    } finally {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
   });
 });

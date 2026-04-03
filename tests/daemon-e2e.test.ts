@@ -162,6 +162,96 @@ describe("daemon e2e", () => {
     expect(status?.ok).toBe(true);
   });
 
+  it("recovers daemon status when metadata points at the wrong pid and port", async () => {
+    daemonPort = await getAvailablePort();
+    const configDir = join(tempRoot, "config");
+    await mkdir(configDir, { recursive: true });
+    process.env.OPENCODE_CONFIG_DIR = configDir;
+    await writeFile(
+      join(configDir, "opendevbrowser.jsonc"),
+      JSON.stringify({ daemonPort, daemonToken: token, relayPort: 0, relayToken: false }),
+      "utf-8"
+    );
+
+    const { stop } = await startDaemon({
+      port: daemonPort,
+      token,
+      config: makeConfig({ daemonPort, daemonToken: token }),
+      directory: tempRoot,
+      worktree: null
+    });
+    daemonStop = stop;
+
+    let stalePort = await getAvailablePort();
+    if (stalePort === daemonPort) {
+      stalePort += 1;
+    }
+
+    const metadataPath = join(tempRoot, "opendevbrowser", "daemon.json");
+    await writeFile(metadataPath, JSON.stringify({
+      port: stalePort,
+      token: "stale-token",
+      pid: 999999,
+      relayPort: 0,
+      startedAt: new Date(0).toISOString()
+    }, null, 2), "utf-8");
+
+    const status = await fetchDaemonStatusFromMetadata();
+    expect(status?.ok).toBe(true);
+    expect(status?.pid).toBeTypeOf("number");
+
+    const refreshed = JSON.parse(await readFile(metadataPath, "utf-8")) as {
+      port: number;
+      token: string;
+      pid: number;
+    };
+    expect(refreshed.port).toBe(daemonPort);
+    expect(refreshed.token).toBe(token);
+    expect(refreshed.pid).toBe(status?.pid);
+  });
+
+  it("retries one transient daemon status miss before reporting disconnected", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      fetchSpy
+        .mockRejectedValueOnce(new Error("socket hang up"))
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          ok: true,
+          pid: 1234,
+          hub: { instanceId: "hub-1" },
+          relay: {
+            running: true,
+            url: "ws://127.0.0.1:8787",
+            port: 8787,
+            extensionConnected: false,
+            extensionHandshakeComplete: false,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: false,
+            pairingRequired: false,
+            instanceId: "relay-1",
+            epoch: 1,
+            health: { ok: true, reason: "ok" }
+          },
+          binding: null
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+
+      const status = await fetchDaemonStatusFromMetadata(
+        makeConfig({ daemonPort: 8788, daemonToken: token }),
+        { retryAttempts: 2, retryDelayMs: 0 }
+      );
+
+      expect(status?.ok).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("refreshes relay instance metadata after daemon restart", async () => {
     daemonPort = await getAvailablePort();
     const { stop } = await startDaemon({

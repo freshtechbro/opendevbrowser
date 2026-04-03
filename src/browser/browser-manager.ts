@@ -1188,16 +1188,40 @@ export class BrowserManager {
     meta?: BrowserResponseMeta;
   }> {
     if (!sessionOverride && targetId) {
-      return this.runTargetScoped(sessionId, targetId, async ({ managed, page }) => {
+      return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
         const startTime = Date.now();
         try {
-          if (managed.mode === "extension") {
-            await this.waitForExtensionTargetReady(page, "goto", Math.min(timeoutMs, 5000));
+          let activePage = page;
+          const attemptNavigation = async () => {
+            if (managed.mode === "extension") {
+              await this.waitForExtensionTargetReady(activePage, "goto", Math.min(timeoutMs, 5000));
+            }
+            return await this.navigatePage(activePage, url, waitUntil, timeoutMs, managed);
+          };
+
+          let navigation;
+          try {
+            navigation = await attemptNavigation();
+          } catch (error) {
+            if (!this.isLegacyClosedTargetError(managed, error)) {
+              throw error;
+            }
+            const recoveredPage = await this.recoverAndRebindLegacyTarget(
+              managed,
+              resolvedTargetId,
+              timeoutMs,
+              activePage
+            );
+            if (!recoveredPage) {
+              throw error;
+            }
+            activePage = recoveredPage;
+            navigation = await attemptNavigation();
           }
-          const navigation = await this.navigatePage(page, url, waitUntil, timeoutMs, managed);
-          const finalUrl = navigation.finalUrl ?? this.safePageUrl(page, "BrowserManager.goto");
+
+          const finalUrl = navigation.finalUrl ?? this.safePageUrl(activePage, "BrowserManager.goto");
           const status = navigation.response?.status();
-          const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.goto");
+          const title = await this.safeManagedPageTitle(managed, activePage, "BrowserManager.goto");
           const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
             source: "navigation",
             url,
@@ -1206,7 +1230,7 @@ export class BrowserManager {
             status,
             verifier: true
           });
-          const challengeMeta = await this.maybeOrchestrateChallenge(sessionId, targetId, blockerMeta);
+          const challengeMeta = await this.maybeOrchestrateChallenge(sessionId, resolvedTargetId, blockerMeta);
           return {
             finalUrl,
             ...(typeof status === "number" ? { status } : {}),
@@ -3694,6 +3718,63 @@ export class BrowserManager {
     }
   }
 
+  private async recoverAndRebindLegacyTarget(
+    managed: ManagedSession,
+    targetId: string,
+    timeoutMs: number,
+    failedPage?: Page
+  ): Promise<Page | null> {
+    const replacementPage = await this.recoverLegacyExtensionPage(
+      managed,
+      timeoutMs,
+      async () => {
+        const nextPage = await this.createExtensionPage(managed, "goto");
+        try {
+          await this.waitForExtensionTargetReady(nextPage, "goto", Math.min(timeoutMs, 5000));
+        } catch (error) {
+          if (
+            !this.isExtensionTargetReadyTimeout(error)
+            && !this.isLegacyClosedTargetError(managed, error)
+          ) {
+            throw error;
+          }
+        }
+        return nextPage;
+      },
+      failedPage
+    );
+    if (!replacementPage) {
+      return null;
+    }
+
+    let previousPage: Page | null = null;
+    try {
+      previousPage = managed.targets.getPage(targetId);
+    } catch {
+      previousPage = null;
+    }
+    if (previousPage && previousPage !== replacementPage) {
+      const cleanup = this.pageListeners.get(previousPage);
+      if (cleanup) {
+        cleanup();
+        this.pageListeners.delete(previousPage);
+      }
+    }
+
+    const replacementCleanup = this.pageListeners.get(replacementPage);
+    if (replacementCleanup) {
+      replacementCleanup();
+      this.pageListeners.delete(replacementPage);
+    }
+
+    managed.refStore.clearTarget(targetId);
+    managed.targets.replacePage(targetId, replacementPage);
+    managed.targets.setActiveTarget(targetId);
+    this.attachRefInvalidationForPage(managed, targetId, replacementPage);
+    this.attachTrackers(managed);
+    return replacementPage;
+  }
+
   private async recoverLegacyExtensionPage(
     managed: ManagedSession,
     timeoutMs: number,
@@ -3954,9 +4035,15 @@ export class BrowserManager {
     return message.includes("page.screenshot: Timeout");
   }
 
+  private isLegacyUnknownSessionError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("Unknown sessionId:");
+  }
+
   private isLegacyClosedTargetError(managed: ManagedSession, error: unknown): boolean {
     return managed.extensionLegacy && (
       this.isClosedTargetError(error)
+      || this.isLegacyUnknownSessionError(error)
       || this.isExtensionTargetReadyClosed(error)
     );
   }

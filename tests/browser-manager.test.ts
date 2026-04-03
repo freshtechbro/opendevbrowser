@@ -1826,6 +1826,55 @@ describe("BrowserManager", () => {
     expect(navigation).not.toHaveProperty("status");
   });
 
+  it("recovers target-scoped legacy navigation when the relay session id goes stale", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    const fallback = createPage(nodes);
+    fallback.setContext(context);
+    page.url.mockReturnValue("https://stale.example/");
+    fallback.page.url
+      .mockReturnValueOnce("https://fallback.example/")
+      .mockReturnValue("https://example.com/next");
+    context.pages().push(fallback.page as never);
+    page.goto.mockRejectedValueOnce(new Error("page.goto: Protocol error (Page.navigate): Unknown sessionId: pw-tab-35"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const navigation = await manager.goto(
+      result.sessionId,
+      "https://example.com/next",
+      "load",
+      30000,
+      undefined,
+      result.activeTargetId
+    );
+
+    expect(navigation.finalUrl).toBe("https://example.com/next");
+    expect(page.goto).toHaveBeenCalledTimes(1);
+    expect(fallback.page.goto).toHaveBeenCalledWith("https://example.com/next", {
+      waitUntil: "load",
+      timeout: 30000
+    });
+
+    await manager.screenshot(result.sessionId, undefined, result.activeTargetId);
+    expect(fallback.page.screenshot).toHaveBeenCalled();
+    expect(page.screenshot).not.toHaveBeenCalled();
+    const managed = (manager as unknown as { sessions: Map<string, { targets: { getPage: (targetId: string | null) => unknown } }> })
+      .sessions.get(result.sessionId);
+    expect(managed?.targets.getPage(result.activeTargetId)).toBe(fallback.page);
+  });
+
   it("skips legacy title probes for data-url navigation targets", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -2765,12 +2814,28 @@ describe("BrowserManager", () => {
     const helper = manager as unknown as {
       isTargetNotAllowedError: (error: unknown) => boolean;
       isExtensionTargetReadyTimeout: (error: unknown) => boolean;
+      isLegacyUnknownSessionError: (error: unknown) => boolean;
+      isLegacyClosedTargetError: (managed: { extensionLegacy: boolean }, error: unknown) => boolean;
     };
 
     expect(helper.isTargetNotAllowedError(new Error("Target.createTarget Not allowed"))).toBe(true);
     expect(helper.isTargetNotAllowedError(new Error("Other error"))).toBe(false);
     expect(helper.isExtensionTargetReadyTimeout(new Error("EXTENSION_TARGET_READY_TIMEOUT: goto exceeded 5000ms."))).toBe(true);
     expect(helper.isExtensionTargetReadyTimeout(new Error("boom"))).toBe(false);
+    expect(helper.isLegacyUnknownSessionError(new Error("Protocol error (Page.navigate): Unknown sessionId: pw-tab-35"))).toBe(true);
+    expect(helper.isLegacyUnknownSessionError(new Error("boom"))).toBe(false);
+    expect(
+      helper.isLegacyClosedTargetError(
+        { extensionLegacy: true },
+        new Error("Protocol error (Page.navigate): Unknown sessionId: pw-tab-35")
+      )
+    ).toBe(true);
+    expect(
+      helper.isLegacyClosedTargetError(
+        { extensionLegacy: false },
+        new Error("Protocol error (Page.navigate): Unknown sessionId: pw-tab-35")
+      )
+    ).toBe(false);
   });
 
   it("throws when extension navigation fails with non-detached errors", async () => {
@@ -6764,6 +6829,7 @@ describe("BrowserManager", () => {
       normalizeCookieListUrls: (urls?: string[]) => string[] | undefined;
       isTargetNotAllowedError: (error: unknown) => boolean;
       isExtensionTargetReadyTimeout: (error: unknown) => boolean;
+      isLegacyClosedTargetError: (managed: { extensionLegacy: boolean }, error: unknown) => boolean;
     };
 
     expect(managerAny.normalizeCookieListUrls(undefined)).toBeUndefined();
@@ -6780,6 +6846,8 @@ describe("BrowserManager", () => {
     expect(managerAny.isTargetNotAllowedError(new Error("something else"))).toBe(false);
     expect(managerAny.isExtensionTargetReadyTimeout("EXTENSION_TARGET_READY_TIMEOUT: nav")).toBe(true);
     expect(managerAny.isExtensionTargetReadyTimeout(new Error("different"))).toBe(false);
+    expect(managerAny.isLegacyClosedTargetError({ extensionLegacy: true }, new Error("Unknown sessionId: pw-tab-35"))).toBe(true);
+    expect(managerAny.isLegacyClosedTargetError({ extensionLegacy: false }, new Error("Unknown sessionId: pw-tab-35"))).toBe(false);
   });
 
   it("reuses cached governor snapshots and records verifier failures only for tracked sessions", async () => {

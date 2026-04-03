@@ -10,6 +10,50 @@ import { INSTALL_AUTOSTART_SKIP_ENV_VAR } from "./live-direct-utils.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(ROOT, "dist", "cli", "index.js");
+const DEFAULT_CLI_TIMEOUT_MS = 45_000;
+export const DAEMON_READY_TIMEOUT_MS = 30_000;
+export const DAEMON_POLL_INTERVAL_MS = 500;
+export const DAEMON_STATUS_TIMEOUT_MS = 15_000;
+const MAX_DAEMON_LOG_CHARS = 16_000;
+const CHILD_EXIT_WAIT_MS = 5_000;
+
+function parseOptions(argv) {
+  const options = { variant: "primary" };
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--variant") {
+      const value = argv[index + 1];
+      if (value !== "primary" && value !== "secondary") {
+        throw new Error("--variant requires primary or secondary.");
+      }
+      options.variant = value;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--variant=")) {
+      const value = arg.split("=", 2)[1];
+      if (value !== "primary" && value !== "secondary") {
+        throw new Error("--variant requires primary or secondary.");
+      }
+      options.variant = value;
+      continue;
+    }
+    if (arg === "--help") {
+      console.log([
+        "Usage: node scripts/cli-smoke-test.mjs [options]",
+        "",
+        "Options:",
+        "  --variant <primary|secondary>  Switch the synthetic page variant (default: primary)",
+        "  --help                         Show help"
+      ].join("\n"));
+      process.exit(0);
+    }
+    throw new Error(`Unknown option: ${arg}`);
+  }
+  return options;
+}
+
+export const parseArgs = parseOptions;
 
 function ensureCli() {
   if (!fs.existsSync(CLI)) {
@@ -32,26 +76,110 @@ function parseJsonFromStdout(stdout) {
 function runCli(args, options = {}) {
   const withFormat = args.some((arg) => arg.startsWith("--output-format"));
   const finalArgs = withFormat ? args : [...args, "--output-format", "json"];
+  if (process.env.ODB_CLI_SMOKE_TRACE === "1") {
+    console.error(`[cli-smoke] ${finalArgs.join(" ")}`);
+  }
   const result = spawnSync(process.execPath, [CLI, ...finalArgs], {
     env: options.env,
     input: options.input,
-    encoding: "utf-8"
+    encoding: "utf-8",
+    timeout: options.timeoutMs ?? DEFAULT_CLI_TIMEOUT_MS
   });
 
   const stdout = result.stdout ?? "";
   const stderr = result.stderr ?? "";
   const json = parseJsonFromStdout(stdout);
+  const timedOut = result.error?.code === "ETIMEDOUT";
 
-  if (!options.allowFailure && result.status !== 0) {
-    const details = json?.message || stderr || stdout;
+  if (!options.allowFailure && (result.status !== 0 || timedOut)) {
+    const details = timedOut
+      ? `Timed out after ${options.timeoutMs ?? DEFAULT_CLI_TIMEOUT_MS}ms`
+      : json?.message || stderr || stdout;
     throw new Error(`Command failed (${finalArgs.join(" ")}): ${details}`);
   }
 
-  return { status: result.status ?? 0, stdout, stderr, json };
+  return { status: timedOut ? 1 : (result.status ?? 0), stdout, stderr, json, timedOut };
 }
 
 async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function appendLogChunk(chunks, chunk) {
+  chunks.push(String(chunk));
+  const joined = chunks.join("");
+  if (joined.length <= MAX_DAEMON_LOG_CHARS) {
+    return;
+  }
+  chunks.length = 0;
+  chunks.push(joined.slice(-MAX_DAEMON_LOG_CHARS));
+}
+
+function tailLog(chunks) {
+  return chunks.join("").trim();
+}
+
+function formatDaemonFailure(baseMessage, child, stderrChunks, stdoutChunks, statusDetail) {
+  const details = [];
+  if (child.exitCode !== null || child.signalCode !== null) {
+    details.push(`exitCode=${child.exitCode ?? "null"}`);
+    if (child.signalCode !== null) {
+      details.push(`signal=${child.signalCode}`);
+    }
+  }
+  if (statusDetail) {
+    details.push(`status=${statusDetail}`);
+  }
+  const stderr = tailLog(stderrChunks);
+  if (stderr) {
+    details.push(`stderr=${stderr}`);
+  }
+  const stdout = tailLog(stdoutChunks);
+  if (stdout) {
+    details.push(`stdout=${stdout}`);
+  }
+  return details.length > 0 ? `${baseMessage} ${details.join(" | ")}` : baseMessage;
+}
+
+async function waitForChildExit(child, timeoutMs = CHILD_EXIT_WAIT_MS) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      finish();
+    });
+    child.once("close", () => {
+      clearTimeout(timer);
+      finish();
+    });
+  });
+}
+
+async function terminateChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  child.kill("SIGTERM");
+  await waitForChildExit(child);
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  child.kill("SIGKILL");
+  await waitForChildExit(child);
 }
 
 async function getFreePort() {
@@ -70,41 +198,79 @@ async function getFreePort() {
   });
 }
 
-async function startDaemon(env, port) {
+export async function startDaemon(env, port) {
+  const stdoutChunks = [];
+  const stderrChunks = [];
   const child = spawn(process.execPath, [CLI, "serve", "--port", String(port), "--output-format", "json"], {
+    cwd: ROOT,
     env,
     stdio: ["ignore", "pipe", "pipe"]
   });
+  child.stdout?.on("data", (chunk) => appendLogChunk(stdoutChunks, chunk));
+  child.stderr?.on("data", (chunk) => appendLogChunk(stderrChunks, chunk));
+  child.on("error", (error) => {
+    appendLogChunk(stderrChunks, error instanceof Error ? error.stack ?? error.message : String(error));
+  });
 
-  const timeoutMs = 15000;
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const status = runCli(["status", "--daemon"], { env, allowFailure: true });
-    if (status.json?.success) {
+  let lastStatusDetail = null;
+  const timeoutAt = Date.now() + DAEMON_READY_TIMEOUT_MS;
+  while (Date.now() < timeoutAt) {
+    const status = runCli(["status", "--daemon"], {
+      env,
+      allowFailure: true,
+      timeoutMs: DAEMON_STATUS_TIMEOUT_MS
+    });
+    if (status.status === 0 && status.json?.success) {
       return child;
     }
-    await sleep(250);
+    lastStatusDetail = status.timedOut
+      ? `status --daemon timed out after ${DAEMON_STATUS_TIMEOUT_MS}ms`
+      : (status.json?.message || status.stderr || status.stdout || null);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(formatDaemonFailure(
+        "Daemon exited before becoming ready.",
+        child,
+        stderrChunks,
+        stdoutChunks,
+        lastStatusDetail
+      ));
+    }
+    await sleep(DAEMON_POLL_INTERVAL_MS);
   }
 
-  child.kill("SIGTERM");
-  throw new Error("Daemon did not become ready in time.");
+  await terminateChild(child);
+  throw new Error(formatDaemonFailure(
+    "Daemon did not become ready in time.",
+    child,
+    stderrChunks,
+    stdoutChunks,
+    lastStatusDetail
+  ));
 }
 
-function buildDataUrl() {
+function buildDataUrl(variant) {
+  const heading = variant === "secondary" ? "Smoke Test Secondary" : "Smoke Test";
+  const buttonLabel = variant === "secondary" ? "Open overlay" : "Do thing";
   const html = `
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>OpenDevBrowser Smoke</title>
+    <title>OpenDevBrowser ${variant === "secondary" ? "Secondary " : ""}Smoke</title>
     <style>
       body { font-family: sans-serif; padding: 24px; }
       .spacer { height: 1200px; }
     </style>
+    <script>
+      window.__odbSmokeClicks = 0;
+      function handleAction() {
+        window.__odbSmokeClicks += 1;
+      }
+    </script>
   </head>
   <body>
-    <h1>Smoke Test</h1>
-    <button id="action">Do thing</button>
+    <h1>${heading}</h1>
+    <button id="action" onclick="handleAction()">${buttonLabel}</button>
     <label for="name">Name</label>
     <input id="name" type="text" aria-label="Name" />
     <label for="agree">Agree</label>
@@ -136,6 +302,7 @@ function extractRef(content, roleCandidates) {
 }
 
 async function main() {
+  const options = parseOptions(process.argv.slice(2));
   ensureCli();
 
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "opendevbrowser-cli-"));
@@ -181,7 +348,7 @@ async function main() {
   try {
     runCli(["status", "--daemon"], { env });
 
-    const dataUrl = buildDataUrl();
+    const dataUrl = buildDataUrl(options.variant);
     const launch = runCli([
       "launch",
       "--no-extension",
@@ -194,10 +361,10 @@ async function main() {
     if (!sessionId) {
       throw new Error("Missing sessionId from launch.");
     }
-
     runCli(["status", "--session-id", sessionId], { env });
     runCli(["goto", "--session-id", sessionId, "--url", dataUrl], { env });
     runCli(["wait", "--session-id", sessionId, "--until", "load"], { env });
+    runCli(["review", "--session-id", sessionId, "--max-chars", "2000", "--timeout-ms", "15000"], { env });
 
     const snapshot = runCli([
       "snapshot",
@@ -214,6 +381,11 @@ async function main() {
     const inputRef = extractRef(content, ["textbox", "searchbox", "textarea"]);
     const checkboxRef = extractRef(content, ["checkbox", "switch"]);
     const selectRef = extractRef(content, ["combobox", "listbox"]);
+
+    runCli(["pointer-move", "--session-id", sessionId, "--x", "32", "--y", "32", "--steps", "2"], { env });
+    runCli(["pointer-down", "--session-id", sessionId, "--x", "32", "--y", "32"], { env });
+    runCli(["pointer-up", "--session-id", sessionId, "--x", "32", "--y", "32"], { env });
+    runCli(["pointer-drag", "--session-id", sessionId, "--from-x", "32", "--from-y", "32", "--to-x", "96", "--to-y", "96", "--steps", "3"], { env });
 
     if (buttonRef) {
       runCli(["hover", "--session-id", sessionId, "--ref", buttonRef], { env });
@@ -250,6 +422,17 @@ async function main() {
       runCli(["dom-checked", "--session-id", sessionId, "--ref", checkboxRef], { env });
     }
 
+    const cookieFile = path.join(tempRoot, "cookies.json");
+    fs.writeFileSync(cookieFile, JSON.stringify([
+      {
+        name: "session",
+        value: options.variant === "secondary" ? "def456" : "abc123",
+        url: "https://example.com"
+      }
+    ], null, 2), "utf-8");
+    runCli(["cookie-import", "--session-id", sessionId, "--cookies-file", cookieFile, "--strict=false"], { env });
+    runCli(["cookie-list", "--session-id", sessionId, "--url", "https://example.com"], { env });
+
     runCli(["clone-page", "--session-id", sessionId], { env });
     runCli(["perf", "--session-id", sessionId], { env });
 
@@ -279,6 +462,7 @@ async function main() {
     fs.writeFileSync(runScriptPath, JSON.stringify(runScript, null, 2), "utf-8");
     const runProfile = `smoke-run-${Date.now()}`;
     runCli(["run", "--script", runScriptPath, "--headless", "--profile", runProfile], { env });
+    runCli(["artifacts", "cleanup", "--expired-only", "--output-dir", tempRoot], { env });
 
     runCli(["disconnect", "--session-id", sessionId, "--close-browser"], { env });
     sessionId = null;
@@ -292,7 +476,7 @@ async function main() {
     }
     runCli(["daemon", "uninstall"], { env, allowFailure: true });
     runCli(["serve", "--stop"], { env, allowFailure: true });
-    daemon.kill("SIGTERM");
+    await terminateChild(daemon);
   }
 
   runCli(["uninstall", "--global", "--no-prompt"], { env });
@@ -300,7 +484,9 @@ async function main() {
   console.log("CLI smoke test completed.");
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

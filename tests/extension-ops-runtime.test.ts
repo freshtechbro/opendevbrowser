@@ -272,6 +272,43 @@ describe("OpsRuntime target teardown", () => {
     expect(cdp.markClientClosed).toHaveBeenCalledTimes(1);
   });
 
+  it("releases ops ownership without deleting the session when a client disconnects", () => {
+    const sent: Array<{ type?: string; event?: string; opsSessionId?: string; clientId?: string }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      markClientClosed: vi.fn()
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; event?: string; opsSessionId?: string; clientId?: string }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+
+    runtime.handleMessage({
+      type: "ops_event",
+      clientId: "client-1",
+      event: "ops_client_disconnected",
+      payload: { at: Date.now() }
+    });
+
+    expect(sessions.get(session.id)).toBe(session);
+    expect(session.state).toBe("closing");
+    expect(cdp.markClientClosed).toHaveBeenCalledTimes(1);
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_event",
+          event: "ops_session_released",
+          opsSessionId: session.id,
+          clientId: "client-1"
+        })
+      ])
+    );
+  });
+
   it("tears down the full session when root tab is removed", () => {
     const sent: Array<{ type?: string; event?: string; opsSessionId?: string }> = [];
     const cdp = {
@@ -659,10 +696,11 @@ describe("OpsRuntime target teardown", () => {
     );
   });
 
-  it("reclaims an active session when the lease matches on a new ops client id", async () => {
+  it("reclaims a closing session when the lease matches on a new ops client id", async () => {
     const sent: Array<{ type?: string; requestId?: string; payload?: unknown }> = [];
     const cdp = {
-      detachTab: vi.fn(async () => undefined)
+      detachTab: vi.fn(async () => undefined),
+      markClientClosed: vi.fn()
     };
 
     const runtime = new OpsRuntime({
@@ -672,6 +710,13 @@ describe("OpsRuntime target teardown", () => {
 
     const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
     const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example", title: "Root" });
+    runtime.handleMessage({
+      type: "ops_event",
+      clientId: "client-1",
+      event: "ops_client_disconnected",
+      payload: { at: Date.now() }
+    });
+    sent.length = 0;
 
     runtime.handleMessage({
       type: "ops_request",
@@ -685,8 +730,15 @@ describe("OpsRuntime target teardown", () => {
     await flushMicrotasks();
 
     expect(session.ownerClientId).toBe("client-2");
+    expect(session.state).toBe("active");
     expect(sent).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_event",
+          event: "ops_session_reclaimed",
+          opsSessionId: session.id,
+          clientId: "client-2"
+        }),
         expect.objectContaining({
           type: "ops_response",
           requestId: "req-session-reclaim",

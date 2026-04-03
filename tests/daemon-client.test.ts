@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { DaemonClient } from "../src/cli/daemon-client";
+import { DaemonClient, __test__ as daemonClientTest } from "../src/cli/daemon-client";
 
 const writeDaemonMetadata = async (root: string): Promise<void> => {
   const cacheRoot = join(root, "opendevbrowser");
@@ -26,6 +26,7 @@ describe("daemon-client error parsing", () => {
     tempRoot = await mkdtemp(join(tmpdir(), "odb-daemon-client-"));
     previousCacheDir = process.env.OPENCODE_CACHE_DIR;
     process.env.OPENCODE_CACHE_DIR = tempRoot;
+    daemonClientTest.resetCachedClientState();
     await writeDaemonMetadata(tempRoot);
   });
 
@@ -89,6 +90,267 @@ describe("daemon-client error parsing", () => {
 
     expect(result).toEqual({ ok: true });
     expect(calls.map((entry) => entry.name)).toEqual(["some.command", "relay.bind", "some.command"]);
+  });
+
+  it("reuses a cached binding across daemon client instances without rebinding", async () => {
+    const calls: Array<{ name: string; params: Record<string, unknown> }> = [];
+
+    fetchSpy = vi.fn(async (_url, options) => {
+      const body = JSON.parse(String(options?.body ?? "{}")) as { name?: string; params?: Record<string, unknown> };
+      const name = body.name ?? "unknown";
+      const params = body.params ?? {};
+      calls.push({ name, params });
+
+      if (name === "relay.bind") {
+        return new Response(JSON.stringify({
+          ok: true,
+          data: {
+            bindingId: "bind-1",
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            renewAfterMs: 20_000
+          }
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "some.command" && !params.bindingId) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: "RELAY_BINDING_REQUIRED: Call relay.bind to acquire the relay binding."
+        }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "some.command" && params.bindingId === "bind-1") {
+        return new Response(JSON.stringify({ ok: true, data: { ok: true } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response("Unexpected request", { status: 500 });
+    });
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    const firstClient = new DaemonClient({ autoRenew: false });
+    await firstClient.call("some.command");
+
+    const secondClient = new DaemonClient({ autoRenew: false });
+    const result = await secondClient.call("some.command");
+
+    expect(result).toEqual({ ok: true });
+    expect(calls.map((entry) => entry.name)).toEqual([
+      "some.command",
+      "relay.bind",
+      "some.command",
+      "some.command"
+    ]);
+    expect(calls[3]?.params.bindingId).toBe("bind-1");
+  });
+
+  it("clears an invalid cached binding and rebinds before retrying", async () => {
+    const calls: Array<{ name: string; params: Record<string, unknown> }> = [];
+    let bindCount = 0;
+    let boundCommandCount = 0;
+
+    fetchSpy = vi.fn(async (_url, options) => {
+      const body = JSON.parse(String(options?.body ?? "{}")) as { name?: string; params?: Record<string, unknown> };
+      const name = body.name ?? "unknown";
+      const params = body.params ?? {};
+      calls.push({ name, params });
+
+      if (name === "relay.bind") {
+        bindCount += 1;
+        return new Response(JSON.stringify({
+          ok: true,
+          data: {
+            bindingId: `bind-${bindCount}`,
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            renewAfterMs: 20_000
+          }
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "some.command" && !params.bindingId) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: "RELAY_BINDING_REQUIRED: Call relay.bind to acquire the relay binding."
+        }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "some.command" && params.bindingId === "bind-1") {
+        boundCommandCount += 1;
+        if (boundCommandCount === 1) {
+          return new Response(JSON.stringify({ ok: true, data: { ok: true } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return new Response(JSON.stringify({
+          ok: false,
+          error: "RELAY_BINDING_INVALID: Binding does not match the current owner."
+        }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "some.command" && params.bindingId === "bind-2") {
+        return new Response(JSON.stringify({ ok: true, data: { ok: true } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response("Unexpected request", { status: 500 });
+    });
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    const firstClient = new DaemonClient({ autoRenew: false });
+    await firstClient.call("some.command");
+
+    const secondClient = new DaemonClient({ autoRenew: false });
+    const result = await secondClient.call("some.command");
+
+    expect(result).toEqual({ ok: true });
+    expect(calls.map((entry) => entry.name)).toEqual([
+      "some.command",
+      "relay.bind",
+      "some.command",
+      "some.command",
+      "relay.bind",
+      "some.command"
+    ]);
+    expect(calls[5]?.params.bindingId).toBe("bind-2");
+  });
+
+  it("does not release a binding that was only restored from cache", async () => {
+    const calls: Array<{ name: string; params: Record<string, unknown> }> = [];
+
+    fetchSpy = vi.fn(async (_url, options) => {
+      const body = JSON.parse(String(options?.body ?? "{}")) as { name?: string; params?: Record<string, unknown> };
+      const name = body.name ?? "unknown";
+      const params = body.params ?? {};
+      calls.push({ name, params });
+
+      if (name === "relay.bind") {
+        return new Response(JSON.stringify({
+          ok: true,
+          data: {
+            bindingId: "bind-1",
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            renewAfterMs: 20_000
+          }
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "some.command" && !params.bindingId) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: "RELAY_BINDING_REQUIRED: Call relay.bind to acquire the relay binding."
+        }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "some.command" && params.bindingId === "bind-1") {
+        return new Response(JSON.stringify({ ok: true, data: { ok: true } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (name === "relay.release") {
+        return new Response(JSON.stringify({ ok: true, data: { released: true } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response("Unexpected request", { status: 500 });
+    });
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    const firstClient = new DaemonClient({ autoRenew: false });
+    await firstClient.call("some.command");
+
+    const restoredClient = new DaemonClient({ autoRenew: false });
+    await restoredClient.releaseBinding();
+
+    const thirdClient = new DaemonClient({ autoRenew: false });
+    const result = await thirdClient.call("some.command");
+
+    expect(result).toEqual({ ok: true });
+    expect(calls.map((entry) => entry.name)).toEqual([
+      "some.command",
+      "relay.bind",
+      "some.command",
+      "some.command"
+    ]);
+  });
+
+  it("clears the cached binding when session.disconnect reports bindingReleased", async () => {
+    const calls: Array<{ name: string; params: Record<string, unknown> }> = [];
+    let bindCount = 0;
+
+    fetchSpy = vi.fn(async (_url, options) => {
+      const body = JSON.parse(String(options?.body ?? "{}")) as { name?: string; params?: Record<string, unknown> };
+      const name = body.name ?? "unknown";
+      const params = body.params ?? {};
+      calls.push({ name, params });
+
+      if (name === "relay.bind") {
+        bindCount += 1;
+        return new Response(JSON.stringify({
+          ok: true,
+          data: {
+            bindingId: `bind-${bindCount}`,
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            renewAfterMs: 20_000
+          }
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "some.command" && !params.bindingId) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: "RELAY_BINDING_REQUIRED: Call relay.bind to acquire the relay binding."
+        }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (name === "some.command" && typeof params.bindingId === "string") {
+        return new Response(JSON.stringify({ ok: true, data: { ok: true } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (name === "session.disconnect") {
+        return new Response(JSON.stringify({
+          ok: true,
+          data: { ok: true, bindingReleased: true }
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      return new Response("Unexpected request", { status: 500 });
+    });
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    const firstClient = new DaemonClient({ autoRenew: false });
+    await firstClient.call("some.command");
+    await firstClient.call("session.disconnect", { sessionId: "session-1" });
+
+    const secondClient = new DaemonClient({ autoRenew: false });
+    const result = await secondClient.call("some.command");
+
+    expect(result).toEqual({ ok: true });
+    expect(calls.map((entry) => entry.name)).toEqual([
+      "some.command",
+      "relay.bind",
+      "some.command",
+      "session.disconnect",
+      "some.command",
+      "relay.bind",
+      "some.command"
+    ]);
+    expect(calls[5]?.params.clientId).toBeTruthy();
   });
 
   it("retries without cached lease when daemon reports RELAY_LEASE_INVALID", async () => {

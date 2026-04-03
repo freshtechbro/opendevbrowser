@@ -1,5 +1,5 @@
 import type { ParsedArgs } from "../args";
-import { createUsageError, EXIT_DISCONNECTED } from "../errors";
+import { createUsageError } from "../errors";
 import { fetchDaemonStatusFromMetadata } from "../daemon-status";
 import { runSessionStatus } from "./session/status";
 import { assessNativeStatus, getNativeStatusSnapshot } from "./native";
@@ -8,6 +8,12 @@ type StatusArgs = {
   sessionId?: string;
   daemon: boolean;
 };
+
+const DAEMON_STATUS_READ_OPTIONS = {
+  timeoutMs: 5_000,
+  retryAttempts: 2,
+  retryDelayMs: 250
+} as const;
 
 const parseStatusArgs = (rawArgs: string[]): StatusArgs => {
   const parsed: StatusArgs = { daemon: false };
@@ -53,7 +59,7 @@ export async function runStatus(args: ParsedArgs) {
     };
   }
 
-  const daemonStatus = await fetchDaemonStatusFromMetadata();
+  const daemonStatus = await fetchDaemonStatusFromMetadata(undefined, DAEMON_STATUS_READ_OPTIONS);
   if (!daemonStatus) {
     throw createUsageError("Daemon not running. Start with `opendevbrowser serve`.");
   }
