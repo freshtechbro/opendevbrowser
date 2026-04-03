@@ -1568,7 +1568,8 @@ Provider runtime anti-bot/transcript controls default to an exhaustive YouTube f
 - Browser-assisted fallback requires `providers.transcript.enableBrowserFallback=true` and `providers.antiBotPolicy.allowBrowserEscalation=true`.
 
 Provider workflow and execution outputs now include normalized transcript/anti-bot telemetry:
-- Failure reason codes: `meta.metrics.reason_code_distribution` (legacy), `meta.metrics.reasonCodeDistribution` (camelCase alias), and `reasonCode` on provider failures.
+- Primary provider follow-up summary: `meta.primaryConstraintSummary`.
+- Failure reason codes: `meta.metrics.reasonCodeDistribution` for research/shopping, `meta.reasonCodeDistribution` for product-video, and `reasonCode` on provider failures.
 - Transcript fallback diagnostics: `meta.metrics.transcript_strategy_failures` (legacy) and `meta.metrics.transcriptStrategyFailures` (camelCase alias).
 - Strategy-detail diagnostics: `meta.metrics.transcript_strategy_detail_failures`/`meta.metrics.transcriptStrategyDetailFailures` and `meta.metrics.transcript_strategy_detail_distribution`/`meta.metrics.transcriptStrategyDetailDistribution`.
 - Durability/pressure dimensions: `meta.metrics.transcriptDurability` and `meta.metrics.antiBotPressure` (snake_case aliases are also emitted).

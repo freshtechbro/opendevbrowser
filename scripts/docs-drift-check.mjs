@@ -53,6 +53,15 @@ function parseDocCount(regex, source, label) {
   return Number.parseInt(match[1], 10);
 }
 
+function pushRequiredForbiddenTermsCheck(checks, { id, source, required, forbidden, detail }) {
+  checks.push({
+    id,
+    ok: required.every((term) => source.includes(term))
+      && forbidden.every((term) => !source.includes(term)),
+    detail
+  });
+}
+
 function extractCommandNamesFromDocSection(source, startHeading, endHeading, label) {
   const start = source.indexOf(startHeading);
   if (start < 0) {
@@ -305,6 +314,14 @@ export function runDocsDriftChecks() {
     detail: "docs/CLI.md must explain copied-versus-discoverable skill inventory."
   });
 
+  pushRequiredForbiddenTermsCheck(checks, {
+    id: "doc.cli.workflow_key_contract_documented",
+    source: cliDoc,
+    required: ["meta.primaryConstraintSummary", "meta.metrics.reasonCodeDistribution", "meta.reasonCodeDistribution"],
+    forbidden: ["primary_constraint_summary", "reason_code_distribution"],
+    detail: "docs/CLI.md must document camelCase workflow summary and reason-code distribution keys without the removed snake_case aliases."
+  });
+
   checks.push({
     id: "doc.architecture.canvas_history_event_documented",
     ok: architectureDoc.includes("canvas_history_requested")
@@ -342,6 +359,14 @@ export function runDocsDriftChecks() {
     detail: "docs/SURFACE_REFERENCE.md must document workflow challenge override flags, precedence, and surfaced stand-down metadata."
   });
 
+  pushRequiredForbiddenTermsCheck(checks, {
+    id: "doc.surface.workflow_key_contract_documented",
+    source: surfaceDoc,
+    required: ["meta.primaryConstraintSummary", "meta.metrics.reasonCodeDistribution", "meta.reasonCodeDistribution"],
+    forbidden: ["primary_constraint_summary", "reason_code_distribution"],
+    detail: "docs/SURFACE_REFERENCE.md must document the camelCase workflow summary and reason-code distribution keys without the removed snake_case aliases."
+  });
+
   checks.push({
     id: "doc.annotate.shared_inbox_delivery_documented",
     ok: annotateDoc.includes("annotation:sendPayload")
@@ -368,6 +393,14 @@ export function runDocsDriftChecks() {
       && troubleshootingDoc.includes("Chrome-family cookie bootstrap")
       && troubleshootingDoc.includes("skills/opendevbrowser-best-practices/SKILL.md"),
     detail: "docs/TROUBLESHOOTING.md must document history event wording, AgentInbox send fallback, cookie bootstrap, and the canonical direct-run policy pointer."
+  });
+
+  pushRequiredForbiddenTermsCheck(checks, {
+    id: "doc.troubleshooting.workflow_key_contract_documented",
+    source: troubleshootingDoc,
+    required: ["meta.primaryConstraintSummary", "meta.metrics.reasonCodeDistribution", "meta.reasonCodeDistribution"],
+    forbidden: ["primary_constraint_summary", "reason_code_distribution"],
+    detail: "docs/TROUBLESHOOTING.md must document camelCase workflow summary and reason-code distribution keys without the removed snake_case aliases."
   });
 
   checks.push({

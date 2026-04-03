@@ -485,6 +485,7 @@ Auth and policy:
 - Canvas wrapper flags: `canvas --command <canvas.*> --params|--params-file [--timeout-ms]`.
 - Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
 - Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
+- Workflow response keys: provider follow-up summaries use `meta.primaryConstraintSummary`; failure tallies use `meta.metrics.reasonCodeDistribution` for research/shopping and `meta.reasonCodeDistribution` for product-video.
 
 For complete argument and flag coverage by command, see `docs/CLI.md`.
 

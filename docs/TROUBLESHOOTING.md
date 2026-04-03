@@ -199,7 +199,7 @@ Provider workflows support cookie controls with defaults from `providers.cookieP
 
 Where to inspect:
 
-- Workflow outputs: `meta.metrics.reason_code_distribution`/`meta.metrics.reasonCodeDistribution` and `meta.metrics.transcript_strategy_failures`/`meta.metrics.transcriptStrategyFailures`.
+- Workflow outputs: `meta.primaryConstraintSummary`, `meta.metrics.reasonCodeDistribution` for research/shopping, `meta.reasonCodeDistribution` for product-video, and `meta.metrics.transcript_strategy_failures`/`meta.metrics.transcriptStrategyFailures`.
 - Strategy-detail workflow diagnostics: `meta.metrics.transcript_strategy_detail_failures`/`meta.metrics.transcriptStrategyDetailFailures` and `meta.metrics.transcript_strategy_detail_distribution`/`meta.metrics.transcriptStrategyDetailDistribution`.
 - Workflow health dimensions: `meta.metrics.transcriptDurability` (or `meta.metrics.transcript_durability`) and `meta.metrics.antiBotPressure` (or `meta.metrics.anti_bot_pressure`).
 - Provider failure entries: `error.reasonCode`.
