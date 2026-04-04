@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 
 import { parseArgs, detectOutputFormat } from "./args";
-import type { OutputFormat } from "./args";
+import type { InstallMode, OutputFormat, ParsedArgs } from "./args";
 import { getHelpText } from "./help";
 import onboardingMetadata from "./onboarding-metadata.json";
 import { registerCommand, getCommand } from "./commands/registry";
 import type { CommandResult } from "./commands/types";
 import { installGlobal } from "./installers/global";
 import { installLocal } from "./installers/local";
-import { installSkills } from "./installers/skills";
-import type { SkillInstallNotes } from "./installers/skills";
+import {
+  hasBundledSkillArtifacts,
+  removeBundledSkills,
+  syncBundledSkills
+} from "./installers/skills";
 import { runUpdate } from "./commands/update";
 import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
 import { runServe } from "./commands/serve";
@@ -80,16 +83,37 @@ import { runProductVideoCommand } from "./commands/product-video";
 import { extractExtension } from "../extension-extractor";
 import { setDefaultLogSink, stderrSink } from "../core/logging";
 import { flushOutputAndExit, writeOutput } from "./output";
-import type { InstallMode } from "./args";
 import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_USAGE } from "./errors";
 import type { CliError } from "./errors";
 import packageJson from "../../package.json";
 
 const VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.0.0";
 
-function emitSkillInstallNotes(notes: SkillInstallNotes, emit: (...values: unknown[]) => void): void {
-  emit(`Skill note: ${notes.aliasOnlyCompatibility}`);
-  emit(`Skill note: ${notes.shadowRiskSummary} ${notes.shadowRiskAction} (${notes.shadowRiskPath})`);
+function resolveUpdateSkillModes(args: ParsedArgs): InstallMode[] {
+  if (args.rawArgs.includes("--no-skills")) {
+    return [];
+  }
+  if (args.rawArgs.includes("--skills-global")) {
+    return ["global"];
+  }
+  if (args.rawArgs.includes("--skills-local")) {
+    return ["local"];
+  }
+  if (args.mode) {
+    return [args.mode];
+  }
+
+  const installed = findInstalledConfigs();
+  const modes: InstallMode[] = [];
+
+  if (installed.global || hasBundledSkillArtifacts("global")) {
+    modes.push("global");
+  }
+  if (installed.local || hasBundledSkillArtifacts("local")) {
+    modes.push("local");
+  }
+
+  return modes;
 }
 
 async function promptInstallMode(): Promise<InstallMode> {
@@ -254,16 +278,35 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "update",
-      description: "Clear cached plugin to trigger reinstall",
+      description: "Clear cached plugin and refresh managed skill packs",
       run: () => {
         const result = runUpdate();
-        return { success: result.success, message: result.message };
+        const skillModes = result.success ? resolveUpdateSkillModes(args) : [];
+        const skillResults = result.success ? skillModes.map((mode) => syncBundledSkills(mode)) : [];
+        const skillMessage = args.rawArgs.includes("--no-skills")
+          ? "Managed skill refresh skipped (--no-skills)."
+          : skillResults.length > 0
+            ? skillResults.map((entry) => entry.message).join("\n")
+            : result.success
+              ? "No managed skill packs required refresh."
+              : "";
+
+        const message = [result.message, skillMessage].filter(Boolean).join("\n");
+        return {
+          success: result.success && skillResults.every((entry) => entry.success),
+          message,
+          data: {
+            cacheCleared: result.cleared,
+            skillModes,
+            skills: skillResults
+          }
+        };
       }
     });
 
     registerCommand({
       name: "uninstall",
-      description: "Remove plugin from config",
+      description: "Remove plugin from config and clean managed skill packs",
       run: async () => {
         let mode = args.mode;
         if (!mode && !args.noPrompt) {
@@ -276,13 +319,26 @@ async function main(): Promise<void> {
           return { success: false, message: "Error: Please specify --global or --local for uninstall.", exitCode: EXIT_USAGE };
         }
         const result = runUninstall(mode);
-        return { success: result.success, message: result.message };
+        const skipSkills = args.rawArgs.includes("--no-skills");
+        const skillsResult = result.success && !skipSkills ? removeBundledSkills(mode) : undefined;
+        const skillMessage = skipSkills
+          ? "Managed skill cleanup skipped (--no-skills)."
+          : skillsResult?.message ?? "";
+
+        return {
+          success: result.success && (skillsResult?.success ?? true),
+          message: [result.message, skillMessage].filter(Boolean).join("\n"),
+          data: {
+            config: result,
+            skills: skillsResult
+          }
+        };
       }
     });
 
     registerCommand({
       name: "install",
-      description: "Install the plugin",
+      description: "Install the plugin and sync bundled skill packs",
       run: async () => {
         const log = (...values: unknown[]) => {
           if (args.quiet) return;
@@ -302,14 +358,17 @@ async function main(): Promise<void> {
           ? installGlobal(args.withConfig)
           : installLocal(args.withConfig);
         const autostart = result.success ? reconcileInstallAutostart(result) : undefined;
+        const skillsResult = result.success && args.skillsMode !== "none"
+          ? syncBundledSkills(args.skillsMode)
+          : undefined;
+        const installSuccess = result.success && (skillsResult?.success ?? true);
 
         if (args.outputFormat !== "text") {
           const payload: Record<string, unknown> = {
             alreadyInstalled: result.alreadyInstalled
           };
 
-          if (result.success && args.skillsMode !== "none") {
-            const skillsResult = installSkills(args.skillsMode);
+          if (skillsResult) {
             payload.skills = skillsResult;
           }
 
@@ -326,21 +385,18 @@ async function main(): Promise<void> {
             Object.assign(payload, createInstallAutostartOutputPayload(autostart));
           }
 
-          return { success: result.success, message: result.message, data: payload };
+          return { success: installSuccess, message: result.message, data: payload };
         }
 
         log(result.message);
 
         if (args.skillsMode === "none") {
           log("Skill installation skipped (--no-skills).");
-        } else if (result.success) {
-          const skillsResult = installSkills(args.skillsMode);
+        } else if (skillsResult) {
           if (skillsResult.success) {
             log(skillsResult.message);
-            emitSkillInstallNotes(skillsResult.notes, log);
           } else {
             warn(skillsResult.message);
-            emitSkillInstallNotes(skillsResult.notes, warn);
           }
         } else {
           warn("Skill installation skipped because plugin install failed.");
@@ -371,7 +427,7 @@ async function main(): Promise<void> {
           }
         }
 
-        if (result.success && !result.alreadyInstalled) {
+        if (installSuccess && !result.alreadyInstalled) {
           log("\nNext steps:");
           log("  1. Start or restart OpenCode");
           log(`  2. Read npx opendevbrowser --help and start with ${onboardingMetadata.quickStartCommands.promptingGuide}`);
@@ -379,7 +435,7 @@ async function main(): Promise<void> {
           log("  4. Use opendevbrowser_status to verify the plugin is loaded");
         }
 
-        return { success: result.success, message: result.message };
+        return { success: installSuccess, message: result.message };
       }
     });
 

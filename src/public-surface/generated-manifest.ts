@@ -12,12 +12,12 @@ import type {
   ToolSurfaceEntry
 } from "./source";
 
-export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-03" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-04T12:02:13.313Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-04T14:31:31.240Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
-  "schemaVersion": "2026-04-03",
-  "generatedAt": "2026-04-04T12:02:13.313Z",
+  "schemaVersion": "2026-04-04",
+  "generatedAt": "2026-04-04T14:31:31.240Z",
   "cli": {
     "groups": [
       {
@@ -1751,7 +1751,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "opendevbrowser_prompting_guide",
-        "description": "Start here for first-contact OpenDevBrowser guidance and the bundled best-practices quick start; refresh or remove stale ~/.codex/skills/opendevbrowser-best-practices copies when validating bundled behavior."
+        "description": "Start here for first-contact OpenDevBrowser guidance and the bundled best-practices quick start."
       },
       {
         "name": "opendevbrowser_console_poll",
@@ -1835,11 +1835,11 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "opendevbrowser_skill_list",
-        "description": "List bundled and discovered skill packs before choosing a local onboarding or workflow lane; research/ and shopping/ remain alias-only compatibility directories this cycle."
+        "description": "List bundled and discovered skill packs before choosing a local onboarding or workflow lane."
       },
       {
         "name": "opendevbrowser_skill_load",
-        "description": "Load a specific skill pack locally, especially the bundled best-practices quick start; stale ~/.codex/skills/opendevbrowser-best-practices copies can shadow the bundled pack."
+        "description": "Load a specific skill pack locally, especially the bundled best-practices quick start."
       }
     ],
     "cliToolPairs": [

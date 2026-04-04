@@ -20,7 +20,7 @@ const TRANSPORT_TIMEOUT_BUFFER_MS = 5_000;
 const MAX_DERIVED_TRANSPORT_TIMEOUT_MS = 300_000;
 const TRANSPORT_TIMEOUT_HINT_KEYS = ["timeoutMs", "waitTimeoutMs"] as const;
 const DAEMON_STATUS_RETRY_OPTIONS: DaemonStatusFetchOptions = {
-  retryAttempts: 2,
+  retryAttempts: 5,
   retryDelayMs: 250
 };
 

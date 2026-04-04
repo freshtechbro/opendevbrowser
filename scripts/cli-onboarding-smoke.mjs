@@ -28,10 +28,7 @@ export function assertOnboardingHelp(helpText, metadata = ONBOARDING_METADATA) {
     metadata.quickStartCommands.skillList,
     metadata.quickStartCommands.happyPath,
     metadata.referencePaths.onboardingDoc,
-    metadata.referencePaths.skillDoc,
-    metadata.skillDiscovery.aliasOnlyCycleNote,
-    metadata.skillDiscovery.shadowRiskPath,
-    metadata.skillDiscovery.shadowRiskSummary
+    metadata.referencePaths.skillDoc
   ];
 
   for (const term of requiredTerms) {
@@ -49,6 +46,25 @@ export function assertQuickStartGuide(guide, metadata = ONBOARDING_METADATA) {
   if (!normalized.includes(metadata.skillTopic)) {
     throw new Error(`Quick-start guide is missing topic ${metadata.skillTopic}.`);
   }
+}
+
+const sleep = async (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs));
+
+async function assertDaemonStatus(env, attempts = 5, delayMs = 250) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const status = runCli(["status", "--daemon"], { env, allowFailure: true });
+    if (status.status === 0 && status.json?.success) {
+      return;
+    }
+    lastError = status.json?.error || status.stderr || status.stdout || "Daemon not running.";
+    if (attempt < attempts - 1) {
+      await sleep(delayMs);
+    }
+  }
+
+  throw new Error(`Command failed (status --daemon --output-format json): ${lastError}`);
 }
 
 const ISOLATED_SKILL_ENV_KEYS = [
@@ -185,7 +201,7 @@ export async function runCliOnboardingSmoke() {
   const daemon = await startDaemon(env, daemonPort);
   let sessionId = null;
   try {
-    runCli(["status", "--daemon"], { env });
+    await assertDaemonStatus(env);
 
     const dataUrl = buildOnboardingDataUrl();
     const launch = runCli([
@@ -193,7 +209,8 @@ export async function runCliOnboardingSmoke() {
       "--no-extension",
       "--headless",
       "--start-url",
-      dataUrl
+      dataUrl,
+      "--no-interactive"
     ], { env });
     sessionId = launch.json?.data?.sessionId ?? null;
     if (!sessionId) {

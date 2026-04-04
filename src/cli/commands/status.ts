@@ -11,7 +11,7 @@ type StatusArgs = {
 
 const DAEMON_STATUS_READ_OPTIONS = {
   timeoutMs: 5_000,
-  retryAttempts: 2,
+  retryAttempts: 5,
   retryDelayMs: 250
 } as const;
 

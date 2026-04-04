@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import net from "net";
 import { randomUUID } from "crypto";
-import { spawn, spawnSync } from "child_process";
+import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 import { INSTALL_AUTOSTART_SKIP_ENV_VAR } from "./live-direct-utils.mjs";
 
@@ -16,6 +16,37 @@ export const DAEMON_POLL_INTERVAL_MS = 500;
 export const DAEMON_STATUS_TIMEOUT_MS = 15_000;
 const MAX_DAEMON_LOG_CHARS = 16_000;
 const CHILD_EXIT_WAIT_MS = 5_000;
+const DAEMON_LOG_DIR_PREFIX = "opendevbrowser-daemon-";
+const DAEMON_STDOUT_LOG = "daemon.stdout.log";
+const DAEMON_STDERR_LOG = "daemon.stderr.log";
+const DEFAULT_BACKGROUND_SHELL = process.env.SHELL || "/bin/sh";
+const BACKGROUND_NODE_COMMAND = "node";
+
+function isValidPid(value) {
+  return Number.isInteger(value) && value > 0;
+}
+
+function isProcessAlive(pid) {
+  if (!isValidPid(pid)) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readLogTail(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return "";
+  }
+  const content = fs.readFileSync(filePath, "utf-8").trim();
+  return content.length <= MAX_DAEMON_LOG_CHARS
+    ? content
+    : content.slice(-MAX_DAEMON_LOG_CHARS);
+}
 
 function parseOptions(argv) {
   const options = { variant: "primary" };
@@ -105,81 +136,56 @@ async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function appendLogChunk(chunks, chunk) {
-  chunks.push(String(chunk));
-  const joined = chunks.join("");
-  if (joined.length <= MAX_DAEMON_LOG_CHARS) {
-    return;
-  }
-  chunks.length = 0;
-  chunks.push(joined.slice(-MAX_DAEMON_LOG_CHARS));
-}
-
-function tailLog(chunks) {
-  return chunks.join("").trim();
-}
-
-function formatDaemonFailure(baseMessage, child, stderrChunks, stdoutChunks, statusDetail) {
+function formatDaemonFailure(baseMessage, handle, statusDetail) {
   const details = [];
-  if (child.exitCode !== null || child.signalCode !== null) {
-    details.push(`exitCode=${child.exitCode ?? "null"}`);
-    if (child.signalCode !== null) {
-      details.push(`signal=${child.signalCode}`);
-    }
-  }
+  details.push(`pid=${handle.pid}`);
+  details.push(`alive=${isProcessAlive(handle.pid)}`);
   if (statusDetail) {
     details.push(`status=${statusDetail}`);
   }
-  const stderr = tailLog(stderrChunks);
+  const stderr = readLogTail(handle.stderrPath);
   if (stderr) {
     details.push(`stderr=${stderr}`);
   }
-  const stdout = tailLog(stdoutChunks);
+  const stdout = readLogTail(handle.stdoutPath);
   if (stdout) {
     details.push(`stdout=${stdout}`);
   }
   return details.length > 0 ? `${baseMessage} ${details.join(" | ")}` : baseMessage;
 }
 
-async function waitForChildExit(child, timeoutMs = CHILD_EXIT_WAIT_MS) {
-  if (child.exitCode !== null || child.signalCode !== null) {
+async function waitForProcessExit(pid, timeoutMs = CHILD_EXIT_WAIT_MS) {
+  if (!isProcessAlive(pid)) {
     return;
   }
-
-  await new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve();
-    };
-    const timer = setTimeout(finish, timeoutMs);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      finish();
-    });
-    child.once("close", () => {
-      clearTimeout(timer);
-      finish();
-    });
-  });
+  const timeoutAt = Date.now() + timeoutMs;
+  while (Date.now() < timeoutAt) {
+    if (!isProcessAlive(pid)) {
+      return;
+    }
+    await sleep(100);
+  }
 }
 
-export async function terminateChild(child) {
-  if (child.exitCode !== null || child.signalCode !== null) {
+export async function terminateChild(handle) {
+  if (!handle || !isValidPid(handle.pid) || !isProcessAlive(handle.pid)) {
     return;
   }
-
-  child.kill("SIGTERM");
-  await waitForChildExit(child);
-  if (child.exitCode !== null || child.signalCode !== null) {
+  try {
+    process.kill(handle.pid, "SIGTERM");
+  } catch {
     return;
   }
-
-  child.kill("SIGKILL");
-  await waitForChildExit(child);
+  await waitForProcessExit(handle.pid);
+  if (!isProcessAlive(handle.pid)) {
+    return;
+  }
+  try {
+    process.kill(handle.pid, "SIGKILL");
+  } catch {
+    return;
+  }
+  await waitForProcessExit(handle.pid);
 }
 
 export async function getFreePort() {
@@ -199,18 +205,42 @@ export async function getFreePort() {
 }
 
 export async function startDaemon(env, port) {
-  const stdoutChunks = [];
-  const stderrChunks = [];
-  const child = spawn(process.execPath, [CLI, "serve", "--port", String(port), "--output-format", "json"], {
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), DAEMON_LOG_DIR_PREFIX));
+  const stdoutPath = path.join(logDir, DAEMON_STDOUT_LOG);
+  const stderrPath = path.join(logDir, DAEMON_STDERR_LOG);
+  const command = [
+    BACKGROUND_NODE_COMMAND,
+    JSON.stringify(CLI),
+    "serve",
+    "--port",
+    String(port),
+    "--output-format",
+    "json",
+    ">",
+    JSON.stringify(stdoutPath),
+    "2>",
+    JSON.stringify(stderrPath),
+    "&",
+    "echo $!"
+  ].join(" ");
+  const launcher = spawnSync(DEFAULT_BACKGROUND_SHELL, ["-lc", command], {
     cwd: ROOT,
     env,
-    stdio: ["ignore", "pipe", "pipe"]
+    encoding: "utf-8"
   });
-  child.stdout?.on("data", (chunk) => appendLogChunk(stdoutChunks, chunk));
-  child.stderr?.on("data", (chunk) => appendLogChunk(stderrChunks, chunk));
-  child.on("error", (error) => {
-    appendLogChunk(stderrChunks, error instanceof Error ? error.stack ?? error.message : String(error));
-  });
+  if (launcher.error) {
+    throw launcher.error;
+  }
+  if ((launcher.status ?? 1) !== 0) {
+    const detail = launcher.stderr?.trim() || launcher.stdout?.trim() || "unknown launcher failure";
+    throw new Error(`Failed to start background daemon: ${detail}`);
+  }
+  const pid = Number.parseInt(String(launcher.stdout ?? "").trim(), 10);
+  if (!isValidPid(pid)) {
+    const detail = launcher.stdout?.trim() || launcher.stderr?.trim() || "missing daemon pid";
+    throw new Error(`Failed to capture background daemon pid: ${detail}`);
+  }
+  const handle = { pid, stdoutPath, stderrPath };
 
   let lastStatusDetail = null;
   const timeoutAt = Date.now() + DAEMON_READY_TIMEOUT_MS;
@@ -221,29 +251,25 @@ export async function startDaemon(env, port) {
       timeoutMs: DAEMON_STATUS_TIMEOUT_MS
     });
     if (status.status === 0 && status.json?.success) {
-      return child;
+      return handle;
     }
     lastStatusDetail = status.timedOut
       ? `status --daemon timed out after ${DAEMON_STATUS_TIMEOUT_MS}ms`
       : (status.json?.message || status.stderr || status.stdout || null);
-    if (child.exitCode !== null || child.signalCode !== null) {
+    if (!isProcessAlive(handle.pid)) {
       throw new Error(formatDaemonFailure(
         "Daemon exited before becoming ready.",
-        child,
-        stderrChunks,
-        stdoutChunks,
+        handle,
         lastStatusDetail
       ));
     }
     await sleep(DAEMON_POLL_INTERVAL_MS);
   }
 
-  await terminateChild(child);
+  await terminateChild(handle);
   throw new Error(formatDaemonFailure(
     "Daemon did not become ready in time.",
-    child,
-    stderrChunks,
-    stdoutChunks,
+    handle,
     lastStatusDetail
   ));
 }

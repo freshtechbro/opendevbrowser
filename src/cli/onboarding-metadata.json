@@ -18,11 +18,5 @@
   "referencePaths": {
     "onboardingDoc": "docs/FIRST_RUN_ONBOARDING.md",
     "skillDoc": "skills/opendevbrowser-best-practices/SKILL.md"
-  },
-  "skillDiscovery": {
-    "aliasOnlyCycleNote": "`research/` and `shopping/` remain packaged alias-only compatibility directories for one more cycle and stay non-discoverable until a verified migration lands.",
-    "shadowRiskPath": "~/.codex/skills/opendevbrowser-best-practices",
-    "shadowRiskSummary": "A stale global Codex copy can shadow the bundled quick-start copy during ordinary skill discovery.",
-    "shadowRiskAction": "Refresh or remove that global copy when validating bundled behavior."
   }
 }

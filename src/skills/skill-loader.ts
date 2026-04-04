@@ -3,7 +3,7 @@ import { join } from "path";
 import * as os from "os";
 import type { SkillInfo, SkillMetadata } from "./types";
 import { findBundledSkillsDir } from "../utils/package-assets";
-import { isBundledSkillDiscoverable } from "./bundled-skill-directories";
+import { isBundledSkillName } from "./bundled-skill-directories";
 
 export class SkillLoader {
   private rootDir: string;
@@ -110,7 +110,7 @@ export class SkillLoader {
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         if (bundledPath) {
-          if (!isBundledSkillDiscoverable(entry.name)) {
+          if (!isBundledSkillName(entry.name)) {
             continue;
           }
         }

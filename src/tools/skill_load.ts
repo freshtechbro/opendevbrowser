@@ -8,7 +8,7 @@ const z = tool.schema;
 
 export function createSkillLoadTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: `Load a local skill directly; start with ${onboardingMetadata.skillName} ${onboardingMetadata.skillTopic} before low-level browser commands, and refresh ${onboardingMetadata.skillDiscovery.shadowRiskPath} if it is stale.`,
+    description: `Load a local skill directly; start with ${onboardingMetadata.skillName} ${onboardingMetadata.skillTopic} before low-level browser commands.`,
     args: {
       name: z.string().describe("Name of the skill to load (e.g., 'opendevbrowser-login-automation', 'opendevbrowser-form-testing')"),
       topic: z.string().optional().describe("Optional topic to filter the skill content")

@@ -306,19 +306,19 @@ export function runDocsDriftChecks() {
 
   checks.push({
     id: "doc.readme.skill_inventory_split_documented",
-    ok: publicReadme.includes("copy all 11 bundled directories")
-      && publicReadme.includes("9 canonical `opendevbrowser-*` packs")
-      && publicReadme.includes("`research/` and `shopping/`")
-      && publicReadme.includes("one more cycle")
-      && publicReadme.includes("Only directories with `SKILL.md` are discoverable at runtime"),
-    detail: "README.md must explain copied-versus-discoverable skill inventory."
+    ok: publicReadme.includes("9 OpenDevBrowser-specific skill packs")
+      && publicReadme.includes("sync the 9 canonical `opendevbrowser-*` packs")
+      && publicReadme.includes("Reinstall and update refresh drifted managed copies")
+      && publicReadme.includes("Uninstall removes managed canonical packs"),
+    detail: "README.md must document the canonical skill-pack lifecycle."
   });
 
   checks.push({
     id: "doc.readme.skill_shadow_risk_documented",
-    ok: publicReadme.includes(onboardingMetadata.skillDiscovery.shadowRiskPath)
-      && publicReadme.includes("shadow the bundled"),
-    detail: "README.md must document the stale global Codex quick-start shadow risk."
+    ok: !publicReadme.includes("copy all 11 bundled directories")
+      && !publicReadme.includes("shadow the bundled")
+      && !publicReadme.includes("one more cycle"),
+    detail: "README.md must not document the retired alias-only or stale-shadow contract."
   });
 
   checks.push({
@@ -341,26 +341,26 @@ export function runDocsDriftChecks() {
 
   checks.push({
     id: "doc.cli.skill_inventory_split_documented",
-    ok: cliDoc.includes("copy all 11 bundled directories")
-      && cliDoc.includes("9 canonical `opendevbrowser-*` packs")
-      && cliDoc.includes("`research/` and `shopping/`")
-      && cliDoc.includes("one more cycle")
-      && cliDoc.includes("Only directories with `SKILL.md` are discoverable at runtime"),
-    detail: "docs/CLI.md must explain copied-versus-discoverable skill inventory."
+    ok: cliDoc.includes("sync the 9 canonical `opendevbrowser-*` packs")
+      && cliDoc.includes("Reinstall and update refresh drifted managed copies")
+      && cliDoc.includes("Uninstall removes managed canonical packs"),
+    detail: "docs/CLI.md must document the canonical skill-pack lifecycle."
   });
 
   checks.push({
     id: "doc.cli.skill_shadow_risk_documented",
-    ok: cliDoc.includes(onboardingMetadata.skillDiscovery.shadowRiskPath)
-      && cliDoc.includes("shadow the bundled"),
-    detail: "docs/CLI.md must document the stale global Codex quick-start shadow risk."
+    ok: !cliDoc.includes("copy all 11 bundled directories")
+      && !cliDoc.includes("shadow the bundled")
+      && !cliDoc.includes("one more cycle"),
+    detail: "docs/CLI.md must not document the retired alias-only or stale-shadow contract."
   });
 
   checks.push({
     id: "doc.onboarding.skill_shadow_risk_documented",
-    ok: onboardingDoc.includes(onboardingMetadata.skillDiscovery.shadowRiskPath)
-      && onboardingDoc.includes("shadow"),
-    detail: "docs/FIRST_RUN_ONBOARDING.md must explain why onboarding proof isolates stale global Codex skill copies."
+    ok: !onboardingDoc.includes("shadow")
+      && !onboardingDoc.includes("one more cycle")
+      && onboardingDoc.includes("managed-skill lifecycle proof"),
+    detail: "docs/FIRST_RUN_ONBOARDING.md must drop the retired alias/shadow proof story and document isolated lifecycle proof."
   });
 
   checks.push({

@@ -1,123 +1,313 @@
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import onboardingMetadata from "../onboarding-metadata.json";
 import { ensureDir } from "../utils/config";
-import { getBundledSkillsDir, getGlobalSkillTargets, getLocalSkillTargets } from "../utils/skills";
+import { getBundledSkillsDir, getGlobalSkillTargets, getLocalSkillTargets, type SkillTarget } from "../utils/skills";
 import { listBundledSkillDirectories } from "../../skills/bundled-skill-directories";
 
 export type SkillInstallMode = "global" | "local";
 
-export interface SkillTargetInstallResult {
+type SyncOutcome = "installed" | "refreshed" | "unchanged";
+type LegacyAliasName = "research" | "shopping";
+export type LegacyAliasPreservationReason = "contains_skill_md" | "non_empty" | "unknown_layout";
+
+export interface PreservedLegacyAlias {
+  targetDir: string;
+  name: LegacyAliasName;
+  reason: LegacyAliasPreservationReason;
+}
+
+export interface SkillTargetSyncResult {
   agents: string[];
   targetDir: string;
   installed: string[];
-  skipped: string[];
-  discoverableInstalled: string[];
-  aliasOnlyInstalled: string[];
-  discoverableSkipped: string[];
-  aliasOnlySkipped: string[];
+  refreshed: string[];
+  unchanged: string[];
+  removedLegacyAliases: string[];
+  preservedLegacyAliases: PreservedLegacyAlias[];
   success: boolean;
   error?: string;
 }
 
-export interface SkillInstallResult {
+export interface SkillSyncResult {
   success: boolean;
   message: string;
   mode: SkillInstallMode;
-  targets: SkillTargetInstallResult[];
+  targets: SkillTargetSyncResult[];
   installed: string[];
-  skipped: string[];
-  discoverableInstalled: string[];
-  aliasOnlyInstalled: string[];
-  discoverableSkipped: string[];
-  aliasOnlySkipped: string[];
-  notes: SkillInstallNotes;
+  refreshed: string[];
+  unchanged: string[];
+  removedLegacyAliases: string[];
+  preservedLegacyAliases: PreservedLegacyAlias[];
 }
 
-type SkillInstallClassification = "discoverable" | "aliasOnly";
-
-export interface SkillInstallNotes {
-  aliasOnlyCompatibility: string;
-  shadowRiskPath: string;
-  shadowRiskSummary: string;
-  shadowRiskAction: string;
+export interface SkillTargetRemovalResult {
+  agents: string[];
+  targetDir: string;
+  removed: string[];
+  missing: string[];
+  removedLegacyAliases: string[];
+  preservedLegacyAliases: PreservedLegacyAlias[];
+  success: boolean;
+  error?: string;
 }
 
-const SKILL_INSTALL_NOTES: SkillInstallNotes = {
-  aliasOnlyCompatibility: onboardingMetadata.skillDiscovery.aliasOnlyCycleNote,
-  shadowRiskPath: onboardingMetadata.skillDiscovery.shadowRiskPath,
-  shadowRiskSummary: onboardingMetadata.skillDiscovery.shadowRiskSummary,
-  shadowRiskAction: onboardingMetadata.skillDiscovery.shadowRiskAction
+export interface SkillRemovalResult {
+  success: boolean;
+  message: string;
+  mode: SkillInstallMode;
+  targets: SkillTargetRemovalResult[];
+  removed: string[];
+  missing: string[];
+  removedLegacyAliases: string[];
+  preservedLegacyAliases: PreservedLegacyAlias[];
+}
+
+type LegacyAliasCleanupResult = {
+  removed: string[];
+  preserved: PreservedLegacyAlias[];
 };
 
-function formatClassificationBreakdown(discoverableCount: number, aliasOnlyCount: number): string {
-  const parts: string[] = [];
-  if (discoverableCount > 0) {
-    parts.push(`${discoverableCount} discoverable`);
-  }
-  if (aliasOnlyCount > 0) {
-    parts.push(`${aliasOnlyCount} alias-only`);
-  }
-  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+const LEGACY_ALIAS_DIRS = [
+  { name: "research", canonical: "opendevbrowser-research" },
+  { name: "shopping", canonical: "opendevbrowser-shopping" }
+] as const;
+
+function getTargets(mode: SkillInstallMode): SkillTarget[] {
+  return mode === "global" ? getGlobalSkillTargets() : getLocalSkillTargets();
 }
 
-export function installSkills(mode: SkillInstallMode): SkillInstallResult {
-  const targets = mode === "global" ? getGlobalSkillTargets() : getLocalSkillTargets();
-  const targetResults: SkillTargetInstallResult[] = [];
+function getCanonicalBundledSkillNames(): string[] {
+  return listBundledSkillDirectories().map((entry) => entry.name);
+}
+
+function hasCanonicalBundledSkillInTarget(targetDir: string, packNames: readonly string[]): boolean {
+  return packNames.some((packName) => fs.existsSync(path.join(targetDir, packName)));
+}
+
+function formatSummary(parts: string[], totalTargets: number, failures: number): string {
+  const summary = parts.length > 0 ? parts.join(", ") : "no lifecycle changes";
+  const failureSummary = failures > 0 ? `, ${failures} failed` : "";
+  return `${summary} across ${totalTargets} targets${failureSummary}`;
+}
+
+function hashDirectoryTree(dirPath: string): string {
+  const hash = crypto.createHash("sha256");
+
+  const visit = (currentPath: string, relativePath: string): void => {
+    const entries = fs.readdirSync(currentPath, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      const absolutePath = path.join(currentPath, entry.name);
+      const entryRelativePath = relativePath
+        ? path.posix.join(relativePath, entry.name)
+        : entry.name;
+
+      if (entry.isDirectory()) {
+        hash.update(`D:${entryRelativePath}\0`);
+        visit(absolutePath, entryRelativePath);
+        continue;
+      }
+
+      if (entry.isFile()) {
+        hash.update(`F:${entryRelativePath}\0`);
+        hash.update(fs.readFileSync(absolutePath));
+        hash.update("\0");
+        continue;
+      }
+
+      if (entry.isSymbolicLink()) {
+        hash.update(`L:${entryRelativePath}\0${fs.readlinkSync(absolutePath)}\0`);
+      }
+    }
+  };
+
+  visit(dirPath, "");
+  return hash.digest("hex");
+}
+
+function syncSkillDirectory(sourcePath: string, targetPath: string, sourceFingerprint: string): SyncOutcome {
+  if (!fs.existsSync(targetPath)) {
+    fs.cpSync(sourcePath, targetPath, { recursive: true });
+    return "installed";
+  }
+
+  const targetFingerprint = hashDirectoryTree(targetPath);
+  if (targetFingerprint === sourceFingerprint) {
+    return "unchanged";
+  }
+
+  const parentDir = path.dirname(targetPath);
+  const targetName = path.basename(targetPath);
+  const stagingRoot = fs.mkdtempSync(path.join(parentDir, `.${targetName}-sync-`));
+  const stagedPath = path.join(stagingRoot, targetName);
+  const backupPath = path.join(stagingRoot, `${targetName}-backup`);
+
+  try {
+    fs.cpSync(sourcePath, stagedPath, { recursive: true });
+    fs.renameSync(targetPath, backupPath);
+    try {
+      fs.renameSync(stagedPath, targetPath);
+    } catch (error) {
+      if (fs.existsSync(backupPath) && !fs.existsSync(targetPath)) {
+        fs.renameSync(backupPath, targetPath);
+      }
+      throw error;
+    }
+    fs.rmSync(backupPath, { recursive: true, force: true });
+    return "refreshed";
+  } finally {
+    if (fs.existsSync(stagedPath)) {
+      fs.rmSync(stagedPath, { recursive: true, force: true });
+    }
+    if (fs.existsSync(backupPath)) {
+      fs.rmSync(backupPath, { recursive: true, force: true });
+    }
+    fs.rmSync(stagingRoot, { recursive: true, force: true });
+  }
+}
+
+function cleanupLegacyAlias(targetDir: string, aliasName: LegacyAliasName): LegacyAliasCleanupResult {
+  const aliasPath = path.join(targetDir, aliasName);
+
+  if (!fs.existsSync(aliasPath)) {
+    return { removed: [], preserved: [] };
+  }
+
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(aliasPath);
+  } catch {
+    return {
+      removed: [],
+      preserved: [{ targetDir, name: aliasName, reason: "unknown_layout" }]
+    };
+  }
+
+  if (!stats.isDirectory()) {
+    return {
+      removed: [],
+      preserved: [{ targetDir, name: aliasName, reason: "unknown_layout" }]
+    };
+  }
+
+  if (fs.existsSync(path.join(aliasPath, "SKILL.md"))) {
+    return {
+      removed: [],
+      preserved: [{ targetDir, name: aliasName, reason: "contains_skill_md" }]
+    };
+  }
+
+  const entries = fs.readdirSync(aliasPath);
+  if (entries.length === 0) {
+    fs.rmSync(aliasPath, { recursive: true, force: true });
+    return { removed: [aliasName], preserved: [] };
+  }
+
+  return {
+    removed: [],
+    preserved: [{ targetDir, name: aliasName, reason: "non_empty" }]
+  };
+}
+
+function cleanupLegacyAliases(targetDir: string): LegacyAliasCleanupResult {
+  const removed: string[] = [];
+  const preserved: PreservedLegacyAlias[] = [];
+
+  for (const alias of LEGACY_ALIAS_DIRS) {
+    const result = cleanupLegacyAlias(targetDir, alias.name);
+    removed.push(...result.removed);
+    preserved.push(...result.preserved);
+  }
+
+  return { removed, preserved };
+}
+
+function buildSyncMessage(mode: SkillInstallMode, result: SkillSyncResult): string {
+  return `Skills ${mode} sync: ${formatSummary(
+    [
+      result.installed.length > 0 ? `${result.installed.length} installed` : "",
+      result.refreshed.length > 0 ? `${result.refreshed.length} refreshed` : "",
+      result.unchanged.length > 0 ? `${result.unchanged.length} unchanged` : "",
+      result.removedLegacyAliases.length > 0 ? `${result.removedLegacyAliases.length} legacy aliases removed` : "",
+      result.preservedLegacyAliases.length > 0 ? `${result.preservedLegacyAliases.length} legacy aliases preserved` : ""
+    ].filter(Boolean),
+    result.targets.length,
+    result.targets.filter((entry) => !entry.success).length
+  )}`;
+}
+
+function buildRemovalMessage(mode: SkillInstallMode, result: SkillRemovalResult): string {
+  return `Skills ${mode} removal: ${formatSummary(
+    [
+      result.removed.length > 0 ? `${result.removed.length} removed` : "",
+      result.missing.length > 0 ? `${result.missing.length} already absent` : "",
+      result.removedLegacyAliases.length > 0 ? `${result.removedLegacyAliases.length} legacy aliases removed` : "",
+      result.preservedLegacyAliases.length > 0 ? `${result.preservedLegacyAliases.length} legacy aliases preserved` : ""
+    ].filter(Boolean),
+    result.targets.length,
+    result.targets.filter((entry) => !entry.success).length
+  )}`;
+}
+
+export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
+  const targets = getTargets(mode);
+  const targetResults: SkillTargetSyncResult[] = [];
 
   try {
     const sourceDir = getBundledSkillsDir();
-    const entries = listBundledSkillDirectories();
+    const packNames = getCanonicalBundledSkillNames();
+    const bundledFingerprints = new Map<string, string>();
+
+    for (const packName of packNames) {
+      const sourcePath = path.join(sourceDir, packName);
+      if (!fs.existsSync(sourcePath)) {
+        throw new Error(`Bundled skill directory missing: ${packName}`);
+      }
+      bundledFingerprints.set(packName, hashDirectoryTree(sourcePath));
+    }
 
     for (const target of targets) {
       const installed: string[] = [];
-      const skipped: string[] = [];
-      const discoverableInstalled: string[] = [];
-      const aliasOnlyInstalled: string[] = [];
-      const discoverableSkipped: string[] = [];
-      const aliasOnlySkipped: string[] = [];
+      const refreshed: string[] = [];
+      const unchanged: string[] = [];
+      const removedLegacyAliases: string[] = [];
+      const preservedLegacyAliases: PreservedLegacyAlias[] = [];
 
       try {
         ensureDir(target.dir);
 
-        for (const entry of entries) {
-          const skillName = entry.name;
-          const sourcePath = path.join(sourceDir, skillName);
-          const targetPath = path.join(target.dir, skillName);
-          const classification: SkillInstallClassification = entry.policy === "discoverable" ? "discoverable" : "aliasOnly";
-
-          if (!fs.existsSync(sourcePath)) {
-            throw new Error(`Bundled skill directory missing: ${skillName}`);
+        for (const packName of packNames) {
+          const sourcePath = path.join(sourceDir, packName);
+          const targetPath = path.join(target.dir, packName);
+          const sourceFingerprint = bundledFingerprints.get(packName);
+          if (!sourceFingerprint) {
+            throw new Error(`Bundled fingerprint missing: ${packName}`);
           }
 
-          if (fs.existsSync(targetPath)) {
-            skipped.push(skillName);
-            if (classification === "discoverable") {
-              discoverableSkipped.push(skillName);
-            } else {
-              aliasOnlySkipped.push(skillName);
-            }
-            continue;
-          }
-
-          fs.cpSync(sourcePath, targetPath, { recursive: true });
-          installed.push(skillName);
-          if (classification === "discoverable") {
-            discoverableInstalled.push(skillName);
+          const outcome = syncSkillDirectory(sourcePath, targetPath, sourceFingerprint);
+          if (outcome === "installed") {
+            installed.push(packName);
+          } else if (outcome === "refreshed") {
+            refreshed.push(packName);
           } else {
-            aliasOnlyInstalled.push(skillName);
+            unchanged.push(packName);
           }
         }
+
+        const legacyCleanup = cleanupLegacyAliases(target.dir);
+        removedLegacyAliases.push(...legacyCleanup.removed);
+        preservedLegacyAliases.push(...legacyCleanup.preserved);
 
         targetResults.push({
           agents: target.agents,
           targetDir: target.dir,
           installed,
-          skipped,
-          discoverableInstalled,
-          aliasOnlyInstalled,
-          discoverableSkipped,
-          aliasOnlySkipped,
+          refreshed,
+          unchanged,
+          removedLegacyAliases,
+          preservedLegacyAliases,
           success: true
         });
       } catch (error) {
@@ -126,66 +316,114 @@ export function installSkills(mode: SkillInstallMode): SkillInstallResult {
           agents: target.agents,
           targetDir: target.dir,
           installed,
-          skipped,
-          discoverableInstalled,
-          aliasOnlyInstalled,
-          discoverableSkipped,
-          aliasOnlySkipped,
+          refreshed,
+          unchanged,
+          removedLegacyAliases,
+          preservedLegacyAliases,
           success: false,
           error: message
         });
       }
     }
 
-    const installed = targetResults.flatMap((result) => result.installed);
-    const skipped = targetResults.flatMap((result) => result.skipped);
-    const discoverableInstalled = targetResults.flatMap((result) => result.discoverableInstalled);
-    const aliasOnlyInstalled = targetResults.flatMap((result) => result.aliasOnlyInstalled);
-    const discoverableSkipped = targetResults.flatMap((result) => result.discoverableSkipped);
-    const aliasOnlySkipped = targetResults.flatMap((result) => result.aliasOnlySkipped);
-    const failures = targetResults.filter((result) => !result.success);
-    const failedSummary = failures.length > 0
-      ? `, ${failures.length} failed`
-      : "";
-    const installedSummary = `${installed.length} installed${formatClassificationBreakdown(
-      discoverableInstalled.length,
-      aliasOnlyInstalled.length
-    )}`;
-    const skippedSummary = skipped.length > 0
-      ? `, ${skipped.length} skipped${formatClassificationBreakdown(
-        discoverableSkipped.length,
-        aliasOnlySkipped.length
-      )}`
-      : "";
-    const summary = `Skills ${mode} install: ${installedSummary}${skippedSummary}${failedSummary} across ${targetResults.length} targets`;
-
-    return {
-      success: failures.length === 0,
-      message: summary,
+    const result: SkillSyncResult = {
+      success: targetResults.every((entry) => entry.success),
+      message: "",
       mode,
       targets: targetResults,
-      installed,
-      skipped,
-      discoverableInstalled,
-      aliasOnlyInstalled,
-      discoverableSkipped,
-      aliasOnlySkipped,
-      notes: SKILL_INSTALL_NOTES
+      installed: targetResults.flatMap((entry) => entry.installed),
+      refreshed: targetResults.flatMap((entry) => entry.refreshed),
+      unchanged: targetResults.flatMap((entry) => entry.unchanged),
+      removedLegacyAliases: targetResults.flatMap((entry) => entry.removedLegacyAliases),
+      preservedLegacyAliases: targetResults.flatMap((entry) => entry.preservedLegacyAliases)
     };
+    result.message = buildSyncMessage(mode, result);
+    return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
+    const result: SkillSyncResult = {
       success: false,
-      message: `Failed to install skills (${mode}): ${message}`,
+      message: "",
       mode,
       targets: targetResults,
-      installed: targetResults.flatMap((result) => result.installed),
-      skipped: targetResults.flatMap((result) => result.skipped),
-      discoverableInstalled: targetResults.flatMap((result) => result.discoverableInstalled),
-      aliasOnlyInstalled: targetResults.flatMap((result) => result.aliasOnlyInstalled),
-      discoverableSkipped: targetResults.flatMap((result) => result.discoverableSkipped),
-      aliasOnlySkipped: targetResults.flatMap((result) => result.aliasOnlySkipped),
-      notes: SKILL_INSTALL_NOTES
+      installed: targetResults.flatMap((entry) => entry.installed),
+      refreshed: targetResults.flatMap((entry) => entry.refreshed),
+      unchanged: targetResults.flatMap((entry) => entry.unchanged),
+      removedLegacyAliases: targetResults.flatMap((entry) => entry.removedLegacyAliases),
+      preservedLegacyAliases: targetResults.flatMap((entry) => entry.preservedLegacyAliases)
     };
+    result.message = `Failed to sync skills (${mode}): ${message}`;
+    return result;
   }
+}
+
+export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult {
+  const targets = getTargets(mode);
+  const packNames = getCanonicalBundledSkillNames();
+  const targetResults: SkillTargetRemovalResult[] = [];
+
+  for (const target of targets) {
+    const removed: string[] = [];
+    const missing: string[] = [];
+    const removedLegacyAliases: string[] = [];
+    const preservedLegacyAliases: PreservedLegacyAlias[] = [];
+
+    try {
+      for (const packName of packNames) {
+        const targetPath = path.join(target.dir, packName);
+        if (fs.existsSync(targetPath)) {
+          fs.rmSync(targetPath, { recursive: true, force: true });
+          removed.push(packName);
+        } else {
+          missing.push(packName);
+        }
+      }
+
+      const legacyCleanup = cleanupLegacyAliases(target.dir);
+      removedLegacyAliases.push(...legacyCleanup.removed);
+      preservedLegacyAliases.push(...legacyCleanup.preserved);
+
+      targetResults.push({
+        agents: target.agents,
+        targetDir: target.dir,
+        removed,
+        missing,
+        removedLegacyAliases,
+        preservedLegacyAliases,
+        success: true
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      targetResults.push({
+        agents: target.agents,
+        targetDir: target.dir,
+        removed,
+        missing,
+        removedLegacyAliases,
+        preservedLegacyAliases,
+        success: false,
+        error: message
+      });
+    }
+  }
+
+  const result: SkillRemovalResult = {
+    success: targetResults.every((entry) => entry.success),
+    message: "",
+    mode,
+    targets: targetResults,
+    removed: targetResults.flatMap((entry) => entry.removed),
+    missing: targetResults.flatMap((entry) => entry.missing),
+    removedLegacyAliases: targetResults.flatMap((entry) => entry.removedLegacyAliases),
+    preservedLegacyAliases: targetResults.flatMap((entry) => entry.preservedLegacyAliases)
+  };
+  result.message = buildRemovalMessage(mode, result);
+  return result;
+}
+
+export function hasBundledSkillArtifacts(mode: SkillInstallMode): boolean {
+  const packNames = getCanonicalBundledSkillNames();
+  const targets = getTargets(mode);
+
+  return targets.some((target) => hasCanonicalBundledSkillInTarget(target.dir, packNames));
 }
