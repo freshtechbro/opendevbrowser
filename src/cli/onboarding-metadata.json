@@ -1,0 +1,22 @@
+{
+  "sectionTitle": "Agent Quick Start",
+  "sectionSummary": "Start with opendevbrowser_prompting_guide or opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\" before low-level browser commands.",
+  "skillName": "opendevbrowser-best-practices",
+  "skillTopic": "quick start",
+  "designSkillName": "opendevbrowser-design-agent",
+  "localOnlyToolNames": [
+    "opendevbrowser_prompting_guide",
+    "opendevbrowser_skill_list",
+    "opendevbrowser_skill_load"
+  ],
+  "quickStartCommands": {
+    "promptingGuide": "opendevbrowser_prompting_guide",
+    "skillList": "opendevbrowser_skill_list",
+    "skillLoad": "opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\"",
+    "happyPath": "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
+  },
+  "referencePaths": {
+    "onboardingDoc": "docs/FIRST_RUN_ONBOARDING.md",
+    "skillDoc": "skills/opendevbrowser-best-practices/SKILL.md"
+  }
+}

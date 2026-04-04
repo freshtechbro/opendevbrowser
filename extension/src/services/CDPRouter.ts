@@ -752,8 +752,8 @@ export class CDPRouter {
   }
 
   getTabDebuggee(tabId: number): DebuggerSession | null {
-    return this.debuggees.get(tabId)
-      ?? this.sessions.getAttachedRootSession(tabId)?.debuggerSession
+    return this.sessions.getAttachedRootSession(tabId)?.debuggerSession
+      ?? this.debuggees.get(tabId)
       ?? (() => {
         const rootRecord = this.sessions.getByTabId(tabId);
         if (!rootRecord) {
@@ -1707,7 +1707,11 @@ export class CDPRouter {
     }
 
     const sourceSessionId = (source as { sessionId?: string }).sessionId;
-    if (typeof sourceSessionId === "string" && !this.sessions.hasSession(sourceSessionId)) {
+    if (
+      typeof sourceSessionId === "string"
+      && !this.sessions.hasSession(sourceSessionId)
+      && !this.shouldAllowUnknownSourceSession(method, source, tabId)
+    ) {
       this.quarantineUnknownSession(tabId, sourceSessionId, method);
       return;
     }
@@ -1814,18 +1818,48 @@ export class CDPRouter {
     return null;
   }
 
-  private resolveSourceTabId(source: chrome.debugger.Debuggee): number | null {
+  resolveSourceTabId(source: chrome.debugger.Debuggee): number | null {
     if (typeof source.tabId === "number") {
       return source.tabId;
     }
     const sourceSessionId = (source as { sessionId?: string }).sessionId;
     if (typeof sourceSessionId === "string") {
-      return this.sessions.getBySessionId(sourceSessionId)?.tabId ?? null;
+      const knownTabId = this.sessions.getBySessionId(sourceSessionId)?.tabId
+        ?? this.quarantinedSessions.get(sourceSessionId)?.tabId
+        ?? null;
+      if (typeof knownTabId === "number") {
+        return knownTabId;
+      }
+      if (this.debuggees.size === 1) {
+        const nextAttachedTab = this.debuggees.keys().next();
+        return nextAttachedTab.done ? null : nextAttachedTab.value;
+      }
+      return null;
     }
     if (typeof source.targetId === "string") {
       return this.resolveLinkedTargetTabId(source.targetId);
     }
     return null;
+  }
+
+  private shouldAllowUnknownSourceSession(method: string, source: chrome.debugger.Debuggee, tabId: number): boolean {
+    if (
+      method !== "Page.javascriptDialogOpening"
+      && method !== "Page.javascriptDialogClosed"
+      && method !== "Page.fileChooserOpened"
+    ) {
+      return false;
+    }
+    if (typeof source.tabId === "number") {
+      return source.tabId === tabId;
+    }
+    if (typeof source.targetId === "string") {
+      return this.resolveLinkedTargetTabId(source.targetId) === tabId;
+    }
+    if (typeof (source as { sessionId?: string }).sessionId === "string") {
+      return this.resolveSourceTabId(source) === tabId;
+    }
+    return false;
   }
 
   private resolveLinkedTargetTabId(targetId?: string): number | null {

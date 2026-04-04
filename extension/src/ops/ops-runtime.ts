@@ -32,6 +32,8 @@ import {
   OpsSessionStore,
   type OpsSession,
   type OpsConsoleEvent,
+  type OpsDialogState,
+  type OpsFileChooserState,
   type OpsNetworkEvent,
   type OpsTargetInfo,
   type OpsSyntheticTargetRecord
@@ -222,6 +224,34 @@ const DOM_REF_POINT_DECLARATION = `
   }
 `;
 
+const DOM_SCREENSHOT_CLIP_DECLARATION = `
+  function() {
+    /* odb-dom-screenshot-clip */
+    if (!(this instanceof Element)) return null;
+    const rect = this.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    return {
+      x: rect.left + window.scrollX,
+      y: rect.top + window.scrollY,
+      width: rect.width,
+      height: rect.height
+    };
+  }
+`;
+
+const DOM_FILE_INPUT_INFO_DECLARATION = `
+  function() {
+    /* odb-dom-file-input-info */
+    const isFileInput = this instanceof HTMLInputElement && this.type === "file";
+    return {
+      isFileInput,
+      disabled: isFileInput ? this.disabled : false
+    };
+  }
+`;
+
 const TARGET_SCOPED_COMMANDS = new Set<string>([
   "storage.setCookies",
   "storage.getCookies",
@@ -238,6 +268,7 @@ const TARGET_SCOPED_COMMANDS = new Set<string>([
   "interact.select",
   "interact.scroll",
   "interact.scrollIntoView",
+  "interact.upload",
   "pointer.move",
   "pointer.down",
   "pointer.up",
@@ -259,6 +290,10 @@ const TARGET_SCOPED_COMMANDS = new Set<string>([
   "export.cloneComponent",
   "devtools.perf",
   "page.screenshot"
+]);
+
+const DIALOG_SCOPED_COMMANDS = new Set<string>([
+  "page.dialog"
 ]);
 
 type OpsParallelWaiter = {
@@ -368,6 +403,7 @@ export class OpsRuntime {
   private readonly encoder = new TextEncoder();
   private readonly popupOpenerTabIds = new Map<number, number>();
   private readonly popupAttachDiagnostics = new Map<string, PopupAttachDiagnostic>();
+  private readonly dialogQueues = new Map<string, Promise<void>>();
   private closingTimers = new Map<string, number>();
   private parallelWaiters = new Map<string, OpsParallelWaiter[]>();
 
@@ -671,8 +707,9 @@ export class OpsRuntime {
   }
 
   private handleDebuggerEvent = (source: chrome.debugger.Debuggee, method: string, params?: object): void => {
-    if (typeof source.tabId !== "number") return;
-    const session = this.sessions.getByTabId(source.tabId);
+    const eventTabId = this.cdp.resolveSourceTabId(source);
+    if (eventTabId === null) return;
+    const session = this.sessions.getByTabId(eventTabId);
     if (!session) return;
     if (method === "Runtime.consoleAPICalled") {
       const payload = params as { type?: string; args?: Array<{ value?: unknown; description?: string }> };
@@ -695,6 +732,32 @@ export class OpsRuntime {
       if (session.consoleEvents.length > MAX_CONSOLE_EVENTS) {
         session.consoleEvents.shift();
       }
+      return;
+    }
+
+    if (method === "Page.javascriptDialogOpening") {
+      const targetId = this.resolveDebuggerEventTargetId(session, source, eventTabId);
+      if (!targetId) {
+        return;
+      }
+      this.applyDialogOpening(session, targetId, params);
+      return;
+    }
+
+    if (method === "Page.javascriptDialogClosed") {
+      const targetId = this.resolveDebuggerEventTargetId(session, source, eventTabId);
+      if (targetId) {
+        this.applyDialogClosed(session, targetId);
+      }
+      return;
+    }
+
+    if (method === "Page.fileChooserOpened") {
+      const targetId = this.resolveDebuggerEventTargetId(session, source, eventTabId);
+      if (!targetId) {
+        return;
+      }
+      this.applyFileChooserOpened(session, targetId, params);
       return;
     }
 
@@ -754,6 +817,30 @@ export class OpsRuntime {
       return;
     }
     switch (event.method) {
+      case "Page.javascriptDialogOpening": {
+        const targetId = this.resolveRouterEventTargetId(session, event);
+        if (!targetId) {
+          return;
+        }
+        this.applyDialogOpening(session, targetId, event.params);
+        return;
+      }
+      case "Page.javascriptDialogClosed": {
+        const targetId = this.resolveRouterEventTargetId(session, event);
+        if (!targetId) {
+          return;
+        }
+        this.applyDialogClosed(session, targetId);
+        return;
+      }
+      case "Page.fileChooserOpened": {
+        const targetId = this.resolveRouterEventTargetId(session, event);
+        if (!targetId) {
+          return;
+        }
+        this.applyFileChooserOpened(session, targetId, event.params);
+        return;
+      }
       case "Target.targetCreated":
         this.handleSyntheticTargetCreated(session, event);
         return;
@@ -943,6 +1030,9 @@ export class OpsRuntime {
       case "interact.scrollIntoView":
         await this.withSession(message, clientId, (session) => this.handleScrollIntoView(message, session));
         return;
+      case "interact.upload":
+        await this.withSession(message, clientId, (session) => this.handleUpload(message, session));
+        return;
       case "pointer.move":
         await this.withSession(message, clientId, (session) => this.handlePointerMove(message, session));
         return;
@@ -1005,6 +1095,9 @@ export class OpsRuntime {
         return;
       case "page.screenshot":
         await this.withSession(message, clientId, (session) => this.handleScreenshot(message, session));
+        return;
+      case "page.dialog":
+        await this.withSession(message, clientId, (session) => this.handleDialog(message, session));
         return;
       case "devtools.consolePoll":
         await this.withSession(message, clientId, (session) => this.handleConsolePoll(message, session));
@@ -1130,7 +1223,8 @@ export class OpsRuntime {
   private async handleSessionStatus(message: OpsRequest, clientId: string): Promise<void> {
     const session = this.getSessionForMessage(message, clientId);
     if (!session) return;
-    const activeTarget = this.resolveTargetContext(session, session.activeTargetId ?? session.targetId)
+    const activeTargetId = session.activeTargetId ?? session.targetId;
+    const activeTarget = this.resolveTargetContext(session, activeTargetId)
       ?? this.resolveTargetContext(session, session.targetId);
     const tab = activeTarget ? await this.tabs.getTab(activeTarget.tabId) : null;
     this.sendResponse(message, {
@@ -1138,6 +1232,7 @@ export class OpsRuntime {
       activeTargetId: session.activeTargetId || null,
       url: resolveReportedTargetUrl(activeTarget, tab?.url),
       title: resolveReportedTargetTitle(activeTarget, tab?.title),
+      dialog: this.serializeDialogState(session, activeTargetId),
       leaseId: session.leaseId,
       state: session.state
     });
@@ -1642,6 +1737,7 @@ export class OpsRuntime {
       ...(snapshot.nextCursor ? { nextCursor: snapshot.nextCursor } : {}),
       refCount: snapshot.refCount,
       timingMs: snapshot.timingMs,
+      dialog: this.serializeDialogState(session, snapshot.target.targetId),
       ...(snapshot.warnings.length > 0 ? { warnings: snapshot.warnings } : {})
     });
   }
@@ -2193,8 +2289,81 @@ export class OpsRuntime {
   }
 
   private async handleScreenshot(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    if (payload.fullPage === true && typeof payload.ref === "string") {
+      this.sendError(message, buildError("invalid_request", "ref and fullPage cannot be combined.", false));
+      return;
+    }
+
+    if (typeof payload.ref === "string") {
+      const resolved = this.resolveRefFromPayload(session, payload, message);
+      if (!resolved) return;
+      try {
+        await this.callFunctionOnRef<void>(resolved, DOM_SCROLL_INTO_VIEW_DECLARATION);
+        const clip = await this.callFunctionOnRef<{
+          x?: unknown;
+          y?: unknown;
+          width?: unknown;
+          height?: unknown;
+        } | null>(resolved, DOM_SCREENSHOT_CLIP_DECLARATION);
+        const result = await withTimeout(
+          this.cdp.sendCommand(resolved.target.debuggee, "Page.captureScreenshot", {
+            format: "png",
+            captureBeyondViewport: true,
+            clip: this.normalizeScreenshotClip(clip, resolved.ref)
+          }),
+          SCREENSHOT_TIMEOUT_MS,
+          "Ops screenshot timed out"
+        ) as { data?: string };
+        if (result?.data) {
+          this.sendResponse(message, { base64: result.data });
+          return;
+        }
+      } catch (error) {
+        logError("ops.screenshot.ref", error, { code: "screenshot_failed" });
+      }
+      this.sendError(message, buildError("execution_failed", "Screenshot failed", false));
+      return;
+    }
+
     const target = this.requireActiveTarget(session, message);
     if (!target) return;
+    if (payload.fullPage === true) {
+      try {
+        const metrics = await this.cdp.sendCommand(target.debuggee, "Page.getLayoutMetrics", {}) as {
+          contentSize?: { width?: number; height?: number };
+          cssContentSize?: { width?: number; height?: number };
+        };
+        const contentSize = isRecord(metrics.cssContentSize) ? metrics.cssContentSize : metrics.contentSize;
+        const width = typeof contentSize?.width === "number" && Number.isFinite(contentSize.width)
+          ? Math.max(1, Math.ceil(contentSize.width))
+          : null;
+        const height = typeof contentSize?.height === "number" && Number.isFinite(contentSize.height)
+          ? Math.max(1, Math.ceil(contentSize.height))
+          : null;
+        if (width === null || height === null) {
+          throw new Error("Full-page screenshot metrics unavailable");
+        }
+        const result = await withTimeout(
+          this.cdp.sendCommand(target.debuggee, "Page.captureScreenshot", {
+            format: "png",
+            captureBeyondViewport: true,
+            clip: { x: 0, y: 0, width, height, scale: 1 }
+          }),
+          SCREENSHOT_TIMEOUT_MS,
+          "Ops screenshot timed out"
+        ) as { data?: string };
+        if (result?.data) {
+          this.sendResponse(message, { base64: result.data });
+          return;
+        }
+      } catch (error) {
+        logError("ops.screenshot.full_page", error, { code: "screenshot_failed" });
+      }
+      this.sendError(message, buildError("execution_failed", "Screenshot failed", false));
+      return;
+    }
+
     try {
       const result = await withTimeout(
         this.cdp.sendCommand(target.debuggee, "Page.captureScreenshot", { format: "png" }),
@@ -2214,6 +2383,105 @@ export class OpsRuntime {
       return;
     }
     this.sendError(message, buildError("execution_failed", "Screenshot failed", false));
+  }
+
+  private async handleUpload(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const files = Array.isArray(payload.files)
+      ? payload.files.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : [];
+    if (files.length === 0) {
+      this.sendError(message, buildError("invalid_request", "Missing files", false));
+      return;
+    }
+    const resolved = this.resolveRefFromPayload(session, payload, message);
+    if (!resolved) return;
+    try {
+      const info = await this.callFunctionOnRef<{
+        isFileInput?: unknown;
+        disabled?: unknown;
+      }>(resolved, DOM_FILE_INPUT_INFO_DECLARATION);
+      if (info?.disabled === true) {
+        this.sendError(message, buildError("execution_failed", `Cannot upload files to disabled ref: ${resolved.ref}`, false));
+        return;
+      }
+
+      if (info?.isFileInput === true) {
+        await this.cdp.sendCommand(resolved.target.debuggee, "DOM.setFileInputFiles", {
+          backendNodeId: resolved.backendNodeId,
+          files
+        });
+        this.sendResponse(message, {
+          targetId: resolved.target.targetId,
+          fileCount: files.length,
+          mode: "direct_input"
+        });
+        return;
+      }
+
+      this.sessions.clearFileChooser(session.id, resolved.target.targetId);
+      await this.cdp.sendCommand(resolved.target.debuggee, "Page.setInterceptFileChooserDialog", { enabled: true });
+      await this.callFunctionOnRef<void>(resolved, DOM_SCROLL_INTO_VIEW_DECLARATION);
+      const point = await this.resolveRefPoint(resolved);
+      await this.dispatchMouseEvent(resolved.target.debuggee, "mouseMoved", point.x, point.y);
+      await this.dispatchMouseEvent(resolved.target.debuggee, "mousePressed", point.x, point.y, {
+        button: "left",
+        clickCount: 1
+      });
+      await this.dispatchMouseEvent(resolved.target.debuggee, "mouseReleased", point.x, point.y, {
+        button: "left",
+        clickCount: 1
+      });
+      const chooser = await this.waitForFileChooser(session.id, resolved.target.targetId);
+      if (typeof chooser.backendNodeId !== "number") {
+        throw new Error("File chooser opened without backend node id");
+      }
+      await this.cdp.sendCommand(resolved.target.debuggee, "DOM.setFileInputFiles", {
+        backendNodeId: chooser.backendNodeId,
+        files
+      });
+      this.sessions.clearFileChooser(session.id, resolved.target.targetId);
+      this.sendResponse(message, {
+        targetId: resolved.target.targetId,
+        fileCount: files.length,
+        mode: "file_chooser"
+      });
+    } catch (error) {
+      this.sessions.clearFileChooser(session.id, resolved.target.targetId);
+      logError("ops.upload", error, { code: "upload_failed" });
+      this.sendError(message, buildError("execution_failed", error instanceof Error ? error.message : "Upload failed", false));
+    }
+  }
+
+  private async handleDialog(message: OpsRequest, session: OpsSession): Promise<void> {
+    const payload = isRecord(message.payload) ? message.payload : {};
+    const action = payload.action === "accept" || payload.action === "dismiss" || payload.action === "status"
+      ? payload.action
+      : "status";
+    const target = this.requireActiveTarget(session, message);
+    if (!target) return;
+    const dialog = this.serializeDialogState(session, target.targetId);
+    if (!dialog.open || action === "status") {
+      this.sendResponse(message, {
+        dialog,
+        ...(action === "status" ? {} : { handled: false })
+      });
+      return;
+    }
+    try {
+      await this.cdp.sendCommand(target.debuggee, "Page.handleJavaScriptDialog", {
+        accept: action === "accept",
+        ...(action === "accept" && typeof payload.promptText === "string" ? { promptText: payload.promptText } : {})
+      });
+      this.sessions.clearDialog(session.id, target.targetId);
+      this.sendResponse(message, {
+        dialog: { open: false, targetId: target.targetId },
+        handled: true
+      });
+    } catch (error) {
+      logError("ops.dialog", error, { code: "dialog_failed" });
+      this.sendError(message, buildError("execution_failed", error instanceof Error ? error.message : "Dialog handling failed", false));
+    }
   }
 
   private async handleConsolePoll(message: OpsRequest, session: OpsSession): Promise<void> {
@@ -2392,9 +2660,12 @@ export class OpsRuntime {
         flatten: true
       });
       await this.cdp.primeAttachedRootSession?.(tabId);
-      await this.cdp.sendCommand({ tabId }, "Runtime.enable", {});
-      await this.cdp.sendCommand({ tabId }, "Network.enable", {});
-      await this.cdp.sendCommand({ tabId }, "Performance.enable", {});
+      const pageDebuggee = this.cdp.getTabDebuggee?.(tabId) ?? { tabId };
+      await this.cdp.sendCommand(pageDebuggee, "Page.enable", {});
+      await this.cdp.sendCommand(pageDebuggee, "Page.setInterceptFileChooserDialog", { enabled: true });
+      await this.cdp.sendCommand(pageDebuggee, "Runtime.enable", {});
+      await this.cdp.sendCommand(pageDebuggee, "Network.enable", {});
+      await this.cdp.sendCommand(pageDebuggee, "Performance.enable", {});
     } catch (error) {
       logError("ops.enable_domains", error, { code: "enable_domains_failed" });
     }
@@ -2467,6 +2738,10 @@ export class OpsRuntime {
   private async withSession(message: OpsRequest, clientId: string, handler: (session: OpsSession) => Promise<void>): Promise<void> {
     const session = this.getSessionForMessage(message, clientId);
     if (!session) return;
+    if (DIALOG_SCOPED_COMMANDS.has(message.command)) {
+      await this.withDialogQueue(message, session, handler);
+      return;
+    }
     if (!TARGET_SCOPED_COMMANDS.has(message.command)) {
       session.queue = session.queue.then(() => handler(session), () => handler(session));
       await session.queue;
@@ -2490,6 +2765,10 @@ export class OpsRuntime {
     const payload = isRecord(message.payload) ? message.payload : {};
     const requested = typeof payload.targetId === "string" ? payload.targetId.trim() : "";
     return requested || session.activeTargetId || session.targetId;
+  }
+
+  private dialogQueueKey(sessionId: string, targetId: string): string {
+    return `${sessionId}:${targetId}`;
   }
 
   private sessionQueueAgeMs(session: OpsSession): number {
@@ -2661,6 +2940,32 @@ export class OpsRuntime {
     }
   }
 
+  private async withDialogQueue(
+    message: OpsRequest,
+    session: OpsSession,
+    handler: (session: OpsSession) => Promise<void>
+  ): Promise<void> {
+    const targetId = this.resolveTargetIdForQueue(session, message);
+    const queueKey = this.dialogQueueKey(session.id, targetId);
+    const previous = this.dialogQueues.get(queueKey) ?? Promise.resolve();
+    let releaseQueue: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseQueue = resolve;
+    });
+    const tail = previous.then(() => gate, () => gate);
+    this.dialogQueues.set(queueKey, tail);
+    await previous;
+
+    try {
+      await handler(session);
+    } finally {
+      releaseQueue();
+      if (this.dialogQueues.get(queueKey) === tail) {
+        this.dialogQueues.delete(queueKey);
+      }
+    }
+  }
+
   private getSessionForMessage(message: OpsRequest, clientId: string): OpsSession | null {
     const opsSessionId = message.opsSessionId;
     if (!opsSessionId) {
@@ -2737,6 +3042,86 @@ export class OpsRuntime {
         ? { tabId: synthetic.tabId, sessionId: synthetic.sessionId }
         : this.cdp.getTabDebuggee?.(targetTabId) ?? { tabId: targetTabId }
     };
+  }
+
+  private resolveDebuggerEventTargetId(
+    session: OpsSession,
+    source: chrome.debugger.Debuggee,
+    resolvedTabId?: number | null
+  ): string | null {
+    const sourceSessionId = typeof (source as { sessionId?: unknown }).sessionId === "string"
+      ? (source as { sessionId: string }).sessionId
+      : null;
+    if (sourceSessionId) {
+      const synthetic = this.sessions.findSyntheticTargetBySessionId(session.id, sourceSessionId);
+      if (synthetic) {
+        return synthetic.targetId;
+      }
+    }
+    const sourceTargetId = typeof source.targetId === "string" ? source.targetId : null;
+    if (sourceTargetId) {
+      const synthetic = this.sessions.getSyntheticTarget(session.id, sourceTargetId);
+      if (synthetic) {
+        return synthetic.targetId;
+      }
+      if (session.targets.has(sourceTargetId)) {
+        return sourceTargetId;
+      }
+    }
+    const tabId = resolvedTabId ?? this.cdp.resolveSourceTabId(source);
+    if (tabId !== null) {
+      return this.sessions.getTargetIdByTabId(session.id, tabId) ?? session.activeTargetId ?? session.targetId;
+    }
+    return session.activeTargetId ?? session.targetId;
+  }
+
+  private resolveRouterEventTargetId(session: OpsSession, event: CDPRouterEvent): string | null {
+    if (typeof event.sessionId === "string") {
+      const synthetic = this.sessions.findSyntheticTargetBySessionId(session.id, event.sessionId);
+      if (synthetic) {
+        return synthetic.targetId;
+      }
+    }
+    return this.sessions.getTargetIdByTabId(session.id, event.tabId) ?? session.activeTargetId ?? session.targetId;
+  }
+
+  private applyDialogOpening(session: OpsSession, targetId: string, params?: unknown): void {
+    const payload = params as {
+      type?: string;
+      message?: string;
+      defaultPrompt?: string;
+      url?: string;
+    };
+    this.sessions.setDialog(session.id, targetId, {
+      open: true,
+      targetId,
+      ...(typeof payload?.type === "string" ? { type: payload.type as OpsDialogState["type"] } : {}),
+      ...(typeof payload?.message === "string" ? { message: payload.message } : {}),
+      ...(typeof payload?.defaultPrompt === "string" ? { defaultPrompt: payload.defaultPrompt } : {}),
+      ...(typeof payload?.url === "string" ? { url: payload.url } : {}),
+      openedAt: new Date().toISOString()
+    });
+  }
+
+  private applyDialogClosed(session: OpsSession, targetId: string): void {
+    this.sessions.clearDialog(session.id, targetId);
+  }
+
+  private applyFileChooserOpened(session: OpsSession, targetId: string, params?: unknown): void {
+    const payload = params as { backendNodeId?: number };
+    this.sessions.setFileChooser(session.id, targetId, {
+      open: true,
+      targetId,
+      ...(typeof payload?.backendNodeId === "number" ? { backendNodeId: payload.backendNodeId } : {}),
+      openedAt: new Date().toISOString()
+    });
+  }
+
+  private serializeDialogState(session: OpsSession, targetId?: string | null): OpsDialogState {
+    if (!targetId) {
+      return { open: false, targetId: session.activeTargetId ?? session.targetId };
+    }
+    return this.sessions.getDialog(session.id, targetId) ?? { open: false, targetId };
   }
 
   private hasUsableDebuggee(target: ResolvedOpsTarget): boolean {
@@ -3734,6 +4119,36 @@ export class OpsRuntime {
       throw new Error(`Could not resolve a clickable point for ref: ${resolved.ref}`);
     }
     return { x, y };
+  }
+
+  private normalizeScreenshotClip(
+    value: { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | null,
+    ref: string
+  ): { x: number; y: number; width: number; height: number; scale: number } {
+    const x = typeof value?.x === "number" && Number.isFinite(value.x) ? value.x : null;
+    const y = typeof value?.y === "number" && Number.isFinite(value.y) ? value.y : null;
+    const width = typeof value?.width === "number" && Number.isFinite(value.width) ? value.width : null;
+    const height = typeof value?.height === "number" && Number.isFinite(value.height) ? value.height : null;
+    if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) {
+      throw new Error(`Could not resolve screenshot bounds for ref: ${ref}`);
+    }
+    return { x, y, width, height, scale: 1 };
+  }
+
+  private async waitForFileChooser(
+    sessionId: string,
+    targetId: string,
+    timeoutMs = SCREENSHOT_TIMEOUT_MS
+  ): Promise<OpsFileChooserState> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const chooser = this.sessions.getFileChooser(sessionId, targetId);
+      if (chooser?.open) {
+        return chooser;
+      }
+      await delay(50);
+    }
+    throw new Error("File chooser did not open");
   }
 
   private async waitForSelector(

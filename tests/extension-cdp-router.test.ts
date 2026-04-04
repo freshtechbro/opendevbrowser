@@ -182,6 +182,106 @@ describe("CDPRouter", () => {
     });
   });
 
+  it("forwards dialog events when Chrome reports an unknown source session but preserves the attached tab id", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 84,
+        url: "https://example.com/dialog",
+        title: "Dialog",
+        groupId: 1,
+        status: "complete",
+        active: true
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const events: Array<{ tabId: number; method: string; params?: unknown; sessionId?: string }> = [];
+    router.setCallbacks({ onEvent: vi.fn(), onResponse: vi.fn(), onDetach: vi.fn() });
+    router.addEventListener((event) => {
+      events.push(event);
+    });
+
+    await router.attach(84);
+    events.length = 0;
+
+    mock.emitDebuggerEvent(
+      { tabId: 84, sessionId: "unknown-root-session" },
+      "Page.javascriptDialogOpening",
+      {
+        type: "alert",
+        message: "I am a JS Alert",
+        url: "https://example.com/dialog"
+      }
+    );
+
+    await vi.waitFor(() => {
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            tabId: 84,
+            method: "Page.javascriptDialogOpening",
+            params: expect.objectContaining({
+              type: "alert",
+              message: "I am a JS Alert",
+              url: "https://example.com/dialog"
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("forwards dialog events when Chrome reports only an unknown source session and a single attached tab is available", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 85,
+        url: "https://example.com/dialog-single-session",
+        title: "Dialog Single Session",
+        groupId: 1,
+        status: "complete",
+        active: true
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const events: Array<{ tabId: number; method: string; params?: unknown; sessionId?: string }> = [];
+    router.setCallbacks({ onEvent: vi.fn(), onResponse: vi.fn(), onDetach: vi.fn() });
+    router.addEventListener((event) => {
+      events.push(event);
+    });
+
+    await router.attach(85);
+    events.length = 0;
+
+    mock.emitDebuggerEvent(
+      { sessionId: "unknown-root-session" },
+      "Page.javascriptDialogOpening",
+      {
+        type: "alert",
+        message: "I am a JS Alert",
+        url: "https://example.com/dialog-single-session"
+      }
+    );
+
+    await vi.waitFor(() => {
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            tabId: 85,
+            method: "Page.javascriptDialogOpening",
+            params: expect.objectContaining({
+              type: "alert",
+              message: "I am a JS Alert",
+              url: "https://example.com/dialog-single-session"
+            })
+          })
+        ])
+      );
+    });
+  });
+
   it("detaches an already attached root tab before attaching a different root tab", async () => {
     const mock = createChromeMock({
       tabs: [
@@ -2168,6 +2268,13 @@ describe("CDPRouter", () => {
         })
       })
     );
+    expect(router.getTabDebuggee(68)).toEqual(
+      expect.objectContaining({
+        tabId: 68,
+        sessionId: expect.any(String),
+        targetId: "target-68"
+      })
+    );
   });
 
   it("reattaches the root tab when stale popup attach has no real attached-root session to reuse", async () => {
@@ -3179,6 +3286,63 @@ describe("CDPRouter", () => {
         })
       })
     ]));
+  });
+
+  it("resolves source tab ids from attached root session ids and popup target ids", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 58,
+        url: "https://example.com/popup-child-source",
+        title: "Popup Child Source",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    const routedEvents: Array<{ tabId: number; method: string; params?: unknown; sessionId?: string }> = [];
+    router.setCallbacks({ onEvent: vi.fn(), onResponse: vi.fn(), onDetach: vi.fn() });
+    router.addEventListener((event) => {
+      routedEvents.push(event);
+    });
+    await router.attach(58);
+
+    await router.handleCommand({
+      id: 91415,
+      method: "forwardCDPCommand",
+      params: {
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true, flatten: true }
+      }
+    });
+
+    const rootAttachedEvent = routedEvents.find((event) => event.method === "Target.attachedToTarget");
+    const rootSessionId = (rootAttachedEvent?.params as { sessionId?: string } | undefined)?.sessionId;
+    expect(rootSessionId).toEqual(expect.any(String));
+    expect(router.resolveSourceTabId({ sessionId: rootSessionId! })).toBe(58);
+
+    mock.emitDebuggerEvent({ targetId: "popup-58" }, "Target.targetCreated", {
+      targetInfo: {
+        targetId: "popup-58",
+        type: "page",
+        url: "https://popup.example.com/child-source",
+        title: "Popup Child Source",
+        openerId: "tab-58"
+      }
+    });
+    mock.emitDebuggerEvent({ targetId: "popup-58" }, "Target.attachedToTarget", {
+      sessionId: "popup-session-58",
+      targetInfo: {
+        targetId: "popup-58",
+        type: "page",
+        url: "https://popup.example.com/child-source",
+        title: "Popup Child Source",
+        openerId: "tab-58"
+      },
+      waitingForDebugger: false
+    });
+
+    expect(router.resolveSourceTabId({ targetId: "popup-58" })).toBe(58);
   });
 
   it("routes popup creation and attach when openerId uses the stale root target alias", async () => {

@@ -1,4 +1,4 @@
-import type { BrowserManagerLike } from "../browser/manager-types";
+import type { BrowserManagerLike, SessionInspectorHandle } from "../browser/manager-types";
 import type { ConnectOptions, LaunchOptions } from "../browser/browser-manager";
 import type { TargetInfo } from "../browser/target-manager";
 import type { ReactExport } from "../export/react-emitter";
@@ -321,11 +321,31 @@ export class RemoteManager implements BrowserManagerLike {
     });
   }
 
-  screenshot(sessionId: string, path?: string, targetId?: string | null): ReturnType<BrowserManagerLike["screenshot"]> {
+  screenshot(sessionId: string, options: Parameters<BrowserManagerLike["screenshot"]>[1] = {}): ReturnType<BrowserManagerLike["screenshot"]> {
     return this.client.call<CallResult<"screenshot">>("page.screenshot", {
       sessionId,
-      path,
-      ...(typeof targetId === "string" ? { targetId } : {})
+      ...(typeof options.path === "string" ? { path: options.path } : {}),
+      ...(typeof options.targetId === "string" ? { targetId: options.targetId } : {}),
+      ...(typeof options.ref === "string" ? { ref: options.ref } : {}),
+      ...(options.fullPage === true ? { fullPage: true } : {})
+    });
+  }
+
+  upload(sessionId: string, input: Parameters<BrowserManagerLike["upload"]>[1]): ReturnType<BrowserManagerLike["upload"]> {
+    return this.client.call<CallResult<"upload">>("interact.upload", {
+      sessionId,
+      ref: input.ref,
+      files: input.files,
+      ...(typeof input.targetId === "string" ? { targetId: input.targetId } : {})
+    });
+  }
+
+  dialog(sessionId: string, input: Parameters<BrowserManagerLike["dialog"]>[1] = {}): ReturnType<BrowserManagerLike["dialog"]> {
+    return this.client.call<CallResult<"dialog">>("page.dialog", {
+      sessionId,
+      action: input.action ?? "status",
+      ...(typeof input.promptText === "string" ? { promptText: input.promptText } : {}),
+      ...(typeof input.targetId === "string" ? { targetId: input.targetId } : {})
     });
   }
 
@@ -357,6 +377,16 @@ export class RemoteManager implements BrowserManagerLike {
       sessionId,
       ...options
     });
+  }
+
+  createSessionInspector(): SessionInspectorHandle {
+    return {
+      status: (sessionId) => this.status(sessionId),
+      listTargets: (sessionId, includeUrls) => this.listTargets(sessionId, includeUrls),
+      consolePoll: (sessionId, sinceSeq, max) => this.consolePoll(sessionId, sinceSeq, max),
+      networkPoll: (sessionId, sinceSeq, max) => this.networkPoll(sessionId, sinceSeq, max),
+      debugTraceSnapshot: (sessionId, options) => this.debugTraceSnapshot(sessionId, options)
+    };
   }
 
   pointerMove(

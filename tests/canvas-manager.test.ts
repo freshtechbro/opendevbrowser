@@ -364,7 +364,7 @@ describe("CanvasManager", () => {
       prototypeId: "proto_home_default"
     }) as Record<string, unknown>;
     expect(preview.renderStatus).toBe("rendered");
-    expect(browserManager.screenshot).toHaveBeenCalledWith("browser-managed", undefined, "tab-preview");
+    expect(browserManager.screenshot).toHaveBeenCalledWith("browser-managed", { targetId: "tab-preview" });
 
     const feedback = await manager.execute("canvas.feedback.poll", {
       canvasSessionId,
@@ -3648,7 +3648,7 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
     });
 
     expect(browserManager.goto).toHaveBeenCalledTimes(1);
-    expect(browserManager.screenshot).toHaveBeenCalledWith("browser-managed", undefined, "tab-preview");
+    expect(browserManager.screenshot).toHaveBeenCalledWith("browser-managed", { targetId: "tab-preview" });
     expect(decodeDataUrl(browserManager.goto.mock.calls[0]?.[1] as string)).toContain('data-preview-prototype-id="proto_home_default"');
     expect(decodeDataUrl(browserManager.goto.mock.calls[0]?.[1] as string)).toContain('<base href="https://example.com/" />');
 

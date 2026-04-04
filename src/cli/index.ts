@@ -3,6 +3,7 @@
 import { parseArgs, detectOutputFormat } from "./args";
 import type { OutputFormat } from "./args";
 import { getHelpText } from "./help";
+import onboardingMetadata from "./onboarding-metadata.json";
 import { registerCommand, getCommand } from "./commands/registry";
 import type { CommandResult } from "./commands/types";
 import { installGlobal } from "./installers/global";
@@ -24,6 +25,7 @@ import { runScriptCommand } from "./commands/run";
 import { runSessionLaunch } from "./commands/session/launch";
 import { runSessionConnect } from "./commands/session/connect";
 import { runSessionDisconnect } from "./commands/session/disconnect";
+import { runSessionInspector } from "./commands/session/inspector";
 import { runStatus } from "./commands/status";
 import { runGoto } from "./commands/nav/goto";
 import { runWait } from "./commands/nav/wait";
@@ -41,6 +43,7 @@ import { runType } from "./commands/interact/type";
 import { runSelect } from "./commands/interact/select";
 import { runScroll } from "./commands/interact/scroll";
 import { runScrollIntoView } from "./commands/interact/scroll-into-view";
+import { runUpload } from "./commands/interact/upload";
 import { runPointerMove } from "./commands/interact/pointer-move";
 import { runPointerDown } from "./commands/interact/pointer-down";
 import { runPointerUp } from "./commands/interact/pointer-up";
@@ -63,6 +66,7 @@ import { runClonePage } from "./commands/export/clone-page";
 import { runCloneComponent } from "./commands/export/clone-component";
 import { runPerf } from "./commands/devtools/perf";
 import { runScreenshot } from "./commands/devtools/screenshot";
+import { runDialog } from "./commands/devtools/dialog";
 import { runConsolePoll } from "./commands/devtools/console-poll";
 import { runNetworkPoll } from "./commands/devtools/network-poll";
 import { runDebugTraceSnapshot } from "./commands/devtools/debug-trace-snapshot";
@@ -362,8 +366,9 @@ async function main(): Promise<void> {
         if (result.success && !result.alreadyInstalled) {
           log("\nNext steps:");
           log("  1. Start or restart OpenCode");
-          log("  2. Use opendevbrowser_status to verify the plugin is loaded");
-          log("\nFor help: npx opendevbrowser --help");
+          log(`  2. Read npx opendevbrowser --help and start with ${onboardingMetadata.quickStartCommands.promptingGuide}`);
+          log(`  3. Or load ${onboardingMetadata.skillName} ${onboardingMetadata.skillTopic} directly via ${onboardingMetadata.quickStartCommands.skillLoad}`);
+          log("  4. Use opendevbrowser_status to verify the plugin is loaded");
         }
 
         return { success: result.success, message: result.message };
@@ -416,6 +421,12 @@ async function main(): Promise<void> {
       name: "status",
       description: "Get daemon or session status",
       run: async () => runStatus(args)
+    });
+
+    registerCommand({
+      name: "session-inspector",
+      description: "Capture a session-first diagnostic summary with relay health and trace proof",
+      run: async () => runSessionInspector(args)
     });
 
     registerCommand({
@@ -512,6 +523,12 @@ async function main(): Promise<void> {
       name: "scroll-into-view",
       description: "Scroll an element into view by ref",
       run: async () => runScrollIntoView(args)
+    });
+
+    registerCommand({
+      name: "upload",
+      description: "Upload files to a file input or chooser by ref",
+      run: async () => runUpload(args)
     });
 
     registerCommand({
@@ -644,6 +661,12 @@ async function main(): Promise<void> {
       name: "screenshot",
       description: "Capture a screenshot",
       run: async () => runScreenshot(args)
+    });
+
+    registerCommand({
+      name: "dialog",
+      description: "Inspect or handle a JavaScript dialog",
+      run: async () => runDialog(args)
     });
 
     registerCommand({

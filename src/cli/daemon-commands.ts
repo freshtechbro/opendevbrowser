@@ -1,16 +1,17 @@
 import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
 import { buildBrowserReviewResult } from "../browser/review-surface";
-import { createConfiguredProviderRuntime } from "../providers/runtime-factory";
+import { inspectSession } from "../browser/session-inspector";
+import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../challenges";
 import {
-  executeMacroResolution,
-  shapeExecutionPayload,
   type MacroExecutionPayload,
   type MacroResolution
 } from "../macros/execute";
+import { executeMacroWithRuntime } from "../macros/execute-runtime";
+import type { RuntimeInit } from "../providers";
 import type { AnnotationDispatchSource, AnnotationPayload } from "../relay/protocol";
 import {
   buildLoopbackSessionRelayEndpoint,
@@ -38,10 +39,15 @@ export type DaemonCommandRequest = {
   params?: Record<string, unknown>;
 };
 
-const createDaemonWorkflowRuntime = (core: OpenDevBrowserCore) => createConfiguredProviderRuntime({
+const createDaemonWorkflowRuntime = (
+  core: OpenDevBrowserCore,
+  options?: { init?: Omit<RuntimeInit, "providers"> }
+) => resolveBundledProviderRuntime({
+  existingRuntime: core.providerRuntime,
   config: core.config,
   manager: core.manager,
-  browserFallbackPort: core.browserFallbackPort
+  browserFallbackPort: core.browserFallbackPort,
+  init: options?.init
 });
 
 export async function handleDaemonCommand(core: OpenDevBrowserCore, request: DaemonCommandRequest): Promise<unknown> {
@@ -116,6 +122,23 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     case "session.status":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.status(requireString(params.sessionId, "sessionId"));
+    case "session.inspect": {
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const inspector = core.manager.createSessionInspector?.();
+      if (!inspector) {
+        throw new Error("Session inspector is unavailable for the current runtime.");
+      }
+      return inspectSession(inspector, {
+        sessionId: requireString(params.sessionId, "sessionId"),
+        includeUrls: optionalBoolean(params.includeUrls) ?? true,
+        sinceConsoleSeq: optionalNumber(params.sinceConsoleSeq, "sinceConsoleSeq") ?? undefined,
+        sinceNetworkSeq: optionalNumber(params.sinceNetworkSeq, "sinceNetworkSeq") ?? undefined,
+        sinceExceptionSeq: optionalNumber(params.sinceExceptionSeq, "sinceExceptionSeq") ?? undefined,
+        max: optionalNumber(params.max, "max") ?? undefined,
+        requestId: optionalString(params.requestId),
+        relayStatus: core.relay.status()
+      });
+    }
     case "annotate": {
       await authorizeSessionCommand(core, params, request.name, bindingId);
       const sessionId = requireString(params.sessionId, "sessionId");
@@ -345,6 +368,16 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireStringArray(params.values, "values"),
         optionalString(params.targetId)
       );
+    case "interact.upload":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.upload(
+        requireString(params.sessionId, "sessionId"),
+        {
+          ref: requireString(params.ref, "ref"),
+          files: requireStringArray(params.files, "files"),
+          ...(typeof params.targetId === "string" ? { targetId: params.targetId } : {})
+        }
+      );
     case "interact.scroll":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.scroll(
@@ -473,8 +506,22 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.screenshot(
         requireString(params.sessionId, "sessionId"),
-        optionalString(params.path),
-        optionalString(params.targetId)
+        {
+          ...(typeof params.path === "string" ? { path: params.path } : {}),
+          ...(typeof params.targetId === "string" ? { targetId: params.targetId } : {}),
+          ...(typeof params.ref === "string" ? { ref: params.ref } : {}),
+          ...(params.fullPage === true ? { fullPage: true } : {})
+        }
+      );
+    case "page.dialog":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.dialog(
+        requireString(params.sessionId, "sessionId"),
+        {
+          ...(typeof params.targetId === "string" ? { targetId: params.targetId } : {}),
+          ...(typeof params.action === "string" ? { action: requireDialogAction(params.action) } : {}),
+          ...(typeof params.promptText === "string" ? { promptText: params.promptText } : {})
+        }
       );
     case "devtools.consolePoll":
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -652,7 +699,8 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         },
         core.config,
         core.manager,
-        core.browserFallbackPort
+        core.browserFallbackPort,
+        core.providerRuntime
       );
     case "research.run":
       return runResearchWorkflow(
@@ -1225,6 +1273,13 @@ function requireStringArray(value: unknown, label: string): string[] {
   return value as string[];
 }
 
+function requireDialogAction(value: unknown): "status" | "accept" | "dismiss" {
+  if (value === "status" || value === "accept" || value === "dismiss") {
+    return value;
+  }
+  throw new Error("Invalid action");
+}
+
 type CookieImportRecord = {
   name: string;
   value: string;
@@ -1605,16 +1660,6 @@ const MIN_WAIT_TIMEOUT_MS = 3000;
 const WAIT_MIN_DELAY_MS = 250;
 const WAIT_MAX_DELAY_MS = 2000;
 const RELAY_STATUS_TIMEOUT_MS = 1500;
-const MACRO_TIMEOUT_MIN_MS = 1_000;
-const MACRO_TIMEOUT_MAX_MS = 300_000;
-
-function clampMacroRuntimeTimeout(timeoutMs: number | undefined): number | null {
-  if (!Number.isFinite(timeoutMs ?? NaN)) {
-    return null;
-  }
-  const parsed = Math.floor(timeoutMs as number);
-  return Math.max(MACRO_TIMEOUT_MIN_MS, Math.min(MACRO_TIMEOUT_MAX_MS, parsed));
-}
 
 function clampWaitTimeout(timeoutMs: number): number {
   if (!Number.isFinite(timeoutMs)) {
@@ -1762,7 +1807,8 @@ async function resolveMacroExpression(
   options: MacroResolveOptions,
   config: Pick<OpenDevBrowserCore["config"], "blockerDetectionThreshold" | "security" | "providers">,
   manager: OpenDevBrowserCore["manager"],
-  browserFallbackPort: OpenDevBrowserCore["browserFallbackPort"]
+  browserFallbackPort: OpenDevBrowserCore["browserFallbackPort"],
+  existingRuntime?: OpenDevBrowserCore["providerRuntime"]
 ): Promise<{
   runtime: "macros" | "fallback";
   resolution: MacroResolution;
@@ -1799,34 +1845,15 @@ async function resolveMacroExpression(
     };
   }
 
-  const macroTimeoutMs = clampMacroRuntimeTimeout(options.timeoutMs);
-  const execution = shapeExecutionPayload(
-    await executeMacroResolution(
-      resolution,
-      createConfiguredProviderRuntime({
-        config,
-        manager,
-        browserFallbackPort,
-        ...(macroTimeoutMs !== null
-          ? {
-            init: {
-              budgets: {
-                timeoutMs: {
-                  search: macroTimeoutMs,
-                  fetch: macroTimeoutMs,
-                  crawl: macroTimeoutMs,
-                  post: macroTimeoutMs
-                }
-              }
-            }
-          }
-          : {})
-      }),
-      {
-        challengeAutomationMode: options.challengeAutomationMode
-      }
-    )
-  );
+  const execution = await executeMacroWithRuntime({
+    resolution,
+    existingRuntime,
+    config,
+    manager,
+    browserFallbackPort,
+    timeoutMs: options.timeoutMs,
+    challengeAutomationMode: options.challengeAutomationMode
+  });
   return {
     runtime: resolvedRuntime,
     resolution,

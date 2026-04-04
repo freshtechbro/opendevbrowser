@@ -21,6 +21,7 @@ import { runGoto } from "../src/cli/commands/nav/goto";
 import { runReview } from "../src/cli/commands/nav/review";
 import { runSnapshot } from "../src/cli/commands/nav/snapshot";
 import { runWait } from "../src/cli/commands/nav/wait";
+import { DEFAULT_CLICK_TRANSPORT_TIMEOUT_MS } from "../src/cli/transport-timeouts";
 
 const { callDaemon } = vi.hoisted(() => ({
   callDaemon: vi.fn()
@@ -53,6 +54,7 @@ const CASES: Array<{
   rawArgs: string[];
   method: string;
   payload: Record<string, unknown>;
+  options?: Record<string, unknown>;
 }> = [
   {
     title: "goto",
@@ -92,7 +94,8 @@ const CASES: Array<{
     run: runClick,
     rawArgs: ["--session-id", "s1", "--ref", "r1", "--target-id", "tab-11"],
     method: "interact.click",
-    payload: { sessionId: "s1", ref: "r1", targetId: "tab-11" }
+    payload: { sessionId: "s1", ref: "r1", targetId: "tab-11" },
+    options: { timeoutMs: DEFAULT_CLICK_TRANSPORT_TIMEOUT_MS }
   },
   {
     title: "hover",
@@ -230,10 +233,39 @@ describe("CLI target-id forwarding", () => {
     callDaemon.mockResolvedValue({});
   });
 
-  it.each(CASES)("passes target-id through $title", async ({ command, run, rawArgs, method, payload }) => {
+  it.each(CASES)("passes target-id through $title", async ({ command, run, rawArgs, method, payload, options }) => {
     await run(makeArgs(command, rawArgs));
 
-    expect(callDaemon).toHaveBeenCalledWith(method, payload);
+    expect(callDaemon).toHaveBeenCalledWith(method, payload, ...(options ? [options] : []));
+  });
+
+  it("forwards click timeout overrides to the daemon client", async () => {
+    await runClick(makeArgs("click", [
+      "--session-id", "s1",
+      "--ref", "r1",
+      "--target-id", "tab-11",
+      "--timeout-ms=15000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "interact.click",
+      {
+        sessionId: "s1",
+        ref: "r1",
+        targetId: "tab-11"
+      },
+      { timeoutMs: 15000 }
+    );
+  });
+
+  it("rejects invalid click timeout values before calling the daemon", async () => {
+    await expect(runClick(makeArgs("click", [
+      "--session-id", "s1",
+      "--ref", "r1",
+      "--timeout-ms", "oops"
+    ]))).rejects.toThrow("Invalid --timeout-ms");
+
+    expect(callDaemon).not.toHaveBeenCalled();
   });
 
   it("forwards snapshot timeout overrides to the daemon client", async () => {

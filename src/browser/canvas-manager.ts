@@ -1765,8 +1765,7 @@ export class CanvasManager implements CanvasManagerLike {
     }
     const screenshot = await this.browserManager.screenshot(
       requireString(session.browserSessionId, "browserSessionId"),
-      undefined,
-      targetId
+      { targetId }
     );
     this.pushFeedback(session, {
       category: "render",
@@ -1876,7 +1875,7 @@ export class CanvasManager implements CanvasManagerLike {
       const previewUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
       await this.browserManager.goto(browserSessionId, previewUrl, "load", 30000, undefined, targetId);
     }
-    const screenshot = await this.browserManager.screenshot(browserSessionId, undefined, targetId);
+    const screenshot = await this.browserManager.screenshot(browserSessionId, { targetId });
     const consoleData = telemetryMode === "paused"
       ? { events: [], nextSeq: 0 }
       : await this.browserManager.consolePoll(browserSessionId, 0, telemetryMode === "sampled" ? 5 : 25);

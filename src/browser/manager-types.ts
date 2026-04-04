@@ -63,6 +63,57 @@ export type BrowserBlockerResolutionMeta = {
 
 export type BrowserChallengeMeta = SessionChallengeSummary;
 
+export type BrowserScreenshotOptions = {
+  targetId?: string | null;
+  path?: string;
+  ref?: string;
+  fullPage?: boolean;
+};
+
+export type BrowserScreenshotResult = {
+  path?: string;
+  base64?: string;
+  warnings?: string[];
+};
+
+export type BrowserUploadInput = {
+  targetId?: string | null;
+  ref: string;
+  files: string[];
+};
+
+export type BrowserUploadResult = {
+  targetId?: string;
+  fileCount: number;
+  mode: "direct_input" | "file_chooser";
+  warnings?: string[];
+};
+
+export type BrowserDialogAction = "status" | "accept" | "dismiss";
+
+export type BrowserDialogType = "alert" | "confirm" | "prompt" | "beforeunload";
+
+export type BrowserDialogInput = {
+  targetId?: string | null;
+  action?: BrowserDialogAction;
+  promptText?: string;
+};
+
+export type BrowserDialogState = {
+  open: boolean;
+  targetId?: string;
+  type?: BrowserDialogType;
+  message?: string;
+  defaultPrompt?: string;
+  url?: string;
+  openedAt?: string;
+};
+
+export type BrowserDialogResult = {
+  dialog: BrowserDialogState;
+  handled?: boolean;
+};
+
 export type BrowserResponseMeta = {
   blocker?: BlockerSignalV1;
   blockerState: "clear" | "active" | "resolving";
@@ -70,6 +121,7 @@ export type BrowserResponseMeta = {
   blockerResolution?: BrowserBlockerResolutionMeta;
   challenge?: BrowserChallengeMeta;
   challengeOrchestration?: ChallengeOrchestrationSnapshot;
+  dialog?: BrowserDialogState;
 };
 
 export type BrowserReviewResult = {
@@ -120,6 +172,8 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "cloneComponent"
   | "perfMetrics"
   | "screenshot"
+  | "upload"
+  | "dialog"
   | "consolePoll"
   | "networkPoll"
   | "debugTraceSnapshot"
@@ -179,6 +233,7 @@ export type BrowserManagerLike = Pick<BrowserManager,
     mode?: ChallengeAutomationMode
   ) => void;
   createChallengeRuntimeHandle?: () => ChallengeRuntimeHandle;
+  createSessionInspector?: () => SessionInspectorHandle;
   clonePageHtmlWithOptions?: (
     sessionId: string,
     targetId?: string | null,
@@ -190,6 +245,14 @@ export type BrowserManagerLike = Pick<BrowserManager,
     options?: BrowserClonePageOptions
   ) => ReturnType<BrowserManager["clonePage"]>;
 };
+
+export type SessionInspectorHandle = Pick<BrowserManagerLike,
+  | "status"
+  | "listTargets"
+  | "consolePoll"
+  | "networkPoll"
+  | "debugTraceSnapshot"
+>;
 
 export type ChallengeRuntimeHandle = Pick<BrowserManagerLike,
   | "status"

@@ -36,6 +36,10 @@ describe("screenshot CLI command", () => {
     ]);
     expect(parsed).toEqual({
       sessionId: "s1",
+      targetId: undefined,
+      path: undefined,
+      ref: undefined,
+      fullPage: false,
       timeoutMs: 45000
     });
   });
@@ -49,7 +53,37 @@ describe("screenshot CLI command", () => {
     expect(parsed).toEqual({
       sessionId: "s1",
       targetId: "tab-11",
+      path: undefined,
+      ref: undefined,
+      fullPage: false,
       timeoutMs: 45000
+    });
+  });
+
+  it("parses ref and full-page flags", () => {
+    expect(__test__.parseScreenshotArgs([
+      "--session-id=s1",
+      "--ref",
+      "r4"
+    ])).toEqual({
+      sessionId: "s1",
+      targetId: undefined,
+      path: undefined,
+      ref: "r4",
+      fullPage: false,
+      timeoutMs: undefined
+    });
+
+    expect(__test__.parseScreenshotArgs([
+      "--session-id=s1",
+      "--full-page"
+    ])).toEqual({
+      sessionId: "s1",
+      targetId: undefined,
+      path: undefined,
+      ref: undefined,
+      fullPage: true,
+      timeoutMs: undefined
     });
   });
 
@@ -89,7 +123,36 @@ describe("screenshot CLI command", () => {
 
     expect(callDaemon).toHaveBeenCalledWith(
       "page.screenshot",
-      { sessionId: "s1", path: undefined, targetId: "tab-11" }
+      { sessionId: "s1", targetId: "tab-11" }
+    );
+  });
+
+  it("passes ref and full-page through screenshot calls", async () => {
+    callDaemon.mockResolvedValue({ base64: "image" });
+
+    await runScreenshot(makeArgs([
+      "--session-id",
+      "s1",
+      "--ref",
+      "r4"
+    ]));
+
+    expect(callDaemon).toHaveBeenNthCalledWith(
+      1,
+      "page.screenshot",
+      { sessionId: "s1", ref: "r4" }
+    );
+
+    await runScreenshot(makeArgs([
+      "--session-id",
+      "s1",
+      "--full-page"
+    ]));
+
+    expect(callDaemon).toHaveBeenNthCalledWith(
+      2,
+      "page.screenshot",
+      { sessionId: "s1", fullPage: true }
     );
   });
 
@@ -103,7 +166,7 @@ describe("screenshot CLI command", () => {
 
     expect(callDaemon).toHaveBeenCalledWith(
       "page.screenshot",
-      { sessionId: "s1", path: undefined }
+      { sessionId: "s1" }
     );
   });
 
@@ -118,5 +181,15 @@ describe("screenshot CLI command", () => {
 
   it("requires --session-id", async () => {
     await expect(runScreenshot(makeArgs([]))).rejects.toThrow("Missing --session-id");
+  });
+
+  it("rejects --ref with --full-page", () => {
+    expect(() => __test__.parseScreenshotArgs([
+      "--session-id",
+      "s1",
+      "--ref",
+      "r1",
+      "--full-page"
+    ])).toThrow("Choose either --ref or --full-page.");
   });
 });

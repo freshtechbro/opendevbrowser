@@ -40,9 +40,30 @@ export type OpsSyntheticTargetRecord = {
   attachedAt: number;
 };
 
+export type OpsDialogType = "alert" | "confirm" | "prompt" | "beforeunload";
+
+export type OpsDialogState = {
+  open: boolean;
+  targetId: string;
+  type?: OpsDialogType;
+  message?: string;
+  defaultPrompt?: string;
+  url?: string;
+  openedAt?: string;
+};
+
+export type OpsFileChooserState = {
+  open: boolean;
+  targetId: string;
+  backendNodeId?: number;
+  openedAt?: string;
+};
+
 type OpsSessionExtra = {
   refStore: OpsRefStore;
   syntheticTargets: Map<string, OpsSyntheticTargetRecord>;
+  dialogs: Map<string, OpsDialogState>;
+  fileChoosers: Map<string, OpsFileChooserState>;
   consoleEvents: OpsConsoleEvent[];
   networkEvents: OpsNetworkEvent[];
   networkRequests: Map<string, { method: string; url: string; resourceType?: string }>;
@@ -125,6 +146,8 @@ export class OpsSessionStore {
     return this.coordinator.createSession(ownerClientId, tabId, leaseId, info, {
       refStore: new OpsRefStore(),
       syntheticTargets: new Map(),
+      dialogs: new Map(),
+      fileChoosers: new Map(),
       consoleEvents: [],
       networkEvents: [],
       networkRequests: new Map(),
@@ -172,6 +195,8 @@ export class OpsSessionStore {
     session.targetQueueOldestAt.delete(targetId);
     session.refStore.clearTarget(targetId);
     session.syntheticTargets.delete(targetId);
+    session.dialogs.delete(targetId);
+    session.fileChoosers.delete(targetId);
     return target;
   }
 
@@ -241,7 +266,37 @@ export class OpsSessionStore {
     }
     session.syntheticTargets.delete(targetId);
     session.refStore.clearTarget(targetId);
+    session.dialogs.delete(targetId);
+    session.fileChoosers.delete(targetId);
     return existing;
+  }
+
+  getDialog(sessionId: string, targetId: string): OpsDialogState | null {
+    return this.requireSession(sessionId).dialogs.get(targetId) ?? null;
+  }
+
+  setDialog(sessionId: string, targetId: string, dialog: OpsDialogState): OpsDialogState {
+    const session = this.requireSession(sessionId);
+    session.dialogs.set(targetId, dialog);
+    return dialog;
+  }
+
+  clearDialog(sessionId: string, targetId: string): void {
+    this.requireSession(sessionId).dialogs.delete(targetId);
+  }
+
+  getFileChooser(sessionId: string, targetId: string): OpsFileChooserState | null {
+    return this.requireSession(sessionId).fileChoosers.get(targetId) ?? null;
+  }
+
+  setFileChooser(sessionId: string, targetId: string, chooser: OpsFileChooserState): OpsFileChooserState {
+    const session = this.requireSession(sessionId);
+    session.fileChoosers.set(targetId, chooser);
+    return chooser;
+  }
+
+  clearFileChooser(sessionId: string, targetId: string): void {
+    this.requireSession(sessionId).fileChoosers.delete(targetId);
   }
 
   requireSession(sessionId: string): OpsSession {

@@ -12,6 +12,15 @@ const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
 };
 
+const emitRoutedRuntimeEvent = (
+  runtime: OpsRuntime,
+  event: { tabId: number; method: string; params?: unknown; sessionId?: string }
+): void => {
+  (runtime as unknown as {
+    handleCdpRouterEvent: (event: { tabId: number; method: string; params?: unknown; sessionId?: string }) => void;
+  }).handleCdpRouterEvent(event);
+};
+
 const createPopupRuntimeHarness = async (): Promise<{
   mock: ReturnType<typeof createChromeMock>;
   router: CDPRouter;
@@ -1199,6 +1208,737 @@ describe("OpsRuntime target teardown", () => {
             type: "ops_response",
             requestId: "req-click-real-input",
             payload: expect.objectContaining({ navigated: false })
+          })
+        ])
+      );
+    });
+  });
+
+  it("handles page.dialog while an interact.click is still pending on the same target", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }> = [];
+    let releaseClick: (() => void) | null = null;
+    const clickReleased = new Promise<void>((resolve) => {
+      releaseClick = resolve;
+    });
+    const sendCommand = vi.fn(async (_debuggee: chrome.debugger.Debuggee, method: string, params?: Record<string, unknown>) => {
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: "node-1" } };
+      }
+      if (method === "DOM.getBoxModel") {
+        return {
+          model: {
+            content: [10, 20, 30, 20, 30, 40, 10, 40]
+          }
+        };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        return { result: { value: undefined } };
+      }
+      if (method === "Input.dispatchMouseEvent") {
+        if (params?.type === "mouseReleased") {
+          await clickReleased;
+        }
+        return {};
+      }
+      if (method === "Page.handleJavaScriptDialog") {
+        releaseClick?.();
+        return {};
+      }
+      return {};
+    });
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string; retryable?: boolean; message?: string } }),
+      cdp: {
+        detachTab: vi.fn(async () => undefined),
+        sendCommand
+      } as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", {
+      url: "https://example.com/root",
+      title: "Root Page"
+    });
+    session.refStore.setSnapshot("tab-101", [{
+      ref: "r1",
+      selector: "#open-dialog",
+      backendNodeId: 3,
+      role: "button",
+      name: "Open Dialog"
+    }]);
+    sessions.setDialog(session.id, "tab-101", {
+      open: true,
+      targetId: "tab-101",
+      type: "alert",
+      message: "I am a JS Alert"
+    });
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockResolvedValue({
+      id: 101,
+      url: "https://example.com/root",
+      title: "Root Page",
+      status: "complete"
+    } as chrome.tabs.Tab);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-click-pending-dialog",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "interact.click",
+      payload: {
+        ref: "r1"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommand).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Input.dispatchMouseEvent",
+        expect.objectContaining({ type: "mouseReleased", x: 20, y: 30, button: "left", clickCount: 1 })
+      );
+    });
+    expect(sent.some((message) => message.requestId === "req-click-pending-dialog" && message.type === "ops_response")).toBe(false);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-status-pending-click",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {}
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-status-pending-click",
+            payload: {
+              dialog: {
+                open: true,
+                targetId: "tab-101",
+                type: "alert",
+                message: "I am a JS Alert"
+              }
+            }
+          })
+        ])
+      );
+    });
+    expect(sent.some((message) => message.requestId === "req-click-pending-dialog" && message.type === "ops_response")).toBe(false);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-accept-pending-click",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {
+        action: "accept"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommand).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Page.handleJavaScriptDialog",
+        { accept: true }
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-accept-pending-click",
+            payload: {
+              dialog: { open: false, targetId: "tab-101" },
+              handled: true
+            }
+          }),
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-click-pending-dialog",
+            payload: expect.objectContaining({ navigated: false })
+          })
+        ])
+      );
+    });
+  });
+
+  it("maps Page.javascriptDialogOpening from the attached root session while interact.click is still pending", async () => {
+    const { runtime, sent, session, rootSessionId } = await createPopupRuntimeHarness();
+    let releaseClick: (() => void) | null = null;
+    const clickReleased = new Promise<void>((resolve) => {
+      releaseClick = resolve;
+    });
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      void debuggee;
+      if (method === "DOM.resolveNode") {
+        callback({ object: { objectId: "node-1" } });
+        return;
+      }
+      if (method === "DOM.getBoxModel") {
+        callback({
+          model: {
+            content: [10, 20, 30, 20, 30, 40, 10, 40]
+          }
+        });
+        return;
+      }
+      if (method === "Runtime.callFunctionOn") {
+        callback({ result: { value: undefined } });
+        return;
+      }
+      if (method === "Input.dispatchMouseEvent") {
+        if ((params as { type?: unknown }).type === "mouseReleased") {
+          void clickReleased.then(() => callback({}));
+          return;
+        }
+        callback({});
+        return;
+      }
+      if (method === "Page.handleJavaScriptDialog") {
+        releaseClick?.();
+        callback({});
+        return;
+      }
+      callback({});
+    });
+
+    session.refStore.setSnapshot(session.targetId, [{
+      ref: "r1",
+      selector: "#open-dialog",
+      backendNodeId: 3,
+      role: "button",
+      name: "Open Dialog"
+    }]);
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockResolvedValue({
+      id: 101,
+      url: "https://example.com/root",
+      title: "Root Page",
+      status: "complete"
+    } as chrome.tabs.Tab);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-click-pending-root-session-dialog",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "interact.click",
+      payload: {
+        ref: "r1"
+      }
+    });
+
+    let mouseReleasedDebuggee: chrome.debugger.Debuggee | null = null;
+    await vi.waitFor(() => {
+      const mouseReleasedCall = sendCommandMock.mock.calls.find(([, method, params]) => (
+        method === "Input.dispatchMouseEvent"
+        && (params as { type?: unknown }).type === "mouseReleased"
+      ));
+      expect(mouseReleasedCall).toBeDefined();
+      mouseReleasedDebuggee = mouseReleasedCall?.[0] as chrome.debugger.Debuggee;
+      expect(mouseReleasedDebuggee).toEqual(
+        expect.objectContaining({ targetId: "target-101" })
+      );
+    });
+    expect(sent.some((message) => message.requestId === "req-click-pending-root-session-dialog" && message.type === "ops_response")).toBe(false);
+
+    emitRoutedRuntimeEvent(runtime, {
+      tabId: session.tabId,
+      sessionId: rootSessionId,
+      method: "Page.javascriptDialogOpening",
+      params: {
+        type: "alert",
+        message: "I am a JS Alert",
+        url: "https://example.com/root"
+      }
+    });
+    await flushMicrotasks();
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-status-root-session",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {}
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-status-root-session",
+            payload: {
+              dialog: expect.objectContaining({
+                open: true,
+                targetId: session.targetId,
+                type: "alert",
+                message: "I am a JS Alert",
+                url: "https://example.com/root"
+              })
+            }
+          })
+        ])
+      );
+    });
+    expect(sent.some((message) => message.requestId === "req-click-pending-root-session-dialog" && message.type === "ops_response")).toBe(false);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-accept-root-session",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {
+        action: "accept"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        expect.objectContaining(mouseReleasedDebuggee ?? {}),
+        "Page.handleJavaScriptDialog",
+        { accept: true },
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-accept-root-session",
+            payload: {
+              dialog: { open: false, targetId: session.targetId },
+              handled: true
+            }
+          }),
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-click-pending-root-session-dialog",
+            payload: expect.objectContaining({ navigated: false })
+          })
+        ])
+      );
+    });
+  });
+
+  it("handles dialog events when Chrome reports an unknown source session but preserves the attached root tab id while interact.click is pending", async () => {
+    const { runtime, sent, session } = await createPopupRuntimeHarness();
+    let releaseClick: (() => void) | null = null;
+    const clickReleased = new Promise<void>((resolve) => {
+      releaseClick = resolve;
+    });
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      void debuggee;
+      if (method === "DOM.resolveNode") {
+        callback({ object: { objectId: "node-1" } });
+        return;
+      }
+      if (method === "DOM.getBoxModel") {
+        callback({
+          model: {
+            content: [10, 20, 30, 20, 30, 40, 10, 40]
+          }
+        });
+        return;
+      }
+      if (method === "Runtime.callFunctionOn") {
+        callback({ result: { value: undefined } });
+        return;
+      }
+      if (method === "Input.dispatchMouseEvent") {
+        if ((params as { type?: unknown }).type === "mouseReleased") {
+          void clickReleased.then(() => callback({}));
+          return;
+        }
+        callback({});
+        return;
+      }
+      if (method === "Page.handleJavaScriptDialog") {
+        releaseClick?.();
+        callback({});
+        return;
+      }
+      callback({});
+    });
+
+    session.refStore.setSnapshot(session.targetId, [{
+      ref: "r1",
+      selector: "#open-dialog",
+      backendNodeId: 3,
+      role: "button",
+      name: "Open Dialog"
+    }]);
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockResolvedValue({
+      id: 101,
+      url: "https://example.com/root",
+      title: "Root Page",
+      status: "complete"
+    } as chrome.tabs.Tab);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-click-pending-unknown-root-session-dialog",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "interact.click",
+      payload: {
+        ref: "r1"
+      }
+    });
+
+    let mouseReleasedDebuggee: chrome.debugger.Debuggee | null = null;
+    await vi.waitFor(() => {
+      const mouseReleasedCall = sendCommandMock.mock.calls.find(([, method, params]) => (
+        method === "Input.dispatchMouseEvent"
+        && (params as { type?: unknown }).type === "mouseReleased"
+      ));
+      expect(mouseReleasedCall).toBeDefined();
+      mouseReleasedDebuggee = mouseReleasedCall?.[0] as chrome.debugger.Debuggee;
+      expect(mouseReleasedDebuggee).toEqual(
+        expect.objectContaining({ targetId: "target-101" })
+      );
+    });
+    expect(sent.some((message) => message.requestId === "req-click-pending-unknown-root-session-dialog" && message.type === "ops_response")).toBe(false);
+
+    emitRoutedRuntimeEvent(runtime, {
+      tabId: session.tabId,
+      method: "Page.javascriptDialogOpening",
+      params: {
+        type: "alert",
+        message: "I am a JS Alert",
+        url: "https://example.com/root"
+      }
+    });
+    await flushMicrotasks();
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-status-unknown-root-session",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {}
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-status-unknown-root-session",
+            payload: {
+              dialog: expect.objectContaining({
+                open: true,
+                targetId: session.targetId,
+                type: "alert",
+                message: "I am a JS Alert",
+                url: "https://example.com/root"
+              })
+            }
+          })
+        ])
+      );
+    });
+    expect(sent.some((message) => message.requestId === "req-click-pending-unknown-root-session-dialog" && message.type === "ops_response")).toBe(false);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-accept-unknown-root-session",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {
+        action: "accept"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        expect.objectContaining(mouseReleasedDebuggee ?? {}),
+        "Page.handleJavaScriptDialog",
+        { accept: true },
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-accept-unknown-root-session",
+            payload: {
+              dialog: { open: false, targetId: session.targetId },
+              handled: true
+            }
+          }),
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-click-pending-unknown-root-session-dialog",
+            payload: expect.objectContaining({ navigated: false })
+          })
+        ])
+      );
+    });
+  });
+
+  it("handles dialog events when Chrome reports only an unknown source session while interact.click is pending on a single attached tab", async () => {
+    const { mock, runtime, sent, session } = await createPopupRuntimeHarness();
+    let releaseClick: (() => void) | null = null;
+    const clickReleased = new Promise<void>((resolve) => {
+      releaseClick = resolve;
+    });
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    sendCommandMock.mockClear();
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+      void debuggee;
+      if (method === "DOM.resolveNode") {
+        callback({ object: { objectId: "node-1" } });
+        return;
+      }
+      if (method === "DOM.getBoxModel") {
+        callback({
+          model: {
+            content: [10, 20, 30, 20, 30, 40, 10, 40]
+          }
+        });
+        return;
+      }
+      if (method === "Runtime.callFunctionOn") {
+        callback({ result: { value: undefined } });
+        return;
+      }
+      if (method === "Input.dispatchMouseEvent") {
+        if ((params as { type?: unknown }).type === "mouseReleased") {
+          void clickReleased.then(() => callback({}));
+          return;
+        }
+        callback({});
+        return;
+      }
+      if (method === "Page.handleJavaScriptDialog") {
+        releaseClick?.();
+        callback({});
+        return;
+      }
+      callback({});
+    });
+
+    session.refStore.setSnapshot(session.targetId, [{
+      ref: "r1",
+      selector: "#open-dialog",
+      backendNodeId: 3,
+      role: "button",
+      name: "Open Dialog"
+    }]);
+
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockResolvedValue({
+      id: 101,
+      url: "https://example.com/root",
+      title: "Root Page",
+      status: "complete"
+    } as chrome.tabs.Tab);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-click-pending-unknown-session-only-dialog",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "interact.click",
+      payload: {
+        ref: "r1"
+      }
+    });
+
+    let mouseReleasedDebuggee: chrome.debugger.Debuggee | null = null;
+    await vi.waitFor(() => {
+      const mouseReleasedCall = sendCommandMock.mock.calls.find(([, method, params]) => (
+        method === "Input.dispatchMouseEvent"
+        && (params as { type?: unknown }).type === "mouseReleased"
+      ));
+      expect(mouseReleasedCall).toBeDefined();
+      mouseReleasedDebuggee = mouseReleasedCall?.[0] as chrome.debugger.Debuggee;
+      expect(mouseReleasedDebuggee).toEqual(
+        expect.objectContaining({ targetId: "target-101" })
+      );
+    });
+    expect(sent.some((message) => message.requestId === "req-click-pending-unknown-session-only-dialog" && message.type === "ops_response")).toBe(false);
+
+    mock.emitDebuggerEvent(
+      { sessionId: "unknown-root-session" },
+      "Page.javascriptDialogOpening",
+      {
+        type: "alert",
+        message: "I am a JS Alert",
+        url: "https://example.com/root"
+      }
+    );
+    await flushMicrotasks();
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-status-unknown-session-only",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {}
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-status-unknown-session-only",
+            payload: {
+              dialog: expect.objectContaining({
+                open: true,
+                targetId: session.targetId,
+                type: "alert",
+                message: "I am a JS Alert",
+                url: "https://example.com/root"
+              })
+            }
+          })
+        ])
+      );
+    });
+    expect(sent.some((message) => message.requestId === "req-click-pending-unknown-session-only-dialog" && message.type === "ops_response")).toBe(false);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-accept-unknown-session-only",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {
+        action: "accept"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommandMock).toHaveBeenCalledWith(
+        expect.objectContaining(mouseReleasedDebuggee ?? {}),
+        "Page.handleJavaScriptDialog",
+        { accept: true },
+        expect.any(Function)
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-accept-unknown-session-only",
+            payload: {
+              dialog: { open: false, targetId: session.targetId },
+              handled: true
+            }
+          }),
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-click-pending-unknown-session-only-dialog",
+            payload: expect.objectContaining({ navigated: false })
+          })
+        ])
+      );
+    });
+  });
+
+  it("clears routed dialog state when Page.javascriptDialogClosed is forwarded for the same target", async () => {
+    const { runtime, sent, session, rootSessionId } = await createPopupRuntimeHarness();
+
+    emitRoutedRuntimeEvent(runtime, {
+      tabId: session.tabId,
+      sessionId: rootSessionId,
+      method: "Page.javascriptDialogOpening",
+      params: {
+        type: "alert",
+        message: "I am a JS Alert",
+        url: "https://example.com/root"
+      }
+    });
+    await flushMicrotasks();
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-status-before-routed-close",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {}
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-status-before-routed-close",
+            payload: {
+              dialog: expect.objectContaining({
+                open: true,
+                targetId: session.targetId,
+                type: "alert",
+                message: "I am a JS Alert"
+              })
+            }
+          })
+        ])
+      );
+    });
+
+    emitRoutedRuntimeEvent(runtime, {
+      tabId: session.tabId,
+      sessionId: rootSessionId,
+      method: "Page.javascriptDialogClosed"
+    });
+    await flushMicrotasks();
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-dialog-status-after-routed-close",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.dialog",
+      payload: {}
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-dialog-status-after-routed-close",
+            payload: {
+              dialog: {
+                open: false,
+                targetId: session.targetId
+              }
+            }
           })
         ])
       );
@@ -4947,6 +5687,74 @@ describe("OpsRuntime target teardown", () => {
         })
       ])
     );
+  });
+
+  it("enables page domains on the attached root debuggee during session.launch", async () => {
+    const cdp = {
+      attach: vi.fn(async () => undefined),
+      detachTab: vi.fn(async () => undefined),
+      setDiscoverTargetsEnabled: vi.fn(async () => undefined),
+      configureAutoAttach: vi.fn(async () => undefined),
+      primeAttachedRootSession: vi.fn(async () => undefined),
+      getTabDebuggee: vi.fn((tabId: number) => (
+        tabId === 202
+          ? { tabId: 202, sessionId: "root-session-202", targetId: "target-202", attachBy: "targetId" as const }
+          : null
+      )),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 202,
+      status: "complete",
+      url: "https://example.com/recovered",
+      title: "Recovered Tab"
+    } as chrome.tabs.Tab);
+
+    const runtime = new OpsRuntime({
+      send: () => undefined,
+      cdp: cdp as never
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-session-attached-root-domains",
+      clientId: "client-1",
+      command: "session.launch",
+      payload: {
+        tabId: 202
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(cdp.primeAttachedRootSession).toHaveBeenCalledWith(202);
+      expect(cdp.sendCommand).toHaveBeenCalledWith(
+        { tabId: 202, sessionId: "root-session-202", targetId: "target-202", attachBy: "targetId" },
+        "Page.enable",
+        {}
+      );
+      expect(cdp.sendCommand).toHaveBeenCalledWith(
+        { tabId: 202, sessionId: "root-session-202", targetId: "target-202", attachBy: "targetId" },
+        "Page.setInterceptFileChooserDialog",
+        { enabled: true }
+      );
+      expect(cdp.sendCommand).toHaveBeenCalledWith(
+        { tabId: 202, sessionId: "root-session-202", targetId: "target-202", attachBy: "targetId" },
+        "Runtime.enable",
+        {}
+      );
+      expect(cdp.sendCommand).toHaveBeenCalledWith(
+        { tabId: 202, sessionId: "root-session-202", targetId: "target-202", attachBy: "targetId" },
+        "Network.enable",
+        {}
+      );
+      expect(cdp.sendCommand).toHaveBeenCalledWith(
+        { tabId: 202, sessionId: "root-session-202", targetId: "target-202", attachBy: "targetId" },
+        "Performance.enable",
+        {}
+      );
+    });
   });
 
   it("retries a blocked attach during session.launch before returning cdp_attach_failed", async () => {

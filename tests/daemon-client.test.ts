@@ -405,6 +405,146 @@ describe("daemon-client error parsing", () => {
     expect(calls[2]?.params.leaseId).toBeUndefined();
   });
 
+  it("keeps the original click call alive while a second client handles the dialog", async () => {
+    const calls: Array<{ name: string; params: Record<string, unknown> }> = [];
+    let resolveClickResponse: (() => void) | null = null;
+
+    fetchSpy = vi.fn((_url, options) => {
+      const body = JSON.parse(String(options?.body ?? "{}")) as { name?: string; params?: Record<string, unknown> };
+      const name = body.name ?? "unknown";
+      const params = body.params ?? {};
+      calls.push({ name, params });
+
+      if (name === "interact.click") {
+        return new Promise<Response>((resolve, reject) => {
+          const signal = options?.signal as AbortSignal | undefined;
+          resolveClickResponse = () => {
+            resolve(new Response(JSON.stringify({ ok: true, data: { ok: true } }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" }
+            }));
+          };
+          signal?.addEventListener("abort", () => {
+            const error = new Error("aborted");
+            Object.assign(error, { name: "AbortError" });
+            reject(error);
+          }, { once: true });
+        });
+      }
+
+      if (name === "page.dialog" && params.action === "status") {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          data: {
+            dialog: {
+              open: true,
+              targetId: "target-1",
+              type: "alert",
+              message: "I am a JS Alert"
+            }
+          }
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+
+      if (name === "page.dialog" && params.action === "accept") {
+        resolveClickResponse?.();
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          data: {
+            dialog: { open: false, targetId: "target-1" },
+            handled: true
+          }
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+
+      return Promise.resolve(new Response("Unexpected request", { status: 500 }));
+    }) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    const firstClient = new DaemonClient({ autoRenew: false });
+    const secondClient = new DaemonClient({ autoRenew: false });
+
+    const clickPromise = firstClient.call("interact.click", {
+      sessionId: "session-1",
+      ref: "r1"
+    }, { timeoutMs: 30_000 });
+    await Promise.resolve();
+
+    await expect(secondClient.call("page.dialog", {
+      sessionId: "session-1",
+      action: "status"
+    }, { timeoutMs: 30_000 })).resolves.toEqual({
+      dialog: {
+        open: true,
+        targetId: "target-1",
+        type: "alert",
+        message: "I am a JS Alert"
+      }
+    });
+
+    await expect(secondClient.call("page.dialog", {
+      sessionId: "session-1",
+      action: "accept"
+    }, { timeoutMs: 30_000 })).resolves.toEqual({
+      dialog: { open: false, targetId: "target-1" },
+      handled: true
+    });
+
+    await expect(clickPromise).resolves.toEqual({ ok: true });
+    expect(calls.map((entry) => entry.name)).toEqual([
+      "interact.click",
+      "page.dialog",
+      "page.dialog"
+    ]);
+  });
+
+  it("allows payload timeout hints to use buffered transport timeouts", async () => {
+    vi.useFakeTimers();
+
+    fetchSpy = vi.fn((_url, options) => {
+      return new Promise<Response>((resolve, reject) => {
+        const signal = options?.signal as AbortSignal | undefined;
+        const timer = setTimeout(() => {
+          resolve(new Response(JSON.stringify({ ok: true, data: { ok: true } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }));
+        }, 15_100);
+        signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          const error = new Error("aborted");
+          Object.assign(error, { name: "AbortError" });
+          reject(error);
+        }, { once: true });
+      });
+    }) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    try {
+      const client = new DaemonClient({ autoRenew: false });
+      const pending = client.call("interact.click", {
+        sessionId: "session-1",
+        ref: "r1",
+        timeoutMs: 15_000
+      });
+
+      await vi.advanceTimersByTimeAsync(15_100);
+
+      await expect(pending).resolves.toEqual({ ok: true });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("times out when a success response body never resolves after headers arrive", async () => {
     vi.useFakeTimers();
     const cancel = vi.fn(async () => undefined);

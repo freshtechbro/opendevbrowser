@@ -10,6 +10,10 @@ describe("daemon-client timeout derivation", () => {
     expect(__test__.deriveTransportTimeoutMs({ timeoutMs: 45_000 }, undefined)).toBe(50_000);
   });
 
+  it("derives transport timeout from payload timeout hints with buffer", () => {
+    expect(__test__.deriveTransportTimeoutMs({ timeoutMs: 15_000 }, undefined)).toBe(20_000);
+  });
+
   it("derives transport timeout from waitTimeoutMs with buffer", () => {
     expect(__test__.deriveTransportTimeoutMs({ waitTimeoutMs: 30_000 }, undefined)).toBe(35_000);
   });

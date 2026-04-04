@@ -29,8 +29,20 @@ type RelayStatus = {
   annotationConnected: boolean;
   opsConnected: boolean;
   pairingRequired: boolean;
+  health: { ok: boolean };
   instanceId: string;
 };
+
+function createDeferred<T = void>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
 
 const makeConfig = (overrides: Partial<OpenDevBrowserConfig> = {}): OpenDevBrowserConfig => ({
   headless: true,
@@ -73,7 +85,8 @@ const makeCore = (overrides: {
     annotationConnected: false,
     opsConnected: false,
     pairingRequired: false,
-  instanceId: "relay-test",
+    health: { ok: true },
+    instanceId: "relay-test",
     ...overrides.relayStatus
   };
   const inboxRoot = mkdtempSync(join(tmpdir(), "odb-daemon-agent-inbox-"));
@@ -84,6 +97,8 @@ const makeCore = (overrides: {
     goto: vi.fn(),
     waitForLoad: vi.fn(),
     waitForRef: vi.fn(),
+    click: vi.fn(),
+    dialog: vi.fn(),
     consolePoll: vi.fn(),
     networkPoll: vi.fn(),
     withPage: vi.fn(async (
@@ -222,6 +237,143 @@ describe("daemon-commands integration", () => {
       name: "annotate",
       params: { sessionId: "session-1", clientId: "client-1" }
     })).rejects.toThrow("RELAY_BINDING_REQUIRED");
+  });
+
+  it("routes session.inspect through the daemon with default includeUrls and relay status", async () => {
+    const core = makeCore({
+      relayStatus: {
+        running: true,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: true,
+        opsConnected: true,
+        pairingRequired: false,
+        health: { ok: true },
+        instanceId: "relay-inspect"
+      }
+    });
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1", url: "https://example.com", title: "Example" });
+    const inspector = {
+      status: vi.fn(async () => ({ mode: "managed", activeTargetId: "target-1", url: "https://example.com", title: "Example" })),
+      listTargets: vi.fn(async (_sessionId: string, includeUrls: boolean) => ({
+        activeTargetId: "target-1",
+        targets: includeUrls
+          ? [{ targetId: "target-1", type: "page", url: "https://example.com" }]
+          : [{ targetId: "target-1", type: "page" }]
+      })),
+      consolePoll: vi.fn(async () => ({ events: [], nextSeq: 0 })),
+      networkPoll: vi.fn(async () => ({ events: [], nextSeq: 0 })),
+      debugTraceSnapshot: vi.fn(async (_sessionId: string, options: {
+        sinceConsoleSeq?: number;
+        sinceNetworkSeq?: number;
+        sinceExceptionSeq?: number;
+        max?: number;
+        requestId?: string;
+      }) => ({
+        requestId: options.requestId ?? "inspect-request",
+        generatedAt: "2026-04-04T00:00:00.000Z",
+        page: { url: "https://example.com", title: "Example" },
+        channels: {
+          console: { events: [], nextSeq: 0, truncated: false },
+          network: { events: [], nextSeq: 0, truncated: false }
+        },
+        meta: { blockerState: "clear" }
+      }))
+    };
+    const createSessionInspector = vi.fn(() => inspector);
+    (core.manager as typeof core.manager & { createSessionInspector: typeof createSessionInspector }).createSessionInspector = createSessionInspector;
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.inspect",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        sinceConsoleSeq: 4,
+        sinceNetworkSeq: 5,
+        sinceExceptionSeq: 6,
+        max: 7,
+        requestId: "inspect-request"
+      }
+    }) as {
+      session: { mode: string; activeTargetId: string | null };
+      relay: { running: boolean; opsConnected: boolean; health: { ok: boolean } } | null;
+      targets: { activeTargetId: string | null; count: number; items: Array<{ targetId: string; type: string }> };
+      proofArtifact: { requestId: string | null; blockerState: string };
+      healthState: string;
+      suggestedNextAction: string;
+    };
+
+    expect(createSessionInspector).toHaveBeenCalledTimes(1);
+    expect(inspector.listTargets).toHaveBeenCalledWith("session-1", true);
+    expect(inspector.debugTraceSnapshot).toHaveBeenCalledWith("session-1", {
+      sinceConsoleSeq: 4,
+      sinceNetworkSeq: 5,
+      sinceExceptionSeq: 6,
+      max: 7,
+      requestId: "inspect-request"
+    });
+    expect(response).toMatchObject({
+      session: { mode: "managed", activeTargetId: "target-1" },
+      relay: { running: true, opsConnected: true, health: { ok: true } },
+      targets: { activeTargetId: "target-1", count: 1 },
+      proofArtifact: { requestId: "inspect-request", blockerState: "clear" },
+      healthState: "ok"
+    });
+    expect(response.suggestedNextAction).toContain("snapshot");
+  });
+
+  it("does not serialize page.dialog behind a pending managed interact.click command", async () => {
+    const core = makeCore();
+    const clickDeferred = createDeferred<{ timingMs: number; navigated: boolean }>();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1" });
+    core.manager.click.mockReturnValue(clickDeferred.promise);
+    core.manager.dialog.mockResolvedValue({
+      dialog: {
+        open: true,
+        targetId: "target-1",
+        type: "alert",
+        message: "I am a JS Alert"
+      }
+    });
+
+    let clickSettled = false;
+    const clickPromise = handleDaemonCommand(core, {
+      name: "interact.click",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        ref: "r1"
+      }
+    }).finally(() => {
+      clickSettled = true;
+    });
+
+    await vi.waitFor(() => {
+      expect(core.manager.click).toHaveBeenCalledWith("session-1", "r1", undefined);
+    });
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.dialog",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        action: "status"
+      }
+    })).resolves.toEqual({
+      dialog: {
+        open: true,
+        targetId: "target-1",
+        type: "alert",
+        message: "I am a JS Alert"
+      }
+    });
+
+    expect(core.manager.dialog).toHaveBeenCalledWith("session-1", { action: "status" });
+    expect(clickSettled).toBe(false);
+
+    clickDeferred.resolve({ timingMs: 1, navigated: false });
+    await expect(clickPromise).resolves.toEqual({ timingMs: 1, navigated: false });
   });
 
   it("returns annotate response when lease owner invokes extension annotate", async () => {

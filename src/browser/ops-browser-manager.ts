@@ -8,13 +8,21 @@ import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type Challenge
 import type {
   BrowserCloneHtmlResult,
   BrowserClonePageOptions,
+  BrowserDialogInput,
+  BrowserDialogResult,
+  BrowserDialogState,
   BrowserCanvasOverlayMountInput,
   BrowserCanvasOverlayResult,
   BrowserCanvasOverlaySelectInput,
   BrowserCanvasOverlaySyncInput,
   BrowserManagerLike,
   BrowserResponseMeta,
-  ChallengeRuntimeHandle
+  BrowserScreenshotOptions,
+  BrowserScreenshotResult,
+  BrowserUploadInput,
+  BrowserUploadResult,
+  ChallengeRuntimeHandle,
+  SessionInspectorHandle
 } from "./manager-types";
 import type { ConnectOptions, LaunchOptions } from "./browser-manager";
 import type { BrowserMode } from "./session-store";
@@ -147,6 +155,16 @@ export class OpsBrowserManager implements BrowserManagerLike {
       debugTraceSnapshot: (sessionId, options) => (
         this.withChallengeAutomationSuppressed(sessionId, () => this.debugTraceSnapshot(sessionId, options))
       )
+    };
+  }
+
+  createSessionInspector(): SessionInspectorHandle {
+    return {
+      status: (sessionId) => this.status(sessionId),
+      listTargets: (sessionId, includeUrls) => this.listTargets(sessionId, includeUrls),
+      consolePoll: (sessionId, sinceSeq, max) => this.consolePoll(sessionId, sinceSeq, max),
+      networkPoll: (sessionId, sinceSeq, max) => this.networkPoll(sessionId, sinceSeq, max),
+      debugTraceSnapshot: (sessionId, options) => this.debugTraceSnapshot(sessionId, options)
     };
   }
 
@@ -821,24 +839,57 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return await this.requestOps(sessionId, "devtools.perf", this.withTarget({}, targetId));
   }
 
-  async screenshot(sessionId: string, path?: string, targetId?: string | null): ReturnType<BrowserManagerLike["screenshot"]> {
+  async screenshot(sessionId: string, options: BrowserScreenshotOptions = {}): Promise<BrowserScreenshotResult> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.screenshot(sessionId, path, targetId);
+      return this.base.screenshot(sessionId, options);
     }
-    const result = await this.requestOps<{ base64?: string; warning?: string }>(
+    if (options.ref && options.fullPage) {
+      throw new Error("Screenshot ref and fullPage options are mutually exclusive.");
+    }
+    const result = await this.requestOps<{ base64?: string; warning?: string; warnings?: string[] }>(
       sessionId,
       "page.screenshot",
-      this.withTarget({}, targetId)
+      this.withTarget({
+        ref: options.ref,
+        fullPage: options.fullPage
+      }, options.targetId)
     );
     if (!result.base64) {
       throw new Error("Screenshot failed");
     }
-    const warnings = result.warning ? [result.warning] : undefined;
-    if (path) {
-      await writeFile(path, Buffer.from(result.base64, "base64"));
-      return warnings ? { path, warnings } : { path };
+    const warnings = Array.isArray(result.warnings)
+      ? result.warnings
+      : (typeof result.warning === "string" ? [result.warning] : undefined);
+    if (options.path) {
+      await writeFile(options.path, Buffer.from(result.base64, "base64"));
+      return warnings ? { path: options.path, warnings } : { path: options.path };
     }
     return warnings ? { base64: result.base64, warnings } : { base64: result.base64 };
+  }
+
+  async upload(sessionId: string, input: BrowserUploadInput): Promise<BrowserUploadResult> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.upload(sessionId, input);
+    }
+    return await this.requestOps<BrowserUploadResult>(
+      sessionId,
+      "interact.upload",
+      this.withTarget({ ref: input.ref, files: input.files }, input.targetId)
+    );
+  }
+
+  async dialog(sessionId: string, input: BrowserDialogInput = {}): Promise<BrowserDialogResult> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.dialog(sessionId, input);
+    }
+    return await this.requestOps<BrowserDialogResult>(
+      sessionId,
+      "page.dialog",
+      this.withTarget({
+        action: input.action ?? "status",
+        promptText: input.promptText
+      }, input.targetId)
+    );
   }
 
   async consolePoll(sessionId: string, sinceSeq?: number, max = 50): Promise<{ events: ReturnType<ConsoleTracker["poll"]>["events"]; nextSeq: number }> {
@@ -1074,20 +1125,35 @@ export class OpsBrowserManager implements BrowserManagerLike {
     };
   }
 
+  private resolveOpsRequestTimeoutMs(command: string): number {
+    if (command === "interact.click") {
+      return OPS_CLICK_REQUEST_TIMEOUT_MS;
+    }
+    return OPS_REQUEST_TIMEOUT_MS;
+  }
+
+  private shouldRecoverOpsTimeout(command: string): boolean {
+    return command !== "interact.click" && command !== "page.dialog";
+  }
+
   private async requestOps<T>(sessionId: string, command: string, payload: Record<string, unknown>): Promise<T> {
     const leaseId = this.opsLeases.get(sessionId);
     if (!leaseId) {
       throw new Error("Ops lease not found for session");
     }
+    const requestTimeoutMs = this.resolveOpsRequestTimeoutMs(command);
     let client = this.opsClient;
     if (!client) {
       client = await this.reconnectOpsClient(sessionId, payload);
     }
     let protocolSessionId = this.getProtocolSessionId(sessionId);
     try {
-      return await client.request<T>(command, payload, protocolSessionId, 30000, leaseId);
+      return await client.request<T>(command, payload, protocolSessionId, requestTimeoutMs, leaseId);
     } catch (error) {
       if (command === "session.connect") {
+        throw error;
+      }
+      if (isOpsRequestTimeoutError(error) && !this.shouldRecoverOpsTimeout(command)) {
         throw error;
       }
       if (isOpsRelayUnavailableError(error)) {
@@ -1111,7 +1177,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
         throw error;
       }
       protocolSessionId = this.getProtocolSessionId(sessionId);
-      return await recoveredClient.request<T>(command, payload, protocolSessionId, 30000, recoveredLeaseId);
+      return await recoveredClient.request<T>(command, payload, protocolSessionId, requestTimeoutMs, recoveredLeaseId);
     }
   }
 
@@ -1382,8 +1448,8 @@ export class OpsBrowserManager implements BrowserManagerLike {
 
   private async getRawOpsStatus(
     sessionId: string
-  ): Promise<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string }> {
-    const result = await this.requestOps<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string }>(
+  ): Promise<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string; dialog?: BrowserDialogState }> {
+    const result = await this.requestOps<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string; dialog?: BrowserDialogState }>(
       sessionId,
       "session.status",
       {}
@@ -1493,6 +1559,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
       envLimited?: boolean;
     }
   ): T & { meta?: BrowserResponseMeta } {
+    const { dialog, ...rest } = result as T & { dialog?: BrowserDialogState };
     const meta = this.reconcileExternalBlockerMeta(sessionId, {
       source: options.source,
       url: options.url,
@@ -1509,7 +1576,13 @@ export class OpsBrowserManager implements BrowserManagerLike {
       ownerLeaseId: this.opsLeases.get(sessionId),
       targetKey: options.targetId ?? undefined
     });
-    return meta ? { ...result, meta } : result;
+    if (meta) {
+      return dialog ? { ...rest as T, meta: { ...meta, dialog } } : { ...rest as T, meta };
+    }
+    if (dialog) {
+      return { ...rest as T, meta: { blockerState: "clear", dialog } };
+    }
+    return rest as T;
   }
 
   private findLatestStatus(events: Array<{ status?: number }>): number | undefined {
@@ -1530,6 +1603,9 @@ const isIgnorableOpsDisconnectError = (error: unknown): boolean => {
     || message.includes("[invalid_session] Unknown ops session")
     || message.includes("Ops socket closed");
 };
+
+const OPS_REQUEST_TIMEOUT_MS = 30_000;
+const OPS_CLICK_REQUEST_TIMEOUT_MS = 55_000;
 
 const isUnknownOpsSessionError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error ?? "");
