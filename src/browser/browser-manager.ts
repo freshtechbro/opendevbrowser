@@ -384,8 +384,8 @@ const DOM_SCREENSHOT_CLIP_DECLARATION = `
       return null;
     }
     return {
-      x: rect.left + window.scrollX,
-      y: rect.top + window.scrollY,
+      x: rect.left,
+      y: rect.top,
       width: rect.width,
       height: rect.height
     };

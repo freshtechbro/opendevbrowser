@@ -6466,6 +6466,137 @@ describe("OpsRuntime target teardown", () => {
     expect(sent.some((message) => message.type === "ops_error" && message.requestId === "req-data-wait-followup")).toBe(false);
   });
 
+  it("forwards ref screenshot clips through the ops runtime without using non-ref fallback behavior", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; message?: string } }> = [];
+    const sendCommand = vi.fn(async (_debuggee: chrome.debugger.Debuggee, method: string, params?: Record<string, unknown>) => {
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: "node-1" } };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = typeof params?.functionDeclaration === "string"
+          ? params.functionDeclaration
+          : "";
+        if (declaration.includes("odb-dom-screenshot-clip")) {
+          return { result: { value: { x: 110, y: 220, width: 30, height: 40 } } };
+        }
+        return { result: { value: undefined } };
+      }
+      if (method === "Page.captureScreenshot") {
+        return { data: "ZmFrZQ==" };
+      }
+      return {};
+    });
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string; message?: string } }),
+      cdp: {
+        detachTab: vi.fn(async () => undefined),
+        sendCommand
+      } as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", {
+      url: "https://example.com/root",
+      title: "Root Page"
+    });
+    session.refStore.setSnapshot("tab-101", [{
+      ref: "r1",
+      selector: "#capture-card",
+      backendNodeId: 3,
+      role: "region",
+      name: "Capture Card"
+    }]);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-ref-screenshot",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.screenshot",
+      payload: {
+        ref: "r1"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sendCommand).toHaveBeenCalledWith(
+        { tabId: 101 },
+        "Page.captureScreenshot",
+        expect.objectContaining({
+          format: "png",
+          captureBeyondViewport: true,
+          clip: { x: 110, y: 220, width: 30, height: 40, scale: 1 }
+        })
+      );
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_response",
+            requestId: "req-ref-screenshot",
+            payload: expect.objectContaining({
+              base64: "ZmFrZQ=="
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("returns stale snapshot guidance for ref screenshots before extension clip capture", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; message?: string } }> = [];
+    const sendCommand = vi.fn(async () => ({}));
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string; message?: string } }),
+      cdp: {
+        detachTab: vi.fn(async () => undefined),
+        sendCommand
+      } as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", {
+      url: "https://example.com/root",
+      title: "Root Page"
+    });
+    session.refStore.setSnapshot("tab-101", [{
+      ref: "r2",
+      selector: "#other",
+      backendNodeId: 4,
+      role: "button",
+      name: "Other"
+    }]);
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-ref-screenshot-stale",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.screenshot",
+      payload: {
+        ref: "r1"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_error",
+            requestId: "req-ref-screenshot-stale",
+            error: expect.objectContaining({
+              code: "invalid_request",
+              message: "Unknown ref: r1. Take a new snapshot first."
+            })
+          })
+        ])
+      );
+    });
+
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
   it("allows follow-up page.screenshot commands on the synthetic root target after html data preview navigation", async () => {
     const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
     const cdp = {

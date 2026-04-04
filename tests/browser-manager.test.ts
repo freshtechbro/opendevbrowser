@@ -4820,19 +4820,22 @@ describe("BrowserManager", () => {
     }
   });
 
-  it("captures ref and full-page screenshots and rejects conflicting options", async () => {
+  it("captures managed ref screenshots with viewport-relative clips and keeps full-page semantics intact", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
     const { context, page, locator, cdpSession } = createBrowserBundle(nodes);
     const baseSend = cdpSession.send.getMockImplementation();
+    const screenshotClipDeclarations: string[] = [];
     cdpSession.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === "Runtime.callFunctionOn") {
         const declaration = typeof params?.functionDeclaration === "string"
           ? params.functionDeclaration
           : "";
         if (declaration.includes("odb-dom-screenshot-clip")) {
-          return { result: { value: { x: 10, y: 20, width: 30, height: 40 } } };
+          screenshotClipDeclarations.push(declaration);
+          const usesDocumentScrollOffsets = declaration.includes("window.scrollX") || declaration.includes("window.scrollY");
+          return { result: { value: { x: usesDocumentScrollOffsets ? 110 : 10, y: usesDocumentScrollOffsets ? 220 : 20, width: 30, height: 40 } } };
         }
       }
       return await baseSend?.(method, params) ?? {};
@@ -4849,6 +4852,8 @@ describe("BrowserManager", () => {
     const refShot = await manager.screenshot(launch.sessionId, { ref: "r1" });
     expect(refShot.base64).toBe(Buffer.from("image").toString("base64"));
     expect(locator.scrollIntoViewIfNeeded).toHaveBeenCalled();
+    expect(screenshotClipDeclarations[0]).not.toContain("window.scrollX");
+    expect(screenshotClipDeclarations[0]).not.toContain("window.scrollY");
     expect(page.screenshot).toHaveBeenNthCalledWith(1, expect.objectContaining({
       clip: { x: 10, y: 20, width: 30, height: 40 }
     }));
@@ -4862,6 +4867,36 @@ describe("BrowserManager", () => {
     await expect(manager.screenshot(launch.sessionId, { ref: "r1", fullPage: true })).rejects.toThrow(
       "Screenshot ref and fullPage options are mutually exclusive."
     );
+  });
+
+  it("returns stale snapshot guidance for managed ref screenshots before clip capture", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId);
+
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.resolveNode") {
+          return { object: {} };
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    await expect(manager.screenshot(launch.sessionId, { ref: "r1" }))
+      .rejects
+      .toThrow("Take a new snapshot first.");
+    expect(page.screenshot).not.toHaveBeenCalled();
   });
 
   it("writes legacy relay screenshot fallbacks to a requested path", async () => {
