@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { buildMacroRuntimeInit } from "../src/macros/execute-runtime";
 import { resolveProviderRuntime } from "../src/tools/workflow-runtime";
 
 vi.mock("@opencode-ai/plugin", async () => {
@@ -145,6 +146,15 @@ describe("workflow tool branch coverage", () => {
     } as never);
     expect(typeof withConfig.search).toBe("function");
     expect(typeof withConfig.fetch).toBe("function");
+
+    const withInitOverride = await resolveProviderRuntime({
+      providerRuntime: injectedRuntime,
+      config
+    } as never, {
+      init: buildMacroRuntimeInit(45_000)
+    });
+    expect(withInitOverride).not.toBe(injectedRuntime);
+    expect(typeof withInitOverride.search).toBe("function");
   });
 
   it("uses compact mode defaults for research and shopping tools", async () => {
