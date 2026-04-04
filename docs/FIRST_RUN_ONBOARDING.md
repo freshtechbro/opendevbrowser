@@ -1,7 +1,7 @@
 # First-Run Onboarding (Pre-Release)
 
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-04-04
 
 This guide is the shipping checklist for validating OpenDevBrowser as a new user **before npm distribution is live**.
 
@@ -9,7 +9,7 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 
 1. Install command from a local package artifact.
 2. Help-led onboarding path from generated help to best-practices quick-start guidance.
-3. First-time global install path (`--global --full --no-prompt`).
+3. Managed-skill lifecycle proof for first-time install, reinstall, update, and uninstall cleanup.
 4. Daemon start/stop command.
 5. Extension load path + connection checks.
 6. First task execution command chain.
@@ -55,8 +55,7 @@ Expected:
 - help opens with an `Agent Quick Start` block
 - the block explicitly points agents to `opendevbrowser_prompting_guide`
 - the block explicitly points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`
-- the block keeps `research/` and `shopping/` visible as alias-only compatibility directories for one more cycle
-- the block warns that a stale `~/.codex/skills/opendevbrowser-best-practices` copy can shadow the bundled quick-start copy
+- the block explicitly points agents to `opendevbrowser_skill_list` for alternate local workflow lanes
 - the block points to `docs/FIRST_RUN_ONBOARDING.md` for proof and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook
 
 ## 3) Isolate config/cache to avoid daemon collisions
@@ -69,7 +68,7 @@ export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 mkdir -p "$OPENCODE_CONFIG_DIR" "$OPENCODE_CACHE_DIR"
 ```
 
-This isolation is also the proof lane for stale-global-skill shadowing: it keeps `~/.codex/skills/opendevbrowser-best-practices` from shadowing the bundled quick-start copy while you validate local-package behavior.
+This isolation keeps config, cache, daemon state, and managed-skill lifecycle proof contained to a temp home while you validate local-package behavior.
 
 Minimal isolated config:
 

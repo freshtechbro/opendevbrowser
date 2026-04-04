@@ -63,4 +63,4 @@ Use these as planning references only; verify against runtime code and active do
    - `node scripts/audit-zombie-files.mjs`
    - `node scripts/docs-drift-check.mjs`
    - `node scripts/chrome-store-compliance-check.mjs`
-6. Treat generated help as the canonical first-contact discovery surface, `docs/FIRST_RUN_ONBOARDING.md` as the first-run proof checklist, and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook and direct-run release evidence owner. Keep the onboarding smoke lane isolated from stale `~/.codex/skills/opendevbrowser-best-practices` copies when validating bundled behavior.
+6. Treat generated help as the canonical first-contact discovery surface, `docs/FIRST_RUN_ONBOARDING.md` as the first-run proof checklist, and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook and direct-run release evidence owner. Keep the onboarding smoke lane isolated inside temp config/cache homes when validating bundled behavior or managed skill lifecycle changes.

@@ -1,6 +1,6 @@
 # skills/ — Agent Guidelines
 
-Bundled OpenDevBrowser skill directories (11 total: 9 canonical packs + 2 compatibility aliases, `research/` and `shopping/`). Extends root `AGENTS.md`.
+Bundled OpenDevBrowser skill directories (9 canonical packs). Extends root `AGENTS.md`.
 
 ## Structure
 
@@ -14,9 +14,7 @@ skills/
 ├── opendevbrowser-data-extraction/SKILL.md
 ├── opendevbrowser-research/SKILL.md
 ├── opendevbrowser-shopping/SKILL.md
-├── opendevbrowser-product-presentation-asset/SKILL.md
-├── research/      # Empty compatibility alias dir; keep non-canonical for one more cycle only
-└── shopping/      # Empty compatibility alias dir; keep non-canonical for one more cycle only
+└── opendevbrowser-product-presentation-asset/SKILL.md
 ```
 
 ## SKILL.md Format
@@ -53,8 +51,7 @@ Content organized by topic for filtering.
 - Keep guidance short, script-first, snapshot-first
 - Examples must use `opendevbrowser_*` tool names
 - Never include secrets or page data in content
-- Keep canonical guidance in `opendevbrowser-*` packs; do not add legacy alias directories.
-- Leave `skills/research/` and `skills/shopping/` empty as explicit compatibility aliases for one more cycle only unless a verified migration plan explicitly repurposes them.
+- Keep canonical guidance in `opendevbrowser-*` packs; do not reintroduce legacy alias directories.
 - Match the snapshot → refs → actions flow in `docs/ARCHITECTURE.md` and tool list in `docs/CLI.md`.
 - Note that extension relay requires Chrome 125+ and uses hub-only relay ownership when enabled.
 - Refer to root `AGENTS.md` for connection flag/status semantics (extensionConnected, handshake, cdpConnected, pairingRequired).
