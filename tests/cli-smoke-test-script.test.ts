@@ -9,7 +9,14 @@ vi.mock("child_process", () => ({
   spawnSync: spawnSyncMock
 }));
 
-import { startDaemon } from "../scripts/cli-smoke-test.mjs";
+import { DAEMON_READY_TIMEOUT_MS, parseArgs, startDaemon } from "../scripts/cli-smoke-test.mjs";
+
+describe("cli-smoke-test parseArgs", () => {
+  it("parses supported synthetic-page variants", () => {
+    expect(parseArgs(["--variant", "secondary"])).toEqual({ variant: "secondary" });
+    expect(() => parseArgs(["--variant", "unknown"])).toThrow("--variant requires primary or secondary.");
+  });
+});
 
 describe("cli-smoke-test startDaemon", () => {
   let killSpy: ReturnType<typeof vi.spyOn>;
@@ -67,5 +74,38 @@ describe("cli-smoke-test startDaemon", () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain("Daemon exited before becoming ready.");
     expect((error as Error).message).toContain("stderr=daemon boot failed");
+  });
+
+  it("reports timeout diagnostics using the current pid and log-file model", async () => {
+    fs.writeFileSync(path.join(logDir, "daemon.stderr.log"), "boot log");
+    spawnSyncMock
+      .mockReturnValueOnce({ status: 0, stdout: "4321\n", stderr: "", error: undefined })
+      .mockReturnValue({ status: 1, stdout: "", stderr: "daemon not ready", error: undefined });
+
+    let terminated = false;
+    killSpy.mockImplementation((pid, signal) => {
+      if (pid !== 4321) {
+        return true;
+      }
+      if (signal === "SIGTERM") {
+        terminated = true;
+        return true;
+      }
+      if (signal === 0 && terminated) {
+        throw new Error("ESRCH");
+      }
+      return true;
+    });
+
+    const pending = startDaemon({ PATH: "/tmp" }, 8788).catch((error) => error as Error);
+    await vi.advanceTimersByTimeAsync(DAEMON_READY_TIMEOUT_MS);
+
+    const error = await pending;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("Daemon did not become ready in time.");
+    expect((error as Error).message).toContain("pid=4321");
+    expect((error as Error).message).toContain("status=daemon not ready");
+    expect((error as Error).message).toContain("stderr=boot log");
+    expect(killSpy).toHaveBeenCalledWith(4321, "SIGTERM");
   });
 });
