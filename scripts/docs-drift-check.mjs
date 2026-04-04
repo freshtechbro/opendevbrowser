@@ -272,7 +272,7 @@ export function runDocsDriftChecks() {
     id: "doc.readme.mirrored_help_inputs_documented",
     ok: docsReadme.includes("src/cli/help.ts")
       && docsReadme.includes("src/cli/onboarding-metadata.json")
-      && docsReadme.includes("src/tools/surface.ts")
+      && docsReadme.includes("src/public-surface/generated-manifest.ts")
       && docsReadme.includes("skills/opendevbrowser-best-practices/SKILL.md"),
     detail: "docs/README.md must reference mirrored help inputs and the canonical direct-run policy owner."
   });
@@ -309,8 +309,16 @@ export function runDocsDriftChecks() {
     ok: publicReadme.includes("copy all 11 bundled directories")
       && publicReadme.includes("9 canonical `opendevbrowser-*` packs")
       && publicReadme.includes("`research/` and `shopping/`")
+      && publicReadme.includes("one more cycle")
       && publicReadme.includes("Only directories with `SKILL.md` are discoverable at runtime"),
     detail: "README.md must explain copied-versus-discoverable skill inventory."
+  });
+
+  checks.push({
+    id: "doc.readme.skill_shadow_risk_documented",
+    ok: publicReadme.includes(onboardingMetadata.skillDiscovery.shadowRiskPath)
+      && publicReadme.includes("shadow the bundled"),
+    detail: "README.md must document the stale global Codex quick-start shadow risk."
   });
 
   checks.push({
@@ -336,8 +344,33 @@ export function runDocsDriftChecks() {
     ok: cliDoc.includes("copy all 11 bundled directories")
       && cliDoc.includes("9 canonical `opendevbrowser-*` packs")
       && cliDoc.includes("`research/` and `shopping/`")
+      && cliDoc.includes("one more cycle")
       && cliDoc.includes("Only directories with `SKILL.md` are discoverable at runtime"),
     detail: "docs/CLI.md must explain copied-versus-discoverable skill inventory."
+  });
+
+  checks.push({
+    id: "doc.cli.skill_shadow_risk_documented",
+    ok: cliDoc.includes(onboardingMetadata.skillDiscovery.shadowRiskPath)
+      && cliDoc.includes("shadow the bundled"),
+    detail: "docs/CLI.md must document the stale global Codex quick-start shadow risk."
+  });
+
+  checks.push({
+    id: "doc.onboarding.skill_shadow_risk_documented",
+    ok: onboardingDoc.includes(onboardingMetadata.skillDiscovery.shadowRiskPath)
+      && onboardingDoc.includes("shadow"),
+    detail: "docs/FIRST_RUN_ONBOARDING.md must explain why onboarding proof isolates stale global Codex skill copies."
+  });
+
+  checks.push({
+    id: "doc.active_docs.no_tool_surface_shim_references",
+    ok: !publicReadme.includes("src/tools/surface.ts")
+      && !cliDoc.includes("src/tools/surface.ts")
+      && !docsReadme.includes("src/tools/surface.ts")
+      && !surfaceDoc.includes("src/tools/surface.ts")
+      && !architectureDoc.includes("src/tools/surface.ts"),
+    detail: "Active docs must not reference the removed src/tools/surface.ts shim."
   });
 
   pushRequiredForbiddenTermsCheck(checks, {

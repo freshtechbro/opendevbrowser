@@ -74,6 +74,8 @@ describe("CLI help surface", () => {
     expect(HELP_ONBOARDING_ENTRIES[0]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.promptingGuide);
     expect(HELP_ONBOARDING_ENTRIES[1]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.skillLoad);
     expect(HELP_ONBOARDING_ENTRIES[2]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.skillList);
+    expect(HELP_ONBOARDING_ENTRIES[2]?.details?.[1]?.value).toBe(onboardingMetadata.skillDiscovery.aliasOnlyCycleNote);
+    expect(HELP_ONBOARDING_ENTRIES[4]?.details?.[1]?.value).toContain(onboardingMetadata.skillDiscovery.shadowRiskSummary);
   });
 
   it("prints complete command, flag, and tool inventories with descriptions", () => {
@@ -88,6 +90,10 @@ describe("CLI help surface", () => {
     expect(output).toContain(onboardingMetadata.quickStartCommands.happyPath);
     expect(output).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(output).toContain(onboardingMetadata.referencePaths.skillDoc);
+    expect(output).toContain(onboardingMetadata.skillDiscovery.aliasOnlyCycleNote);
+    expect(output).toContain(onboardingMetadata.skillDiscovery.shadowRiskPath);
+    expect(output).toContain(onboardingMetadata.skillDiscovery.shadowRiskSummary);
+    expect(output).toContain(onboardingMetadata.skillDiscovery.shadowRiskAction);
     expect(output).toContain(`Command Inventory (all ${CLI_COMMANDS.length} commands):`);
     expect(output).toContain("Flag Inventory (all supported flags):");
     expect(output).toContain(`Tool Inventory (all ${HELP_TOOL_ENTRIES.length} opendevbrowser_* tools):`);
@@ -113,5 +119,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("docs/SURFACE_REFERENCE.md");
     expect(output).toContain("src/tools/index.ts");
     expect(output).toContain("src/cli/help.ts");
+    expect(output).toContain("src/public-surface/generated-manifest.ts");
+    expect(output).not.toContain("src/tools/surface.ts");
   });
 });

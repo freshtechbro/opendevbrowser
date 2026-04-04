@@ -231,7 +231,10 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   {
     label: "skill_list",
     description: "Inspect bundled and discovered skill packs when you need a different local lane.",
-    details: [{ label: "tool:", value: onboardingMetadata.quickStartCommands.skillList }]
+    details: [
+      { label: "tool:", value: onboardingMetadata.quickStartCommands.skillList },
+      { label: "note:", value: onboardingMetadata.skillDiscovery.aliasOnlyCycleNote }
+    ]
   },
   {
     label: "happy_path",
@@ -241,21 +244,28 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   {
     label: "docs",
     description: "Use the first-run checklist and canonical skill runbook for proof and deeper operating details.",
-    details: [{
-      label: "paths:",
-      value: `${onboardingMetadata.referencePaths.onboardingDoc}, ${onboardingMetadata.referencePaths.skillDoc}`
-    }]
+    details: [
+      {
+        label: "paths:",
+        value: `${onboardingMetadata.referencePaths.onboardingDoc}, ${onboardingMetadata.referencePaths.skillDoc}`
+      },
+      {
+        label: "note:",
+        value: `${onboardingMetadata.skillDiscovery.shadowRiskSummary} ${onboardingMetadata.skillDiscovery.shadowRiskAction}`
+      }
+    ]
   }
 ];
 
 export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "src/cli/onboarding-metadata.json", description: "Canonical first-contact onboarding metadata shared by help, nudges, and proof lanes." },
   { label: "src/public-surface/source.ts", description: "Authoritative command, usage, flag, and tool surface metadata." },
+  { label: "src/public-surface/generated-manifest.ts", description: "Checked-in generated public-surface snapshot consumed by help and parity tests." },
   { label: "src/public-surface/generated-manifest.json", description: "Checked-in generated public-surface snapshot consumed by inventory scripts." },
   { label: "src/cli/args.ts", description: "CLI argument parsing backed by the public-surface source." },
   { label: "src/cli/help.ts", description: "Human-facing CLI formatting layered on the public-surface source." },
   { label: "src/tools/index.ts", description: "Code-level tool registry." },
-  { label: "src/tools/surface.ts", description: "Compat re-export of human-facing tool metadata from the public-surface source." },
+  { label: onboardingMetadata.skillDiscovery.shadowRiskPath, description: "Concrete global Codex path that can shadow the bundled best-practices quick-start copy." },
   { label: "docs/CLI.md", description: "Detailed CLI guide and release-gate runbooks." },
   { label: onboardingMetadata.referencePaths.onboardingDoc, description: "First-run checklist for help-led onboarding and happy-path proof." },
   { label: onboardingMetadata.referencePaths.skillDoc, description: "Canonical bundled best-practices runbook and quick-start guidance." },

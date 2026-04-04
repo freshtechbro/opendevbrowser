@@ -1,5 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
+import onboardingMetadata from "../cli/onboarding-metadata.json";
 import type { ToolDeps } from "./deps";
 import { ok } from "./response";
 import { findBundledSkillsDir } from "../utils/package-assets";
@@ -25,7 +26,7 @@ function listBundledSkillAliases(): SkillAliasEntry[] {
 
 export function createSkillListTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "List bundled and discovered skill packs before choosing a local onboarding or workflow lane.",
+    description: "List bundled and discovered skill packs before choosing a local onboarding or workflow lane; research/ and shopping/ stay alias-only this cycle.",
     args: {},
     async execute() {
       const skills = await deps.skills.listSkills();
@@ -39,7 +40,13 @@ export function createSkillListTool(deps: ToolDeps): ToolDefinition {
         skills: skillList,
         count: skillList.length,
         bundledAliases,
-        aliasCount: bundledAliases.length
+        aliasCount: bundledAliases.length,
+        notes: {
+          aliasOnlyCompatibility: onboardingMetadata.skillDiscovery.aliasOnlyCycleNote,
+          shadowRiskPath: onboardingMetadata.skillDiscovery.shadowRiskPath,
+          shadowRiskSummary: onboardingMetadata.skillDiscovery.shadowRiskSummary,
+          shadowRiskAction: onboardingMetadata.skillDiscovery.shadowRiskAction
+        }
       });
     }
   });

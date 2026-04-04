@@ -58,8 +58,8 @@ import { createCanvasTool } from "./canvas";
 import { createSkillListTool } from "./skill_list";
 import { createSkillLoadTool } from "./skill_load";
 import onboardingMetadata from "../cli/onboarding-metadata.json";
-export type { ToolSurfaceEntry } from "./surface";
-export { TOOL_SURFACE_ENTRIES } from "./surface";
+export type { ToolSurfaceEntry } from "../public-surface/source";
+export { TOOL_SURFACE_ENTRIES } from "../public-surface/generated-manifest";
 
 export const LOCAL_ONLY_TOOL_NAMES = new Set(onboardingMetadata.localOnlyToolNames);
 

@@ -9,6 +9,7 @@ import type { CommandResult } from "./commands/types";
 import { installGlobal } from "./installers/global";
 import { installLocal } from "./installers/local";
 import { installSkills } from "./installers/skills";
+import type { SkillInstallNotes } from "./installers/skills";
 import { runUpdate } from "./commands/update";
 import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
 import { runServe } from "./commands/serve";
@@ -85,6 +86,11 @@ import type { CliError } from "./errors";
 import packageJson from "../../package.json";
 
 const VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.0.0";
+
+function emitSkillInstallNotes(notes: SkillInstallNotes, emit: (...values: unknown[]) => void): void {
+  emit(`Skill note: ${notes.aliasOnlyCompatibility}`);
+  emit(`Skill note: ${notes.shadowRiskSummary} ${notes.shadowRiskAction} (${notes.shadowRiskPath})`);
+}
 
 async function promptInstallMode(): Promise<InstallMode> {
   if (!process.stdin.isTTY) {
@@ -331,8 +337,10 @@ async function main(): Promise<void> {
           const skillsResult = installSkills(args.skillsMode);
           if (skillsResult.success) {
             log(skillsResult.message);
+            emitSkillInstallNotes(skillsResult.notes, log);
           } else {
             warn(skillsResult.message);
+            emitSkillInstallNotes(skillsResult.notes, warn);
           }
         } else {
           warn("Skill installation skipped because plugin install failed.");

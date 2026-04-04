@@ -510,7 +510,7 @@ export const VALIDATION_SCENARIOS = [
     entryPath: "tool-only surface",
     primaryTask: "Use tool-only local helpers from the plugin/tool API where no public CLI entry exists.",
     secondaryTask: "Repeat the same tool-only helper usage through the host tool runtime when validating local skill or prompting helpers.",
-    ownerFiles: ["src/tools/index.ts", "src/tools/surface.ts"]
+    ownerFiles: ["src/tools/index.ts", "src/public-surface/source.ts"]
   }
 ];
 
@@ -585,7 +585,7 @@ export function buildToolInventory(rootDir = ROOT) {
       description: entry.description,
       family: family.id,
       familyLabel: family.label,
-      sourceOfTruth: "src/tools/surface.ts",
+      sourceOfTruth: "src/public-surface/source.ts",
       cliEquivalent: entry.cliEquivalent,
       executionPolicy: override?.executionPolicy ?? primaryScenario.executionPolicy,
       scenarioIds: [...scenarioIds],
@@ -604,7 +604,7 @@ export function buildToolFamilyInventory(rootDir = ROOT) {
       id: `tool_family.${definition.id}`,
       kind: "tool_family",
       label: definition.label,
-      sourceOfTruth: "src/tools/surface.ts",
+      sourceOfTruth: "src/public-surface/source.ts",
       executionPolicy: primaryScenario.executionPolicy,
       scenarioIds: [...definition.scenarioIds],
       members: toolEntries.filter((entry) => definition.members.includes(entry.name)).map((entry) => entry.name),

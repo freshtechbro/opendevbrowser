@@ -48,6 +48,7 @@ describe("workflow inventory", () => {
     expect(native?.executionPolicy).toBe("guarded");
     expect(rpc?.executionPolicy).toBe("guarded");
     expect(promptingGuide?.executionPolicy).toBe("non_cli");
+    expect(promptingGuide?.sourceOfTruth).toBe("src/public-surface/source.ts");
   });
 
   it("declares primary and secondary validation tasks for the main executable scenarios", () => {

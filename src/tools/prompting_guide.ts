@@ -8,7 +8,7 @@ const z = tool.schema;
 
 export function createPromptingGuideTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: `Start here for first-contact OpenDevBrowser guidance, including ${onboardingMetadata.skillName} ${onboardingMetadata.skillTopic}.`,
+    description: `Start here for first-contact OpenDevBrowser guidance, including ${onboardingMetadata.skillName} ${onboardingMetadata.skillTopic}; refresh ${onboardingMetadata.skillDiscovery.shadowRiskPath} if it is stale.`,
     args: {
       topic: z.string().optional().describe("Optional topic for guidance")
     },

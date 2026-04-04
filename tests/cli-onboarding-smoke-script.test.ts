@@ -21,7 +21,10 @@ describe("cli-onboarding-smoke script", () => {
       `  skill_list ${onboardingMetadata.quickStartCommands.skillList}`,
       `  happy_path ${onboardingMetadata.quickStartCommands.happyPath}`,
       `  docs ${onboardingMetadata.referencePaths.onboardingDoc}`,
-      `  skill ${onboardingMetadata.referencePaths.skillDoc}`
+      `  skill ${onboardingMetadata.referencePaths.skillDoc}`,
+      `  note ${onboardingMetadata.skillDiscovery.aliasOnlyCycleNote}`,
+      `  note ${onboardingMetadata.skillDiscovery.shadowRiskSummary}`,
+      `  path ${onboardingMetadata.skillDiscovery.shadowRiskPath}`
     ].join("\n");
 
     expect(() => assertOnboardingHelp(helpText)).not.toThrow();

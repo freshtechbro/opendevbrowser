@@ -590,7 +590,7 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry[] = [
   { name: "opendevbrowser_is_enabled", description: "Check ref enabled state.", cliEquivalent: "dom-enabled" },
   { name: "opendevbrowser_is_checked", description: "Check ref checked state.", cliEquivalent: "dom-checked" },
   { name: "opendevbrowser_run", description: "Execute multi-action automation scripts.", cliEquivalent: "run" },
-  { name: "opendevbrowser_prompting_guide", description: "Start here for first-contact OpenDevBrowser guidance and the bundled best-practices quick start." },
+  { name: "opendevbrowser_prompting_guide", description: "Start here for first-contact OpenDevBrowser guidance and the bundled best-practices quick start; refresh or remove stale ~/.codex/skills/opendevbrowser-best-practices copies when validating bundled behavior." },
   { name: "opendevbrowser_console_poll", description: "Poll redacted console events.", cliEquivalent: "console-poll" },
   { name: "opendevbrowser_network_poll", description: "Poll redacted network events.", cliEquivalent: "network-poll" },
   { name: "opendevbrowser_debug_trace_snapshot", description: "Capture page, console, and network diagnostics.", cliEquivalent: "debug-trace-snapshot" },
@@ -607,8 +607,8 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry[] = [
   { name: "opendevbrowser_screenshot", description: "Capture a page screenshot.", cliEquivalent: "screenshot" },
   { name: "opendevbrowser_dialog", description: "Inspect or handle a JavaScript dialog.", cliEquivalent: "dialog" },
   { name: "opendevbrowser_annotate", description: "Capture interactive annotations.", cliEquivalent: "annotate" },
-  { name: "opendevbrowser_skill_list", description: "List bundled and discovered skill packs before choosing a local onboarding or workflow lane." },
-  { name: "opendevbrowser_skill_load", description: "Load a specific skill pack locally, especially the bundled best-practices quick start." }
+  { name: "opendevbrowser_skill_list", description: "List bundled and discovered skill packs before choosing a local onboarding or workflow lane; research/ and shopping/ remain alias-only compatibility directories this cycle." },
+  { name: "opendevbrowser_skill_load", description: "Load a specific skill pack locally, especially the bundled best-practices quick start; stale ~/.codex/skills/opendevbrowser-best-practices copies can shadow the bundled pack." }
 ] as const;
 
 export interface PublicSurfaceCliCommandGroup {

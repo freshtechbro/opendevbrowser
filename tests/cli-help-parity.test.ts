@@ -5,7 +5,7 @@ import { CLI_COMMANDS } from "../src/cli/args";
 import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_FLAG_GROUPS, HELP_REFERENCE_ENTRIES, HELP_TOOL_ENTRIES } from "../src/cli/help";
 import { LOCAL_ONLY_TOOL_NAMES } from "../src/tools";
-import { TOOL_SURFACE_ENTRIES } from "../src/tools/surface";
+import { TOOL_SURFACE_ENTRIES } from "../src/public-surface/generated-manifest";
 
 describe("cli help parity", () => {
   it("covers the full CLI command inventory", () => {
@@ -70,8 +70,11 @@ describe("cli help parity", () => {
     expect(labels).toContain("opendevbrowser help");
     expect(labels).toContain("src/cli/help.ts");
     expect(labels).toContain("src/cli/onboarding-metadata.json");
+    expect(labels).toContain("src/public-surface/generated-manifest.ts");
     expect(labels).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(labels).toContain(onboardingMetadata.referencePaths.skillDoc);
+    expect(labels).toContain(onboardingMetadata.skillDiscovery.shadowRiskPath);
+    expect(labels).not.toContain("src/tools/surface.ts");
   });
 
   it("keeps onboarding-recommended tool names local-only", () => {

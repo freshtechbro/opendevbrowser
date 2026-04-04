@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import onboardingMetadata from "../onboarding-metadata.json";
 import { ensureDir } from "../utils/config";
 import { getBundledSkillsDir, getGlobalSkillTargets, getLocalSkillTargets } from "../utils/skills";
 import { listBundledSkillDirectories } from "../../skills/bundled-skill-directories";
@@ -30,9 +31,24 @@ export interface SkillInstallResult {
   aliasOnlyInstalled: string[];
   discoverableSkipped: string[];
   aliasOnlySkipped: string[];
+  notes: SkillInstallNotes;
 }
 
 type SkillInstallClassification = "discoverable" | "aliasOnly";
+
+export interface SkillInstallNotes {
+  aliasOnlyCompatibility: string;
+  shadowRiskPath: string;
+  shadowRiskSummary: string;
+  shadowRiskAction: string;
+}
+
+const SKILL_INSTALL_NOTES: SkillInstallNotes = {
+  aliasOnlyCompatibility: onboardingMetadata.skillDiscovery.aliasOnlyCycleNote,
+  shadowRiskPath: onboardingMetadata.skillDiscovery.shadowRiskPath,
+  shadowRiskSummary: onboardingMetadata.skillDiscovery.shadowRiskSummary,
+  shadowRiskAction: onboardingMetadata.skillDiscovery.shadowRiskAction
+};
 
 function formatClassificationBreakdown(discoverableCount: number, aliasOnlyCount: number): string {
   const parts: string[] = [];
@@ -153,7 +169,8 @@ export function installSkills(mode: SkillInstallMode): SkillInstallResult {
       discoverableInstalled,
       aliasOnlyInstalled,
       discoverableSkipped,
-      aliasOnlySkipped
+      aliasOnlySkipped,
+      notes: SKILL_INSTALL_NOTES
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -167,7 +184,8 @@ export function installSkills(mode: SkillInstallMode): SkillInstallResult {
       discoverableInstalled: targetResults.flatMap((result) => result.discoverableInstalled),
       aliasOnlyInstalled: targetResults.flatMap((result) => result.aliasOnlyInstalled),
       discoverableSkipped: targetResults.flatMap((result) => result.discoverableSkipped),
-      aliasOnlySkipped: targetResults.flatMap((result) => result.aliasOnlySkipped)
+      aliasOnlySkipped: targetResults.flatMap((result) => result.aliasOnlySkipped),
+      notes: SKILL_INSTALL_NOTES
     };
   }
 }

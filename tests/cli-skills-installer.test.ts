@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { mkdtemp, rm } from "fs/promises";
+import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import { installSkills } from "../src/cli/installers/skills";
 import { getGlobalSkillTargets, getLocalSkillTargets } from "../src/cli/utils/skills";
 import { bundledSkillDirectories } from "../src/skills/bundled-skill-directories";
@@ -112,6 +113,12 @@ describe("installSkills", () => {
     expect(result.aliasOnlyInstalled).toEqual(expect.arrayContaining(aliasOnlyBundledSkillNames));
     expect(result.message).toContain("discoverable");
     expect(result.message).toContain("alias-only");
+    expect(result.notes).toEqual({
+      aliasOnlyCompatibility: onboardingMetadata.skillDiscovery.aliasOnlyCycleNote,
+      shadowRiskPath: onboardingMetadata.skillDiscovery.shadowRiskPath,
+      shadowRiskSummary: onboardingMetadata.skillDiscovery.shadowRiskSummary,
+      shadowRiskAction: onboardingMetadata.skillDiscovery.shadowRiskAction
+    });
 
     for (const target of getGlobalSkillTargets()) {
       const skillPath = path.join(target.dir, "opendevbrowser-best-practices", "SKILL.md");
@@ -146,6 +153,7 @@ describe("installSkills", () => {
     expect(secondRun.success).toBe(true);
     expect(secondRun.targets.every((target) => target.installed.length === 0)).toBe(true);
     expect(secondRun.targets.every((target) => target.skipped.length > 0)).toBe(true);
+    expect(secondRun.notes.shadowRiskPath).toBe(onboardingMetadata.skillDiscovery.shadowRiskPath);
     expect(secondRun.discoverableSkipped.length).toBe(
       getGlobalSkillTargets().length * discoverableBundledSkillNames.length
     );
@@ -166,5 +174,12 @@ describe("installSkills", () => {
     const ampTarget = globalTargets.find((target) => path.resolve(target.dir) === path.resolve(ampDir));
     expect(ampTarget).toBeDefined();
     expect(ampTarget?.agents).toEqual(expect.arrayContaining(["ampcli", "amp"]));
+  });
+
+  it("keeps alias-only guidance explicit for one more cycle", () => {
+    const result = installSkills("local");
+
+    expect(result.notes.aliasOnlyCompatibility).toContain("one more cycle");
+    expect(result.notes.shadowRiskSummary).toContain("shadow");
   });
 });

@@ -28,7 +28,10 @@ export function assertOnboardingHelp(helpText, metadata = ONBOARDING_METADATA) {
     metadata.quickStartCommands.skillList,
     metadata.quickStartCommands.happyPath,
     metadata.referencePaths.onboardingDoc,
-    metadata.referencePaths.skillDoc
+    metadata.referencePaths.skillDoc,
+    metadata.skillDiscovery.aliasOnlyCycleNote,
+    metadata.skillDiscovery.shadowRiskPath,
+    metadata.skillDiscovery.shadowRiskSummary
   ];
 
   for (const term of requiredTerms) {
