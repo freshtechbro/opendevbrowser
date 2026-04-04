@@ -424,8 +424,8 @@ Terminal help now mirrors the generated public-surface manifest rooted at `src/p
 ### Skills
 | Tool | Description |
 |------|-------------|
-| `opendevbrowser_skill_list` | List available skills |
-| `opendevbrowser_skill_load` | Load a skill by name (with optional topic filter) |
+| `opendevbrowser_skill_list` | List available skills and the alias-only compatibility directories |
+| `opendevbrowser_skill_load` | Load a skill by name and topic, especially the bundled quick start |
 
 ---
 
@@ -447,7 +447,7 @@ OpenDevBrowser includes **9 OpenDevBrowser-specific skill packs** plus shared `r
 
 Installer note:
 - `--skills-global` and `--skills-local` copy all 11 bundled directories under `skills/`: 9 canonical `opendevbrowser-*` packs plus the empty compatibility alias directories `research/` and `shopping/`.
-- Only directories with `SKILL.md` are discoverable at runtime, so the packaged fallback exposes the 9 canonical `opendevbrowser-*` packs. The copied `research/` and `shopping/` directories stay non-discoverable compatibility aliases unless a verified migration adds `SKILL.md`.
+- Only directories with `SKILL.md` are discoverable at runtime, so the packaged fallback exposes the 9 canonical `opendevbrowser-*` packs. The copied `research/` and `shopping/` directories stay non-discoverable compatibility aliases for one more cycle unless a verified migration adds `SKILL.md`.
 
 Skills are discovered from (priority order):
 1. `.opencode/skill/` (project)
@@ -460,6 +460,8 @@ Skills are discovered from (priority order):
 8. `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (AmpCLI global compatibility; fallback `~/.amp/skills`)
 9. Custom paths via `skillPaths` config
 10. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
+
+If `~/.codex/skills/opendevbrowser-best-practices` exists, it can shadow the bundled quick-start copy during ordinary discovery. Refresh or remove that global copy when validating bundled behavior.
 
 Load a skill: `opendevbrowser_skill_load` with `name` and optional `topic` filter.
 

@@ -352,7 +352,7 @@
         "src/cli/args.ts",
         "src/cli/help.ts",
         "src/tools/index.ts",
-        "src/tools/surface.ts",
+        "src/public-surface/source.ts",
         "docs/SURFACE_REFERENCE.md"
       ],
       "targetedRerunCommands": [
@@ -446,7 +446,7 @@
         "src/annotate/direct-annotator.ts",
         "src/annotate/agent-inbox.ts",
         "src/tools/index.ts",
-        "src/tools/surface.ts",
+        "src/public-surface/source.ts",
         "extension/src/canvas/canvas-runtime.ts",
         "extension/src/annotate-content.ts"
       ],

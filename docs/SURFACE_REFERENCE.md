@@ -8,10 +8,10 @@ This reference is intentionally exhaustive and should stay synchronized with:
 - `src/public-surface/source.ts`
 - `scripts/generate-public-surface-manifest.mjs`
 - `src/public-surface/generated-manifest.ts`
+- `src/public-surface/generated-manifest.json`
 - `src/cli/args.ts`
 - `src/cli/help.ts`
 - `src/tools/index.ts`
-- `src/tools/surface.ts`
 - `extension/src/ops/ops-runtime.ts`
 - `extension/src/canvas/canvas-runtime.ts`
 - `src/relay/protocol.ts`
@@ -22,6 +22,8 @@ Operational mirror:
 
 First-contact note:
 - Start with generated help and `docs/FIRST_RUN_ONBOARDING.md`; this page stays inventory-only.
+- `research/` and `shopping/` remain packaged alias-only compatibility directories for one more cycle.
+- A stale `~/.codex/skills/opendevbrowser-best-practices` copy can shadow the bundled quick-start pack during ordinary discovery.
 
 ---
 
@@ -178,9 +180,9 @@ First-contact note:
 - `opendevbrowser_research_run` - Run the research workflow directly.
 - `opendevbrowser_shopping_run` - Run the shopping workflow directly.
 - `opendevbrowser_product_video_run` - Run the product-video asset workflow directly.
-- `opendevbrowser_prompting_guide` - Return best-practice prompting guidance. Tool-only.
-- `opendevbrowser_skill_list` - List available bundled and discovered skill packs. Tool-only.
-- `opendevbrowser_skill_load` - Load a specific skill pack locally without browser work. Tool-only.
+- `opendevbrowser_prompting_guide` - Return best-practice prompting guidance and the bundled quick start; refresh or remove stale `~/.codex/skills/opendevbrowser-best-practices` copies before bundled validation. Tool-only.
+- `opendevbrowser_skill_list` - List available bundled and discovered skill packs; `research/` and `shopping/` remain alias-only compatibility directories this cycle. Tool-only.
+- `opendevbrowser_skill_load` - Load a specific skill pack locally without browser work; stale `~/.codex/skills/opendevbrowser-best-practices` copies can shadow the bundled pack. Tool-only.
 
 ---
 

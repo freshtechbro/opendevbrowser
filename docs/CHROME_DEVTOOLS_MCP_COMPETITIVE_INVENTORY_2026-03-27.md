@@ -22,7 +22,7 @@ This is not a replacement plan. It is a selective borrowing plan.
 - Chrome DevTools MCP CLI docs: [github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/cli.md](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/cli.md)
 - Chrome blog on debugging an existing browser session: [developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session](https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session)
 - npm package listing: [npmjs.com/package/chrome-devtools-mcp](https://www.npmjs.com/package/chrome-devtools-mcp)
-- OpenDevBrowser source-of-truth: [docs/SURFACE_REFERENCE.md](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/SURFACE_REFERENCE.md), [docs/CLI.md](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CLI.md), [src/tools/surface.ts](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/tools/surface.ts), [src/browser/manager-types.ts](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/manager-types.ts)
+- OpenDevBrowser source-of-truth: [docs/SURFACE_REFERENCE.md](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/SURFACE_REFERENCE.md), [docs/CLI.md](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CLI.md), [src/public-surface/source.ts](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/public-surface/source.ts), [src/browser/manager-types.ts](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/manager-types.ts)
 
 ## Bottom line
 

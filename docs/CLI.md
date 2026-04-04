@@ -8,7 +8,7 @@ OpenDevBrowser exposes 57 `opendevbrowser_*` tools; see `README.md` and `docs/SU
 Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
-Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts`, which is consumed by `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/surface.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
+Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts`, which is consumed by `src/cli/help.ts`, `src/cli/args.ts`, and re-exported by `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
 
 Dependency inventory: `docs/DEPENDENCIES.md`
 First-run pre-release onboarding: `docs/FIRST_RUN_ONBOARDING.md`
@@ -71,7 +71,7 @@ By default (`--skills-global`), the CLI installs bundled skills to global OpenCo
 
 Installer inventory:
 - `--skills-global` and `--skills-local` copy all 11 bundled directories under `skills/`: 9 canonical `opendevbrowser-*` packs plus the empty compatibility alias directories `research/` and `shopping/`.
-- Only directories with `SKILL.md` are discoverable at runtime, so the packaged fallback exposes the 9 canonical `opendevbrowser-*` packs. The copied `research/` and `shopping/` directories stay non-discoverable compatibility aliases unless a verified migration adds `SKILL.md`.
+- Only directories with `SKILL.md` are discoverable at runtime, so the packaged fallback exposes the 9 canonical `opendevbrowser-*` packs. The copied `research/` and `shopping/` directories stay non-discoverable compatibility aliases for one more cycle unless a verified migration adds `SKILL.md`.
 - Installer JSON and text summaries classify copied directories using that same rule, so discoverable packs and alias-only directories are reported separately.
 
 `OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
@@ -90,6 +90,8 @@ The skill loader discovers skills in this order (first match wins):
 8. Compatibility (global): `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
 9. Extra paths from `skillPaths` (advanced)
 10. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
+
+Because `$CODEX_HOME/skills` and `~/.codex/skills` resolve before bundled fallback, a stale `~/.codex/skills/opendevbrowser-best-practices` copy can shadow the bundled quick-start copy. Refresh or remove that global copy when validating bundled behavior.
 
 ---
 
@@ -253,6 +255,8 @@ npx opendevbrowser -v
 
 `--help` and `help` print the same generated first-contact inventory:
 - An `Agent Quick Start` block that tells agents to start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands.
+- Alias-only compatibility guidance that keeps `research/` and `shopping/` visible for one more cycle without making them discoverable skills.
+- A stale-global-copy warning for `~/.codex/skills/opendevbrowser-best-practices` when validating bundled quick-start behavior.
 - The complete generated CLI command, flag, and `opendevbrowser_*` tool inventories.
 - Canonical pointers to `docs/FIRST_RUN_ONBOARDING.md`, `skills/opendevbrowser-best-practices/SKILL.md`, and `docs/SURFACE_REFERENCE.md`.
 

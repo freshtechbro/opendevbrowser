@@ -19,7 +19,7 @@ Public repo (`opendevbrowser`) supplies:
 - `assets/`
 - `CHANGELOG.md`
 - `src/cli/help.ts`
-- `src/tools/surface.ts`
+- `src/public-surface/generated-manifest.ts`
 - `src/tools/index.ts`
 
 Private repo (`opendevbrowser-website-deploy`) owns:

@@ -104,7 +104,7 @@ git push origin vX.Y.Z
 - `assets/`
 - `CHANGELOG.md`
 - `src/cli/help.ts`
-- `src/tools/surface.ts`
+- `src/public-surface/generated-manifest.ts`
 - `src/tools/index.ts`
 
 2. Private workflow regenerates frontend content and validates:

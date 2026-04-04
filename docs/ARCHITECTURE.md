@@ -28,7 +28,7 @@ Human-facing inventory metadata now composes through one generated manifest:
 - `scripts/generate-public-surface-manifest.mjs` regenerates the public manifest snapshots
 - `src/public-surface/generated-manifest.ts` and `.json` are the consumed inventory mirrors for runtime help, docs parity, and tests
 - `src/cli/onboarding-metadata.json` owns the canonical first-contact skill, topic, quick-start commands, and onboarding doc pointers
-- `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/surface.ts` consume the generated manifest for human-facing command and tool inventory output
+- `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/index.ts` consume or re-export the generated manifest for human-facing command and tool inventory output
 - `docs/SURFACE_REFERENCE.md` mirrors every public CLI command and tool name with those short descriptions
 - `docs/CLI.md` carries the longer operator guide and help parity runbook
 - `src/tools/index.ts` remains the runtime tool registry authority

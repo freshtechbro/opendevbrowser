@@ -88,6 +88,8 @@ Skill-pack installation and discovery are synchronized for:
 
 Legacy compatibility aliases `claude` and `amp` are preserved in installer target metadata.
 
+If `~/.codex/skills/opendevbrowser-best-practices` exists, it can shadow this bundled copy during ordinary discovery. Refresh or remove that global copy before validating bundled behavior against this in-repo version.
+
 ## Required Operating Rules
 
 - Prefer refs from `opendevbrowser_snapshot` over raw selectors.

@@ -44,7 +44,7 @@ Use these as planning references only; verify against runtime code and active do
 
 ## Update workflow
 
-1. Validate implementation truth in source files (`src/**`, `extension/**`) and mirrored website inputs (`docs/**`, `skills/**`, `assets/**`, `CHANGELOG.md`, `src/cli/help.ts`, `src/cli/onboarding-metadata.json`, `src/tools/surface.ts`, `src/tools/index.ts`).
+1. Validate implementation truth in source files (`src/**`, `extension/**`) and mirrored website inputs (`docs/**`, `skills/**`, `assets/**`, `CHANGELOG.md`, `src/cli/help.ts`, `src/cli/onboarding-metadata.json`, `src/public-surface/generated-manifest.ts`, `src/tools/index.ts`).
 2. Update active documentation sources in this directory.
 3. Dispatch private website sync after public source updates:
    - `.github/workflows/dispatch-private-sync.yml`
@@ -63,4 +63,4 @@ Use these as planning references only; verify against runtime code and active do
    - `node scripts/audit-zombie-files.mjs`
    - `node scripts/docs-drift-check.mjs`
    - `node scripts/chrome-store-compliance-check.mjs`
-6. Treat generated help as the canonical first-contact discovery surface, `docs/FIRST_RUN_ONBOARDING.md` as the first-run proof checklist, and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook and direct-run release evidence owner.
+6. Treat generated help as the canonical first-contact discovery surface, `docs/FIRST_RUN_ONBOARDING.md` as the first-run proof checklist, and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook and direct-run release evidence owner. Keep the onboarding smoke lane isolated from stale `~/.codex/skills/opendevbrowser-best-practices` copies when validating bundled behavior.

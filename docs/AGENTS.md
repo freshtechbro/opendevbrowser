@@ -62,7 +62,7 @@ When release-gate automation changes:
   - `scripts/docs-drift-check.mjs`
   - `scripts/chrome-store-compliance-check.mjs`
 
-When mirrored website inputs change (`docs/`, `skills/`, `assets/`, `CHANGELOG.md`, `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`):
+When mirrored website inputs change (`docs/`, `skills/`, `assets/`, `CHANGELOG.md`, `src/cli/help.ts`, `src/public-surface/generated-manifest.ts`, `src/tools/index.ts`):
 - dispatch private sync via `.github/workflows/dispatch-private-sync.yml`
 - validate private website generation/build:
   - `npm run sync:assets --prefix frontend`

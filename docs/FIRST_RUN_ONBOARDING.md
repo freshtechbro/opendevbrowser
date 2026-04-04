@@ -55,6 +55,8 @@ Expected:
 - help opens with an `Agent Quick Start` block
 - the block explicitly points agents to `opendevbrowser_prompting_guide`
 - the block explicitly points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`
+- the block keeps `research/` and `shopping/` visible as alias-only compatibility directories for one more cycle
+- the block warns that a stale `~/.codex/skills/opendevbrowser-best-practices` copy can shadow the bundled quick-start copy
 - the block points to `docs/FIRST_RUN_ONBOARDING.md` for proof and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook
 
 ## 3) Isolate config/cache to avoid daemon collisions
@@ -66,6 +68,8 @@ export OPENCODE_CONFIG_DIR=/tmp/opendevbrowser-first-run-isolated/config
 export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 mkdir -p "$OPENCODE_CONFIG_DIR" "$OPENCODE_CACHE_DIR"
 ```
+
+This isolation is also the proof lane for stale-global-skill shadowing: it keeps `~/.codex/skills/opendevbrowser-best-practices` from shadowing the bundled quick-start copy while you validate local-package behavior.
 
 Minimal isolated config:
 
