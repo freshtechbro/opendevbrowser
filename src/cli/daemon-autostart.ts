@@ -459,7 +459,9 @@ const installMacAutostart = (deps: AutostartDeps = {}): AutostartInstallResult =
   const plistPath = getLaunchAgentPath(home);
   const stdoutPath = join(home, "Library", "Logs", "opendevbrowser-daemon.log");
   const stderrPath = join(home, "Library", "Logs", "opendevbrowser-daemon.err.log");
+  const logsDir = dirname(stdoutPath);
   resolved.mkdirSync(dirname(plistPath), { recursive: true });
+  resolved.mkdirSync(logsDir, { recursive: true });
   resolved.writeFileSync(
     plistPath,
     buildLaunchAgentPlist(entrypoint, { stdoutPath, stderrPath }),

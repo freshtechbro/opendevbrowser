@@ -556,6 +556,47 @@ describe("getAutostartStatus", () => {
 });
 
 describe("installAutostart", () => {
+  it("creates the macOS LaunchAgents and Logs directories before bootstrap", () => {
+    const { cliPath, root, transientEntrypointRoots } = createCliFixture();
+    const home = join(root, "home");
+    const plistPath = join(home, "Library", "LaunchAgents", "com.opendevbrowser.daemon.plist");
+    const logsDir = join(home, "Library", "Logs");
+    const mkdirSyncMock = vi.fn();
+    const writeFileSyncMock = vi.fn();
+    const execFileSyncMock = vi.fn();
+
+    const result = installAutostart({
+      platform: "darwin",
+      argv1: cliPath,
+      homedir: () => home,
+      transientEntrypointRoots,
+      mkdirSync: mkdirSyncMock,
+      writeFileSync: writeFileSyncMock,
+      execFileSync: execFileSyncMock,
+      uid: 501
+    });
+
+    expect(result).toMatchObject({
+      installed: true,
+      health: "healthy",
+      needsRepair: false
+    });
+    expect(mkdirSyncMock).toHaveBeenNthCalledWith(1, join(home, "Library", "LaunchAgents"), { recursive: true });
+    expect(mkdirSyncMock).toHaveBeenNthCalledWith(2, logsDir, { recursive: true });
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      plistPath,
+      expect.stringContaining("opendevbrowser-daemon.log"),
+      { encoding: "utf-8" }
+    );
+    expect(writeFileSyncMock.mock.invocationCallOrder[0]).toBeGreaterThan(mkdirSyncMock.mock.invocationCallOrder[1]);
+    expect(execFileSyncMock.mock.calls).toEqual([
+      ["launchctl", ["bootout", "gui/501", plistPath], { stdio: "ignore" }],
+      ["launchctl", ["bootstrap", "gui/501", plistPath], { stdio: "ignore" }],
+      ["launchctl", ["enable", "gui/501/com.opendevbrowser.daemon"], { stdio: "ignore" }],
+      ["launchctl", ["kickstart", "-k", "gui/501/com.opendevbrowser.daemon"], { stdio: "ignore" }]
+    ]);
+  });
+
   it("fails before writing a macOS LaunchAgent when the current CLI path is transient", () => {
     const { cliPath, transientEntrypointRoots } = createCliFixture({ transient: true });
     const writeFileSyncMock = vi.fn();
