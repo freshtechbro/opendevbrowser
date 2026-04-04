@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import {
   buildWorkflowInventory,
   deriveCliToolPairs,
@@ -43,12 +44,14 @@ describe("workflow inventory", () => {
     const native = inventory.cliCommands.find((item) => item.label === "native");
     const rpc = inventory.cliCommands.find((item) => item.label === "rpc");
     const promptingGuide = inventory.toolSurfaces.find((item) => item.label === "opendevbrowser_prompting_guide");
+    const localOnlyFamily = inventory.toolFamilies.find((item) => item.id === "tool_family.local_only");
 
     expect(connect?.executionPolicy).toBe("guarded");
     expect(native?.executionPolicy).toBe("guarded");
     expect(rpc?.executionPolicy).toBe("guarded");
     expect(promptingGuide?.executionPolicy).toBe("non_cli");
     expect(promptingGuide?.sourceOfTruth).toBe("src/public-surface/source.ts");
+    expect(localOnlyFamily?.members).toEqual(onboardingMetadata.localOnlyToolNames);
   });
 
   it("declares primary and secondary validation tasks for the main executable scenarios", () => {

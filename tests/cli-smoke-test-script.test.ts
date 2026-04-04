@@ -1,58 +1,40 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventEmitter } from "node:events";
 
-const { spawnMock, spawnSyncMock } = vi.hoisted(() => ({
-  spawnMock: vi.fn(),
-  spawnSyncMock: vi.fn()
-}));
+const { spawnSyncMock } = vi.hoisted(() => ({ spawnSyncMock: vi.fn() }));
 
 vi.mock("child_process", () => ({
-  spawn: spawnMock,
   spawnSync: spawnSyncMock
 }));
 
 import { startDaemon } from "../scripts/cli-smoke-test.mjs";
 
-type MockChild = EventEmitter & {
-  stdout: EventEmitter;
-  stderr: EventEmitter;
-  kill: ReturnType<typeof vi.fn>;
-  exitCode: number | null;
-  signalCode: NodeJS.Signals | null;
-};
-
-function createChild(): MockChild {
-  const child = new EventEmitter() as MockChild;
-  child.stdout = new EventEmitter();
-  child.stderr = new EventEmitter();
-  child.exitCode = null;
-  child.signalCode = null;
-  child.kill = vi.fn((signal?: NodeJS.Signals | number) => {
-    if (typeof signal === "string") {
-      child.signalCode = signal;
-    }
-    child.emit("exit", child.exitCode, child.signalCode);
-    child.emit("close", child.exitCode, child.signalCode);
-    return true;
-  });
-  return child;
-}
-
 describe("cli-smoke-test startDaemon", () => {
+  let killSpy: ReturnType<typeof vi.spyOn>;
+  let mkdtempSpy: ReturnType<typeof vi.spyOn>;
+  let logDir: string;
+
   beforeEach(() => {
     vi.useFakeTimers();
-    spawnMock.mockReset();
     spawnSyncMock.mockReset();
+    killSpy = vi.spyOn(process, "kill");
+    killSpy.mockImplementation(() => true);
+    logDir = fs.mkdtempSync(path.join(os.tmpdir(), "odb-cli-smoke-test-"));
+    mkdtempSpy = vi.spyOn(fs, "mkdtempSync").mockReturnValue(logDir);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    killSpy.mockRestore();
+    mkdtempSpy.mockRestore();
+    fs.rmSync(logDir, { recursive: true, force: true });
   });
 
   it("waits through transient daemon status failures before succeeding", async () => {
-    const child = createChild();
-    spawnMock.mockReturnValue(child);
     spawnSyncMock
+      .mockReturnValueOnce({ status: 0, stdout: "4321\n", stderr: "", error: undefined })
       .mockReturnValueOnce({ status: 1, stdout: "", stderr: "booting", error: undefined })
       .mockReturnValueOnce({ status: 1, stdout: "", stderr: "still booting", error: undefined })
       .mockReturnValueOnce({ status: 0, stdout: "{\"success\":true}", stderr: "", error: undefined });
@@ -60,21 +42,25 @@ describe("cli-smoke-test startDaemon", () => {
     const pending = startDaemon({ PATH: "/tmp" }, 8788);
     await vi.advanceTimersByTimeAsync(1_000);
 
-    await expect(pending).resolves.toBe(child);
-    expect(spawnSyncMock).toHaveBeenCalledTimes(3);
-    expect(child.kill).not.toHaveBeenCalled();
+    await expect(pending).resolves.toMatchObject({ pid: 4321 });
+    expect(spawnSyncMock).toHaveBeenCalledTimes(4);
+    expect(killSpy).toHaveBeenCalledTimes(2);
+    expect(killSpy.mock.calls.every(([, signal]) => signal === 0)).toBe(true);
   });
 
   it("reports early daemon exit with captured stderr detail", async () => {
-    const child = createChild();
-    spawnMock.mockReturnValue(child);
-    spawnSyncMock.mockReturnValue({ status: 1, stdout: "", stderr: "status pending", error: undefined });
+    fs.writeFileSync(path.join(logDir, "daemon.stderr.log"), "daemon boot failed");
+    spawnSyncMock
+      .mockReturnValueOnce({ status: 0, stdout: "4321\n", stderr: "", error: undefined })
+      .mockReturnValueOnce({ status: 1, stdout: "", stderr: "status pending", error: undefined });
+    killSpy.mockImplementation((pid, signal) => {
+      if (pid === 4321 && signal === 0) {
+        throw new Error("ESRCH");
+      }
+      return true;
+    });
 
     const pending = startDaemon({ PATH: "/tmp" }, 8788).catch((error) => error as Error);
-    child.stderr.emit("data", "daemon boot failed");
-    child.exitCode = 1;
-    child.emit("exit", 1, null);
-    child.emit("close", 1, null);
     await vi.advanceTimersByTimeAsync(500);
 
     const error = await pending;

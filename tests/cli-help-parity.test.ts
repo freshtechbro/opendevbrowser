@@ -73,7 +73,7 @@ describe("cli help parity", () => {
     expect(labels).toContain("src/public-surface/generated-manifest.ts");
     expect(labels).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(labels).toContain(onboardingMetadata.referencePaths.skillDoc);
-    expect(labels).toContain(onboardingMetadata.skillDiscovery.shadowRiskPath);
+    expect(labels).not.toContain("~/.codex/skills/opendevbrowser-best-practices");
     expect(labels).not.toContain("src/tools/surface.ts");
   });
 

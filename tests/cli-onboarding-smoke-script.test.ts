@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -21,10 +21,7 @@ describe("cli-onboarding-smoke script", () => {
       `  skill_list ${onboardingMetadata.quickStartCommands.skillList}`,
       `  happy_path ${onboardingMetadata.quickStartCommands.happyPath}`,
       `  docs ${onboardingMetadata.referencePaths.onboardingDoc}`,
-      `  skill ${onboardingMetadata.referencePaths.skillDoc}`,
-      `  note ${onboardingMetadata.skillDiscovery.aliasOnlyCycleNote}`,
-      `  note ${onboardingMetadata.skillDiscovery.shadowRiskSummary}`,
-      `  path ${onboardingMetadata.skillDiscovery.shadowRiskPath}`
+      `  skill ${onboardingMetadata.referencePaths.skillDoc}`
     ].join("\n");
 
     expect(() => assertOnboardingHelp(helpText)).not.toThrow();
@@ -42,45 +39,18 @@ describe("cli-onboarding-smoke script", () => {
     expect(() => assertQuickStartGuide("## Fast Start\nRun the workflow.")).toThrow("stale Fast Start");
   });
 
-  it("loads the bundled quick-start guide even when the outer Codex home is stale", async () => {
-    const staleRoot = await mkdtemp(join(os.tmpdir(), "odb-stale-skill-home-"));
+  it("loads the bundled quick-start guide inside isolated compatibility homes", async () => {
     const isolatedRoot = await mkdtemp(join(os.tmpdir(), "odb-isolated-skill-home-"));
-    const staleSkillDir = join(staleRoot, "skills", onboardingMetadata.skillName);
-    await mkdir(staleSkillDir, { recursive: true });
-    await writeFile(
-      join(staleSkillDir, "SKILL.md"),
-      [
-        "---",
-        `name: ${onboardingMetadata.skillName}`,
-        "description: stale copy",
-        "---",
-        "",
-        "## Fast Start",
-        "Legacy heading"
-      ].join("\n"),
-      "utf8"
-    );
-
-    const previousCodexHome = process.env.CODEX_HOME;
-    process.env.CODEX_HOME = staleRoot;
-    try {
-      const guide = await loadQuickStartGuide(process.cwd(), onboardingMetadata, {
-        CODEX_HOME: isolatedRoot,
-        OPENCODE_CONFIG_DIR: join(isolatedRoot, "config"),
-        CLAUDECODE_HOME: join(isolatedRoot, ".claude"),
-        CLAUDE_HOME: join(isolatedRoot, ".claude"),
-        AMPCLI_HOME: join(isolatedRoot, ".amp"),
-        AMP_CLI_HOME: join(isolatedRoot, ".amp"),
-        AMP_HOME: join(isolatedRoot, ".amp")
-      });
-      expect(guide).toContain("## Quick Start");
-      expect(guide).not.toContain("## Fast Start");
-    } finally {
-      if (previousCodexHome === undefined) {
-        delete process.env.CODEX_HOME;
-      } else {
-        process.env.CODEX_HOME = previousCodexHome;
-      }
-    }
+    const guide = await loadQuickStartGuide(process.cwd(), onboardingMetadata, {
+      CODEX_HOME: isolatedRoot,
+      OPENCODE_CONFIG_DIR: join(isolatedRoot, "config"),
+      CLAUDECODE_HOME: join(isolatedRoot, ".claude"),
+      CLAUDE_HOME: join(isolatedRoot, ".claude"),
+      AMPCLI_HOME: join(isolatedRoot, ".amp"),
+      AMP_CLI_HOME: join(isolatedRoot, ".amp"),
+      AMP_HOME: join(isolatedRoot, ".amp")
+    });
+    expect(guide).toContain("## Quick Start");
+    expect(guide).not.toContain("## Fast Start");
   });
 });

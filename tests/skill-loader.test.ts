@@ -294,14 +294,11 @@ Global content.
     await chmod(skillPath, 0o644);
   });
 
-  it("keeps bundled alias-only directories non-discoverable even when they contain SKILL.md", async () => {
-    const emptyRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-alias-"));
-    const emptyConfig = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-alias-config-"));
+  it("ignores unexpected non-canonical bundled directories even when they contain SKILL.md", async () => {
+    const emptyRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-extra-"));
+    const emptyConfig = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-extra-config-"));
     const bundledRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-root-"));
-    const aliasOnlySkillNames = bundledSkillDirectories
-      .filter((entry) => entry.policy === "aliasOnly")
-      .map((entry) => entry.name);
-    const discoverableSkillName = bundledSkillDirectories.find((entry) => entry.policy === "discoverable")?.name;
+    const discoverableSkillName = bundledSkillDirectories[0]?.name;
 
     if (!discoverableSkillName) {
       throw new Error("Missing discoverable bundled skill for test setup.");
@@ -318,18 +315,26 @@ description: Bundled discoverable skill
 `
     );
 
-    for (const aliasName of aliasOnlySkillNames) {
-      await mkdir(join(bundledRoot, aliasName), { recursive: true });
-      await writeFile(
-        join(bundledRoot, aliasName, "SKILL.md"),
-        `---
-name: ${aliasName}
-description: Bundled alias skill
+    await mkdir(join(bundledRoot, "research"), { recursive: true });
+    await writeFile(
+      join(bundledRoot, "research", "SKILL.md"),
+      `---
+name: research
+description: Unexpected bundled dir
 ---
-# Alias
+# Unexpected
 `
-      );
-    }
+    );
+    await mkdir(join(bundledRoot, "custom-skill"), { recursive: true });
+    await writeFile(
+      join(bundledRoot, "custom-skill", "SKILL.md"),
+      `---
+name: custom-skill
+description: Unexpected bundled dir
+---
+# Unexpected
+`
+    );
 
     const originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
     const originalHome = process.env.HOME;
@@ -360,7 +365,8 @@ description: Bundled alias skill
       const skills = await loader.listSkills();
 
       expect(skills.some((skill) => skill.name === discoverableSkillName)).toBe(true);
-      expect(skills.some((skill) => aliasOnlySkillNames.includes(skill.name))).toBe(false);
+      expect(skills.some((skill) => skill.name === "research")).toBe(false);
+      expect(skills.some((skill) => skill.name === "custom-skill")).toBe(false);
     } finally {
       if (originalConfigDir === undefined) {
         delete process.env.OPENCODE_CONFIG_DIR;

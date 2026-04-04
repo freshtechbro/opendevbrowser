@@ -101,7 +101,7 @@ describe("status command", () => {
     expect(result.success).toBe(true);
     expect(mocks.fetchDaemonStatusFromMetadata).toHaveBeenCalledWith(
       undefined,
-      expect.objectContaining({ timeoutMs: 5_000, retryAttempts: 2, retryDelayMs: 250 })
+      expect.objectContaining({ timeoutMs: 5_000, retryAttempts: 5, retryDelayMs: 250 })
     );
     expect(result.message).toContain("Native: mismatch (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa != bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)");
     expect(result.message).toContain(
