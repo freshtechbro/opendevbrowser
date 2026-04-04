@@ -73,6 +73,7 @@ sub_continuity.md
 .factory/
 prd.json
 progress.txt
+prompt-exports/
 
 # Local docs scratch
 docs/RELAY_CDP_TOKEN_PLAN.md
