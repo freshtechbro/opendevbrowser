@@ -1,24 +1,16 @@
 import { createUsageError } from "./errors";
-
-export const CLI_COMMANDS = [
-  "install", "update", "uninstall", "help", "version", "serve", "daemon", "native", "run",
-  "launch", "connect", "disconnect", "status",
-  "research", "shopping", "product-video", "artifacts",
-  "goto", "wait", "snapshot", "review",
-  "click", "hover", "press", "check", "uncheck", "type", "select", "scroll", "scroll-into-view",
-  "pointer-move", "pointer-down", "pointer-up", "pointer-drag",
-  "targets-list", "target-use", "target-new", "target-close",
-  "page", "pages", "page-close",
-  "dom-html", "dom-text", "dom-attr", "dom-value", "dom-visible", "dom-enabled", "dom-checked",
-  "clone-page", "clone-component",
-  "perf", "screenshot", "console-poll", "network-poll", "debug-trace-snapshot",
-  "cookie-import", "cookie-list", "macro-resolve",
-  "annotate", "canvas", "rpc"
-] as const;
+import {
+  CLI_COMMANDS,
+  VALID_EQUALS_FLAGS,
+  VALID_FLAGS
+} from "../public-surface/generated-manifest";
+import type { PublicSurfaceCliCommandName } from "../public-surface/source";
 
 const CLI_COMMAND_SET = new Set<string>(CLI_COMMANDS);
 
-export type CliCommand = (typeof CLI_COMMANDS)[number];
+export { CLI_COMMANDS, VALID_EQUALS_FLAGS, VALID_FLAGS };
+
+export type CliCommand = PublicSurfaceCliCommandName;
 export type InstallMode = "global" | "local";
 export type SkillsMode = "global" | "local" | "none";
 export type OutputFormat = "text" | "json" | "stream-json";
@@ -111,104 +103,7 @@ function parseTransport(args: string[]): TransportMode {
   throw createUsageError(`Invalid --transport: ${value ?? "missing"}`);
 }
 
-export const VALID_FLAGS = [
-  "--global", "--local", "--update", "--uninstall",
-  "--help", "--version", "--with-config", "--no-prompt",
-  "--no-interactive", "--quiet", "--output-format",
-  "--full",
-  "--port", "--token", "--stop",
-  "--script", "--headless", "--profile", "--persist-profile", "--chrome-path", "--start-url", "--flag",
-  "--session-id", "--close-browser", "--ws-endpoint", "--host", "--cdp-port",
-  "--url", "--wait-until", "--timeout-ms", "--ref", "--state", "--until", "--mode", "--max-chars", "--cursor",
-  "--text", "--clear", "--submit", "--values", "--dy", "--key", "--attr",
-  "--x", "--y", "--from-x", "--from-y", "--to-x", "--to-y", "--steps", "--button", "--click-count",
-  "--name", "--target-id", "--tab-id", "--include-urls", "--path", "--since-seq", "--max",
-  "--since-console-seq", "--since-network-seq", "--since-exception-seq", "--request-id",
-  "--cookies", "--cookies-file", "--strict",
-  "--expression", "--default-provider", "--include-catalog",
-  "--command",
-  "--execute",
-  "--params", "--params-file", "--unsafe-internal",
-  "--daemon",
-  "--transport",
-  "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms",
-  "--skills-global", "--skills-local", "--no-skills",
-  "--screenshot-mode", "--debug", "--context",
-  "--stored",
-  "--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source",
-  "--query", "--providers", "--budget", "--region", "--browser-mode", "--sort",
-  "--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy",
-  "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy",
-  "--output-dir", "--ttl-hours", "--expired-only"
-] as const;
-
 const VALID_FLAG_SET = new Set<string>(VALID_FLAGS);
-
-export const VALID_EQUALS_FLAGS = [
-  "--output-format",
-  "--transport",
-  "--session-id",
-  "--url",
-  "--screenshot-mode",
-  "--context",
-  "--timeout-ms",
-  "--since-seq",
-  "--since-console-seq",
-  "--since-network-seq",
-  "--since-exception-seq",
-  "--max",
-  "--target-id",
-  "--tab-id",
-  "--name",
-  "--cookies",
-  "--cookies-file",
-  "--persist-profile",
-  "--expression",
-  "--default-provider",
-  "--command",
-  "--request-id",
-  "--strict",
-  "--params",
-  "--params-file",
-  "--topic",
-  "--days",
-  "--from",
-  "--to",
-  "--source-selection",
-  "--sources",
-  "--mode",
-  "--max-chars",
-  "--cursor",
-  "--limit-per-source",
-  "--query",
-  "--providers",
-  "--budget",
-  "--region",
-  "--sort",
-  "--product-url",
-  "--product-name",
-  "--provider-hint",
-  "--x",
-  "--y",
-  "--from-x",
-  "--from-y",
-  "--to-x",
-  "--to-y",
-  "--steps",
-  "--button",
-  "--click-count",
-  "--include-screenshots",
-  "--include-all-images",
-  "--include-copy",
-  "--use-cookies",
-  "--browser-mode",
-  "--challenge-automation-mode",
-  "--cookie-policy-override",
-  "--cookie-policy",
-  "--output-dir",
-  "--ttl-hours"
-] as const;
-
 const VALID_EQUALS_FLAG_SET = new Set<string>(VALID_EQUALS_FLAGS);
 
 export function parseArgs(argv: string[]): ParsedArgs {

@@ -2,9 +2,12 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-03-26
+Last updated: 2026-04-03
 
 This reference is intentionally exhaustive and should stay synchronized with:
+- `src/public-surface/source.ts`
+- `scripts/generate-public-surface-manifest.mjs`
+- `src/public-surface/generated-manifest.ts`
 - `src/cli/args.ts`
 - `src/cli/help.ts`
 - `src/tools/index.ts`
@@ -17,9 +20,12 @@ Operational mirror:
 - `npx opendevbrowser --help` (all commands with usage + primary flags, all grouped flags, all tools)
 - `npx opendevbrowser help` (same inventory as `--help`)
 
+First-contact note:
+- Start with generated help and `docs/FIRST_RUN_ONBOARDING.md`; this page stays inventory-only.
+
 ---
 
-## CLI Command Inventory (61)
+## CLI Command Inventory (64)
 
 ### Install and runtime management (10)
 - `install` - Install the plugin.
@@ -50,7 +56,7 @@ Operational mirror:
 - `snapshot` - Capture a snapshot of the active page.
 - `review` - Capture a first-class review payload for the active target.
 
-### Interaction (13)
+### Interaction (14)
 - `click` - Click an element by ref.
 - `hover` - Hover an element by ref.
 - `press` - Press a keyboard key.
@@ -60,6 +66,7 @@ Operational mirror:
 - `select` - Select values in a select by ref.
 - `scroll` - Scroll the page or an element by ref.
 - `scroll-into-view` - Scroll an element into view by ref.
+- `upload` - Upload files to a file input or chooser by ref.
 - `pointer-move` - Move the pointer to viewport coordinates.
 - `pointer-down` - Press a mouse button at viewport coordinates.
 - `pointer-up` - Release a mouse button at viewport coordinates.
@@ -86,21 +93,23 @@ Operational mirror:
 ### Design canvas (1)
 - `canvas` - Execute a design-canvas command.
 
-### Export, diagnostics, macro, annotation, power (10)
+### Export, diagnostics, macro, annotation, power (12)
 - `clone-page` - Clone the active page to React.
 - `clone-component` - Clone a component by ref.
 - `perf` - Capture performance metrics.
 - `screenshot` - Capture a screenshot.
+- `dialog` - Inspect or handle a JavaScript dialog.
 - `console-poll` - Poll console events.
 - `network-poll` - Poll network events.
 - `debug-trace-snapshot` - Capture page, console, network, and exception diagnostics.
+- `session-inspector` - Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.
 - `macro-resolve` - Resolve or execute a macro expression via provider actions.
 - `annotate` - Request interactive annotations via direct or relay transport.
 - `rpc` - Execute an internal daemon RPC command. CLI-only, internal power surface.
 
 ---
 
-## Tool Inventory (54)
+## Tool Inventory (57)
 
 ### Session and cookies (6)
 - `opendevbrowser_launch` - Launch a managed browser session.
@@ -119,7 +128,7 @@ Operational mirror:
 - `opendevbrowser_list` - List named pages in the session.
 - `opendevbrowser_close` - Close a named page.
 
-### Navigation and interaction (18)
+### Navigation and interaction (19)
 - `opendevbrowser_goto` - Navigate to a URL.
 - `opendevbrowser_wait` - Wait for load, ref, or state conditions.
 - `opendevbrowser_snapshot` - Capture AX-tree refs for actions.
@@ -133,6 +142,7 @@ Operational mirror:
 - `opendevbrowser_select` - Set select values by ref.
 - `opendevbrowser_scroll` - Scroll a page or element.
 - `opendevbrowser_scroll_into_view` - Scroll a target element into view.
+- `opendevbrowser_upload` - Upload files to a file input or chooser by ref.
 - `opendevbrowser_pointer_move` - Move the pointer to viewport coordinates.
 - `opendevbrowser_pointer_down` - Press a mouse button at viewport coordinates.
 - `opendevbrowser_pointer_up` - Release a mouse button at viewport coordinates.
@@ -148,12 +158,14 @@ Operational mirror:
 - `opendevbrowser_is_enabled` - Check ref enabled state.
 - `opendevbrowser_is_checked` - Check ref checked state.
 
-### Diagnostics and export (8)
+### Diagnostics and export (10)
 - `opendevbrowser_console_poll` - Poll redacted console events.
 - `opendevbrowser_network_poll` - Poll redacted network events.
 - `opendevbrowser_debug_trace_snapshot` - Capture page, console, and network diagnostics.
+- `opendevbrowser_session_inspector` - Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.
 - `opendevbrowser_perf` - Collect browser performance metrics.
 - `opendevbrowser_screenshot` - Capture a page screenshot.
+- `opendevbrowser_dialog` - Inspect or handle a JavaScript dialog.
 - `opendevbrowser_clone_page` - Export the active page into React code.
 - `opendevbrowser_clone_component` - Export a component by ref into React code.
 - `opendevbrowser_annotate` - Capture interactive annotations.
@@ -174,7 +186,7 @@ Operational mirror:
 
 ## Relay Channel Inventory
 
-### `/ops` command names (54)
+### `/ops` command names (59)
 
 `/ops` is the high-level relay protocol used by default extension sessions.
 
@@ -201,11 +213,17 @@ Operational mirror:
 - `targets.new`
 - `targets.close`
 
-#### Pages (4)
+#### Pages (5)
 - `page.open`
 - `page.list`
 - `page.close`
 - `page.screenshot`
+- `page.dialog`
+
+#### Page lifecycle events (3)
+- `Page.javascriptDialogOpening`
+- `Page.javascriptDialogClosed`
+- `Page.fileChooserOpened`
 
 #### Navigation (4)
 - `nav.goto`
@@ -213,7 +231,7 @@ Operational mirror:
 - `nav.snapshot`
 - `nav.review`
 
-#### Interaction (9)
+#### Interaction (10)
 - `interact.click`
 - `interact.hover`
 - `interact.press`
@@ -223,6 +241,7 @@ Operational mirror:
 - `interact.select`
 - `interact.scroll`
 - `interact.scrollIntoView`
+- `interact.upload`
 
 #### Pointer (4)
 - `pointer.move`
@@ -458,7 +477,7 @@ Auth and policy:
 ### Command taxonomy (contract)
 
 - `TargetScoped`:
-  - `nav.*`, `interact.*`, `dom.*`, `export.*`, `devtools.*`, `page.screenshot`
+  - `nav.*`, `interact.*`, `dom.*`, `export.*`, `devtools.*`, `page.screenshot`, `page.dialog`
 - `SessionStructural`:
   - `session.*`, `targets.*`, `page.open`, `page.list`, `page.close`, storage commands
 

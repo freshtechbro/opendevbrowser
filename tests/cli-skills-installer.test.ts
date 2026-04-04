@@ -5,6 +5,7 @@ import * as path from "path";
 import { mkdtemp, rm } from "fs/promises";
 import { installSkills } from "../src/cli/installers/skills";
 import { getGlobalSkillTargets, getLocalSkillTargets } from "../src/cli/utils/skills";
+import { bundledSkillDirectories } from "../src/skills/bundled-skill-directories";
 
 let tempRoot = "";
 let workspaceDir = "";
@@ -91,14 +92,32 @@ afterEach(async () => {
 });
 
 describe("installSkills", () => {
+  const discoverableBundledSkillNames = bundledSkillDirectories
+    .filter((entry) => entry.policy === "discoverable")
+    .map((entry) => entry.name);
+  const aliasOnlyBundledSkillNames = bundledSkillDirectories
+    .filter((entry) => entry.policy === "aliasOnly")
+    .map((entry) => entry.name);
+
   it("installs bundled skills across all global agent targets", () => {
     const result = installSkills("global");
     expect(result.success).toBe(true);
     expect(result.targets.length).toBe(getGlobalSkillTargets().length);
+    expect(result.discoverableInstalled.length).toBe(
+      getGlobalSkillTargets().length * discoverableBundledSkillNames.length
+    );
+    expect(result.aliasOnlyInstalled.length).toBe(
+      getGlobalSkillTargets().length * aliasOnlyBundledSkillNames.length
+    );
+    expect(result.aliasOnlyInstalled).toEqual(expect.arrayContaining(aliasOnlyBundledSkillNames));
+    expect(result.message).toContain("discoverable");
+    expect(result.message).toContain("alias-only");
 
     for (const target of getGlobalSkillTargets()) {
       const skillPath = path.join(target.dir, "opendevbrowser-best-practices", "SKILL.md");
       expect(fs.existsSync(skillPath)).toBe(true);
+      expect(fs.existsSync(path.join(target.dir, "research"))).toBe(true);
+      expect(fs.existsSync(path.join(target.dir, "shopping"))).toBe(true);
     }
   }, 60_000);
 
@@ -106,6 +125,12 @@ describe("installSkills", () => {
     const result = installSkills("local");
     expect(result.success).toBe(true);
     expect(result.targets.length).toBe(getLocalSkillTargets().length);
+    expect(result.discoverableInstalled.length).toBe(
+      getLocalSkillTargets().length * discoverableBundledSkillNames.length
+    );
+    expect(result.aliasOnlyInstalled.length).toBe(
+      getLocalSkillTargets().length * aliasOnlyBundledSkillNames.length
+    );
 
     for (const target of getLocalSkillTargets()) {
       const skillPath = path.join(target.dir, "opendevbrowser-best-practices", "SKILL.md");
@@ -121,6 +146,12 @@ describe("installSkills", () => {
     expect(secondRun.success).toBe(true);
     expect(secondRun.targets.every((target) => target.installed.length === 0)).toBe(true);
     expect(secondRun.targets.every((target) => target.skipped.length > 0)).toBe(true);
+    expect(secondRun.discoverableSkipped.length).toBe(
+      getGlobalSkillTargets().length * discoverableBundledSkillNames.length
+    );
+    expect(secondRun.aliasOnlySkipped.length).toBe(
+      getGlobalSkillTargets().length * aliasOnlyBundledSkillNames.length
+    );
   }, 60_000);
 
   it("publishes canonical and legacy aliases for ClaudeCode and AmpCLI targets", () => {

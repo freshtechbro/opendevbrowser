@@ -55,7 +55,7 @@ function parseOptions(argv) {
 
 export const parseArgs = parseOptions;
 
-function ensureCli() {
+export function ensureCli() {
   if (!fs.existsSync(CLI)) {
     throw new Error(`CLI not found at ${CLI}. Run npm run build first.`);
   }
@@ -73,9 +73,9 @@ function parseJsonFromStdout(stdout) {
   return null;
 }
 
-function runCli(args, options = {}) {
+export function runCli(args, options = {}) {
   const withFormat = args.some((arg) => arg.startsWith("--output-format"));
-  const finalArgs = withFormat ? args : [...args, "--output-format", "json"];
+  const finalArgs = options.rawOutput || withFormat ? args : [...args, "--output-format", "json"];
   if (process.env.ODB_CLI_SMOKE_TRACE === "1") {
     console.error(`[cli-smoke] ${finalArgs.join(" ")}`);
   }
@@ -167,7 +167,7 @@ async function waitForChildExit(child, timeoutMs = CHILD_EXIT_WAIT_MS) {
   });
 }
 
-async function terminateChild(child) {
+export async function terminateChild(child) {
   if (child.exitCode !== null || child.signalCode !== null) {
     return;
   }
@@ -182,7 +182,7 @@ async function terminateChild(child) {
   await waitForChildExit(child);
 }
 
-async function getFreePort() {
+export async function getFreePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.on("error", reject);

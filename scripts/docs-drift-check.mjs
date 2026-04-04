@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getPublicSurfaceCounts } from "./shared/public-surface-manifest.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -10,36 +11,25 @@ function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
-function extractStringListFromSource(pattern, source, label) {
-  const match = source.match(pattern);
-  if (!match) {
-    throw new Error(`Unable to parse ${label}.`);
-  }
-  return [...match[1].matchAll(/"([^"]+)"/g)].map((valueMatch) => valueMatch[1]);
-}
-
-function extractCountFromSource(pattern, source, label) {
-  return extractStringListFromSource(pattern, source, label).length;
-}
-
 export function getSurfaceCounts() {
-  const argsSource = read("src/cli/args.ts");
-  const toolsSource = read("src/tools/index.ts");
   const opsSource = read("extension/src/ops/ops-runtime.ts");
   const canvasSource = read("src/browser/canvas-manager.ts");
+  const publicSurface = getPublicSurfaceCounts(ROOT);
 
-  const commandNames = extractStringListFromSource(/export const CLI_COMMANDS = \[(.*?)\] as const;/s, argsSource, "CLI commands");
-  const toolNames = [...toolsSource.matchAll(/\s(opendevbrowser_[a-z_]+):/g)].map((match) => match[1]);
   const opsCommandNames = [...opsSource.matchAll(/case "([^"]+)":/g)].map((match) => match[1]);
-  const canvasCommandNames = extractStringListFromSource(/export const PUBLIC_CANVAS_COMMANDS = \[(.*?)\] as const;/s, canvasSource, "public canvas commands");
+  const canvasCommandMatch = canvasSource.match(/export const PUBLIC_CANVAS_COMMANDS = \[(.*?)\] as const;/s);
+  if (!canvasCommandMatch) {
+    throw new Error("Unable to parse public canvas commands.");
+  }
+  const canvasCommandNames = [...canvasCommandMatch[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 
   return {
-    commandCount: commandNames.length,
-    toolCount: toolNames.length,
+    commandCount: publicSurface.commandCount,
+    toolCount: publicSurface.toolCount,
     opsCommandCount: opsCommandNames.length,
     canvasCommandCount: canvasCommandNames.length,
-    commandNames,
-    toolNames,
+    commandNames: publicSurface.commandNames,
+    toolNames: publicSurface.toolNames,
     opsCommandNames,
     canvasCommandNames
   };
@@ -97,6 +87,7 @@ export function runDocsDriftChecks() {
   const onboardingDoc = read("docs/FIRST_RUN_ONBOARDING.md");
   const surfaceDoc = read("docs/SURFACE_REFERENCE.md");
   const architectureDoc = read("docs/ARCHITECTURE.md");
+  const onboardingMetadata = JSON.parse(read("src/cli/onboarding-metadata.json"));
   const annotateDoc = read("docs/ANNOTATE.md");
   const extensionDoc = read("docs/EXTENSION.md");
   const troubleshootingDoc = read("docs/TROUBLESHOOTING.md");
@@ -215,6 +206,22 @@ export function runDocsDriftChecks() {
     detail: `docs/CLI.md tool count=${cliToolsCount}, source=${toolCount}`
   });
 
+  checks.push({
+    id: "doc.cli.no_stale_help_inventory_counts",
+    ok: !cliDoc.includes("All CLI commands (61)")
+      && !cliDoc.includes("All `opendevbrowser_*` tools (54)"),
+    detail: "docs/CLI.md must not carry stale inline help inventory counts."
+  });
+
+  checks.push({
+    id: "doc.cli.onboarding_help_path_documented",
+    ok: cliDoc.includes("Generated help is the primary first-contact inventory and onboarding surface.")
+      && cliDoc.includes(onboardingMetadata.quickStartCommands.promptingGuide)
+      && cliDoc.includes(onboardingMetadata.quickStartCommands.skillLoad)
+      && cliDoc.includes("node scripts/cli-onboarding-smoke.mjs"),
+    detail: "docs/CLI.md must point first-contact agents to generated help, the canonical quick-start path, and the onboarding smoke lane."
+  });
+
   const cliOpsCount = parseDocCount(/- `\/ops` \(default extension channel\): .* all `([0-9]+)` command names\./, cliDoc, "CLI docs /ops count");
   checks.push({
     id: "doc.cli.ops_command_count_matches_source",
@@ -253,11 +260,30 @@ export function runDocsDriftChecks() {
   });
 
   checks.push({
+    id: "doc.onboarding.help_led_quick_start_documented",
+    ok: onboardingDoc.includes("Validate the help-led quick-start path")
+      && onboardingDoc.includes(onboardingMetadata.quickStartCommands.promptingGuide)
+      && onboardingDoc.includes(onboardingMetadata.quickStartCommands.skillLoad)
+      && onboardingDoc.includes(onboardingMetadata.referencePaths.skillDoc),
+    detail: "docs/FIRST_RUN_ONBOARDING.md must document the generated-help quick-start path and canonical skill runbook."
+  });
+
+  checks.push({
     id: "doc.readme.mirrored_help_inputs_documented",
     ok: docsReadme.includes("src/cli/help.ts")
+      && docsReadme.includes("src/cli/onboarding-metadata.json")
       && docsReadme.includes("src/tools/surface.ts")
       && docsReadme.includes("skills/opendevbrowser-best-practices/SKILL.md"),
     detail: "docs/README.md must reference mirrored help inputs and the canonical direct-run policy owner."
+  });
+
+  checks.push({
+    id: "doc.readme.onboarding_owner_boundaries_documented",
+    ok: docsReadme.includes("generated help as the canonical first-contact discovery surface")
+      && docsReadme.includes("docs/FIRST_RUN_ONBOARDING.md")
+      && docsReadme.includes("skills/opendevbrowser-best-practices/SKILL.md")
+      && docsReadme.includes("node scripts/cli-onboarding-smoke.mjs"),
+    detail: "docs/README.md must define the onboarding ownership split and include the onboarding smoke lane."
   });
 
   checks.push({
@@ -347,6 +373,20 @@ export function runDocsDriftChecks() {
       && architectureDoc.includes("not a desktop agent")
       && architectureDoc.includes("roadmap-only"),
     detail: "docs/ARCHITECTURE.md must document the challenge override contract, browser-only helper boundary, and roadmap-only desktop section."
+  });
+
+  checks.push({
+    id: "doc.architecture.onboarding_owner_documented",
+    ok: architectureDoc.includes("src/cli/onboarding-metadata.json")
+      && architectureDoc.includes("first-contact skill, topic, quick-start commands, and onboarding doc pointers"),
+    detail: "docs/ARCHITECTURE.md must document the onboarding metadata owner."
+  });
+
+  checks.push({
+    id: "doc.architecture.onboarding_proof_lane_documented",
+    ok: architectureDoc.includes("CLI onboarding proof lane")
+      && architectureDoc.includes("node scripts/cli-onboarding-smoke.mjs"),
+    detail: "docs/ARCHITECTURE.md must document the onboarding proof lane."
   });
 
   checks.push({

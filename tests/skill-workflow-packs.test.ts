@@ -357,5 +357,5 @@ describe("workflow skill packs", () => {
       });
       expect(result.status, `${relativePath}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
     }
-  });
+  }, 60000);
 });

@@ -4,13 +4,13 @@
 
 ## Overview
 
-CLI layer implementing script-first UX with 61 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, design-canvas, export, diagnostics, provider workflows, macro, annotate, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
+CLI layer implementing script-first UX with 64 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, design-canvas, export, diagnostics, provider workflows, macro, annotate, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
 
 ## Structure
 
 ```
 src/cli/
-├── commands/               # 50+ command implementations
+├── commands/               # 64 command implementations
 │   ├── annotate.ts         # Annotation commands
 │   ├── artifacts.ts        # Artifact generation commands
 │   ├── canvas.ts           # Design-canvas command wrapper
@@ -18,7 +18,7 @@ src/cli/
 │   ├── devtools/           # Console/network commands
 │   ├── dom/                # DOM capture/export
 │   ├── export/             # Page export commands
-│   ├── interact/           # 9 interaction commands (click, type, etc.)
+│   ├── interact/           # 10 interaction commands (click, type, upload, etc.)
 │   ├── macro-resolve.ts    # Macro plan resolution
 │   ├── native.ts           # Native messaging bridge
 │   ├── nav/                # Navigation commands
@@ -62,11 +62,11 @@ src/cli/
 | Category | Commands | Purpose |
 |----------|----------|---------|
 | `nav` | goto, wait, snapshot | Navigation + page readiness |
-| `interact` | click, type, press, hover, check, select, scroll, etc. | Element interaction |
+| `interact` | click, type, press, hover, check, select, scroll, upload, etc. | Element interaction |
 | `dom` | dom-html, dom-text, dom-attr, dom-value, dom-visible, dom-enabled, dom-checked | DOM operations |
 | `session` | launch, connect, disconnect, status, cookie-import, cookie-list | Session management |
 | `targets` | targets-list, target-use, target-new, target-close | Target (tab) management |
-| `devtools` | console-poll, network-poll, debug-trace-snapshot, perf, screenshot | DevTools integration |
+| `devtools` | console-poll, network-poll, debug-trace-snapshot, session-inspector, perf, screenshot, dialog | DevTools integration |
 | `automation` | macro-resolve | Provider macro planning utilities |
 | `canvas` | canvas | Design-canvas session/document/preview orchestration |
 | `providers` | research, shopping, product-video, artifacts | Provider-backed workflow commands |

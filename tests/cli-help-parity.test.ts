@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS } from "../src/cli/args";
+import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_FLAG_GROUPS, HELP_REFERENCE_ENTRIES, HELP_TOOL_ENTRIES } from "../src/cli/help";
+import { LOCAL_ONLY_TOOL_NAMES } from "../src/tools";
 import { TOOL_SURFACE_ENTRIES } from "../src/tools/surface";
 
 describe("cli help parity", () => {
@@ -19,6 +21,24 @@ describe("cli help parity", () => {
 
     expect(new Set(names).size).toBe(HELP_TOOL_ENTRIES.length);
     expect(HELP_TOOL_ENTRIES).toEqual(TOOL_SURFACE_ENTRIES);
+  });
+
+  it("includes the session-inspector public-surface tranche", () => {
+    const commandNames = HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands]);
+    const toolNames = HELP_TOOL_ENTRIES.map((entry) => entry.name);
+
+    expect(commandNames).toContain("session-inspector");
+    expect(HELP_COMMAND_GROUPS.find((group) => group.commands.includes("session-inspector"))?.commands).toContain("session-inspector");
+    expect(toolNames).toContain("opendevbrowser_session_inspector");
+    expect(COMMAND_HELP_DETAILS["session-inspector"].flags).toEqual(expect.arrayContaining([
+      "--session-id",
+      "--include-urls",
+      "--since-console-seq",
+      "--since-network-seq",
+      "--since-exception-seq",
+      "--max",
+      "--request-id"
+    ]));
   });
 
   it("keeps runtime command registration aligned with the declared CLI inventory", () => {
@@ -49,6 +69,13 @@ describe("cli help parity", () => {
     expect(labels).toContain("opendevbrowser --help");
     expect(labels).toContain("opendevbrowser help");
     expect(labels).toContain("src/cli/help.ts");
+    expect(labels).toContain("src/cli/onboarding-metadata.json");
+    expect(labels).toContain(onboardingMetadata.referencePaths.onboardingDoc);
+    expect(labels).toContain(onboardingMetadata.referencePaths.skillDoc);
+  });
+
+  it("keeps onboarding-recommended tool names local-only", () => {
+    expect(new Set(onboardingMetadata.localOnlyToolNames)).toEqual(LOCAL_ONLY_TOOL_NAMES);
   });
 
   it("documents the temporary-profile default for one-shot run commands", () => {

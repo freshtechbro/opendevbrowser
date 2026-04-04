@@ -1,5 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
+import onboardingMetadata from "../cli/onboarding-metadata.json";
 import type { ToolDeps } from "./deps";
 import { ok, failure } from "./response";
 
@@ -7,7 +8,7 @@ const z = tool.schema;
 
 export function createSkillLoadTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "Load a specific skill by name from OpenCode skill directories (compatibility wrapper)",
+    description: `Load a local skill directly; start with ${onboardingMetadata.skillName} ${onboardingMetadata.skillTopic} before low-level browser commands.`,
     args: {
       name: z.string().describe("Name of the skill to load (e.g., 'opendevbrowser-login-automation', 'opendevbrowser-form-testing')"),
       topic: z.string().optional().describe("Optional topic to filter the skill content")

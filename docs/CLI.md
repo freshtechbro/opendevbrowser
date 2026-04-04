@@ -2,13 +2,13 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-26
+Last updated: 2026-04-03
 
-OpenDevBrowser exposes 54 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
-Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff/compaction.
+OpenDevBrowser exposes 57 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
-Human-facing help metadata lives in `src/cli/help.ts`; human-facing tool metadata lives in `src/tools/surface.ts`. Runtime inventory authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
+Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts`, which is consumed by `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/surface.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
 
 Dependency inventory: `docs/DEPENDENCIES.md`
 First-run pre-release onboarding: `docs/FIRST_RUN_ONBOARDING.md`
@@ -72,6 +72,7 @@ By default (`--skills-global`), the CLI installs bundled skills to global OpenCo
 Installer inventory:
 - `--skills-global` and `--skills-local` copy all 11 bundled directories under `skills/`: 9 canonical `opendevbrowser-*` packs plus the empty compatibility alias directories `research/` and `shopping/`.
 - Only directories with `SKILL.md` are discoverable at runtime, so the packaged fallback exposes the 9 canonical `opendevbrowser-*` packs. The copied `research/` and `shopping/` directories stay non-discoverable compatibility aliases unless a verified migration adds `SKILL.md`.
+- Installer JSON and text summaries classify copied directories using that same rule, so discoverable packs and alias-only directories are reported separately.
 
 `OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
 
@@ -136,18 +137,19 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `61`.
-- Categories: install/runtime management, session/connection, navigation, interaction plus low-level pointer control, targets/pages, DOM inspection, design canvas, export/diagnostics/macro/annotation, and internal power (`rpc`).
+- Total commands: `64`.
+- Categories: install/runtime management, session/connection, navigation, interaction plus low-level pointer control, targets/pages, DOM inspection, design canvas, export plus session-centric diagnostics, macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `54` (`opendevbrowser_*`).
+- Total tools: `57` (`opendevbrowser_*`).
+- CLI-tool pairs: `54`.
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
 ### Relay channel surface
 
-- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `54` command names.
+- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `59` command names.
 - `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `35` command names and envelope contracts.
 - `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
 
@@ -249,19 +251,22 @@ npx opendevbrowser --version
 npx opendevbrowser -v
 ```
 
-`--help` and `help` print the same complete, agent-oriented inventory:
-- All CLI commands (61) grouped by function, each with a one-line description, usage snippet, and primary flags.
-- All supported CLI flags, grouped by install/session/navigation/workflow usage, with representative examples on high-value shared flags.
-- All `opendevbrowser_*` tools (54), each with a one-line description and CLI equivalent or tool-only scope.
-- Macro and design-canvas timeout guidance via `--timeout-ms`.
-- The exhaustive mirrored name + description inventory lives in `docs/SURFACE_REFERENCE.md`.
-- Canonical inventory pointers: `src/cli/index.ts`, `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`, `docs/SURFACE_REFERENCE.md`, and this CLI guide.
+`--help` and `help` print the same generated first-contact inventory:
+- An `Agent Quick Start` block that tells agents to start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands.
+- The complete generated CLI command, flag, and `opendevbrowser_*` tool inventories.
+- Canonical pointers to `docs/FIRST_RUN_ONBOARDING.md`, `skills/opendevbrowser-best-practices/SKILL.md`, and `docs/SURFACE_REFERENCE.md`.
 
 Operational help parity check:
 
 ```bash
 npx opendevbrowser --help
 npx opendevbrowser help
+```
+
+First-run proof lane:
+
+```bash
+node scripts/cli-onboarding-smoke.mjs
 ```
 
 ---
@@ -976,8 +981,12 @@ npx opendevbrowser review --session-id <session-id> --target-id <target-id> --ma
 ### Click
 
 ```bash
-npx opendevbrowser click --session-id <session-id> --ref r12
+npx opendevbrowser click --session-id <session-id> --ref r12 [--timeout-ms <ms>]
 ```
+
+Notes:
+- `--timeout-ms` sets the client-side daemon timeout for the click request.
+- Without `--timeout-ms`, `click` uses a 60s client-side daemon timeout so blocking browser dialogs can be inspected and handled without the opener expiring immediately.
 
 ### Hover
 
@@ -1024,6 +1033,17 @@ npx opendevbrowser scroll --session-id <session-id> --ref r12 --dy 300
 ```bash
 npx opendevbrowser scroll-into-view --session-id <session-id> --ref r12
 ```
+
+### Upload
+
+```bash
+npx opendevbrowser upload --session-id <session-id> --ref r12 --files ./avatar.png
+npx opendevbrowser upload --session-id <session-id> --target-id <target-id> --ref r12 --files ./front.png,./back.png
+```
+
+Notes:
+- `--files` accepts a comma-separated list of host file paths.
+- Upload resolves the target from the existing ref model and reports `mode` as `direct_input` or `file_chooser`.
 
 ---
 
@@ -1172,11 +1192,29 @@ npx opendevbrowser perf --session-id <session-id>
 ```bash
 npx opendevbrowser screenshot --session-id <session-id>
 npx opendevbrowser screenshot --session-id <session-id> --path ./capture.png
+npx opendevbrowser screenshot --session-id <session-id> --ref r12
+npx opendevbrowser screenshot --session-id <session-id> --full-page
 npx opendevbrowser screenshot --session-id <session-id> --path ./capture.png --timeout-ms 60000
 ```
 
 Notes:
+- `--ref` and `--full-page` are mutually exclusive.
 - `--timeout-ms` sets client-side daemon timeout for screenshot capture.
+- Default visible capture may still report the existing viewport-only fallback warning when extension capture has to degrade, but ref and full-page requests do not silently reuse that fallback.
+
+### Dialog
+
+```bash
+npx opendevbrowser dialog --session-id <session-id>
+npx opendevbrowser dialog --session-id <session-id> --action dismiss
+npx opendevbrowser dialog --session-id <session-id> --action accept --prompt-text "Ship it"
+```
+
+Notes:
+- `--action` supports `status`, `accept`, and `dismiss`.
+- `--prompt-text` is only valid when `--action accept` is used for a prompt dialog.
+- `--timeout-ms` sets the client-side daemon timeout for the dialog request.
+- Without `--timeout-ms`, `dialog` uses a 30s client-side daemon timeout.
 
 ### Console poll
 
@@ -1202,6 +1240,25 @@ npx opendevbrowser debug-trace-snapshot \
   --max 200 \
   --request-id req-debug-001
 ```
+
+### Session inspector
+
+```bash
+npx opendevbrowser session-inspector --session-id <session-id>
+npx opendevbrowser session-inspector \
+  --session-id <session-id> \
+  --include-urls \
+  --since-console-seq 100 \
+  --since-network-seq 80 \
+  --since-exception-seq 10 \
+  --max 50 \
+  --request-id req-session-inspector-001
+```
+
+Notes:
+- Returns session status, relay health, target summary, proof artifact metadata, `healthState`, and a suggested next action in one payload.
+- `--include-urls` keeps target URLs in the target summary. Omit it to use the default runtime behavior.
+- `--since-console-seq`, `--since-network-seq`, `--since-exception-seq`, and `--max` mirror the trace cursors used by `debug-trace-snapshot`.
 
 ---
 
@@ -1257,7 +1314,7 @@ npx opendevbrowser debug-trace-snapshot \
 | `--cookies` | `cookie-import` | Inline JSON array of cookie objects |
 | `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects |
 | `--strict` | `cookie-import` | Reject on invalid cookie entries (`true`/`false`) |
-| `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot` | Optional request correlation id |
+| `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot`, `session-inspector` | Optional request correlation id |
 | `--expression` | `macro-resolve` | Macro expression to resolve |
 | `--default-provider` | `macro-resolve` | Provider fallback for shorthand macros |
 | `--include-catalog` | `macro-resolve` | Include macro catalog in response |
@@ -1333,10 +1390,12 @@ npx opendevbrowser debug-trace-snapshot \
 | Flag | Used by | Description |
 |------|---------|-------------|
 | `--ref` | element commands | Element ref from `snapshot` |
+| `--timeout-ms` | `click` | Client-side daemon call timeout in ms; defaults to 60s |
 | `--text` | `type` | Text to type |
 | `--clear` | `type` | Clear input before typing |
 | `--submit` | `type` | Submit after typing |
 | `--values` | `select` | Comma-separated values |
+| `--files` | `upload` | Comma-separated file paths for upload |
 | `--dy` | `scroll` | Scroll delta on Y axis |
 | `--key` | `press` | Keyboard key name (e.g. `Enter`) |
 
@@ -1345,7 +1404,7 @@ npx opendevbrowser debug-trace-snapshot \
 | Flag | Used by | Description |
 |------|---------|-------------|
 | `--target-id` | `target-use`, `target-close` | Target id from `targets-list` |
-| `--include-urls` | `targets-list` | Include URLs in target list output |
+| `--include-urls` | `targets-list`, `session-inspector` | Include URLs in target or session-inspector target-list output |
 | `--name` | `page`, `page-close` | Named page identifier |
 
 **Devtools**
@@ -1354,12 +1413,17 @@ npx opendevbrowser debug-trace-snapshot \
 |------|---------|-------------|
 | `--attr` | `dom-attr` | Attribute name to read |
 | `--path` | `screenshot` | Output file path |
-| `--timeout-ms` | `screenshot` | Client-side daemon call timeout in ms |
+| `--ref` | `screenshot` | Capture an element screenshot by ref |
+| `--full-page` | `screenshot` | Capture the full scrollable page |
+| `--action` | `dialog` | Dialog action: `status`, `accept`, or `dismiss` |
+| `--prompt-text` | `dialog` | Prompt text to submit when accepting a prompt dialog |
+| `--timeout-ms` | `screenshot` | Explicit client-side daemon call timeout in ms |
+| `--timeout-ms` | `dialog` | Client-side daemon call timeout in ms; defaults to 30s |
 | `--since-seq` | `console-poll`, `network-poll` | Start sequence number |
-| `--since-console-seq` | `debug-trace-snapshot` | Resume cursor for console channel |
-| `--since-network-seq` | `debug-trace-snapshot` | Resume cursor for network channel |
-| `--since-exception-seq` | `debug-trace-snapshot` | Resume cursor for exception channel |
-| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot` | Max events to return per channel |
+| `--since-console-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for console channel |
+| `--since-network-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for network channel |
+| `--since-exception-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for exception channel |
+| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector` | Max events to return per channel |
 
 ---
 

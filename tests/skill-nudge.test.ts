@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import {
   buildSkillNudgeMessage,
   extractTextFromParts,
@@ -55,7 +56,7 @@ describe("skill nudge", () => {
   it("includes a marker and explicit quick start suggestion", () => {
     const message = buildSkillNudgeMessage();
     expect(message).toContain(SKILL_NUDGE_MARKER);
-    expect(message).toContain('skill("opendevbrowser-best-practices", "quick start")');
-    expect(message).toContain('skill("opendevbrowser-design-agent")');
+    expect(message).toContain(`skill("${onboardingMetadata.skillName}", "${onboardingMetadata.skillTopic}")`);
+    expect(message).toContain(`skill("${onboardingMetadata.designSkillName}")`);
   });
 });

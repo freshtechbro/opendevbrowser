@@ -4,6 +4,7 @@ import * as os from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
 import { SkillLoader } from "../src/skills/skill-loader";
+import { bundledSkillDirectories } from "../src/skills/bundled-skill-directories";
 
 let tempRoot = "";
 let originalConfigDir: string | undefined;
@@ -170,6 +171,14 @@ Global content.
     expect(content).toContain("# OpenDevBrowser Best Practices");
   });
 
+  it("loads the canonical quick start topic from the real bundled best-practices skill", async () => {
+    const missingRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-topic-"));
+    const loader = new SkillLoader(missingRoot);
+    const content = await loader.loadSkill("opendevbrowser-best-practices", "quick start");
+    expect(content).toContain("## Quick Start");
+    expect(content).not.toContain("## Fast Start");
+  });
+
   it("reports bundled skills when only the bundled fallback is available", async () => {
     const emptyRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-none-"));
     const emptyConfig = await mkdtemp(join(os.tmpdir(), "odb-skill-none-config-"));
@@ -283,6 +292,117 @@ Global content.
     expect(content).toContain("# OpenDevBrowser Best Practices");
 
     await chmod(skillPath, 0o644);
+  });
+
+  it("keeps bundled alias-only directories non-discoverable even when they contain SKILL.md", async () => {
+    const emptyRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-alias-"));
+    const emptyConfig = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-alias-config-"));
+    const bundledRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-root-"));
+    const aliasOnlySkillNames = bundledSkillDirectories
+      .filter((entry) => entry.policy === "aliasOnly")
+      .map((entry) => entry.name);
+    const discoverableSkillName = bundledSkillDirectories.find((entry) => entry.policy === "discoverable")?.name;
+
+    if (!discoverableSkillName) {
+      throw new Error("Missing discoverable bundled skill for test setup.");
+    }
+
+    await mkdir(join(bundledRoot, discoverableSkillName), { recursive: true });
+    await writeFile(
+      join(bundledRoot, discoverableSkillName, "SKILL.md"),
+      `---
+name: ${discoverableSkillName}
+description: Bundled discoverable skill
+---
+# Bundled
+`
+    );
+
+    for (const aliasName of aliasOnlySkillNames) {
+      await mkdir(join(bundledRoot, aliasName), { recursive: true });
+      await writeFile(
+        join(bundledRoot, aliasName, "SKILL.md"),
+        `---
+name: ${aliasName}
+description: Bundled alias skill
+---
+# Alias
+`
+      );
+    }
+
+    const originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    const originalHome = process.env.HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const originalAmpCliAliasHome = process.env.AMPCLI_HOME;
+    const originalAmpCliHome = process.env.AMP_CLI_HOME;
+    const originalAmpHome = process.env.AMP_HOME;
+
+    process.env.OPENCODE_CONFIG_DIR = emptyConfig;
+    process.env.HOME = emptyConfig;
+    process.env.CODEX_HOME = join(emptyConfig, "codex-home");
+    process.env.CLAUDECODE_HOME = join(emptyConfig, "claudecode-home");
+    delete process.env.CLAUDE_HOME;
+    delete process.env.AMPCLI_HOME;
+    process.env.AMP_CLI_HOME = join(emptyConfig, "amp-home");
+    delete process.env.AMP_HOME;
+
+    vi.resetModules();
+    vi.doMock("../src/utils/package-assets", () => ({
+      findBundledSkillsDir: () => bundledRoot
+    }));
+
+    try {
+      const { SkillLoader: IsolatedSkillLoader } = await import("../src/skills/skill-loader");
+      const loader = new IsolatedSkillLoader(emptyRoot);
+      const skills = await loader.listSkills();
+
+      expect(skills.some((skill) => skill.name === discoverableSkillName)).toBe(true);
+      expect(skills.some((skill) => aliasOnlySkillNames.includes(skill.name))).toBe(false);
+    } finally {
+      if (originalConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = originalConfigDir;
+      }
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = originalCodexHome;
+      }
+      if (originalClaudeCodeHome === undefined) {
+        delete process.env.CLAUDECODE_HOME;
+      } else {
+        process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
+      }
+      if (originalClaudeHome === undefined) {
+        delete process.env.CLAUDE_HOME;
+      } else {
+        process.env.CLAUDE_HOME = originalClaudeHome;
+      }
+      if (originalAmpCliAliasHome === undefined) {
+        delete process.env.AMPCLI_HOME;
+      } else {
+        process.env.AMPCLI_HOME = originalAmpCliAliasHome;
+      }
+      if (originalAmpCliHome === undefined) {
+        delete process.env.AMP_CLI_HOME;
+      } else {
+        process.env.AMP_CLI_HOME = originalAmpCliHome;
+      }
+      if (originalAmpHome === undefined) {
+        delete process.env.AMP_HOME;
+      } else {
+        process.env.AMP_HOME = originalAmpHome;
+      }
+    }
   });
 });
 

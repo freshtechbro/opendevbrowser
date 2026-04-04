@@ -1,6 +1,11 @@
-import { TOOL_SURFACE_ENTRIES } from "../tools/surface";
+import onboardingMetadata from "./onboarding-metadata.json";
 import type { CliCommand } from "./args";
 import { CLI_COMMANDS, VALID_FLAGS } from "./args";
+import {
+  CLI_COMMAND_HELP_DETAILS,
+  PUBLIC_CLI_COMMAND_GROUPS,
+  TOOL_SURFACE_ENTRIES
+} from "../public-surface/generated-manifest";
 import { listCommands } from "./commands/registry";
 
 type HelpFlag = (typeof VALID_FLAGS)[number];
@@ -11,10 +16,7 @@ interface CommandGroup {
   commands: readonly CliCommand[];
 }
 
-export interface CommandHelpDetail {
-  usage: string;
-  flags: readonly HelpFlag[];
-}
+export type CommandHelpDetail = typeof CLI_COMMAND_HELP_DETAILS[CliCommand];
 
 interface FlagEntry {
   flag: HelpFlag;
@@ -51,247 +53,15 @@ const COMMAND_SET = new Set<string>(CLI_COMMANDS);
 const FLAG_SET = new Set<string>(VALID_FLAGS);
 const TOOL_COUNT = TOOL_SURFACE_ENTRIES.length;
 
-const commandHelp = (usage: string, ...flags: HelpFlag[]): CommandHelpDetail => ({
-  usage,
-  flags
-});
-
 const formatFlags = (flags: readonly HelpFlag[]): string => (flags.length > 0 ? flags.join(", ") : "none");
 
-export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = [
-  {
-    title: "Install & Lifecycle",
-    summary: "Install, remove, and inspect CLI basics.",
-    commands: ["install", "update", "uninstall", "help", "version"]
-  },
-  {
-    title: "Daemon & Runtime",
-    summary: "Run daemon services and single-process scripts.",
-    commands: ["serve", "daemon", "native", "run"]
-  },
-  {
-    title: "Session Lifecycle",
-    summary: "Launch/connect sessions and manage browser state.",
-    commands: ["launch", "connect", "disconnect", "status", "cookie-import", "cookie-list"]
-  },
-  {
-    title: "Provider Workflows",
-    summary: "Run research, shopping, media, and artifact workflows.",
-    commands: ["research", "shopping", "product-video", "artifacts", "macro-resolve"]
-  },
-  {
-    title: "Design Canvas",
-    summary: "Execute typed /canvas commands for session, document, preview, and code-sync flows.",
-    commands: ["canvas"]
-  },
-  {
-    title: "Navigation",
-    summary: "Move through pages and capture fresh refs.",
-    commands: ["goto", "wait", "snapshot", "review"]
-  },
-  {
-    title: "Interaction",
-    summary: "Perform ref-based interactions in the active page.",
-    commands: [
-      "click", "hover", "press", "check", "uncheck", "type", "select", "scroll", "scroll-into-view",
-      "pointer-move", "pointer-down", "pointer-up", "pointer-drag"
-    ]
-  },
-  {
-    title: "Targets & Pages",
-    summary: "Manage tabs, targets, and named pages.",
-    commands: ["targets-list", "target-use", "target-new", "target-close", "page", "pages", "page-close"]
-  },
-  {
-    title: "DOM & Export",
-    summary: "Read DOM state and export page or component code.",
-    commands: ["dom-html", "dom-text", "dom-attr", "dom-value", "dom-visible", "dom-enabled", "dom-checked", "clone-page", "clone-component"]
-  },
-  {
-    title: "Diagnostics & Annotation",
-    summary: "Collect runtime diagnostics and annotation payloads.",
-    commands: ["perf", "screenshot", "console-poll", "network-poll", "debug-trace-snapshot", "annotate"]
-  },
-  {
-    title: "Power",
-    summary: "Unsafe internal daemon passthrough.",
-    commands: ["rpc"]
-  }
-];
+export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = PUBLIC_CLI_COMMAND_GROUPS.map((group) => ({
+  title: group.title,
+  summary: group.summary,
+  commands: group.commands.map((command) => command.name) as CliCommand[]
+}));
 
-export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = {
-  install: commandHelp(
-    "npx opendevbrowser [--global|--local] [--with-config] [--full] [--skills-global|--skills-local|--no-skills] [--no-prompt] [--quiet]",
-    "--global",
-    "--local",
-    "--with-config",
-    "--full",
-    "--skills-global",
-    "--skills-local",
-    "--no-skills",
-    "--no-prompt",
-    "--quiet"
-  ),
-  update: commandHelp("npx opendevbrowser update [--global|--local]", "--global", "--local"),
-  uninstall: commandHelp("npx opendevbrowser uninstall [--global|--local] [--no-prompt] [--quiet]", "--global", "--local", "--no-prompt", "--quiet"),
-  help: commandHelp("npx opendevbrowser --help | npx opendevbrowser help", "--help"),
-  version: commandHelp("npx opendevbrowser --version | npx opendevbrowser version", "--version"),
-  serve: commandHelp("npx opendevbrowser serve [--port <port>] [--token <token>] [--stop]", "--port", "--token", "--stop"),
-  daemon: commandHelp("npx opendevbrowser daemon <install|uninstall|status>", "--output-format"),
-  native: commandHelp("npx opendevbrowser native <install|uninstall|status> [extension-id]", "--output-format"),
-  run: commandHelp(
-    "npx opendevbrowser run --script <path> [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>]",
-    "--script",
-    "--headless",
-    "--profile",
-    "--persist-profile",
-    "--chrome-path",
-    "--start-url",
-    "--flag"
-  ),
-  launch: commandHelp(
-    "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>]",
-    "--headless",
-    "--profile",
-    "--persist-profile",
-    "--chrome-path",
-    "--start-url",
-    "--flag",
-    "--no-extension",
-    "--extension-only",
-    "--extension-legacy",
-    "--wait-for-extension",
-    "--wait-timeout-ms"
-  ),
-  connect: commandHelp(
-    "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy]",
-    "--ws-endpoint",
-    "--host",
-    "--cdp-port",
-    "--start-url",
-    "--extension-legacy"
-  ),
-  disconnect: commandHelp("npx opendevbrowser disconnect --session-id <id> [--close-browser]", "--session-id", "--close-browser"),
-  status: commandHelp("npx opendevbrowser status [--session-id <id> | --daemon] [--transport <relay|native>]", "--session-id", "--daemon", "--transport"),
-  research: commandHelp(
-    "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
-    "--topic",
-    "--days",
-    "--from",
-    "--to",
-    "--source-selection",
-    "--sources",
-    "--include-engagement",
-    "--limit-per-source",
-    "--mode",
-    "--timeout-ms",
-    "--output-dir",
-    "--ttl-hours",
-    "--use-cookies",
-    "--challenge-automation-mode",
-    "--cookie-policy-override",
-    "--cookie-policy"
-  ),
-  shopping: commandHelp(
-    "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--browser-mode <mode>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
-    "--query",
-    "--providers",
-    "--budget",
-    "--region",
-    "--browser-mode",
-    "--sort",
-    "--mode",
-    "--timeout-ms",
-    "--output-dir",
-    "--ttl-hours",
-    "--use-cookies",
-    "--challenge-automation-mode",
-    "--cookie-policy-override",
-    "--cookie-policy"
-  ),
-  "product-video": commandHelp(
-    "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots <bool>] [--include-all-images <bool>] [--include-copy <bool>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
-    "--product-url",
-    "--product-name",
-    "--provider-hint",
-    "--include-screenshots",
-    "--include-all-images",
-    "--include-copy",
-    "--timeout-ms",
-    "--use-cookies",
-    "--challenge-automation-mode",
-    "--cookie-policy-override",
-    "--cookie-policy",
-    "--output-dir",
-    "--ttl-hours"
-  ),
-  artifacts: commandHelp("npx opendevbrowser artifacts cleanup [--expired-only] [--output-dir <path>]", "--expired-only", "--output-dir"),
-  goto: commandHelp("npx opendevbrowser goto --session-id <id> --url <url> [--wait-until <state>] [--timeout-ms <ms>]", "--session-id", "--url", "--wait-until", "--timeout-ms"),
-  wait: commandHelp("npx opendevbrowser wait --session-id <id> [--ref <ref>] [--state <state>|--until <condition>] [--timeout-ms <ms>]", "--session-id", "--ref", "--state", "--until", "--timeout-ms"),
-  snapshot: commandHelp("npx opendevbrowser snapshot --session-id <id> [--mode <mode>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]", "--session-id", "--mode", "--max-chars", "--cursor", "--timeout-ms"),
-  review: commandHelp("npx opendevbrowser review --session-id <id> [--target-id <id>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]", "--session-id", "--target-id", "--max-chars", "--cursor", "--timeout-ms"),
-  click: commandHelp("npx opendevbrowser click --session-id <id> --ref <ref>", "--session-id", "--ref"),
-  hover: commandHelp("npx opendevbrowser hover --session-id <id> --ref <ref>", "--session-id", "--ref"),
-  press: commandHelp("npx opendevbrowser press --session-id <id> --key <key> [--ref <ref>]", "--session-id", "--key", "--ref"),
-  check: commandHelp("npx opendevbrowser check --session-id <id> --ref <ref>", "--session-id", "--ref"),
-  uncheck: commandHelp("npx opendevbrowser uncheck --session-id <id> --ref <ref>", "--session-id", "--ref"),
-  type: commandHelp("npx opendevbrowser type --session-id <id> --ref <ref> --text <text> [--clear] [--submit]", "--session-id", "--ref", "--text", "--clear", "--submit"),
-  select: commandHelp("npx opendevbrowser select --session-id <id> --ref <ref> --values <csv>", "--session-id", "--ref", "--values"),
-  scroll: commandHelp("npx opendevbrowser scroll --session-id <id> --dy <pixels> [--ref <ref>]", "--session-id", "--dy", "--ref"),
-  "scroll-into-view": commandHelp("npx opendevbrowser scroll-into-view --session-id <id> --ref <ref>", "--session-id", "--ref"),
-  "pointer-move": commandHelp("npx opendevbrowser pointer-move --session-id <id> --x <n> --y <n> [--steps <n>] [--target-id <id>]", "--session-id", "--x", "--y", "--steps", "--target-id"),
-  "pointer-down": commandHelp("npx opendevbrowser pointer-down --session-id <id> --x <n> --y <n> [--button <left|middle|right>] [--click-count <n>] [--target-id <id>]", "--session-id", "--x", "--y", "--button", "--click-count", "--target-id"),
-  "pointer-up": commandHelp("npx opendevbrowser pointer-up --session-id <id> --x <n> --y <n> [--button <left|middle|right>] [--click-count <n>] [--target-id <id>]", "--session-id", "--x", "--y", "--button", "--click-count", "--target-id"),
-  "pointer-drag": commandHelp("npx opendevbrowser pointer-drag --session-id <id> --from-x <n> --from-y <n> --to-x <n> --to-y <n> [--steps <n>] [--target-id <id>]", "--session-id", "--from-x", "--from-y", "--to-x", "--to-y", "--steps", "--target-id"),
-  "targets-list": commandHelp("npx opendevbrowser targets-list --session-id <id> [--include-urls]", "--session-id", "--include-urls"),
-  "target-use": commandHelp("npx opendevbrowser target-use --session-id <id> --target-id <id>", "--session-id", "--target-id"),
-  "target-new": commandHelp("npx opendevbrowser target-new --session-id <id> [--url <url>]", "--session-id", "--url"),
-  "target-close": commandHelp("npx opendevbrowser target-close --session-id <id> --target-id <id>", "--session-id", "--target-id"),
-  page: commandHelp("npx opendevbrowser page --session-id <id> --name <page> [--url <url>]", "--session-id", "--name", "--url"),
-  pages: commandHelp("npx opendevbrowser pages --session-id <id>", "--session-id"),
-  "page-close": commandHelp("npx opendevbrowser page-close --session-id <id> --name <page>", "--session-id", "--name"),
-  "dom-html": commandHelp("npx opendevbrowser dom-html --session-id <id> [--ref <ref>] [--max-chars <n>]", "--session-id", "--ref", "--max-chars"),
-  "dom-text": commandHelp("npx opendevbrowser dom-text --session-id <id> [--ref <ref>] [--max-chars <n>]", "--session-id", "--ref", "--max-chars"),
-  "dom-attr": commandHelp("npx opendevbrowser dom-attr --session-id <id> --ref <ref> --attr <name>", "--session-id", "--ref", "--attr"),
-  "dom-value": commandHelp("npx opendevbrowser dom-value --session-id <id> --ref <ref>", "--session-id", "--ref"),
-  "dom-visible": commandHelp("npx opendevbrowser dom-visible --session-id <id> --ref <ref>", "--session-id", "--ref"),
-  "dom-enabled": commandHelp("npx opendevbrowser dom-enabled --session-id <id> --ref <ref>", "--session-id", "--ref"),
-  "dom-checked": commandHelp("npx opendevbrowser dom-checked --session-id <id> --ref <ref>", "--session-id", "--ref"),
-  "clone-page": commandHelp("npx opendevbrowser clone-page --session-id <id> [--target-id <id>] [--path <file>]", "--session-id", "--target-id", "--path"),
-  "clone-component": commandHelp("npx opendevbrowser clone-component --session-id <id> --ref <ref> [--target-id <id>] [--path <file>]", "--session-id", "--ref", "--target-id", "--path"),
-  perf: commandHelp("npx opendevbrowser perf --session-id <id>", "--session-id"),
-  screenshot: commandHelp("npx opendevbrowser screenshot --session-id <id> [--path <file>] [--timeout-ms <ms>]", "--session-id", "--path", "--timeout-ms"),
-  "console-poll": commandHelp("npx opendevbrowser console-poll --session-id <id> [--since-seq <n>] [--max <n>]", "--session-id", "--since-seq", "--max"),
-  "network-poll": commandHelp("npx opendevbrowser network-poll --session-id <id> [--since-seq <n>] [--max <n>]", "--session-id", "--since-seq", "--max"),
-  "debug-trace-snapshot": commandHelp(
-    "npx opendevbrowser debug-trace-snapshot --session-id <id> [--since-console-seq <n>] [--since-network-seq <n>] [--since-exception-seq <n>] [--max <n>] [--request-id <id>]",
-    "--session-id",
-    "--since-console-seq",
-    "--since-network-seq",
-    "--since-exception-seq",
-    "--max",
-    "--request-id"
-  ),
-  "cookie-import": commandHelp("npx opendevbrowser cookie-import --session-id <id> (--cookies <json> | --cookies-file <path>) [--strict <bool>]", "--session-id", "--cookies", "--cookies-file", "--strict"),
-  "cookie-list": commandHelp("npx opendevbrowser cookie-list --session-id <id> [--url <url>]", "--session-id", "--url"),
-  "macro-resolve": commandHelp("npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute] [--timeout-ms <ms>] [--challenge-automation-mode <mode>]", "--expression", "--default-provider", "--include-catalog", "--execute", "--timeout-ms", "--challenge-automation-mode"),
-  annotate: commandHelp(
-    "npx opendevbrowser annotate --session-id <id> [--url <url>] [--transport <auto|direct|relay>] [--target-id <id>] [--tab-id <tab>] [--screenshot-mode <visible|full|none>] [--context <text>] [--debug] [--stored] [--include-screenshots <bool>] [--timeout-ms <ms>]",
-    "--session-id",
-    "--url",
-    "--transport",
-    "--target-id",
-    "--tab-id",
-    "--screenshot-mode",
-    "--context",
-    "--debug",
-    "--stored",
-    "--include-screenshots",
-    "--timeout-ms"
-  ),
-  canvas: commandHelp("npx opendevbrowser canvas --command <canvas.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]", "--command", "--params", "--params-file", "--timeout-ms"),
-  rpc: commandHelp("npx opendevbrowser rpc --unsafe-internal --name <daemon.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]", "--unsafe-internal", "--name", "--params", "--params-file", "--timeout-ms")
-};
+export const COMMAND_HELP_DETAILS: Record<CliCommand, CommandHelpDetail> = CLI_COMMAND_HELP_DETAILS as Record<CliCommand, CommandHelpDetail>;
 
 export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
   {
@@ -366,6 +136,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--clear", description: "Clear the existing input value before typing." },
       { flag: "--submit", description: "Submit the form or input after typing." },
       { flag: "--values", description: "CSV values for select commands." },
+      { flag: "--files", description: "CSV file paths for upload commands." },
       { flag: "--dy", description: "Vertical scroll delta for scroll commands." },
       { flag: "--key", description: "Keyboard key for the press command." },
       { flag: "--attr", description: "DOM attribute name for dom-attr." },
@@ -383,6 +154,9 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--tab-id", description: "Browser tab id override for extension and annotation commands." },
       { flag: "--include-urls", description: "Include page URLs in list output where supported." },
       { flag: "--path", description: "Filesystem path for command output or artifacts.", example: "opendevbrowser screenshot --session-id s1 --path ./shot.png" },
+      { flag: "--full-page", description: "Capture the full scrollable page instead of the current viewport." },
+      { flag: "--action", description: "Dialog action: status, accept, or dismiss." },
+      { flag: "--prompt-text", description: "Prompt text to submit when accepting a prompt dialog." },
       { flag: "--since-seq", description: "Poll from a sequence id across diagnostics streams." },
       { flag: "--max", description: "Maximum number of records or items to return." },
       { flag: "--since-console-seq", description: "Console sequence cursor for debug-trace snapshots." },
@@ -443,12 +217,48 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
 
 export const HELP_TOOL_ENTRIES = TOOL_SURFACE_ENTRIES;
 
+export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
+  {
+    label: "prompting_guide",
+    description: "Load local best-practice guidance before low-level browser commands.",
+    details: [{ label: "tool:", value: onboardingMetadata.quickStartCommands.promptingGuide }]
+  },
+  {
+    label: "skill_load",
+    description: `Load ${onboardingMetadata.skillName} ${onboardingMetadata.skillTopic} directly when you want the canonical quick-start section.`,
+    details: [{ label: "tool:", value: onboardingMetadata.quickStartCommands.skillLoad }]
+  },
+  {
+    label: "skill_list",
+    description: "Inspect bundled and discovered skill packs when you need a different local lane.",
+    details: [{ label: "tool:", value: onboardingMetadata.quickStartCommands.skillList }]
+  },
+  {
+    label: "happy_path",
+    description: "After guidance, verify a minimal managed happy path before widening into multi-step automation.",
+    details: [{ label: "cli:", value: onboardingMetadata.quickStartCommands.happyPath }]
+  },
+  {
+    label: "docs",
+    description: "Use the first-run checklist and canonical skill runbook for proof and deeper operating details.",
+    details: [{
+      label: "paths:",
+      value: `${onboardingMetadata.referencePaths.onboardingDoc}, ${onboardingMetadata.referencePaths.skillDoc}`
+    }]
+  }
+];
+
 export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
-  { label: "src/cli/args.ts", description: "Authoritative CLI command and flag inventory." },
-  { label: "src/cli/help.ts", description: "Human-facing CLI usage and primary-flag metadata." },
+  { label: "src/cli/onboarding-metadata.json", description: "Canonical first-contact onboarding metadata shared by help, nudges, and proof lanes." },
+  { label: "src/public-surface/source.ts", description: "Authoritative command, usage, flag, and tool surface metadata." },
+  { label: "src/public-surface/generated-manifest.json", description: "Checked-in generated public-surface snapshot consumed by inventory scripts." },
+  { label: "src/cli/args.ts", description: "CLI argument parsing backed by the public-surface source." },
+  { label: "src/cli/help.ts", description: "Human-facing CLI formatting layered on the public-surface source." },
   { label: "src/tools/index.ts", description: "Code-level tool registry." },
-  { label: "src/tools/surface.ts", description: "Human-facing tool metadata used by CLI help." },
+  { label: "src/tools/surface.ts", description: "Compat re-export of human-facing tool metadata from the public-surface source." },
   { label: "docs/CLI.md", description: "Detailed CLI guide and release-gate runbooks." },
+  { label: onboardingMetadata.referencePaths.onboardingDoc, description: "First-run checklist for help-led onboarding and happy-path proof." },
+  { label: onboardingMetadata.referencePaths.skillDoc, description: "Canonical bundled best-practices runbook and quick-start guidance." },
   { label: "docs/SURFACE_REFERENCE.md", description: "Canonical CLI, tool, and relay channel inventory." },
   { label: "opendevbrowser --help", description: "Primary full help invocation for quick discovery." },
   { label: "opendevbrowser help", description: "Alias that prints the same full help inventory." }
@@ -594,6 +404,10 @@ function formatToolEntries(): string {
   })));
 }
 
+function formatOnboardingEntries(): string {
+  return formatRows(HELP_ONBOARDING_ENTRIES);
+}
+
 function formatReferenceEntries(): string {
   return formatRows(HELP_REFERENCE_ENTRIES.map((entry) => ({
     label: entry.label,
@@ -612,6 +426,10 @@ export function getHelpText(): string {
     "",
     "Usage:",
     "  npx opendevbrowser <command> [options]",
+    "",
+    `${onboardingMetadata.sectionTitle}:`,
+    `  ${onboardingMetadata.sectionSummary}`,
+    formatOnboardingEntries(),
     "",
     `Command Inventory (all ${CLI_COMMANDS.length} commands):`,
     formatCommandGroups(commandDescriptions),

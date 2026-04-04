@@ -17,9 +17,9 @@ describe("workflow inventory", () => {
   it("builds a code-derived workflow inventory with the expected current splits", () => {
     const inventory = buildWorkflowInventory();
 
-    expect(inventory.coverage.commandCount).toBe(61);
-    expect(inventory.coverage.toolCount).toBe(54);
-    expect(inventory.coverage.cliToolPairCount).toBe(51);
+    expect(inventory.coverage.commandCount).toBe(64);
+    expect(inventory.coverage.toolCount).toBe(57);
+    expect(inventory.coverage.cliToolPairCount).toBe(54);
     expect(inventory.coverage.cliOnlyCommandCount).toBe(10);
     expect(inventory.coverage.toolOnlySurfaceCount).toBe(3);
   });
@@ -34,6 +34,7 @@ describe("workflow inventory", () => {
     expect(byCli.get("shopping")).toBe("opendevbrowser_shopping_run");
     expect(byCli.get("product-video")).toBe("opendevbrowser_product_video_run");
     expect(byCli.get("canvas")).toBe("opendevbrowser_canvas");
+    expect(byCli.get("session-inspector")).toBe("opendevbrowser_session_inspector");
   });
 
   it("maps guarded and tool-only surfaces explicitly instead of pretending they are CLI executable", () => {
@@ -52,6 +53,7 @@ describe("workflow inventory", () => {
   it("declares primary and secondary validation tasks for the main executable scenarios", () => {
     const ids = new Set(VALIDATION_SCENARIOS.map((scenario) => scenario.id));
     for (const id of [
+      "feature.cli.onboarding",
       "feature.cli.smoke",
       "workflow.research.run",
       "workflow.shopping.run",
@@ -75,12 +77,15 @@ describe("workflow inventory", () => {
 
   it("uses supported research source-selection values, honest env-limited web search boundaries, and explicit extension metadata", () => {
     const research = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.research.run");
+    const onboarding = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "feature.cli.onboarding");
     const webSearch = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.macro.web_search");
     const webFetch = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.macro.web_fetch");
     const relayAnnotate = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "feature.annotate.relay");
     const extensionCanvas = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "feature.canvas.extension");
     const cdpCanvas = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "feature.canvas.cdp");
 
+    expect(onboarding?.ownerFiles).toContain("src/cli/onboarding-metadata.json");
+    expect(onboarding?.ownerFiles).toContain("docs/FIRST_RUN_ONBOARDING.md");
     expect(research?.primaryArgs).toContain("all");
     expect(research?.secondaryArgs).toContain("all");
     expect(research?.primaryArgs).not.toContain("--sources");
@@ -267,9 +272,9 @@ describe("workflow validation matrix helpers", () => {
     const markdown = renderWorkflowSurfaceMapMarkdown({
       generatedAt: "2026-04-02T00:00:00.000Z",
       coverage: {
-        commandCount: 61,
-        toolCount: 54,
-        cliToolPairCount: 51,
+        commandCount: 63,
+        toolCount: 56,
+        cliToolPairCount: 53,
         cliOnlyCommandCount: 10,
         toolOnlySurfaceCount: 3,
         providerIdCount: 5,

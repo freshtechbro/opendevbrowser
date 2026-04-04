@@ -42,7 +42,7 @@ For frontend, design-system, screenshot-to-code, or `/canvas` composition tasks,
 - `scripts/run-robustness-audit.sh` — validates workflow skill coverage against known issue IDs.
 - `scripts/validate-skill-assets.sh` — validates required artifacts/templates.
 
-## Fast Start
+## Quick Start
 
 1. Validate the skill pack:
 
@@ -219,7 +219,7 @@ node scripts/live-regression-direct.mjs --out artifacts/live-regression-direct.j
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (61 CLI commands, 54 tools, 54 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
+- `docs/SURFACE_REFERENCE.md` (64 CLI commands, 57 tools, 59 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
 - `artifacts/skill-runtime-surface-matrix.md` and `assets/templates/skill-runtime-pack-matrix.json` (canonical pack/runtime audit inventory)
 
@@ -307,6 +307,7 @@ Operational references:
 ## Diagnostics and Traceability
 
 Current diagnostics tools:
+- `opendevbrowser_session_inspector` (session-first summary with relay health, target state, trace proof, and next-action guidance)
 - `opendevbrowser_console_poll`
 - `opendevbrowser_network_poll`
 - `opendevbrowser_debug_trace_snapshot` (combined page + console + network + exception channels)

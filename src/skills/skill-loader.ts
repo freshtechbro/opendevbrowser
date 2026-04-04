@@ -3,6 +3,7 @@ import { join } from "path";
 import * as os from "os";
 import type { SkillInfo, SkillMetadata } from "./types";
 import { findBundledSkillsDir } from "../utils/package-assets";
+import { isBundledSkillDiscoverable } from "./bundled-skill-directories";
 
 export class SkillLoader {
   private rootDir: string;
@@ -68,7 +69,7 @@ export class SkillLoader {
     const searchPaths = this.getSearchPaths();
 
     for (const searchPath of searchPaths) {
-      const discovered = await this.discoverSkillsInPath(searchPath);
+      const discovered = await this.discoverSkillsInPath(searchPath, searchPath === this.bundledSkillsDir);
       for (const skill of discovered) {
         if (!skills.some((s) => s.name === skill.name)) {
           skills.push(skill);
@@ -100,7 +101,7 @@ export class SkillLoader {
     return Array.from(new Set(searchPaths));
   }
 
-  private async discoverSkillsInPath(searchPath: string): Promise<SkillInfo[]> {
+  private async discoverSkillsInPath(searchPath: string, bundledPath = false): Promise<SkillInfo[]> {
     const skills: SkillInfo[] = [];
 
     try {
@@ -108,6 +109,11 @@ export class SkillLoader {
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
+        if (bundledPath) {
+          if (!isBundledSkillDiscoverable(entry.name)) {
+            continue;
+          }
+        }
 
         const skillPath = join(searchPath, entry.name, "SKILL.md");
         try {

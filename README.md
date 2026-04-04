@@ -12,7 +12,7 @@
 
 OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
 
-The current public surface includes [61 CLI commands and 54 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
+The current public surface includes [64 CLI commands and 57 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
@@ -61,7 +61,7 @@ The public repo owns the automation runtime and canonical docs; see [docs/SURFAC
 - **Stable interaction primitives**: refs resolve through `backendNodeId`, and low-level pointer commands remain available when normal DOM actions are not enough.
 - **Flexible session control**: run managed sessions, attach through direct CDP, or reuse logged-in tabs through the extension relay and `/ops`.
 - **Design and review workflows**: use the design canvas, shared annotation inbox, and repo-backed code-sync flows without leaving the runtime surface.
-- **Diagnostics and bounded challenge handling**: pair console or network polling and unified debug traces with the shared challenge orchestration plane.
+- **Diagnostics and bounded challenge handling**: start with `session-inspector`, then drop to console or network polling and unified debug traces when you need channel-level detail.
 - **Production guardrails**: local-only CDP by default, timing-safe auth, sanitized exports, strict TypeScript, and branch coverage held at 97% or higher.
 
 ---
@@ -297,6 +297,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 - **Click** - Click elements by ref
 - **Type** - Enter text into inputs
 - **Select** - Choose dropdown options
+- **Upload** - Send files to a file input or chooser by ref
 - **Scroll** - Scroll page or elements
 - **Wait** - Wait for selectors or navigation
 
@@ -304,12 +305,14 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 - **Console Capture** - Monitor console.log, errors, warnings
 - **Network Tracking** - Request/response metadata (method, url, status)
 - **Debug Trace Snapshot** - Combined page/console/network/exception diagnostics with blocker metadata
-- **Screenshot** - Viewport PNG screenshot (file or base64)
+- **Screenshot** - Visible, ref-targeted, or full-page PNG capture (file or base64)
+- **Dialog** - Inspect or handle JavaScript dialogs per target
 - **Performance** - Page load metrics
 
 ### Session & Macro Utilities
 - **Cookie Import** - Validate and import cookies into active sessions
 - **Cookie List** - First-class cookie inspection with optional URL filters
+- **Session Inspector** - Session-first diagnostics with relay health, trace proof, and a suggested next action
 - **Macro Resolve/Execute** - Expand macro expressions into provider actions with optional execution
 
 ### Export & Clone
@@ -321,10 +324,10 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **54 tools** organized by category:
+OpenDevBrowser provides **57 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
-Terminal help now mirrors the live command and tool surface directly from `src/cli/help.ts` and `src/tools/surface.ts`: `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
+Terminal help now mirrors the generated public-surface manifest rooted at `src/public-surface/source.ts` and refreshed by `scripts/generate-public-surface-manifest.mjs`. `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
 
 ### Session Management
 | Tool | Description |
@@ -335,6 +338,7 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 | `opendevbrowser_status` | Get session status and connection info (daemon status in hub mode) |
 | `opendevbrowser_cookie_import` | Import validated cookies into the current session |
 | `opendevbrowser_cookie_list` | List session cookies with optional URL filters |
+| `opendevbrowser_session_inspector` | Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action |
 
 ### Tab/Target Management
 | Tool | Description |
@@ -367,6 +371,7 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 | `opendevbrowser_select` | Select dropdown option by ref |
 | `opendevbrowser_scroll` | Scroll page or element |
 | `opendevbrowser_scroll_into_view` | Scroll element into view by ref |
+| `opendevbrowser_upload` | Upload files to a file input or chooser by ref |
 | `opendevbrowser_pointer_move` | Move the pointer to viewport coordinates |
 | `opendevbrowser_pointer_down` | Press a mouse button at viewport coordinates |
 | `opendevbrowser_pointer_up` | Release a mouse button at viewport coordinates |
@@ -391,6 +396,7 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 | `opendevbrowser_network_poll` | Poll network requests since sequence |
 | `opendevbrowser_debug_trace_snapshot` | Capture a unified page + console + network + exception diagnostic bundle |
 | `opendevbrowser_screenshot` | Capture page screenshot |
+| `opendevbrowser_dialog` | Inspect or handle a JavaScript dialog |
 | `opendevbrowser_perf` | Get page performance metrics |
 | `opendevbrowser_prompting_guide` | Get best-practice prompting guidance |
 
@@ -653,7 +659,7 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 54 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 57 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
@@ -662,11 +668,11 @@ See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accura
 | Install/runtime | `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run` |
 | Session/connection | `launch`, `connect`, `disconnect`, `status`, `cookie-import`, `cookie-list` |
 | Navigation | `goto`, `wait`, `snapshot` |
-| Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag` |
+| Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`, `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag` |
 | Targets/pages | `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close` |
 | DOM | `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked` |
 | Design canvas | `canvas` |
-| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `screenshot`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `macro-resolve`, `annotate`, `rpc` |
+| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `screenshot`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `macro-resolve`, `annotate`, `rpc` |
 
 ### Install/Management
 
@@ -692,6 +698,7 @@ Start the daemon with `npx opendevbrowser serve`, then use:
 | `npx opendevbrowser connect` | Connect via relay or direct CDP endpoint |
 | `npx opendevbrowser disconnect` | Disconnect session |
 | `npx opendevbrowser status` | Show session status |
+| `npx opendevbrowser session-inspector --session-id <id>` | Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action |
 | `npx opendevbrowser goto` | Navigate to URL |
 | `npx opendevbrowser wait` | Wait for load or element |
 | `npx opendevbrowser snapshot` | Capture snapshot with refs |
@@ -818,7 +825,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 54 opendevbrowser_* tool definitions
+│   ├── tools/        # 57 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)

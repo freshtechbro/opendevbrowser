@@ -4,44 +4,28 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expectedProviderIdsFromSource } from "../provider-live-scenarios.mjs";
+import {
+  getPublicSurfaceCounts,
+  getPublicSurfaceToolEntries
+} from "./public-surface-manifest.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-export const WORKFLOW_INVENTORY_SCHEMA_VERSION = "2026-04-02";
+export const WORKFLOW_INVENTORY_SCHEMA_VERSION = "2026-04-03";
 
 function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
-function extractStringListFromSource(pattern, source, label) {
-  const match = source.match(pattern);
-  if (!match) {
-    throw new Error(`Unable to parse ${label}.`);
-  }
-  return [...match[1].matchAll(/"([^"]+)"/g)].map((valueMatch) => valueMatch[1]);
-}
-
 export function getCliCommands(rootDir = ROOT) {
-  const source = fs.readFileSync(path.join(rootDir, "src/cli/args.ts"), "utf8");
-  return extractStringListFromSource(/export const CLI_COMMANDS = \[(.*?)\] as const;/s, source, "CLI commands");
+  return getPublicSurfaceCounts(rootDir).commandNames;
 }
 
 export function getToolSurfaceEntries(rootDir = ROOT) {
-  const source = fs.readFileSync(path.join(rootDir, "src/tools/surface.ts"), "utf8");
-  const match = source.match(/export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry\[] = \[(.*?)\] as const;/s);
-  if (!match) {
-    throw new Error("Unable to parse tool surface entries.");
-  }
-  return [...match[1].matchAll(/\{\s*name:\s*"([^"]+)",\s*description:\s*"([^"]+)"(?:,\s*cliEquivalent:\s*"([^"]+)")?\s*\}/g)].map((entryMatch) => ({
-    name: entryMatch[1],
-    description: entryMatch[2],
-    cliEquivalent: entryMatch[3] ?? null
-  }));
+  return getPublicSurfaceToolEntries(rootDir);
 }
 
 export function deriveCliToolPairs(rootDir = ROOT) {
-  return getToolSurfaceEntries(rootDir)
-    .filter((entry) => typeof entry.cliEquivalent === "string" && entry.cliEquivalent.length > 0)
-    .map((entry) => [entry.cliEquivalent, entry.name]);
+  return getPublicSurfaceCounts(rootDir).cliToolPairs;
 }
 
 const CLI_FAMILY_DEFINITIONS = [
@@ -76,7 +60,7 @@ const CLI_FAMILY_DEFINITIONS = [
   {
     id: "interaction",
     label: "Interaction and pointer control",
-    commands: ["click", "hover", "press", "check", "uncheck", "type", "select", "scroll", "scroll-into-view", "pointer-move", "pointer-down", "pointer-up", "pointer-drag"],
+    commands: ["click", "hover", "press", "check", "uncheck", "type", "select", "scroll", "scroll-into-view", "upload", "pointer-move", "pointer-down", "pointer-up", "pointer-drag"],
     ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/interact", "scripts/cli-smoke-test.mjs"],
     scenarioIds: ["feature.cli.smoke"]
   },
@@ -97,8 +81,8 @@ const CLI_FAMILY_DEFINITIONS = [
   {
     id: "diagnostics",
     label: "Diagnostics",
-    commands: ["perf", "screenshot", "console-poll", "network-poll", "debug-trace-snapshot", "artifacts"],
-    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/devtools", "src/cli/commands/artifacts.ts", "scripts/cli-smoke-test.mjs"],
+    commands: ["session-inspector", "perf", "screenshot", "dialog", "console-poll", "network-poll", "debug-trace-snapshot", "artifacts"],
+    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/session/inspector.ts", "src/cli/commands/devtools", "src/cli/commands/artifacts.ts", "src/browser/session-inspector.ts", "scripts/cli-smoke-test.mjs"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -175,7 +159,7 @@ const TOOL_FAMILY_DEFINITIONS = [
   {
     id: "interaction",
     label: "Interaction and pointer control",
-    members: ["opendevbrowser_click", "opendevbrowser_hover", "opendevbrowser_press", "opendevbrowser_check", "opendevbrowser_uncheck", "opendevbrowser_type", "opendevbrowser_select", "opendevbrowser_scroll", "opendevbrowser_scroll_into_view", "opendevbrowser_pointer_move", "opendevbrowser_pointer_down", "opendevbrowser_pointer_up", "opendevbrowser_pointer_drag"],
+    members: ["opendevbrowser_click", "opendevbrowser_hover", "opendevbrowser_press", "opendevbrowser_check", "opendevbrowser_uncheck", "opendevbrowser_type", "opendevbrowser_select", "opendevbrowser_scroll", "opendevbrowser_scroll_into_view", "opendevbrowser_upload", "opendevbrowser_pointer_move", "opendevbrowser_pointer_down", "opendevbrowser_pointer_up", "opendevbrowser_pointer_drag"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -193,7 +177,7 @@ const TOOL_FAMILY_DEFINITIONS = [
   {
     id: "diagnostics",
     label: "Diagnostics",
-    members: ["opendevbrowser_console_poll", "opendevbrowser_network_poll", "opendevbrowser_debug_trace_snapshot", "opendevbrowser_perf", "opendevbrowser_screenshot"],
+    members: ["opendevbrowser_session_inspector", "opendevbrowser_console_poll", "opendevbrowser_network_poll", "opendevbrowser_debug_trace_snapshot", "opendevbrowser_perf", "opendevbrowser_screenshot", "opendevbrowser_dialog"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -235,6 +219,28 @@ const TOOL_FAMILY_DEFINITIONS = [
 ];
 
 export const VALIDATION_SCENARIOS = [
+  {
+    id: "feature.cli.onboarding",
+    label: "CLI onboarding quick start",
+    runner: "node",
+    isolatedDaemonHarness: true,
+    primaryArgs: ["scripts/cli-onboarding-smoke.mjs"],
+    secondaryArgs: ["scripts/cli-onboarding-smoke.mjs"],
+    timeoutMs: 180_000,
+    allowedStatuses: ["pass"],
+    executionPolicy: "automated",
+    entryPath: "node scripts/cli-onboarding-smoke.mjs",
+    primaryTask: "Read generated help, follow the best-practices quick-start guidance, and confirm a minimal managed happy path.",
+    secondaryTask: "Repeat the same help-led onboarding flow to prove the alias help path and bundled quick-start guidance stay deterministic.",
+    ownerFiles: [
+      "scripts/cli-onboarding-smoke.mjs",
+      "src/cli/onboarding-metadata.json",
+      "src/cli/help.ts",
+      "src/skills/skill-nudge.ts",
+      "docs/FIRST_RUN_ONBOARDING.md"
+    ],
+    notes: "This release-blocking lane proves the first-contact path from generated help to bundled guidance to one minimal success case."
+  },
   {
     id: "feature.cli.smoke",
     label: "CLI smoke command matrix",

@@ -88,6 +88,18 @@ describe("parseArgs", () => {
     expect(parsed.command).toBe("debug-trace-snapshot");
   });
 
+  it("accepts session-inspector command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "session-inspector",
+      "--session-id",
+      "s1",
+      "--max=20"
+    ]);
+    expect(parsed.command).toBe("session-inspector");
+  });
+
   it("accepts review command", () => {
     const parsed = parseArgs([
       "node",

@@ -8,11 +8,12 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 ## What this validates
 
 1. Install command from a local package artifact.
-2. First-time global install path (`--global --full --no-prompt`).
-3. Daemon start/stop command.
-4. Extension load path + connection checks.
-5. First task execution command chain.
-6. Multi-tab + cookie-injection auth mechanism checks.
+2. Help-led onboarding path from generated help to best-practices quick-start guidance.
+3. First-time global install path (`--global --full --no-prompt`).
+4. Daemon start/stop command.
+5. Extension load path + connection checks.
+6. First task execution command chain.
+7. Multi-tab + cookie-injection auth mechanism checks.
 
 ## 0) Preconditions
 
@@ -41,6 +42,20 @@ npx --no-install opendevbrowser version --output-format json
 Expected:
 - package is installed under `./node_modules/opendevbrowser`
 - CLI command inventory is available via both `npx --no-install opendevbrowser --help` and `npx --no-install opendevbrowser help`
+
+## 2b) Validate the help-led quick-start path
+
+```bash
+npx --no-install opendevbrowser --help
+npx --no-install opendevbrowser help
+```
+
+Expected:
+- both commands print the same generated help output
+- help opens with an `Agent Quick Start` block
+- the block explicitly points agents to `opendevbrowser_prompting_guide`
+- the block explicitly points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`
+- the block points to `docs/FIRST_RUN_ONBOARDING.md` for proof and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook
 
 ## 3) Isolate config/cache to avoid daemon collisions
 
