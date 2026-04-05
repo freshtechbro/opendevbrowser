@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS } from "../../transport-timeouts";
 import { parseNumberFlag, parseOptionalStringFlag } from "../../utils/parse";
 
 type ScreenshotArgs = {
@@ -40,9 +41,9 @@ export async function runScreenshot(args: ParsedArgs) {
     ...(typeof ref === "string" ? { ref } : {}),
     ...(fullPage === true ? { fullPage: true } : {})
   };
-  const result = typeof timeoutMs === "number"
-    ? await callDaemon("page.screenshot", params, { timeoutMs })
-    : await callDaemon("page.screenshot", params);
+  const result = await callDaemon("page.screenshot", params, {
+    timeoutMs: timeoutMs ?? DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS
+  });
   return { success: true, message: "Screenshot captured.", data: result };
 }
 

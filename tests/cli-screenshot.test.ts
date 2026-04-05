@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
 import { __test__, runScreenshot } from "../src/cli/commands/devtools/screenshot";
+import { DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS } from "../src/cli/transport-timeouts";
 
 const { callDaemon } = vi.hoisted(() => ({
   callDaemon: vi.fn()
@@ -123,7 +124,8 @@ describe("screenshot CLI command", () => {
 
     expect(callDaemon).toHaveBeenCalledWith(
       "page.screenshot",
-      { sessionId: "s1", targetId: "tab-11" }
+      { sessionId: "s1", targetId: "tab-11" },
+      { timeoutMs: DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS }
     );
   });
 
@@ -140,7 +142,8 @@ describe("screenshot CLI command", () => {
     expect(callDaemon).toHaveBeenNthCalledWith(
       1,
       "page.screenshot",
-      { sessionId: "s1", ref: "r4" }
+      { sessionId: "s1", ref: "r4" },
+      { timeoutMs: DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS }
     );
 
     await runScreenshot(makeArgs([
@@ -152,11 +155,12 @@ describe("screenshot CLI command", () => {
     expect(callDaemon).toHaveBeenNthCalledWith(
       2,
       "page.screenshot",
-      { sessionId: "s1", fullPage: true }
+      { sessionId: "s1", fullPage: true },
+      { timeoutMs: DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS }
     );
   });
 
-  it("calls daemon without timeout options when timeout is not provided", async () => {
+  it("forwards the default screenshot transport timeout when timeout is not provided", async () => {
     callDaemon.mockResolvedValue({ path: "/tmp/capture.png" });
 
     await runScreenshot(makeArgs([
@@ -166,7 +170,8 @@ describe("screenshot CLI command", () => {
 
     expect(callDaemon).toHaveBeenCalledWith(
       "page.screenshot",
-      { sessionId: "s1" }
+      { sessionId: "s1" },
+      { timeoutMs: DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS }
     );
   });
 

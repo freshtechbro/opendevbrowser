@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { DEFAULT_REVIEW_TRANSPORT_TIMEOUT_MS } from "../../transport-timeouts";
 import { parseNumberFlag, parseOptionalStringFlag } from "../../utils/parse";
 
 function parseReviewArgs(rawArgs: string[]): {
@@ -76,8 +77,8 @@ export async function runReview(args: ParsedArgs) {
     cursor,
     ...(typeof targetId === "string" ? { targetId } : {})
   };
-  const result = timeoutMs
-    ? await callDaemon("nav.review", payload, { timeoutMs })
-    : await callDaemon("nav.review", payload);
+  const result = await callDaemon("nav.review", payload, {
+    timeoutMs: timeoutMs ?? DEFAULT_REVIEW_TRANSPORT_TIMEOUT_MS
+  });
   return { success: true, message: "Review captured.", data: result };
 }
