@@ -382,7 +382,14 @@ describe("OpsBrowserManager", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
     }));
 
     const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
@@ -480,7 +487,14 @@ describe("OpsBrowserManager", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
     }));
 
     const base = {
@@ -546,7 +560,14 @@ describe("OpsBrowserManager", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
     }));
 
     const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
@@ -603,7 +624,14 @@ describe("OpsBrowserManager", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
     }));
 
     const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
@@ -690,7 +718,14 @@ describe("OpsBrowserManager", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
     }));
 
     const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
@@ -2335,7 +2370,7 @@ describe("OpsBrowserManager", () => {
     expect((manager as { opsSessionUrls: Map<string, string> }).opsSessionUrls.get("ops-safe-url")).toBe("https://example.com/root");
   });
 
-  it("recovers an ops session from its stable reconnect tab instead of the active popup target", async () => {
+  it("recovers an ops session from the latest selected tab before falling back to the stable reconnect tab", async () => {
     requestMock.mockImplementation(async (...args: unknown[]) => {
       const command = args[0] as string;
       if (command === "session.connect") {
@@ -2377,9 +2412,9 @@ describe("OpsBrowserManager", () => {
     requestMock.mockReset();
     requestMock.mockResolvedValueOnce({
       opsSessionId: "ops-root-proto-2",
-      activeTargetId: "tab-41",
+      activeTargetId: "tab-202",
       leaseId: "lease-root",
-      url: "https://example.com/root"
+      url: "https://example.com/popup"
     });
 
     await expect(managerAny.recoverOpsSession(connected.sessionId, {})).resolves.toBe(true);
@@ -2387,14 +2422,74 @@ describe("OpsBrowserManager", () => {
       "session.connect",
       expect.objectContaining({
         sessionId: connected.sessionId,
-        tabId: 41,
+        tabId: 202,
         parallelismPolicy: expect.any(Object)
       }),
       undefined,
       30000,
       "lease-root"
     );
-    expect(managerAny.opsSessionTabs.get(connected.sessionId)).toBe(41);
+    expect(managerAny.opsSessionTabs.get(connected.sessionId)).toBe(202);
+    expect(managerAny.opsSessionReconnectTabs.get(connected.sessionId)).toBe(41);
+  });
+
+  it("recovers an ops session from an explicit targetId before using remembered tabs", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return {
+          opsSessionId: "ops-root-proto",
+          activeTargetId: "tab-41",
+          leaseId: "lease-root",
+          url: "https://example.com/root"
+        };
+      }
+      if (command === "targets.use") {
+        return {
+          activeTargetId: "tab-202",
+          url: "https://example.com/popup",
+          title: "Popup"
+        };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    await manager.useTarget(connected.sessionId, "tab-202");
+
+    const managerAny = manager as unknown as {
+      opsSessionTabs: Map<string, number>;
+      opsSessionReconnectTabs: Map<string, number>;
+      recoverOpsSession: (sessionId: string, payload: Record<string, unknown>) => Promise<boolean>;
+    };
+
+    requestMock.mockReset();
+    requestMock.mockResolvedValueOnce({
+      opsSessionId: "ops-root-proto-3",
+      activeTargetId: "tab-303",
+      leaseId: "lease-root",
+      url: "https://example.com/explicit"
+    });
+
+    await expect(managerAny.recoverOpsSession(connected.sessionId, { targetId: "tab-303" })).resolves.toBe(true);
+    expect(requestMock).toHaveBeenCalledWith(
+      "session.connect",
+      expect.objectContaining({
+        sessionId: connected.sessionId,
+        tabId: 303,
+        parallelismPolicy: expect.any(Object)
+      }),
+      undefined,
+      30000,
+      "lease-root"
+    );
+    expect(managerAny.opsSessionTabs.get(connected.sessionId)).toBe(303);
     expect(managerAny.opsSessionReconnectTabs.get(connected.sessionId)).toBe(41);
   });
 
@@ -2714,6 +2809,93 @@ describe("OpsBrowserManager", () => {
     expect(managerAny.ensureOpsClient).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
     expect(managerAny.recoverOpsSession).toHaveBeenCalledWith("ops-retry", { includeUrls: true });
     expect(recoveredClient.request).toHaveBeenCalledWith("targets.list", { includeUrls: true }, "ops-retry", 30000, "lease-retry");
+  });
+
+  it.each([
+    ["unknown-session", new Error("[invalid_session] Unknown ops session")],
+    ["recoverable-timeout", new OpsRequestTimeoutError({
+      command: "targets.list",
+      timeoutMs: 30000,
+      requestId: "ops-timeout-gated",
+      opsSessionId: "ops-timeout-proto",
+      leaseId: "lease-gated"
+    })]
+  ])("waits for a healthy relay handshake before recovering %s failures", async (_label, failure) => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const recoveredClient = {
+      request: vi.fn().mockResolvedValue({ activeTargetId: "tab-202", targets: [] })
+    };
+    const steps: string[] = [];
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsEndpoint: string | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      waitForRelayExtensionReady: ReturnType<typeof vi.fn>;
+      ensureOpsClient: ReturnType<typeof vi.fn>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(failure)
+    };
+    managerAny.opsEndpoint = "ws://127.0.0.1:8787/ops";
+    managerAny.opsLeases.set("ops-handshake-gated", "lease-gated");
+    managerAny.waitForRelayExtensionReady = vi.fn().mockImplementation(async () => {
+      steps.push("wait");
+      return true;
+    });
+    managerAny.ensureOpsClient = vi.fn().mockResolvedValue(recoveredClient);
+    managerAny.recoverOpsSession = vi.fn().mockImplementation(async () => {
+      steps.push("recover");
+      managerAny.opsClient = recoveredClient;
+      return true;
+    });
+
+    await expect(managerAny.requestOps("ops-handshake-gated", "targets.list", { includeUrls: true })).resolves.toEqual({
+      activeTargetId: "tab-202",
+      targets: []
+    });
+
+    expect(managerAny.waitForRelayExtensionReady).toHaveBeenCalledTimes(1);
+    expect(managerAny.ensureOpsClient).not.toHaveBeenCalled();
+    expect(managerAny.recoverOpsSession).toHaveBeenCalledWith("ops-handshake-gated", { includeUrls: true });
+    expect(steps).toEqual(["wait", "recover"]);
+    expect(recoveredClient.request).toHaveBeenCalledWith(
+      "targets.list",
+      { includeUrls: true },
+      "ops-handshake-gated",
+      30000,
+      "lease-gated"
+    );
+  });
+
+  it("rethrows unknown-session errors when relay handshake never becomes healthy during recovery", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const error = new Error("[invalid_session] Unknown ops session");
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsEndpoint: string | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      waitForRelayExtensionReady: ReturnType<typeof vi.fn>;
+      ensureOpsClient: ReturnType<typeof vi.fn>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(error)
+    };
+    managerAny.opsEndpoint = "ws://127.0.0.1:8787/ops";
+    managerAny.opsLeases.set("ops-unhealthy-handshake", "lease-unhealthy-handshake");
+    managerAny.waitForRelayExtensionReady = vi.fn().mockResolvedValue(false);
+    managerAny.ensureOpsClient = vi.fn();
+    managerAny.recoverOpsSession = vi.fn();
+
+    await expect(managerAny.requestOps("ops-unhealthy-handshake", "targets.list", { includeUrls: true })).rejects.toBe(error);
+    expect(managerAny.waitForRelayExtensionReady).toHaveBeenCalledTimes(1);
+    expect(managerAny.ensureOpsClient).not.toHaveBeenCalled();
+    expect(managerAny.recoverOpsSession).not.toHaveBeenCalled();
   });
 
   it("rethrows unknown-session errors when request recovery cannot restore the session", async () => {

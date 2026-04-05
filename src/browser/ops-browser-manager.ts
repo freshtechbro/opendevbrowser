@@ -1166,6 +1166,14 @@ export class OpsBrowserManager implements BrowserManagerLike {
         }
       } else if (!isUnknownOpsSessionError(error) && !isOpsRequestTimeoutError(error)) {
         throw error;
+      } else if (this.opsEndpoint) {
+        const relayReady = await this.waitForRelayExtensionReady();
+        if (!relayReady) {
+          throw error;
+        }
+        if (!this.opsClient) {
+          client = await this.ensureOpsClient(this.opsEndpoint);
+        }
       }
       const recovered = await this.recoverOpsSession(sessionId, payload);
       if (!recovered) {
@@ -1354,7 +1362,10 @@ export class OpsBrowserManager implements BrowserManagerLike {
       sessionId,
       parallelismPolicy: this.buildParallelismPolicyPayload()
     };
-    const rememberedTabId = this.opsSessionReconnectTabs.get(sessionId) ?? this.opsSessionTabs.get(sessionId);
+    const requestedTabId = parseTabTargetId(typeof payload.targetId === "string" ? payload.targetId : null);
+    const rememberedTabId = requestedTabId
+      ?? this.opsSessionTabs.get(sessionId)
+      ?? this.opsSessionReconnectTabs.get(sessionId);
     const fallbackUrl = normalizeRecoverableOpsUrl(payload.url) ?? this.opsSessionUrls.get(sessionId) ?? null;
     if (typeof rememberedTabId === "number") {
       reconnectPayload.tabId = rememberedTabId;
