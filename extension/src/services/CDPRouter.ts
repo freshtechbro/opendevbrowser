@@ -3,6 +3,7 @@ import { TabManager } from "./TabManager.js";
 import { TargetSessionMap, type TargetInfo, type DebuggerSession } from "./TargetSessionMap.js";
 import { logError } from "../logging.js";
 import { getRestrictionMessage } from "./url-restrictions.js";
+import { isAttachBlockedError } from "./attach-errors.js";
 import {
   handleSetDiscoverTargets,
   handleSetAutoAttach,
@@ -163,6 +164,7 @@ type ReattachChildTargetResult = {
 
 type SendCommandOptions = {
   preserveTab?: boolean;
+  refreshPreparedDebuggee?: boolean;
 };
 
 const FLAT_SESSION_ERROR = "Chrome 125+ required for extension relay (flat sessions).";
@@ -264,17 +266,20 @@ export class CDPRouter {
   }
 
   async attach(tabId: number): Promise<void> {
-    await this.prepareForNextClientIfNeeded();
+    await this.prepareForNextClientIfNeeded(tabId);
     await this.attachInternal(tabId, true);
   }
 
   async refreshTabAttachment(tabId: number): Promise<void> {
-    await this.prepareForNextClientIfNeeded();
+    const preparedTabId = await this.prepareForNextClientIfNeeded(tabId);
+    const resetPreparedSameTabRoot = preparedTabId === tabId && this.debuggees.has(tabId);
     const path: RootRefreshPath = this.debuggees.has(tabId)
       ? "reattach_root_debuggee"
       : "attach_internal";
     try {
-      if (path === "reattach_root_debuggee") {
+      if (resetPreparedSameTabRoot) {
+        // Reset preflight already rebuilt this root; probing it is enough.
+      } else if (path === "reattach_root_debuggee") {
         await this.reattachRootDebuggee(tabId);
       } else {
         await this.attachInternal(tabId, false);
@@ -287,7 +292,7 @@ export class CDPRouter {
   }
 
   async primeAttachedRootSession(tabId: number): Promise<void> {
-    await this.prepareForNextClientIfNeeded();
+    await this.prepareForNextClientIfNeeded(tabId);
     if (this.sessions.getAttachedRootSession(tabId)) {
       return;
     }
@@ -295,7 +300,7 @@ export class CDPRouter {
   }
 
   async resolveTabTargetId(tabId: number): Promise<string | null> {
-    await this.prepareForNextClientIfNeeded();
+    await this.prepareForNextClientIfNeeded(tabId);
     return (await this.readDebuggerTargetInfo(tabId))?.id ?? null;
   }
 
@@ -323,7 +328,7 @@ export class CDPRouter {
   }
 
   async attachChildTarget(tabId: number, targetId: string): Promise<string | null> {
-    await this.prepareForNextClientIfNeeded();
+    await this.prepareForNextClientIfNeeded(tabId);
     let rootDebuggee: DebuggerSession;
     try {
       rootDebuggee = await this.resolveRootSessionDebuggee(tabId);
@@ -532,6 +537,14 @@ export class CDPRouter {
     return this.rootAttachDiagnostics.get(tabId) ?? null;
   }
 
+  hasDebuggerSession(sessionId: string): boolean {
+    return this.sessions.hasSession(sessionId);
+  }
+
+  registerChildSession(tabId: number, targetInfo: TargetInfo, sessionId: string): void {
+    this.sessions.registerChildSession(tabId, targetInfo, sessionId);
+  }
+
   private async attachInternal(tabId: number, allowRetry: boolean): Promise<void> {
     if (this.debuggees.has(tabId)) {
       this.clearRootAttachDiagnostic(tabId);
@@ -565,6 +578,12 @@ export class CDPRouter {
       await this.pruneRootDebuggees(tabId);
       this.clearRootAttachDiagnostic(tabId);
     } catch (error) {
+      if (isAttachBlockedError(error) && await this.reuseAlreadyAttachedRootDebuggee(tabId)) {
+        this.commitDetachedRootDebuggees(displacedRoots);
+        await this.pruneRootDebuggees(tabId);
+        this.clearRootAttachDiagnostic(tabId);
+        return;
+      }
       this.debuggees.delete(tabId);
       if (typeof attachedDebuggee.targetId === "string") {
         this.rootTargetTabIds.delete(attachedDebuggee.targetId);
@@ -622,6 +641,43 @@ export class CDPRouter {
       }
       await this.restoreDetachedRootDebuggees(displacedRoots);
       throw error;
+    }
+  }
+
+  private async reuseAlreadyAttachedRootDebuggee(tabId: number): Promise<boolean> {
+    const targetInfo = await this.readDebuggerTargetInfo(tabId);
+    if (!targetInfo?.attached) {
+      return false;
+    }
+
+    const reusedDebuggee: DebuggerSession = {
+      tabId,
+      targetId: targetInfo.id,
+      attachBy: "targetId"
+    };
+    this.debuggees.set(tabId, reusedDebuggee);
+    this.ensureListeners();
+
+    try {
+      await this.ensureFlatSessionSupport(reusedDebuggee);
+      const registeredTarget = await this.registerRootTab(tabId);
+      if (this.discoverTargets) {
+        await this.applyDiscoverTargets(reusedDebuggee, true);
+        this.emitTargetCreated(tabId, registeredTarget);
+      }
+      if (this.autoAttachOptions.autoAttach) {
+        await this.applyAutoAttach(reusedDebuggee);
+        this.emitRootAttached(registeredTarget);
+      }
+      this.updatePrimaryTab(tabId);
+      return true;
+    } catch {
+      this.debuggees.delete(tabId);
+      this.rootTargetTabIds.delete(targetInfo.id);
+      if (this.debuggees.size === 0) {
+        this.removeListeners();
+      }
+      return false;
     }
   }
 
@@ -917,12 +973,15 @@ export class CDPRouter {
     return refreshed;
   }
 
-  private async prepareForNextClientIfNeeded(): Promise<void> {
+  private async prepareForNextClientIfNeeded(preferredTabIdHint?: number | null): Promise<number | null> {
     if (!this.clientResetPending) {
-      return;
+      return null;
     }
 
-    const preferredTabId = await this.resolvePreferredResetTabId();
+    const preferredTabId = await this.resolvePreferredResetTabId(preferredTabIdHint);
+    const retainedPreferredRootTargetId = preferredTabId !== null
+      ? this.resolveRetainedRootTargetId(preferredTabId)
+      : null;
     this.clientResetPending = false;
     this.autoAttachOptions = { autoAttach: false, waitForDebuggerOnStart: false, flatten: true };
     this.discoverTargets = false;
@@ -946,27 +1005,37 @@ export class CDPRouter {
       if (this.debuggees.size === 0) {
         this.removeListeners();
       }
-      return;
+      return null;
     }
 
     const attachedPrimary = this.debuggees.get(preferredTabId);
     if (attachedPrimary) {
       this.updatePrimaryTab(preferredTabId);
-      await this.registerRootTab(preferredTabId);
+      // After a client reset, a preserved root tab is only a candidate anchor.
+      // Rebuild the real root attachment before any same-tab reuse is considered healthy.
+      await this.reattachRootDebuggee(preferredTabId, true);
       const refreshedRoot = this.sessions.getByTabId(preferredTabId);
-      const refreshedSession = refreshedRoot
-        ? this.sessions.getBySessionId(refreshedRoot.rootSessionId)
-        : null;
-      if (refreshedSession) {
-        this.debuggees.set(preferredTabId, refreshedSession.debuggerSession);
+      if (retainedPreferredRootTargetId && !refreshedRoot?.attachTargetId) {
+        this.sessions.setRootAttachTargetId(preferredTabId, retainedPreferredRootTargetId);
+        const refreshedDebuggee = this.debuggees.get(preferredTabId);
+        if (refreshedDebuggee && !refreshedDebuggee.targetId) {
+          refreshedDebuggee.targetId = retainedPreferredRootTargetId;
+        }
+        const refreshedRootSession = refreshedRoot
+          ? this.sessions.getBySessionId(refreshedRoot.rootSessionId)
+          : null;
+        if (refreshedRootSession?.debuggerSession && !refreshedRootSession.debuggerSession.targetId) {
+          refreshedRootSession.debuggerSession.targetId = retainedPreferredRootTargetId;
+        }
       }
-      return;
+      return preferredTabId;
     }
 
     await this.attachInternal(preferredTabId, true);
+    return preferredTabId;
   }
 
-  private async resolvePreferredResetTabId(): Promise<number | null> {
+  private async resolvePreferredResetTabId(preferredTabIdHint?: number | null): Promise<number | null> {
     const candidateTabIds: number[] = [];
     const pushCandidate = (tabId: number | null) => {
       if (typeof tabId === "number" && !candidateTabIds.includes(tabId)) {
@@ -974,6 +1043,7 @@ export class CDPRouter {
       }
     };
 
+    pushCandidate(preferredTabIdHint ?? null);
     pushCandidate(await this.tabManager.getActiveTabId());
     pushCandidate(this.lastActiveTabId);
     pushCandidate(this.primaryTabId);
@@ -1152,17 +1222,15 @@ export class CDPRouter {
       ? record.attachTargetId
       : null;
     const retainedAttachTargetId = recordAttachTargetId ?? this.resolveRetainedRootTargetId(tabId);
-    const liveAttachTargetId = retainedAttachTargetId
-      ? null
-      : await this.readDebuggerTargetId(tabId);
-    const attachTargetId = retainedAttachTargetId ?? liveAttachTargetId;
+    const liveAttachTargetId = await this.readDebuggerTargetId(tabId);
+    const attachTargetId = recordAttachTargetId ?? liveAttachTargetId ?? retainedAttachTargetId;
     const attachTargetSource: ChildTargetAttachedRootRecoverySource | undefined = recordAttachTargetId
       ? "record"
-      : retainedAttachTargetId
-        ? "debuggee"
-        : liveAttachTargetId
+      : liveAttachTargetId
           ? "debugger"
-          : undefined;
+          : retainedAttachTargetId
+            ? "debuggee"
+            : undefined;
     if (!attachTargetId) {
       return {
         debuggerSession: null,
@@ -1175,18 +1243,56 @@ export class CDPRouter {
       this.sessions.setRootAttachTargetId(tabId, attachTargetId);
     }
 
+    const attachRootSession = async (debuggee: DebuggerSession): Promise<{ sessionId: string | null; error?: unknown }> => {
+      try {
+        const attached = await this.sendCommandOnce(
+          debuggee,
+          "Target.attachToTarget",
+          {
+            targetId: attachTargetId,
+            flatten: true
+          }
+        );
+        const sessionRecord = isRecord(attached) ? attached : {};
+        return {
+          sessionId: typeof sessionRecord.sessionId === "string" ? sessionRecord.sessionId : null
+        };
+      } catch (error) {
+        return {
+          sessionId: null,
+          error
+        };
+      }
+    };
+
+    const initialAttachDebuggee: DebuggerSession = liveAttachTargetId
+      ? { tabId }
+      : { targetId: attachTargetId, attachBy: "targetId" };
+    let attachAttempt = await attachRootSession(initialAttachDebuggee);
+    if (
+      typeof initialAttachDebuggee.tabId === "number"
+      && !attachAttempt.sessionId
+      && (
+        !attachAttempt.error
+        || isAttachBlockedError(attachAttempt.error)
+        || this.isStaleTabError(attachAttempt.error)
+      )
+    ) {
+      const initialFailure = attachAttempt;
+      const retriedAttachAttempt = await attachRootSession({ targetId: attachTargetId, attachBy: "targetId" });
+      attachAttempt = retriedAttachAttempt.sessionId
+        || retriedAttachAttempt.error
+        || !initialFailure.error
+        ? retriedAttachAttempt
+        : initialFailure;
+    }
+
     try {
-      const attached = await this.sendCommandOnce(
-        { tabId },
-        "Target.attachToTarget",
-        {
-          targetId: attachTargetId,
-          flatten: true
-        }
-      );
-      const sessionRecord = isRecord(attached) ? attached : {};
-      const attachedSessionId = typeof sessionRecord.sessionId === "string" ? sessionRecord.sessionId : null;
+      const attachedSessionId = attachAttempt.sessionId;
       if (!attachedSessionId) {
+        if (attachAttempt.error) {
+          throw attachAttempt.error;
+        }
         return {
           debuggerSession: null,
           stage: "attach_null",
@@ -1246,15 +1352,30 @@ export class CDPRouter {
     if (!liveTargetId) {
       return;
     }
+    const staleTargetIds = new Set<string>();
+    const attachedDebuggee = this.debuggees.get(tabId);
+    if (typeof attachedDebuggee?.targetId === "string" && attachedDebuggee.targetId.length > 0) {
+      staleTargetIds.add(attachedDebuggee.targetId);
+    }
+    const rootRecord = this.sessions.getByTabId(tabId);
+    if (typeof rootRecord?.targetInfo.targetId === "string" && rootRecord.targetInfo.targetId.length > 0) {
+      staleTargetIds.add(rootRecord.targetInfo.targetId);
+    }
+    if (typeof rootRecord?.attachTargetId === "string" && rootRecord.attachTargetId.length > 0) {
+      staleTargetIds.add(rootRecord.attachTargetId);
+    }
+    for (const targetId of staleTargetIds) {
+      if (targetId !== liveTargetId && this.rootTargetTabIds.get(targetId) === tabId) {
+        this.rootTargetTabIds.delete(targetId);
+      }
+    }
     this.rootTargetTabIds.set(liveTargetId, tabId);
     this.sessions.setRootAttachTargetId(tabId, liveTargetId);
 
-    const attachedDebuggee = this.debuggees.get(tabId);
     if (attachedDebuggee) {
       attachedDebuggee.targetId = liveTargetId;
     }
 
-    const rootRecord = this.sessions.getByTabId(tabId);
     const rootSession = rootRecord
       ? this.sessions.getBySessionId(rootRecord.rootSessionId)
       : null;
@@ -1495,13 +1616,16 @@ export class CDPRouter {
     if (pageTargets.length === 0) {
       return null;
     }
+    const liveTargets = pageTargets.some((target) => target.attached)
+      ? pageTargets.filter((target) => target.attached)
+      : pageTargets;
     const preferredByUrl = typeof tab?.url === "string"
-      ? pageTargets.find((target) => target.url === tab.url)
+      ? liveTargets.find((target) => target.url === tab.url)
       : null;
     const preferredByTitle = typeof tab?.title === "string"
-      ? pageTargets.find((target) => target.title === tab.title)
+      ? liveTargets.find((target) => target.title === tab.title)
       : null;
-    return preferredByUrl ?? preferredByTitle ?? pageTargets[0] ?? null;
+    return preferredByUrl ?? preferredByTitle ?? liveTargets[0] ?? null;
   }
 
   private async readDebuggerTargetInfo(tabId: number): Promise<DebuggerTargetInfo | null> {
@@ -1559,7 +1683,7 @@ export class CDPRouter {
           waitForDebuggerOnStart: false,
           flatten: true
         },
-        { preserveTab: true }
+        { preserveTab: true, refreshPreparedDebuggee: false }
       );
       this.flatSessionValidated = true;
     } catch (error) {
@@ -1570,10 +1694,17 @@ export class CDPRouter {
   }
 
   private async applyDiscoverTargets(debuggee: DebuggerSession, discover: boolean): Promise<void> {
-    await this.sendCommand(debuggee, "Target.setDiscoverTargets", { discover }, { preserveTab: true });
+    const rootTrackingDebuggee = this.resolveRootTrackingDebuggee(debuggee);
+    await this.sendCommand(
+      rootTrackingDebuggee,
+      "Target.setDiscoverTargets",
+      { discover },
+      { preserveTab: true, refreshPreparedDebuggee: false }
+    );
   }
 
-  private async applyAutoAttach(debuggee: chrome.debugger.Debuggee): Promise<void> {
+  private async applyAutoAttach(debuggee: DebuggerSession): Promise<void> {
+    const rootTrackingDebuggee = this.resolveRootTrackingDebuggee(debuggee);
     const params: Record<string, unknown> = {
       autoAttach: this.autoAttachOptions.autoAttach,
       waitForDebuggerOnStart: this.autoAttachOptions.waitForDebuggerOnStart,
@@ -1583,12 +1714,33 @@ export class CDPRouter {
       params.filter = this.autoAttachOptions.filter;
     }
     try {
-      await this.sendCommand(debuggee, "Target.setAutoAttach", params, { preserveTab: true });
+      await this.sendCommand(rootTrackingDebuggee, "Target.setAutoAttach", params, { preserveTab: true, refreshPreparedDebuggee: false });
     } catch (error) {
       const detail = getErrorMessage(error);
       console.warn(`[opendevbrowser] Target.setAutoAttach failed: ${detail}`);
       throw new Error(`${FLAT_SESSION_ERROR} (${detail})`);
     }
+  }
+
+  private resolveRootTrackingDebuggee(debuggee: DebuggerSession): DebuggerSession {
+    const rootDebuggee = typeof debuggee.tabId === "number"
+      ? (this.debuggees.get(debuggee.tabId) as DebuggerSession | undefined) ?? debuggee
+      : debuggee;
+    if (
+      rootDebuggee.attachBy === "targetId"
+      && typeof rootDebuggee.targetId === "string"
+      && rootDebuggee.targetId.length > 0
+    ) {
+      return {
+        ...(typeof rootDebuggee.tabId === "number" ? { tabId: rootDebuggee.tabId } : {}),
+        targetId: rootDebuggee.targetId,
+        attachBy: "targetId"
+      };
+    }
+    if (typeof rootDebuggee.sessionId === "string" && typeof rootDebuggee.tabId === "number") {
+      return { tabId: rootDebuggee.tabId };
+    }
+    return rootDebuggee;
   }
 
   private async applyAutoAttachToChild(tabId: number, sessionId: string): Promise<void> {
@@ -1866,7 +2018,8 @@ export class CDPRouter {
     if (typeof targetId !== "string" || targetId.length === 0) {
       return null;
     }
-    return this.rootTargetTabIds.get(targetId)
+    return parseTabTargetAlias(targetId)
+      ?? this.rootTargetTabIds.get(targetId)
       ?? this.sessions.getByTargetId(targetId)?.tabId
       ?? this.sessions.getTabIdByTargetAlias(targetId)
       ?? this.pendingTargetTabIds.get(targetId)
@@ -2073,16 +2226,22 @@ export class CDPRouter {
     params: Record<string, unknown>,
     options: SendCommandOptions = {}
   ): Promise<unknown> {
-    await this.prepareForNextClientIfNeeded();
+    const preferredTabId = this.resolveSourceTabId(debuggee);
+    const refreshCommandDebuggee = options.refreshPreparedDebuggee !== false
+      && this.shouldRefreshPreparedCommandDebuggee(debuggee, preferredTabId);
+    await this.prepareForNextClientIfNeeded(preferredTabId);
+    const commandDebuggee = refreshCommandDebuggee && preferredTabId !== null
+      ? (this.getTabDebuggee(preferredTabId) ?? debuggee)
+      : debuggee;
     try {
-      return await this.sendCommandOnce(debuggee, method, params);
+      return await this.sendCommandOnce(commandDebuggee, method, params);
     } catch (error) {
-      const hasChildSession = typeof (debuggee as { sessionId?: unknown }).sessionId === "string";
+      const hasChildSession = typeof (commandDebuggee as { sessionId?: unknown }).sessionId === "string";
       if (!this.isStaleTabError(error) || hasChildSession) {
         throw error;
       }
 
-      const retainedRootDebuggee = this.resolveRetainedRootTargetDebuggee(debuggee);
+      const retainedRootDebuggee = this.resolveRetainedRootTargetDebuggee(commandDebuggee);
       if (retainedRootDebuggee) {
         try {
           return await this.sendCommandOnce(retainedRootDebuggee, method, params);
@@ -2094,12 +2253,29 @@ export class CDPRouter {
         }
       }
 
-      const recovered = await this.recoverFromStaleTab(debuggee, options.preserveTab === true);
+      const recovered = await this.recoverFromStaleTab(commandDebuggee, options.preserveTab === true);
       if (!recovered) {
         throw error;
       }
       return await this.sendCommandOnce(recovered, method, params);
     }
+  }
+
+  private shouldRefreshPreparedCommandDebuggee(debuggee: DebuggerSession, preferredTabId: number | null): boolean {
+    if (preferredTabId === null) {
+      return false;
+    }
+    if (typeof debuggee.sessionId !== "string") {
+      return true;
+    }
+    const sessionRecord = this.sessions.getBySessionId(debuggee.sessionId);
+    const rootRecord = this.sessions.getByTabId(preferredTabId);
+    return Boolean(
+      sessionRecord
+      && rootRecord
+      && sessionRecord.tabId === preferredTabId
+      && sessionRecord.targetId === rootRecord.targetInfo.targetId
+    );
   }
 
   private async sendCommandOnce(debuggee: DebuggerSession, method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -2276,9 +2452,16 @@ const isTargetInfo = (value: unknown): value is TargetInfo => {
   return isRecord(value) && typeof value.targetId === "string" && typeof value.type === "string";
 };
 
-const isAttachBlockedError = (error: unknown): boolean => {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("Not allowed");
+const parseTabTargetAlias = (targetId?: string): number | null => {
+  if (typeof targetId !== "string") {
+    return null;
+  }
+  const match = /^tab-(\d+)$/.exec(targetId);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number.parseInt(match[1] ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : null;
 };
 
 const getErrorMessage = (error: unknown): string => {

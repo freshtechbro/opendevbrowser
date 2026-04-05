@@ -340,7 +340,7 @@ describe("CDPRouter", () => {
     expect(router.getAttachedTabIds()).toEqual([2]);
   });
 
-  it("restores the previous root tab when a replacement attach is blocked", async () => {
+  it("restores the previous root tab when a replacement attach reports another attached debugger", async () => {
     const mock = createChromeMock({
       tabs: [
         { id: 1, url: "https://example.com/one", title: "One", groupId: 1, status: "complete", active: true },
@@ -366,13 +366,13 @@ describe("CDPRouter", () => {
     attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
       const tabId = resolveDebuggeeTabId(debuggee);
       if (tabId === 2) {
-        mock.setRuntimeError("Not allowed");
+        mock.setRuntimeError("Another debugger is already attached to the tab with id: 2.");
         callback();
         mock.setRuntimeError(null);
         return;
       }
       if (typeof tabId === "number" && attachedTabId !== null && attachedTabId !== tabId) {
-        mock.setRuntimeError("Not allowed");
+        mock.setRuntimeError(`Another debugger is already attached to the tab with id: ${tabId}.`);
         callback();
         mock.setRuntimeError(null);
         return;
@@ -395,13 +395,170 @@ describe("CDPRouter", () => {
     attachMock.mockClear();
     detachMock.mockClear();
 
-    await expect(router.attach(2)).rejects.toThrow("Not allowed");
+    await expect(router.attach(2)).rejects.toThrow("Another debugger is already attached");
 
     expect(detachMock).toHaveBeenCalledWith({ tabId: 1 }, expect.any(Function));
     expect(attachMock).toHaveBeenNthCalledWith(1, { tabId: 2 }, "1.3", expect.any(Function));
     expect(attachMock).toHaveBeenNthCalledWith(2, { tabId: 1 }, "1.3", expect.any(Function));
     expect(router.getPrimaryTabId()).toBe(1);
     expect(router.getAttachedTabIds()).toEqual([1]);
+  });
+
+  it("rehydrates a replacement root when Chrome already reports the new tab as attached", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 1, url: "https://example.com/one", title: "One", groupId: 1, status: "complete", active: true },
+        { id: 2, url: "https://example.com/two", title: "Two", groupId: 1, status: "complete", active: false }
+      ]
+    });
+    globalThis.chrome = mock.chrome;
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const detachMock = globalThis.chrome.debugger.detach as unknown as ReturnType<typeof vi.fn>;
+    const getTargetsMock = globalThis.chrome.debugger.getTargets as unknown as ReturnType<typeof vi.fn>;
+    let attachedTabId: number | null = null;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.startsWith("target-")) {
+        const parsed = Number.parseInt(debuggee.targetId.slice("target-".length), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (tabId === 2) {
+        attachedTabId = 2;
+        mock.setRuntimeError("Another debugger is already attached to the tab with id: 2.");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      attachedTabId = typeof tabId === "number" ? tabId : attachedTabId;
+      callback();
+    });
+
+    detachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, callback: () => void) => {
+      const tabId = resolveDebuggeeTabId(debuggee);
+      if (typeof tabId === "number" && attachedTabId === tabId) {
+        attachedTabId = null;
+      }
+      callback();
+    });
+
+    getTargetsMock.mockImplementation((callback: (result: chrome.debugger.TargetInfo[]) => void) => {
+      callback([
+        {
+          id: "target-1",
+          tabId: 1,
+          type: "page",
+          title: "One",
+          url: "https://example.com/one",
+          attached: attachedTabId === 1
+        },
+        {
+          id: "target-2",
+          tabId: 2,
+          type: "page",
+          title: "Two",
+          url: "https://example.com/two",
+          attached: attachedTabId === 2
+        }
+      ] as chrome.debugger.TargetInfo[]);
+    });
+
+    const router = new CDPRouter();
+    await router.attach(1);
+
+    attachMock.mockClear();
+    detachMock.mockClear();
+
+    await expect(router.attach(2)).resolves.toBeUndefined();
+
+    expect(detachMock).toHaveBeenCalledWith({ tabId: 1 }, expect.any(Function));
+    expect(attachMock).toHaveBeenCalledTimes(1);
+    expect(attachMock).toHaveBeenCalledWith({ tabId: 2 }, "1.3", expect.any(Function));
+    expect(router.getPrimaryTabId()).toBe(2);
+    expect(router.getAttachedTabIds()).toEqual([2]);
+    expect(router.getTabDebuggee(2)).toEqual(
+      expect.objectContaining({
+        tabId: 2,
+        targetId: "target-2"
+      })
+    );
+  });
+
+  it("prefers an attached page target when Chrome reports multiple page targets for the same tab during blocked root attach recovery", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 83,
+        url: "https://current.example/eighty-three",
+        title: "Current Eighty Three",
+        groupId: 1,
+        status: "complete",
+        active: true
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const getTargetsMock = globalThis.chrome.debugger.getTargets as unknown as ReturnType<typeof vi.fn>;
+    const resolveDebuggeeTabId = (debuggee: chrome.debugger.Debuggee): number | null => {
+      if (typeof debuggee.tabId === "number") {
+        return debuggee.tabId;
+      }
+      if (typeof debuggee.targetId === "string" && debuggee.targetId.includes("83")) {
+        return 83;
+      }
+      return null;
+    };
+
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if (resolveDebuggeeTabId(debuggee) === 83) {
+        mock.setRuntimeError("Not allowed");
+        callback();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback();
+    });
+
+    getTargetsMock.mockImplementation((callback: (result: chrome.debugger.TargetInfo[]) => void) => {
+      callback([
+        {
+          id: "target-83-stale",
+          tabId: 83,
+          type: "page",
+          title: "Current Eighty Three",
+          url: "https://current.example/eighty-three",
+          attached: false
+        },
+        {
+          id: "target-83-live",
+          tabId: 83,
+          type: "page",
+          title: "Previous Eighty Three",
+          url: "https://previous.example/eighty-three",
+          attached: true
+        }
+      ] as chrome.debugger.TargetInfo[]);
+    });
+
+    const router = new CDPRouter();
+
+    await expect(router.attach(83)).resolves.toBeUndefined();
+    expect(router.getPrimaryTabId()).toBe(83);
+    expect(router.getAttachedTabIds()).toEqual([83]);
+    expect(router.getTabDebuggee(83)).toEqual(
+      expect.objectContaining({
+        tabId: 83,
+        targetId: "target-83-live"
+      })
+    );
+    expect(router.getLastRootAttachDiagnostic(83)).toBeNull();
   });
 
   it("keeps the restored root usable after a blocked replacement attach following client reset", async () => {
@@ -2032,6 +2189,53 @@ describe("CDPRouter", () => {
     expect(router.getAttachedTabIds()).toEqual([2]);
   });
 
+  it("resyncs the kept primary root target id before reusing it for attach after client reset", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 62, url: "https://fresh.example/sixty-two", title: "Sixty Two", groupId: 1, status: "complete", active: true }
+      ],
+      activeTab: { id: 62, url: "https://fresh.example/sixty-two", title: "Sixty Two", groupId: 1, status: "complete", active: true }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    await router.attach(62);
+
+    const originalGetTargets = vi.mocked(chrome.debugger.getTargets).getMockImplementation();
+    let refreshTargetIds = false;
+
+    vi.mocked(chrome.debugger.getTargets).mockImplementation((callback) => {
+      if (refreshTargetIds) {
+        callback([
+          {
+            id: "refreshed-target-62",
+            tabId: 62,
+            type: "page",
+            title: "Sixty Two",
+            url: "https://fresh.example/sixty-two",
+            attached: false
+          } as chrome.debugger.TargetInfo
+        ]);
+        return;
+      }
+      originalGetTargets?.(callback);
+    });
+
+    router.markClientClosed();
+    refreshTargetIds = true;
+
+    await expect(router.attach(62)).resolves.toBeUndefined();
+
+    expect(router.getTabDebuggee(62)).toEqual(
+      expect.objectContaining({
+        tabId: 62,
+        targetId: "refreshed-target-62"
+      })
+    );
+    expect(router.getPrimaryTabId()).toBe(62);
+    expect(router.getAttachedTabIds()).toEqual([62]);
+  });
+
   it("preserves the retained root target id after client reset and reuses it for attached-root recovery", async () => {
     const mock = createChromeMock({
       tabs: [
@@ -2059,6 +2263,7 @@ describe("CDPRouter", () => {
       (debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
         if (method === "Target.attachToTarget") {
           const sessionId = (debuggee as { sessionId?: string }).sessionId;
+          const debuggeeTargetId = (debuggee as { targetId?: string }).targetId;
           const targetId = (params as { targetId?: string }).targetId;
           if ((debuggee as { tabId?: number }).tabId === 63 && !sessionId && targetId === "popup-63") {
             mock.setRuntimeError("Not allowed");
@@ -2066,7 +2271,7 @@ describe("CDPRouter", () => {
             mock.setRuntimeError(null);
             return;
           }
-          if ((debuggee as { tabId?: number }).tabId === 63 && !sessionId && targetId === "target-63") {
+          if (((debuggee as { tabId?: number }).tabId === 63 || debuggeeTargetId === "target-63") && !sessionId && targetId === "target-63") {
             callback({ sessionId: "attached-root-session-63" });
             return;
           }
@@ -2084,6 +2289,116 @@ describe("CDPRouter", () => {
 
     await expect(router.attachChildTarget(63, "popup-63")).resolves.toBe("popup-session-63");
     expect(router.getLastChildAttachDiagnostic(63, "popup-63")).toBeNull();
+  });
+
+  it("primes an attached-root session through the retained root target id after client reset when debugger target info disappears", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 73, url: "https://fresh.example/seventy-three", title: "Seventy Three", groupId: 1, status: "complete", active: true }
+      ],
+      activeTab: { id: 73, url: "https://fresh.example/seventy-three", title: "Seventy Three", groupId: 1, status: "complete", active: true }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    await router.attach(73);
+
+    const originalGetTargets = vi.mocked(chrome.debugger.getTargets).getMockImplementation();
+    let suppressDebuggerTargets = false;
+
+    vi.mocked(chrome.debugger.getTargets).mockImplementation((callback) => {
+      if (suppressDebuggerTargets) {
+        callback([]);
+        return;
+      }
+      originalGetTargets?.(callback);
+    });
+
+    vi.mocked(chrome.debugger.sendCommand).mockImplementation(
+      (debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+        if (method === "Target.attachToTarget") {
+          const sessionId = (debuggee as { sessionId?: string }).sessionId;
+          const debuggeeTargetId = (debuggee as { targetId?: string }).targetId;
+          const targetId = (params as { targetId?: string }).targetId;
+          if ((debuggee as { tabId?: number }).tabId === 73 && !sessionId && targetId === "target-73") {
+            callback({});
+            return;
+          }
+          if (debuggeeTargetId === "target-73" && !sessionId && targetId === "target-73") {
+            callback({ sessionId: "attached-root-session-73" });
+            return;
+          }
+        }
+        callback({ ok: true });
+      }
+    );
+
+    router.markClientClosed();
+    suppressDebuggerTargets = true;
+
+    await expect(router.primeAttachedRootSession(73)).resolves.toBeUndefined();
+    expect(router.getTabDebuggee(73)).toEqual(
+      expect.objectContaining({
+        tabId: 73,
+        sessionId: "attached-root-session-73",
+        targetId: "target-73"
+      })
+    );
+  });
+
+  it("retries attached-root priming through the root target id when the tab-scoped root attach is rejected", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 74, url: "https://fresh.example/seventy-four", title: "Seventy Four", groupId: 1, status: "complete", active: true }
+      ],
+      activeTab: { id: 74, url: "https://fresh.example/seventy-four", title: "Seventy Four", groupId: 1, status: "complete", active: true }
+    });
+    globalThis.chrome = mock.chrome;
+
+    vi.mocked(chrome.debugger.sendCommand).mockImplementation(
+      (debuggee: chrome.debugger.Debuggee, method: string, params: object, callback: (result?: unknown) => void) => {
+        if (method === "Target.attachToTarget") {
+          const sessionId = (debuggee as { sessionId?: string }).sessionId;
+          const debuggeeTargetId = (debuggee as { targetId?: string }).targetId;
+          const targetId = (params as { targetId?: string }).targetId;
+          if ((debuggee as { tabId?: number }).tabId === 74 && !sessionId && targetId === "target-74") {
+            mock.setRuntimeError("Not allowed");
+            callback(undefined);
+            mock.setRuntimeError(null);
+            return;
+          }
+          if (debuggeeTargetId === "target-74" && !sessionId && targetId === "target-74") {
+            callback({ sessionId: "attached-root-session-74" });
+            return;
+          }
+        }
+        callback({ ok: true });
+      }
+    );
+
+    const router = new CDPRouter();
+    await router.attach(74);
+
+    await expect(router.primeAttachedRootSession(74)).resolves.toBeUndefined();
+    expect(router.getTabDebuggee(74)).toEqual(
+      expect.objectContaining({
+        tabId: 74,
+        sessionId: "attached-root-session-74",
+        targetId: "target-74"
+      })
+    );
+    expect(vi.mocked(chrome.debugger.sendCommand)).toHaveBeenCalledWith(
+      { tabId: 74 },
+      "Target.attachToTarget",
+      { targetId: "target-74", flatten: true },
+      expect.any(Function)
+    );
+    expect(vi.mocked(chrome.debugger.sendCommand)).toHaveBeenCalledWith(
+      { targetId: "target-74" },
+      "Target.attachToTarget",
+      { targetId: "target-74", flatten: true },
+      expect.any(Function)
+    );
   });
 
   it("retries direct popup attach through the retained root target id before attached-root recovery after client reset", async () => {
@@ -2277,6 +2592,124 @@ describe("CDPRouter", () => {
     );
   });
 
+  it("keeps root tracking commands on the root debuggee after priming an attached-root session", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 69,
+        url: "https://fresh.example/sixty-nine",
+        title: "Sixty Nine",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+
+    const router = new CDPRouter();
+    await router.attach(69);
+    await router.primeAttachedRootSession(69);
+    sendCommandMock.mockClear();
+
+    await router.setDiscoverTargetsEnabled(true);
+    await router.configureAutoAttach({
+      autoAttach: true,
+      waitForDebuggerOnStart: false,
+      flatten: true
+    });
+
+    const rootTrackingCalls = sendCommandMock.mock.calls.filter((call) => {
+      const method = call[1];
+      return method === "Target.setDiscoverTargets" || method === "Target.setAutoAttach";
+    });
+
+    expect(rootTrackingCalls).toEqual(
+      expect.arrayContaining([
+        [
+          expect.objectContaining({ tabId: 69 }),
+          "Target.setDiscoverTargets",
+          { discover: true },
+          expect.any(Function)
+        ],
+        [
+          expect.objectContaining({ tabId: 69 }),
+          "Target.setAutoAttach",
+          expect.objectContaining({ autoAttach: true, flatten: true, waitForDebuggerOnStart: false }),
+          expect.any(Function)
+        ]
+      ])
+    );
+    expect(rootTrackingCalls.some((call) => typeof (call[0] as { sessionId?: unknown }).sessionId === "string")).toBe(false);
+  });
+
+  it("keeps root tracking commands on the targetId-backed root after fallback targetId attach", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 74,
+        url: "https://fresh.example/seventy-four",
+        title: "Seventy Four",
+        groupId: 1
+      }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    let forceFallbackRootAttach = true;
+    sendCommandMock.mockImplementation((debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
+      if (
+        forceFallbackRootAttach
+        && method === "Target.setAutoAttach"
+        && (debuggee as { tabId?: number }).tabId === 74
+      ) {
+        mock.setRuntimeError("Not allowed");
+        callback(undefined);
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback({ ok: true });
+    });
+
+    const router = new CDPRouter();
+    await router.attach(74);
+    expect(router.getTabDebuggee(74)).toEqual(expect.objectContaining({
+      tabId: 74,
+      targetId: "target-74",
+      attachBy: "targetId"
+    }));
+
+    forceFallbackRootAttach = false;
+    sendCommandMock.mockClear();
+
+    await router.setDiscoverTargetsEnabled(true);
+    await router.configureAutoAttach({
+      autoAttach: true,
+      waitForDebuggerOnStart: false,
+      flatten: true
+    });
+
+    const rootTrackingCalls = sendCommandMock.mock.calls.filter((call) => {
+      const method = call[1];
+      return method === "Target.setDiscoverTargets" || method === "Target.setAutoAttach";
+    });
+
+    expect(rootTrackingCalls).toEqual(
+      expect.arrayContaining([
+        [
+          expect.objectContaining({ targetId: "target-74" }),
+          "Target.setDiscoverTargets",
+          { discover: true },
+          expect.any(Function)
+        ],
+        [
+          expect.objectContaining({ targetId: "target-74" }),
+          "Target.setAutoAttach",
+          expect.objectContaining({ autoAttach: true, flatten: true, waitForDebuggerOnStart: false }),
+          expect.any(Function)
+        ]
+      ])
+    );
+    expect(rootTrackingCalls.some((call) => (call[0] as { targetId?: unknown }).targetId !== "target-74")).toBe(false);
+  });
+
   it("reattaches the root tab when stale popup attach has no real attached-root session to reuse", async () => {
     const mock = createChromeMock({
       activeTab: {
@@ -2417,13 +2850,13 @@ describe("CDPRouter", () => {
     await router.attach(2);
 
     type RouterWithPrepare = CDPRouter & {
-      prepareForNextClientIfNeeded: () => Promise<void>;
+      prepareForNextClientIfNeeded: (preferredTabId?: number | null) => Promise<void>;
     };
 
     const routerWithPrepare = router as unknown as RouterWithPrepare;
     const originalPrepare = routerWithPrepare.prepareForNextClientIfNeeded.bind(router);
-    const prepareForNextClientIfNeeded = vi.fn(async () => {
-      await originalPrepare();
+    const prepareForNextClientIfNeeded = vi.fn(async (preferredTabId?: number | null) => {
+      await originalPrepare(preferredTabId);
     });
     routerWithPrepare.prepareForNextClientIfNeeded = prepareForNextClientIfNeeded;
 
@@ -2431,20 +2864,23 @@ describe("CDPRouter", () => {
       label: string;
       invoke: () => Promise<unknown>;
       assertResult?: (result: unknown) => void;
+      expectedPrepareArgs?: Array<number | null | undefined>;
     }> = [
       {
         label: "attach",
         invoke: async () => {
           await router.attach(2);
           return null;
-        }
+        },
+        expectedPrepareArgs: [2]
       },
       {
         label: "refreshTabAttachment",
         invoke: async () => {
           await router.refreshTabAttachment(2);
           return null;
-        }
+        },
+        expectedPrepareArgs: [2]
       },
       {
         label: "setDiscoverTargetsEnabled",
@@ -2465,28 +2901,32 @@ describe("CDPRouter", () => {
         invoke: async () => await router.resolveTabTargetId(2),
         assertResult: (result) => {
           expect(result).toBe("target-2");
-        }
+        },
+        expectedPrepareArgs: [2]
       },
       {
         label: "resolveTabOpenerTargetId",
         invoke: async () => await router.resolveTabOpenerTargetId(2),
         assertResult: (result) => {
           expect(result).toBeNull();
-        }
+        },
+        expectedPrepareArgs: []
       },
       {
         label: "attachChildTarget",
         invoke: async () => await router.attachChildTarget(2, "popup-2"),
         assertResult: (result) => {
           expect(result).toEqual(expect.any(String));
-        }
+        },
+        expectedPrepareArgs: [2]
       },
       {
         label: "sendCommand",
         invoke: async () => await router.sendCommand({ tabId: 2 }, "Runtime.enable", {}),
         assertResult: (result) => {
           expect(result).toEqual({ ok: true });
-        }
+        },
+        expectedPrepareArgs: [2]
       }
     ];
 
@@ -2497,10 +2937,141 @@ describe("CDPRouter", () => {
       const result = await directCall.invoke();
 
       expect(prepareForNextClientIfNeeded.mock.calls.length, directCall.label).toBeGreaterThan(0);
+      if (directCall.expectedPrepareArgs) {
+        expect(prepareForNextClientIfNeeded.mock.calls.at(-1), directCall.label).toEqual(directCall.expectedPrepareArgs);
+      }
       directCall.assertResult?.(result);
       expect(router.getPrimaryTabId()).toBe(2);
       expect(router.getAttachedTabIds()).toEqual([2]);
     }
+  });
+
+  it("reattaches the preserved same-tab root after client reset before reusing it", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 72, url: "https://fresh.example/seventy-two", title: "Seventy Two", groupId: 1, status: "complete", active: true }
+      ],
+      activeTab: { id: 72, url: "https://fresh.example/seventy-two", title: "Seventy Two", groupId: 1, status: "complete", active: true }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    await router.attach(72);
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const detachMock = globalThis.chrome.debugger.detach as unknown as ReturnType<typeof vi.fn>;
+    attachMock.mockClear();
+    detachMock.mockClear();
+
+    router.markClientClosed();
+    await router.attach(72);
+
+    expect(detachMock).toHaveBeenCalledTimes(1);
+    expect(detachMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 72 }),
+      expect.any(Function)
+    );
+    expect(attachMock).toHaveBeenCalledTimes(1);
+    expect(attachMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 72 }),
+      "1.3",
+      expect.any(Function)
+    );
+    expect(router.getPrimaryTabId()).toBe(72);
+    expect(router.getAttachedTabIds()).toEqual([72]);
+  });
+
+  it("reuses the reset-prepared same-tab root during refresh without a second attach", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 73, url: "https://fresh.example/seventy-three", title: "Seventy Three", groupId: 1, status: "complete", active: true }
+      ],
+      activeTab: { id: 73, url: "https://fresh.example/seventy-three", title: "Seventy Three", groupId: 1, status: "complete", active: true }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    await router.attach(73);
+
+    const attachMock = globalThis.chrome.debugger.attach as unknown as ReturnType<typeof vi.fn>;
+    const detachMock = globalThis.chrome.debugger.detach as unknown as ReturnType<typeof vi.fn>;
+    attachMock.mockClear();
+    detachMock.mockClear();
+
+    let postResetAttachCount = 0;
+    attachMock.mockImplementation((debuggee: chrome.debugger.Debuggee, _version: string, callback: () => void) => {
+      if ((debuggee as { tabId?: number }).tabId === 73) {
+        postResetAttachCount += 1;
+        if (postResetAttachCount > 1) {
+          mock.setRuntimeError("Not allowed");
+          callback();
+          mock.setRuntimeError(null);
+          return;
+        }
+      }
+      callback();
+    });
+
+    router.markClientClosed();
+    await expect(router.refreshTabAttachment(73)).resolves.toBeUndefined();
+
+    expect(postResetAttachCount).toBe(1);
+    expect(detachMock).toHaveBeenCalledTimes(1);
+    expect(attachMock).toHaveBeenCalledTimes(1);
+    expect(router.getPrimaryTabId()).toBe(73);
+    expect(router.getAttachedTabIds()).toEqual([73]);
+  });
+
+  it("refreshes a stale attached-root command debuggee after client reset before dispatch", async () => {
+    const mock = createChromeMock({
+      tabs: [
+        { id: 2, url: "https://fresh.example/two", title: "Two", groupId: 1, status: "complete", active: false },
+        { id: 3, url: "https://chatgpt.com/", title: "ChatGPT", groupId: 1, status: "complete", active: true }
+      ],
+      activeTab: { id: 3, url: "https://chatgpt.com/", title: "ChatGPT", groupId: 1, status: "complete", active: true }
+    });
+    globalThis.chrome = mock.chrome;
+
+    const router = new CDPRouter();
+    await router.attach(2);
+    await router.primeAttachedRootSession(2);
+
+    const attachedRootDebuggee = router.getTabDebuggee(2);
+    expect(attachedRootDebuggee).toEqual(expect.objectContaining({
+      tabId: 2,
+      sessionId: expect.any(String),
+      targetId: "target-2"
+    }));
+
+    const sendCommandMock = globalThis.chrome.debugger.sendCommand as unknown as ReturnType<typeof vi.fn>;
+    sendCommandMock.mockImplementation(
+      (debuggee: chrome.debugger.Debuggee, method: string, _params: object, callback: (result?: unknown) => void) => {
+        if (
+          method === "Runtime.enable"
+          && (debuggee as { sessionId?: string }).sessionId === (attachedRootDebuggee as { sessionId?: string }).sessionId
+        ) {
+          mock.setRuntimeError("Debugger is not attached to the target with id: target-2.");
+          callback(undefined);
+          mock.setRuntimeError(null);
+          return;
+        }
+        callback({ ok: true });
+      }
+    );
+
+    router.markClientClosed();
+
+    await expect(router.sendCommand(attachedRootDebuggee as chrome.debugger.Debuggee, "Runtime.enable", {}))
+      .resolves
+      .toEqual({ ok: true });
+    expect(router.getPrimaryTabId()).toBe(2);
+    expect(router.getAttachedTabIds()).toEqual([2]);
+    expect(sendCommandMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 2 }),
+      "Runtime.enable",
+      {},
+      expect.any(Function)
+    );
   });
 
   it("keeps the refreshed root attached when the old root detach arrives late", async () => {

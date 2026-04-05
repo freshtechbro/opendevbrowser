@@ -15,7 +15,7 @@ export type TargetSessionRecord<TExtra extends object> = {
   closingReason?: string;
   tabId: number;
   targetId: string;
-  activeTargetId: string;
+  activeTargetId: string | null;
   createdAt: number;
   lastUsedAt: number;
   targets: Map<string, TargetSessionInfo>;
@@ -126,7 +126,7 @@ export class TargetSessionCoordinator<TExtra extends object> {
     }
     if (session.activeTargetId === targetId) {
       const [first] = session.targets.keys();
-      session.activeTargetId = first ?? "";
+      session.activeTargetId = first ?? null;
     }
     return target;
   }

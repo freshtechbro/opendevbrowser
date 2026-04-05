@@ -187,8 +187,8 @@ export class OpsSessionStore {
   }
 
   removeTarget(sessionId: string, targetId: string): OpsTargetInfo | null {
-    const target = this.coordinator.removeTarget(sessionId, targetId);
     const session = this.requireSession(sessionId);
+    const target = this.coordinator.removeTarget(sessionId, targetId);
     if (!target) return null;
     session.targetQueues.delete(targetId);
     session.targetQueueDepth.delete(targetId);
@@ -263,6 +263,9 @@ export class OpsSessionStore {
     const existing = session.syntheticTargets.get(targetId) ?? null;
     if (!existing) {
       return null;
+    }
+    if (session.activeTargetId === targetId) {
+      session.activeTargetId = null;
     }
     session.syntheticTargets.delete(targetId);
     session.refStore.clearTarget(targetId);

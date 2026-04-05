@@ -22,6 +22,8 @@ import {
   type RootAttachDiagnostic,
   type RootRefreshDiagnostic
 } from "../services/CDPRouter.js";
+import type { DebuggerSession } from "../services/TargetSessionMap.js";
+import { isAttachBlockedError } from "../services/attach-errors.js";
 import { TabManager } from "../services/TabManager.js";
 import { getRestrictionMessage, isRestrictedUrl } from "../services/url-restrictions.js";
 import { logError } from "../logging.js";
@@ -373,17 +375,35 @@ type PopupAttachDiagnostic = {
   at: number;
 };
 
+type RootEnablementFailureStage =
+  | "resolve_ready_debuggee"
+  | "set_discover_targets"
+  | "configure_auto_attach"
+  | "page_enable"
+  | "page_file_chooser"
+  | "runtime_enable"
+  | "network_enable"
+  | "performance_enable";
+
 type DirectAttachFailureDetails = {
   origin?: RootAttachDiagnostic["origin"];
   stage?: RootAttachDiagnostic["stage"];
   attachBy?: RootAttachDiagnostic["attachBy"];
   probeMethod?: RootAttachDiagnostic["probeMethod"];
+  phase?: "strict_enablement";
+  enablementStage?: RootEnablementFailureStage;
+  tabId?: number;
+  strict?: boolean;
+  allowRefresh?: boolean;
+  refreshedAfterBlock?: boolean;
   reason?: string;
 };
 
 type DirectAttachDecoratedError = Error & {
   directAttachDetails?: DirectAttachFailureDetails;
 };
+
+type CommandCreatedTabKind = "targets.new" | "page.open";
 
 export type OpsRuntimeOptions = {
   send: (message: OpsEnvelope) => void;
@@ -403,6 +423,7 @@ export class OpsRuntime {
   private readonly encoder = new TextEncoder();
   private readonly popupOpenerTabIds = new Map<number, number>();
   private readonly popupAttachDiagnostics = new Map<string, PopupAttachDiagnostic>();
+  private readonly commandCreatedTabs = new Map<number, { sessionId: string; kind: CommandCreatedTabKind }>();
   private readonly dialogQueues = new Map<string, Promise<void>>();
   private closingTimers = new Map<string, number>();
   private parallelWaiters = new Map<string, OpsParallelWaiter[]>();
@@ -515,6 +536,7 @@ export class OpsRuntime {
   }
 
   private handleTabRemoved = (tabId: number): void => {
+    this.forgetCommandCreatedTab(tabId);
     this.popupOpenerTabIds.delete(tabId);
     this.handleClosedTarget(tabId, "ops_tab_closed");
   };
@@ -533,6 +555,9 @@ export class OpsRuntime {
   private handleTabCreated = (tab: chrome.tabs.Tab): void => {
     const tabId = typeof tab.id === "number" ? tab.id : null;
     if (tabId === null) {
+      return;
+    }
+    if (this.isCommandCreatedTab(tabId)) {
       return;
     }
     const openerTabId = typeof tab.openerTabId === "number" ? tab.openerTabId : null;
@@ -631,6 +656,9 @@ export class OpsRuntime {
   private handleTabUpdated = (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab): void => {
     const session = this.sessions.getByTabId(tabId);
     if (!session) {
+      if (this.isCommandCreatedTab(tabId)) {
+        return;
+      }
       if (changeInfo.status === "complete" || tab.status === "complete" || typeof tab.openerTabId === "number") {
         void this.handleCreatedTab(tab, tabId);
       }
@@ -675,21 +703,27 @@ export class OpsRuntime {
     if (!target) {
       return targetId;
     }
-    target.url = tab.url ?? target.url;
-    target.title = tab.title ?? target.title;
+    const nextUrl = getReportedTabUrl(tab);
+    const nextTitle = getReportedTabTitle(tab);
+    if (typeof nextUrl === "string" && nextUrl.length > 0) {
+      target.url = nextUrl;
+    }
+    if (typeof nextTitle === "string" && nextTitle.length > 0) {
+      target.title = nextTitle;
+    }
     return targetId;
   }
 
   private async attachCreatedTab(session: OpsSession, targetId: string, tabId: number): Promise<void> {
-    await this.tabs.waitForTabComplete(tabId, 5000).catch(() => undefined);
     const target = await this.hydratePopupOpenerTarget(session, targetId);
     if (target?.openerTargetId) {
       // Keep the opener root stable and attach popup tabs only when the caller explicitly targets them.
       return;
     }
+    await this.tabs.waitForTabComplete(tabId, 5000).catch(() => undefined);
     try {
       await this.attachTargetTab(tabId);
-      await this.enableTargetDomains(tabId);
+      await this.enableTargetDomains(tabId, true);
       this.promotePopupTarget(session, targetId);
     } catch (error) {
       if (target && isAttachBlockedError(error)) {
@@ -1177,7 +1211,7 @@ export class OpsRuntime {
     try {
       const refreshedTab = isStartUrlConnect
         ? await this.attachStartUrlConnectTab(activeTabId)
-        : (await this.attachTargetTab(activeTabId), null);
+        : await this.attachLaunchTargetTab(activeTabId, false);
       if (refreshedTab) {
         resolvedTab = refreshedTab;
       }
@@ -1190,6 +1224,14 @@ export class OpsRuntime {
       await this.tabs.waitForTabComplete(activeTab.id).catch(() => undefined);
     }
 
+    try {
+      await this.enableTargetDomains(activeTabId, true);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Debugger attach failed";
+      this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
+      return;
+    }
+
     const leaseId = typeof message.leaseId === "string" && message.leaseId.trim().length > 0
       ? message.leaseId.trim()
       : createId();
@@ -1199,8 +1241,6 @@ export class OpsRuntime {
     }, {
       parallelismPolicy
     }, requestedSessionId);
-
-    await this.enableSessionDomains(session);
 
     this.emitSessionEvent(session, "ops_session_created");
 
@@ -1224,15 +1264,17 @@ export class OpsRuntime {
     const session = this.getSessionForMessage(message, clientId);
     if (!session) return;
     const activeTargetId = session.activeTargetId ?? session.targetId;
-    const activeTarget = this.resolveTargetContext(session, activeTargetId)
-      ?? this.resolveTargetContext(session, session.targetId);
-    const tab = activeTarget ? await this.tabs.getTab(activeTarget.tabId) : null;
+    const reportedTarget = activeTargetId
+      ? this.resolveRequestedTargetContext(session, activeTargetId, false)
+      : null;
+    const reportedTargetId = reportedTarget?.targetId ?? null;
+    const tab = reportedTarget ? await this.tabs.getTab(reportedTarget.tabId) : null;
     this.sendResponse(message, {
       mode: "extension",
-      activeTargetId: session.activeTargetId || null,
-      url: resolveReportedTargetUrl(activeTarget, tab?.url),
-      title: resolveReportedTargetTitle(activeTarget, tab?.title),
-      dialog: this.serializeDialogState(session, activeTargetId),
+      activeTargetId: reportedTargetId,
+      url: resolveReportedTargetUrl(reportedTarget, tab),
+      title: resolveReportedTargetTitle(reportedTarget, tab),
+      dialog: this.serializeDialogState(session, reportedTargetId),
       leaseId: session.leaseId,
       state: session.state
     });
@@ -1259,8 +1301,8 @@ export class OpsRuntime {
       return {
         targetId,
         type: "page" as const,
-        title: resolveReportedTargetTitle(target, tab?.title),
-        url: includeUrls ? resolveReportedTargetUrl(target, tab?.url) : undefined
+        title: resolveReportedTargetTitle(target, tab),
+        url: includeUrls ? resolveReportedTargetUrl(target, tab) : undefined
       };
     }));
     this.sendResponse(message, { activeTargetId: session.activeTargetId || null, targets });
@@ -1273,10 +1315,11 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "Unknown targetId", false));
       return;
     }
-    let target = this.resolveTargetContext(session, targetId);
+    let target = this.rehydrateSyntheticPopupBridge(session, targetId) ?? this.resolveTargetContext(session, targetId);
     if (target && !this.hasUsableDebuggee(target) && (target.synthetic || !!target.openerTargetId)) {
       try {
         target = await this.preparePopupTarget(session, targetId) ?? target;
+        target = this.rehydrateSyntheticPopupBridge(session, targetId) ?? target;
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Debugger attach failed";
         this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
@@ -1302,7 +1345,8 @@ export class OpsRuntime {
       return;
     }
     if (target && !target.synthetic) {
-      const hydratedPopupTarget = typeof target.sessionId !== "string"
+      const targetHasUsableDebuggee = this.hasUsableDebuggee(target);
+      const hydratedPopupTarget = !targetHasUsableDebuggee
         ? await this.hydratePopupOpenerTarget(session, targetId)
         : null;
       const popupTarget: OpsTargetInfo | null = hydratedPopupTarget?.openerTargetId
@@ -1324,11 +1368,11 @@ export class OpsRuntime {
           return;
         }
       }
-      const deferPopupActivation = Boolean(popupTarget?.openerTargetId && typeof target.sessionId !== "string");
+      const deferPopupActivation = Boolean(popupTarget?.openerTargetId && !targetHasUsableDebuggee);
       if (!deferPopupActivation) {
         await this.tabs.activateTab(target.tabId).catch(() => undefined);
       }
-      if (typeof target.sessionId !== "string") {
+      if (!targetHasUsableDebuggee) {
         if (popupTarget?.openerTargetId && await this.attachTargetViaOpenerSession(session, popupTarget).catch(() => false)) {
           this.clearPopupAttachDiagnostic(session.id, targetId);
           await this.activateTargetAndRespond(message, session, targetId);
@@ -1344,7 +1388,7 @@ export class OpsRuntime {
           if (this.shouldPreferDirectPopupTabAttach(popupTarget)) {
             try {
               await this.attachTargetTab(target.tabId);
-              await this.enableTargetDomains(target.tabId);
+              await this.enableTargetDomains(target.tabId, true);
               this.clearPopupAttachDiagnostic(session.id, targetId);
               await this.activateTargetAndRespond(message, session, targetId);
               return;
@@ -1361,7 +1405,7 @@ export class OpsRuntime {
         }
         try {
           await this.attachTargetTab(target.tabId);
-          await this.enableTargetDomains(target.tabId);
+          await this.enableTargetDomains(target.tabId, true);
           this.clearPopupAttachDiagnostic(session.id, targetId);
         } catch (error) {
           if (isAttachBlockedError(error) && popupTarget && await this.attachTargetViaOpenerSession(session, popupTarget).catch(() => false)) {
@@ -1371,8 +1415,8 @@ export class OpsRuntime {
             const tab = await this.tabs.getTab(target.tabId);
             this.sendResponse(message, {
               activeTargetId: targetId,
-              url: resolveReportedTargetUrl(this.resolveTargetContext(session, targetId), tab?.url),
-              title: resolveReportedTargetTitle(this.resolveTargetContext(session, targetId), tab?.title)
+              url: resolveReportedTargetUrl(this.resolveTargetContext(session, targetId), tab),
+              title: resolveReportedTargetTitle(this.resolveTargetContext(session, targetId), tab)
             });
             return;
           }
@@ -1468,22 +1512,31 @@ export class OpsRuntime {
   private async handleTargetsNew(message: OpsRequest, session: OpsSession): Promise<void> {
     const payload = isRecord(message.payload) ? message.payload : {};
     const url = typeof payload.url === "string" ? payload.url : undefined;
-    const tab = await this.tabs.createTab(url, true);
+    const tab = await this.tabs.createTab(url, false);
     if (!tab?.id) {
       this.sendError(message, buildError("execution_failed", "Target creation failed", false));
       return;
     }
-    await this.tabs.waitForTabComplete(tab.id).catch(() => undefined);
+    this.rememberCommandCreatedTab(session.id, tab.id, "targets.new");
     try {
-      await this.attachTargetTab(tab.id);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "Debugger attach failed";
-      this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
-      return;
+      const existingTarget = await this.claimCommandCreatedTab(session, tab);
+      try {
+        if (!this.hasAttachedTabDebuggee(tab.id)) {
+          await this.attachCreatedTargetTab(tab.id);
+        }
+        await this.enableTargetDomains(tab.id, true);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Debugger attach failed";
+        this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
+        return;
+      }
+      const target = existingTarget ?? this.sessions.addTarget(session.id, tab.id, await this.getCreatedTabSeed(tab));
+      session.activeTargetId = target.targetId;
+      await this.activateCreatedTab(tab.id);
+      this.sendResponse(message, { targetId: target.targetId });
+    } finally {
+      this.forgetCommandCreatedTab(tab.id);
     }
-    const target = this.sessions.addTarget(session.id, tab.id, { url: tab.url ?? undefined, title: tab.title ?? undefined });
-    session.activeTargetId = target.targetId;
-    this.sendResponse(message, { targetId: target.targetId });
   }
 
   private async handleTargetsClose(message: OpsRequest, session: OpsSession): Promise<void> {
@@ -1536,23 +1589,32 @@ export class OpsRuntime {
       return;
     }
     const url = typeof payload.url === "string" ? payload.url : undefined;
-    const tab = await this.tabs.createTab(url, true);
+    const tab = await this.tabs.createTab(url, false);
     if (!tab?.id) {
       this.sendError(message, buildError("execution_failed", "Target creation failed", false));
       return;
     }
-    await this.tabs.waitForTabComplete(tab.id).catch(() => undefined);
+    this.rememberCommandCreatedTab(session.id, tab.id, "page.open");
     try {
-      await this.attachTargetTab(tab.id);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "Debugger attach failed";
-      this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
-      return;
+      const existingTarget = await this.claimCommandCreatedTab(session, tab);
+      try {
+        if (!this.hasAttachedTabDebuggee(tab.id)) {
+          await this.attachCreatedTargetTab(tab.id);
+        }
+        await this.enableTargetDomains(tab.id, true);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Debugger attach failed";
+        this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
+        return;
+      }
+      const target = existingTarget ?? this.sessions.addTarget(session.id, tab.id, await this.getCreatedTabSeed(tab));
+      this.sessions.setName(session.id, target.targetId, name);
+      session.activeTargetId = target.targetId;
+      await this.activateCreatedTab(tab.id);
+      this.sendResponse(message, { targetId: target.targetId, created: true, url: target.url, title: target.title });
+    } finally {
+      this.forgetCommandCreatedTab(tab.id);
     }
-    const target = this.sessions.addTarget(session.id, tab.id, { url: tab.url ?? undefined, title: tab.title ?? undefined });
-    this.sessions.setName(session.id, target.targetId, name);
-    session.activeTargetId = target.targetId;
-    this.sendResponse(message, { targetId: target.targetId, created: true, url: target.url, title: target.title });
   }
 
   private async handlePageList(message: OpsRequest, session: OpsSession): Promise<void> {
@@ -1562,8 +1624,8 @@ export class OpsRuntime {
       return {
         name,
         targetId,
-        url: resolveReportedTargetUrl(target, tab?.url),
-        title: resolveReportedTargetTitle(target, tab?.title)
+        url: resolveReportedTargetUrl(target, tab),
+        title: resolveReportedTargetTitle(target, tab)
       };
     }));
     this.sendResponse(message, { pages });
@@ -2603,10 +2665,6 @@ export class OpsRuntime {
     });
   }
 
-  private async enableSessionDomains(session: OpsSession): Promise<void> {
-    await this.enableTargetDomains(session.tabId);
-  }
-
   private async attachTargetTab(tabId: number): Promise<void> {
     try {
       await this.cdp.attach(tabId);
@@ -2634,7 +2692,32 @@ export class OpsRuntime {
     }
   }
 
+  private async attachCreatedTargetTab(tabId: number): Promise<void> {
+    try {
+      await this.attachTargetTab(tabId);
+      return;
+    } catch (error) {
+      if (!isAttachBlockedError(error)) {
+        throw error;
+      }
+    }
+
+    await this.tabs.waitForTabComplete(tabId).catch(() => undefined);
+    if (this.hasAttachedTabDebuggee(tabId)) {
+      return;
+    }
+    this.cdp.markClientClosed();
+    await this.attachTargetTab(tabId);
+  }
+
   private async attachStartUrlConnectTab(tabId: number): Promise<chrome.tabs.Tab | null> {
+    return this.attachLaunchTargetTab(tabId, true);
+  }
+
+  private async attachLaunchTargetTab(
+    tabId: number,
+    waitForTabCompleteBeforeRetry: boolean
+  ): Promise<chrome.tabs.Tab | null> {
     try {
       await this.attachTargetTab(tabId);
       return null;
@@ -2645,29 +2728,255 @@ export class OpsRuntime {
     }
 
     this.cdp.markClientClosed();
-    await this.tabs.waitForTabComplete(tabId).catch(() => undefined);
-    const refreshedTab = await this.tabs.getTab(tabId);
-    await this.attachTargetTab(tabId);
-    return refreshedTab ?? null;
+    if (waitForTabCompleteBeforeRetry) {
+      await this.tabs.waitForTabComplete(tabId).catch(() => undefined);
+    }
+    const refreshedTab = waitForTabCompleteBeforeRetry
+      ? await this.tabs.getTab(tabId)
+      : null;
+    try {
+      await this.attachTargetTab(tabId);
+      return refreshedTab ?? null;
+    } catch (error) {
+      if (!isAttachBlockedError(error) || typeof this.cdp.refreshTabAttachment !== "function") {
+        throw error;
+      }
+      await this.cdp.refreshTabAttachment(tabId);
+      await this.resolveReadyTabDebuggee(tabId, { strict: true, allowRefresh: false });
+      return await this.tabs.getTab(tabId) ?? refreshedTab ?? null;
+    }
   }
 
-  private async enableTargetDomains(tabId: number): Promise<void> {
+  private async getCreatedTabSeed(tab: chrome.tabs.Tab): Promise<{ url?: string; title?: string }> {
+    const refreshedTab = typeof tab.id === "number"
+      ? await this.tabs.getTab(tab.id)
+      : null;
+    return getReportedTabSeed(refreshedTab ?? tab);
+  }
+
+  private async claimCommandCreatedTab(session: OpsSession, tab: chrome.tabs.Tab): Promise<OpsTargetInfo | null> {
+    const tabId = typeof tab.id === "number" ? tab.id : null;
+    if (tabId === null) {
+      return null;
+    }
+    const currentOwner = this.sessions.getByTabId(tabId);
+    if (currentOwner && currentOwner.id !== session.id) {
+      this.sessions.removeTargetByTabId(currentOwner.id, tabId);
+    }
+    const existingTargetId = this.sessions.getTargetIdByTabId(session.id, tabId);
+    if (!existingTargetId) {
+      return null;
+    }
+    const target = session.targets.get(existingTargetId) ?? null;
+    if (!target) {
+      return null;
+    }
+    const seed = await this.getCreatedTabSeed(tab);
+    if (typeof seed.url === "string" && seed.url.length > 0) {
+      target.url = seed.url;
+    }
+    if (typeof seed.title === "string" && seed.title.length > 0) {
+      target.title = seed.title;
+    }
+    target.openerTargetId = undefined;
+    return target;
+  }
+
+  private async activateCreatedTab(tabId: number): Promise<void> {
+    await this.tabs.activateTab(tabId).catch(() => undefined);
+  }
+
+  private rememberCommandCreatedTab(sessionId: string, tabId: number, kind: CommandCreatedTabKind): void {
+    this.commandCreatedTabs.set(tabId, { sessionId, kind });
+  }
+
+  private isCommandCreatedTab(tabId: number, sessionId?: string): boolean {
+    const entry = this.commandCreatedTabs.get(tabId);
+    return sessionId ? entry?.sessionId === sessionId : Boolean(entry);
+  }
+
+  private forgetCommandCreatedTab(tabId: number): void {
+    this.commandCreatedTabs.delete(tabId);
+  }
+
+  private isConcreteDebuggee(
+    debuggee: (chrome.debugger.Debuggee & { sessionId?: string; targetId?: string }) | null | undefined
+  ): debuggee is chrome.debugger.Debuggee & { sessionId?: string; targetId?: string } {
+    return Boolean(
+      debuggee
+      && (
+        (typeof debuggee.sessionId === "string" && debuggee.sessionId.length > 0)
+        || (typeof debuggee.targetId === "string" && debuggee.targetId.length > 0)
+      )
+    );
+  }
+
+  private hasAttachedSessionDebuggee(
+    debuggee: (chrome.debugger.Debuggee & { sessionId?: string; targetId?: string }) | null | undefined
+  ): debuggee is chrome.debugger.Debuggee & { sessionId: string; targetId?: string } {
+    return Boolean(debuggee && typeof debuggee.sessionId === "string" && debuggee.sessionId.length > 0);
+  }
+
+  private hasAttachedTabDebuggee(tabId: number): boolean {
+    if (typeof this.cdp.isTabAttached === "function") {
+      return this.cdp.isTabAttached(tabId);
+    }
+    if (typeof this.cdp.getAttachedTabIds === "function") {
+      return this.cdp.getAttachedTabIds().includes(tabId);
+    }
+    return false;
+  }
+
+  private async resolveReadyTabDebuggee(
+    tabId: number,
+    options: { strict: boolean; allowRefresh: boolean }
+  ): Promise<chrome.debugger.Debuggee> {
+    const readDebuggee = () => this.cdp.getTabDebuggee?.(tabId);
+    let pageDebuggee = readDebuggee();
+    if (this.hasAttachedSessionDebuggee(pageDebuggee)) {
+      return pageDebuggee;
+    }
+    if (!options.strict && this.isConcreteDebuggee(pageDebuggee)) {
+      return pageDebuggee;
+    }
+
+    await this.cdp.primeAttachedRootSession?.(tabId);
+    pageDebuggee = readDebuggee();
+    if (this.hasAttachedSessionDebuggee(pageDebuggee)) {
+      return pageDebuggee;
+    }
+    if (!options.strict && this.isConcreteDebuggee(pageDebuggee)) {
+      return pageDebuggee;
+    }
+
+    if (options.allowRefresh && typeof this.cdp.refreshTabAttachment === "function") {
+      await this.cdp.refreshTabAttachment(tabId);
+      await this.cdp.primeAttachedRootSession?.(tabId);
+      pageDebuggee = readDebuggee();
+      if (this.hasAttachedSessionDebuggee(pageDebuggee)) {
+        return pageDebuggee;
+      }
+      if (!options.strict && this.isConcreteDebuggee(pageDebuggee)) {
+        return pageDebuggee;
+      }
+    }
+
+    if (this.isConcreteDebuggee(pageDebuggee)) {
+      return pageDebuggee;
+    }
+
+    if (options.strict) {
+      throw new Error(`Concrete debugger session unavailable for tab ${tabId}.`);
+    }
+
+    return pageDebuggee ?? { tabId };
+  }
+
+  private async enableTargetDomains(tabId: number, strict = false): Promise<void> {
+    const buildEnablementFailureDetails = (
+      allowRefresh: boolean,
+      refreshedAfterBlock: boolean,
+      enablementStage: RootEnablementFailureStage
+    ): DirectAttachFailureDetails => ({
+      phase: "strict_enablement",
+      enablementStage,
+      tabId,
+      strict,
+      allowRefresh,
+      refreshedAfterBlock
+    });
+    const enableOnce = async (allowRefresh: boolean, refreshedAfterBlock: boolean): Promise<void> => {
+      let pageDebuggee: chrome.debugger.Debuggee;
+      try {
+        pageDebuggee = await this.resolveReadyTabDebuggee(tabId, {
+          strict,
+          allowRefresh
+        });
+      } catch (error) {
+        throw this.decorateCdpFailure(
+          error,
+          buildEnablementFailureDetails(allowRefresh, refreshedAfterBlock, "resolve_ready_debuggee")
+        );
+      }
+      await this.enableRootTracking(buildEnablementFailureDetails(allowRefresh, refreshedAfterBlock, "configure_auto_attach"));
+      await this.enableTargetDomainsOnDebuggee(
+        pageDebuggee,
+        buildEnablementFailureDetails(allowRefresh, refreshedAfterBlock, "page_enable")
+      );
+      await this.enableTargetDiscovery(
+        buildEnablementFailureDetails(allowRefresh, refreshedAfterBlock, "set_discover_targets")
+      );
+    };
+
     try {
-      await this.cdp.setDiscoverTargetsEnabled?.(true);
+      try {
+        await enableOnce(strict, false);
+      } catch (error) {
+        if (!strict || !isAttachBlockedError(error) || typeof this.cdp.refreshTabAttachment !== "function") {
+          throw error;
+        }
+        this.cdp.markClientClosed?.();
+        await this.cdp.refreshTabAttachment(tabId);
+        await enableOnce(false, true);
+      }
+    } catch (error) {
+      logError("ops.enable_domains", error, { code: "enable_domains_failed", extra: { tabId, strict } });
+      if (strict) {
+        throw error;
+      }
+    }
+  }
+
+  private async enableRootTracking(baseDetails: DirectAttachFailureDetails): Promise<void> {
+    try {
       await this.cdp.configureAutoAttach?.({
         autoAttach: true,
         waitForDebuggerOnStart: false,
         flatten: true
       });
-      await this.cdp.primeAttachedRootSession?.(tabId);
-      const pageDebuggee = this.cdp.getTabDebuggee?.(tabId) ?? { tabId };
-      await this.cdp.sendCommand(pageDebuggee, "Page.enable", {});
-      await this.cdp.sendCommand(pageDebuggee, "Page.setInterceptFileChooserDialog", { enabled: true });
-      await this.cdp.sendCommand(pageDebuggee, "Runtime.enable", {});
-      await this.cdp.sendCommand(pageDebuggee, "Network.enable", {});
-      await this.cdp.sendCommand(pageDebuggee, "Performance.enable", {});
     } catch (error) {
-      logError("ops.enable_domains", error, { code: "enable_domains_failed" });
+      throw this.decorateCdpFailure(error, {
+        ...baseDetails,
+        enablementStage: "configure_auto_attach"
+      });
+    }
+  }
+
+  private async enableTargetDiscovery(baseDetails: DirectAttachFailureDetails): Promise<void> {
+    try {
+      await this.cdp.setDiscoverTargetsEnabled?.(true);
+    } catch (error) {
+      logError("ops.discover_targets", error, {
+        code: "discover_targets_enable_failed",
+        extra: baseDetails
+      });
+    }
+  }
+
+  private async enableTargetDomainsOnDebuggee(
+    debuggee: chrome.debugger.Debuggee,
+    baseDetails: DirectAttachFailureDetails
+  ): Promise<void> {
+    const enableCommands: Array<{
+      method: string;
+      params: Record<string, unknown>;
+      stage: RootEnablementFailureStage;
+    }> = [
+      { method: "Page.enable", params: {}, stage: "page_enable" },
+      { method: "Page.setInterceptFileChooserDialog", params: { enabled: true }, stage: "page_file_chooser" },
+      { method: "Runtime.enable", params: {}, stage: "runtime_enable" },
+      { method: "Network.enable", params: {}, stage: "network_enable" },
+      { method: "Performance.enable", params: {}, stage: "performance_enable" }
+    ];
+    for (const command of enableCommands) {
+      try {
+        await this.cdp.sendCommand(debuggee, command.method, command.params);
+      } catch (error) {
+        throw this.decorateCdpFailure(error, {
+          ...baseDetails,
+          enablementStage: command.stage
+        });
+      }
     }
   }
 
@@ -3002,11 +3311,7 @@ export class OpsRuntime {
   }
 
   private requestedTargetId(session: OpsSession, message: OpsRequest): string | null {
-    const payload = isRecord(message.payload) ? message.payload : {};
-    if (typeof payload.targetId === "string" && payload.targetId.trim().length > 0) {
-      return payload.targetId.trim();
-    }
-    return session.activeTargetId || null;
+    return this.extractPayloadTargetId(message.payload) ?? session.activeTargetId ?? session.targetId;
   }
 
   private hasOpsTarget(session: OpsSession, targetId: string): boolean {
@@ -3126,18 +3431,45 @@ export class OpsRuntime {
 
   private hasUsableDebuggee(target: ResolvedOpsTarget): boolean {
     if (typeof target.sessionId === "string" && target.sessionId.length > 0) {
+      if (typeof this.cdp.hasDebuggerSession === "function") {
+        return this.cdp.hasDebuggerSession(target.sessionId);
+      }
       return true;
     }
-    if (typeof this.cdp.isTabAttached === "function") {
-      return this.cdp.isTabAttached(target.tabId);
+    return this.isConcreteDebuggee(this.cdp.getTabDebuggee?.(target.tabId));
+  }
+
+  private extractPayloadTargetId(payload: unknown): string | null {
+    if (!isRecord(payload)) {
+      return null;
     }
-    if (typeof this.cdp.getAttachedTabIds === "function") {
-      return this.cdp.getAttachedTabIds().includes(target.tabId);
+    return typeof payload.targetId === "string" && payload.targetId.trim().length > 0
+      ? payload.targetId.trim()
+      : null;
+  }
+
+  private resolveRequestedTargetContext(
+    session: OpsSession,
+    targetId: string,
+    explicitTarget: boolean
+  ): ResolvedOpsTarget | null {
+    const target = this.resolveTargetContext(session, targetId);
+    if (!target) {
+      return null;
     }
-    if (typeof this.cdp.getPrimaryTabId === "function") {
-      return this.cdp.getPrimaryTabId() === target.tabId;
+    if (
+      !explicitTarget
+      && target.targetId !== session.targetId
+      && !this.hasUsableDebuggee(target)
+      && (target.synthetic || typeof target.openerTargetId === "string" || typeof target.sessionId === "string")
+    ) {
+      const fallbackTarget = this.resolveTargetContext(session, session.targetId);
+      if (fallbackTarget) {
+        session.activeTargetId = fallbackTarget.targetId;
+        return fallbackTarget;
+      }
     }
-    return false;
+    return target;
   }
 
   private async preparePopupTarget(session: OpsSession, targetId: string): Promise<ResolvedOpsTarget | null> {
@@ -3168,7 +3500,7 @@ export class OpsRuntime {
       await this.tabs.activateTab(popupTarget.tabId).catch(() => undefined);
       try {
         await this.attachTargetTab(popupTarget.tabId);
-        await this.enableTargetDomains(popupTarget.tabId);
+        await this.enableTargetDomains(popupTarget.tabId, true);
         this.clearPopupAttachDiagnostic(session.id, targetId);
         target = this.resolveTargetContext(session, targetId) ?? target;
         if (this.hasUsableDebuggee(target)) {
@@ -3181,7 +3513,7 @@ export class OpsRuntime {
         this.cdp.markClientClosed();
         try {
           await this.attachTargetTab(popupTarget.tabId);
-          await this.enableTargetDomains(popupTarget.tabId);
+          await this.enableTargetDomains(popupTarget.tabId, true);
           this.clearPopupAttachDiagnostic(session.id, targetId);
           target = this.resolveTargetContext(session, targetId) ?? target;
           if (this.hasUsableDebuggee(target)) {
@@ -3215,8 +3547,8 @@ export class OpsRuntime {
     const tab = target ? await this.tabs.getTab(target.tabId) : null;
     this.sendResponse(message, {
       activeTargetId: targetId,
-      url: target ? resolveReportedTargetUrl(target, tab?.url) : undefined,
-      title: target ? resolveReportedTargetTitle(target, tab?.title) : undefined
+      url: target ? resolveReportedTargetUrl(target, tab) : undefined,
+      title: target ? resolveReportedTargetTitle(target, tab) : undefined
     });
   }
 
@@ -3244,6 +3576,30 @@ export class OpsRuntime {
     if (this.shouldPromotePopupTarget(session, target.openerTargetId, target)) {
       session.activeTargetId = targetId;
     }
+  }
+
+  private rehydrateSyntheticPopupBridge(session: OpsSession, targetId: string): ResolvedOpsTarget | null {
+    const target = session.targets.get(targetId) ?? null;
+    const bridge = this.findSyntheticSessionBridge(session, target);
+    if (
+      !bridge
+      || typeof bridge.sessionId !== "string"
+      || bridge.sessionId.length === 0
+      || typeof this.cdp.registerChildSession !== "function"
+      || this.cdp.hasDebuggerSession?.(bridge.sessionId) === true
+    ) {
+      return this.resolveTargetContext(session, targetId);
+    }
+    this.cdp.registerChildSession(bridge.tabId, {
+      targetId: bridge.targetId,
+      type: bridge.type,
+      ...(typeof bridge.url === "string" ? { url: bridge.url } : {}),
+      ...(typeof bridge.title === "string" ? { title: bridge.title } : {}),
+      ...(typeof bridge.openerTargetId === "string" && !bridge.openerTargetId.startsWith("tab-")
+        ? { openerId: bridge.openerTargetId }
+        : {})
+    }, bridge.sessionId);
+    return this.resolveTargetContext(session, targetId);
   }
 
   private findSyntheticSessionBridge(
@@ -3474,6 +3830,13 @@ export class OpsRuntime {
       openerTargetId: target.openerTargetId,
       attachedAt: Date.now()
     });
+    if (
+      sessionId
+      && popupTargetInfo
+      && typeof this.cdp.registerChildSession === "function"
+    ) {
+      this.cdp.registerChildSession(opener.tabId, popupTargetInfo, sessionId);
+    }
     this.clearPopupAttachDiagnostic(session.id, target.targetId);
     return true;
   }
@@ -3484,6 +3847,7 @@ export class OpsRuntime {
 
   private shouldRefreshPopupOpenerAfterLookupFailure(reason: string): boolean {
     return reason.includes("Debugger is not attached")
+      || reason.includes("No tab attached")
       || reason.includes("Detached while handling command");
   }
 
@@ -3546,11 +3910,14 @@ export class OpsRuntime {
     };
   }
 
-  private formatDirectAttachDiagnosticSuffix(diagnostic: RootAttachDiagnostic | null): string {
-    if (!diagnostic?.stage) {
+  private formatCdpFailureDiagnosticSuffix(details?: DirectAttachFailureDetails): string {
+    if (details?.phase === "strict_enablement" && details.enablementStage) {
+      return ` (phase: ${details.phase}; stage: ${details.enablementStage})`;
+    }
+    if (!details?.stage) {
       return "";
     }
-    return ` (origin: ${diagnostic.origin}; stage: ${diagnostic.stage})`;
+    return ` (origin: ${details.origin}; stage: ${details.stage})`;
   }
 
   private toDirectAttachDiagnosticDetails(diagnostic: RootAttachDiagnostic | null): DirectAttachFailureDetails | undefined {
@@ -3567,13 +3934,45 @@ export class OpsRuntime {
   }
 
   private decorateDirectAttachError(error: unknown, diagnostic: RootAttachDiagnostic | null): Error {
-    const detail = error instanceof Error ? error.message : "Debugger attach failed";
+    const detail = this.getCdpFailureMessage(error);
     if (!diagnostic) {
       return error instanceof Error ? error : new Error(detail);
     }
+    return this.decorateCdpFailure(error, this.toDirectAttachDiagnosticDetails(diagnostic) ?? {});
+  }
+
+  private getCdpFailureMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (error && typeof error === "object" && "message" in error) {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === "string") {
+        if ("code" in error) {
+          const code = (error as { code?: unknown }).code;
+          return typeof code === "number"
+            ? JSON.stringify({ code, message })
+            : message;
+        }
+        return message;
+      }
+    }
+    return "Debugger attach failed";
+  }
+
+  private decorateCdpFailure(error: unknown, details: DirectAttachFailureDetails): Error {
+    const detail = this.getCdpFailureMessage(error);
     const decorated = error instanceof Error ? error as DirectAttachDecoratedError : new Error(detail) as DirectAttachDecoratedError;
-    decorated.message = `${detail}${this.formatDirectAttachDiagnosticSuffix(diagnostic)}`;
-    decorated.directAttachDetails = this.toDirectAttachDiagnosticDetails(diagnostic);
+    const mergedDetails: DirectAttachFailureDetails = {
+      ...(decorated.directAttachDetails ?? {}),
+      ...details,
+      ...(details.reason ? {} : { reason: detail })
+    };
+    const suffix = this.formatCdpFailureDiagnosticSuffix(mergedDetails);
+    decorated.message = suffix.length > 0 && detail.endsWith(suffix)
+      ? detail
+      : `${detail}${suffix}`;
+    decorated.directAttachDetails = mergedDetails;
     return decorated;
   }
 
@@ -3679,12 +4078,13 @@ export class OpsRuntime {
   }
 
   private requireActiveTarget(session: OpsSession, message: OpsRequest): ResolvedOpsTarget | null {
-    const targetId = this.requestedTargetId(session, message);
+    const explicitTargetId = this.extractPayloadTargetId(message.payload);
+    const targetId = explicitTargetId ?? session.activeTargetId ?? session.targetId;
     if (!targetId) {
       this.sendError(message, buildError("invalid_request", "No active target", false));
       return null;
     }
-    const target = this.resolveTargetContext(session, targetId);
+    const target = this.resolveRequestedTargetContext(session, targetId, explicitTargetId !== null);
     if (!target) {
       this.sendError(message, buildError("invalid_request", "Active target missing", false));
       return null;
@@ -3887,10 +4287,10 @@ export class OpsRuntime {
     timingMs: number;
     warnings: string[];
   } | null> {
-    const requestedTargetId = this.requestedTargetId(session, message);
-    if (requestedTargetId) {
+    const explicitTargetId = this.extractPayloadTargetId(message.payload);
+    if (explicitTargetId) {
       try {
-        await this.preparePopupTarget(session, requestedTargetId);
+        await this.preparePopupTarget(session, explicitTargetId);
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Debugger attach failed";
         this.sendError(message, buildError("cdp_attach_failed", detail, false, this.getDirectAttachErrorDetails(error)));
@@ -3924,8 +4324,8 @@ export class OpsRuntime {
     return {
       target,
       snapshotId: snapshot.snapshotId,
-      url: resolveReportedTargetUrl(target, tab?.url),
-      title: resolveReportedTargetTitle(target, tab?.title),
+      url: resolveReportedTargetUrl(target, tab),
+      title: resolveReportedTargetTitle(target, tab),
       content,
       truncated,
       ...(nextCursor ? { nextCursor } : {}),
@@ -4540,11 +4940,6 @@ const isParallelismBackpressureError = (
   return typed.code === "parallelism_backpressure" && typeof typed.details === "object" && typed.details !== null;
 };
 
-const isAttachBlockedError = (error: unknown): boolean => {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("Not allowed");
-};
-
 const buildError = (code: OpsErrorCode, message: string, retryable: boolean, details?: Record<string, unknown>): OpsError => ({
   code,
   message,
@@ -5068,11 +5463,8 @@ const isSyntheticPageTarget = (session: OpsSession, targetId: string, type: stri
 
 const resolveReportedTargetUrl = (
   target: { url?: string; title?: string; sessionId?: string; synthetic?: boolean } | null | undefined,
-  liveUrl?: string
+  tab?: chrome.tabs.Tab | null
 ): string | undefined => {
-  if (typeof target?.sessionId === "string" && typeof target.url === "string" && target.url.length > 0) {
-    return target.url;
-  }
   if (target?.synthetic === true && typeof target.url === "string" && target.url.length > 0) {
     return target.url;
   }
@@ -5082,16 +5474,13 @@ const resolveReportedTargetUrl = (
   if (typeof target?.url === "string" && isCanvasExtensionUrl(target.url)) {
     return target.url;
   }
-  return liveUrl ?? target?.url;
+  return getReportedTabUrl(tab) ?? target?.url;
 };
 
 const resolveReportedTargetTitle = (
   target: { url?: string; title?: string; sessionId?: string; synthetic?: boolean } | null | undefined,
-  liveTitle?: string
+  tab?: chrome.tabs.Tab | null
 ): string | undefined => {
-  if (typeof target?.sessionId === "string" && typeof target.title === "string" && target.title.length > 0) {
-    return target.title;
-  }
   if (target?.synthetic === true && typeof target.title === "string" && target.title.length > 0) {
     return target.title;
   }
@@ -5101,7 +5490,37 @@ const resolveReportedTargetTitle = (
   if (typeof target?.url === "string" && isCanvasExtensionUrl(target.url) && typeof target.title === "string" && target.title.length > 0) {
     return target.title;
   }
-  return liveTitle ?? target?.title;
+  if (isTabNavigationPending(tab)) {
+    return undefined;
+  }
+  return getReportedTabTitle(tab) ?? target?.title;
+};
+
+const getReportedTabSeed = (tab: chrome.tabs.Tab): { url?: string; title?: string } => {
+  return {
+    url: getReportedTabUrl(tab),
+    title: getReportedTabTitle(tab)
+  };
+};
+
+const getReportedTabUrl = (tab?: chrome.tabs.Tab | null): string | undefined => {
+  if (!tab) {
+    return undefined;
+  }
+  const pendingUrl = typeof tab.pendingUrl === "string" && tab.pendingUrl.length > 0 ? tab.pendingUrl : undefined;
+  const liveUrl = typeof tab.url === "string" && tab.url.length > 0 ? tab.url : undefined;
+  return pendingUrl ?? liveUrl;
+};
+
+const getReportedTabTitle = (tab?: chrome.tabs.Tab | null): string | undefined => {
+  if (!tab || isTabNavigationPending(tab)) {
+    return undefined;
+  }
+  return typeof tab.title === "string" && tab.title.length > 0 ? tab.title : undefined;
+};
+
+const isTabNavigationPending = (tab?: chrome.tabs.Tab | null): boolean => {
+  return tab?.status === "loading";
 };
 
 const isHtmlDataUrl = (url: string): boolean => {
