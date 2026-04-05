@@ -836,7 +836,7 @@ async function launchWithRelay(
   }
 
   const observedPort = resolveObservedPort(relayStatus, relayPort);
-  const shouldFetchObserved = !managedExplicit && (!relayUrl || !(relayStatus.extensionHandshakeComplete || relayStatus.extensionConnected));
+  const shouldFetchObserved = !managedExplicit && (!relayUrl || !relayStatus.extensionHandshakeComplete);
   const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
   if (!relayUrl) {
     const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
@@ -845,15 +845,21 @@ async function launchWithRelay(
   const extensionReady = Boolean(
     relayUrl && (
       relayStatus.extensionHandshakeComplete ||
-      observedStatus?.extensionHandshakeComplete ||
-      relayStatus.extensionConnected ||
-      observedStatus?.extensionConnected
+      observedStatus?.extensionHandshakeComplete
     )
   );
+  const extensionSocketConnected = Boolean(relayStatus.extensionConnected || observedStatus?.extensionConnected);
+  const handshakePending = Boolean(relayUrl && extensionSocketConnected && !extensionReady);
   const diagnostics = observedStatus
     ? `Diagnostics: relayPort=${observedPort ?? "?"} instance=${observedStatus.instanceId.slice(0, 8)} ext=${observedStatus.extensionConnected} handshake=${observedStatus.extensionHandshakeComplete} ops=${observedStatus.opsConnected} cdp=${observedStatus.cdpConnected}`
     : null;
-  const missingReason = diagnostics ? `Extension not connected. ${diagnostics}` : "Extension not connected.";
+  const missingReason = handshakePending
+    ? diagnostics
+      ? `Extension websocket connected but handshake incomplete. Re-establish a clean daemon-extension handshake. ${diagnostics}`
+      : "Extension websocket connected but handshake incomplete. Re-establish a clean daemon-extension handshake."
+    : diagnostics
+      ? `Extension not connected. ${diagnostics}`
+      : "Extension not connected.";
 
   if (extensionOnly && !extensionReady) {
     throw new Error(buildExtensionMissingMessage(missingReason));
@@ -1041,7 +1047,7 @@ function extractLeaseId(result: unknown): string | undefined {
 function buildExtensionMissingMessage(reason: string): string {
   return [
     reason,
-    "Connect the extension: open the Chrome extension popup and click Connect, then retry.",
+    "Connect the extension: open the Chrome extension popup and click Connect. If ext=on but handshake=off, click Connect again to re-establish a clean daemon-extension handshake, then retry.",
     "Tip: If the popup says Connected, it may be connected to a different relay instance/port than the daemon expects.",
     "Legend: ext=extension websocket, handshake=extension handshake, ops=active /ops client, cdp=active /cdp client, pairing=token required.",
     "",

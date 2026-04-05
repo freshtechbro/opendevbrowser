@@ -94,7 +94,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
   },
   {
     title: "Daemon / Session / Launch Flags",
-    summary: "Control daemon binding, browser connect, and launch behavior.",
+    summary: "Control daemon binding, browser connect, and launch behavior. If ext=on but handshake=off, reopen the extension popup and click Connect again to re-establish a clean daemon-extension handshake.",
     flags: [
       { flag: "--port", description: "Daemon or relay port override.", example: "opendevbrowser serve --port 8788" },
       { flag: "--token", description: "Relay or daemon auth token override.", example: "opendevbrowser serve --token local-dev-token" },
@@ -113,9 +113,9 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--start-url", description: "Open this URL immediately after launch or connect." },
       { flag: "--flag", description: "Pass one or more extra Chrome CLI flags." },
       { flag: "--no-extension", description: "Force managed mode without extension relay." },
-      { flag: "--extension-only", description: "Fail unless the extension relay is connected." },
+      { flag: "--extension-only", description: "Fail unless the extension relay websocket is connected and the daemon-extension handshake is complete." },
       { flag: "--extension-legacy", description: "Use the legacy /cdp relay mode instead of /ops." },
-      { flag: "--wait-for-extension", description: "Wait for extension handshake before returning." },
+      { flag: "--wait-for-extension", description: "Wait for a clean daemon-extension handshake before returning." },
       { flag: "--wait-timeout-ms", description: "Handshake wait timeout in milliseconds." }
     ]
   },

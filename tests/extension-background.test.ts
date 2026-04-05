@@ -147,7 +147,7 @@ describe("extension background auto-connect", () => {
     expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
   });
 
-  it("skips auto-connect when relay instance mismatches", async () => {
+  it("retries auto-connect when relay instance mismatches during auto-pair", async () => {
     const mock = createChromeMock({ autoConnect: true, autoPair: true });
     globalThis.chrome = mock.chrome;
     globalThis.fetch = vi.fn()
@@ -164,6 +164,10 @@ describe("extension background auto-connect", () => {
     await flushMicrotasks();
 
     expect(lastConnectionManager?.connect).not.toHaveBeenCalled();
+    expect(globalThis.chrome.alarms.create).toHaveBeenCalledWith(
+      "opendevbrowser-auto-connect",
+      expect.objectContaining({ when: expect.any(Number) })
+    );
   });
 
   it("surfaces relay instance mismatch note in popup status", async () => {

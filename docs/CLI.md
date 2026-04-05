@@ -579,6 +579,7 @@ Default behavior:
 Interactive vs non-interactive:
 - Interactive CLI (TTY): you will be prompted to connect the extension, then explicitly choose Managed or CDPConnect if you want to proceed.
 - Non-interactive (agents/CI): the command fails fast and prints the exact commands to run for Managed or CDPConnect.
+- If `status --daemon` shows `ext=on` but `handshake=off`, reopen the extension popup and click Connect again to re-establish a clean daemon-extension handshake before retrying extension-mode work.
 
 ### Connection flags & status semantics
 

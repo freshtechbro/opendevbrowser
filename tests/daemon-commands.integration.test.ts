@@ -869,6 +869,78 @@ describe("daemon-commands integration", () => {
     })).rejects.toThrow("[invalid_session] Extension relay session missing leaseId.");
   });
 
+  it("rejects extension launch when the websocket is connected but the handshake is still incomplete", async () => {
+    const core = makeCore({
+      relayStatus: {
+        extensionConnected: true,
+        extensionHandshakeComplete: false
+      }
+    });
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.launch",
+      params: {
+        clientId: "client-1",
+        extensionOnly: true
+      }
+    })).rejects.toThrow("clean daemon-extension handshake");
+
+    expect(core.manager.connectRelay).not.toHaveBeenCalled();
+  });
+
+  it("accepts extension launch when observed status confirms handshake completion", async () => {
+    const core = makeCore({
+      relayStatus: {
+        extensionConnected: true,
+        extensionHandshakeComplete: false
+      }
+    });
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-ops",
+      mode: "extension",
+      activeTargetId: "target-1",
+      leaseId: "lease-ops",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "relay-observed",
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch);
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.launch",
+      params: {
+        clientId: "client-1",
+        extensionOnly: true
+      }
+    })).resolves.toEqual(expect.objectContaining({
+      sessionId: "session-ops",
+      leaseId: "lease-ops",
+      mode: "extension"
+    }));
+
+    expect(core.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
+  });
+
   it("routes debug trace snapshot to manager capability when available", async () => {
     const core = makeCore();
     core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1", url: "https://example.com", title: "Example" });

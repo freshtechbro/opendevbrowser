@@ -257,7 +257,7 @@ function deriveSuggestedNextAction(input: {
     return "Handle the open dialog before continuing any page interaction.";
   }
   if (input.mode === "extension" && input.relay && !input.relay.extensionHandshakeComplete) {
-    return "Wait for extension handshake to complete or relaunch in managed mode if the relay is unhealthy.";
+    return "Re-establish a clean daemon-extension handshake: open the extension popup, click Connect again, confirm `status --daemon` shows ext=on and handshake=on, then retry the next page action.";
   }
   if (input.blockerState === "active") {
     return "Resolve the active blocker or challenge before issuing more page actions.";

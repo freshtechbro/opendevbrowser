@@ -68,6 +68,22 @@ const logWarn = (message: string): void => {
   console.warn(`[opendevbrowser] ${message}`);
 };
 
+const getTrackedTabUrl = (tab?: chrome.tabs.Tab | null): string | undefined => {
+  if (!tab) {
+    return undefined;
+  }
+  const pendingUrl = typeof tab.pendingUrl === "string" && tab.pendingUrl.length > 0 ? tab.pendingUrl : undefined;
+  const currentUrl = typeof tab.url === "string" && tab.url.length > 0 ? tab.url : undefined;
+  return pendingUrl ?? currentUrl;
+};
+
+const getTrackedTabTitle = (tab?: chrome.tabs.Tab | null): string | undefined => {
+  if (!tab || tab.status === "loading") {
+    return undefined;
+  }
+  return typeof tab.title === "string" && tab.title.length > 0 ? tab.title : undefined;
+};
+
 const RECONNECT_INITIAL_DELAY_MS = 12_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 
@@ -98,6 +114,8 @@ export class ConnectionManager {
   private canvasHandler: ((message: CanvasEnvelope) => void) | null = null;
   private heartbeatTimer: number | null = null;
   private heartbeatInFlight = false;
+  private handshakeRefreshQueued = false;
+  private handshakeRefreshPromise: Promise<void> | null = null;
   private readonly heartbeatIntervalMs = 25_000;
   private readonly heartbeatTimeoutMs = 2_000;
 
@@ -190,7 +208,12 @@ export class ConnectionManager {
       return null;
     }
     try {
-      return await this.relay.sendHealthCheck();
+      const health = await this.relay.sendHealthCheck();
+      if (health.extensionConnected && !health.extensionHandshakeComplete) {
+        this.relayNotice = "Extension websocket is connected but the daemon-extension handshake is unhealthy. Re-establishing a clean handshake.";
+        this.refreshHandshake();
+      }
+      return health;
     } catch (error) {
       logError("relay.health_check", error, { code: "relay_health_failed" });
       return null;
@@ -312,6 +335,7 @@ export class ConnectionManager {
     this.shouldReconnect = false;
     this.clearReconnectTimer();
     this.stopHeartbeat();
+    this.handshakeRefreshQueued = false;
     try {
       if (this.relay) {
         this.relay.disconnect();
@@ -413,7 +437,15 @@ export class ConnectionManager {
     }
     this.heartbeatInFlight = true;
     try {
-      await this.relay.sendPing(this.heartbeatTimeoutMs);
+      const health = await this.relay.sendPing(this.heartbeatTimeoutMs);
+      if (health.extensionConnected && !health.extensionHandshakeComplete) {
+        this.relayNotice = "Extension websocket is connected but the daemon-extension handshake is incomplete. Re-establishing a clean handshake.";
+        this.refreshHandshake();
+        return;
+      }
+      if (health.ok) {
+        this.relayNotice = null;
+      }
     } catch (error) {
       logError("relay.heartbeat", error, { code: "relay_heartbeat_failed" });
       if (this.shouldReconnect && !this.disconnecting) {
@@ -427,10 +459,12 @@ export class ConnectionManager {
   private async attachToActiveTab(): Promise<void> {
     let tab = await this.tabs.getActiveTab();
     let allowBlankRelayFallback = false;
+    let tabUrl = getTrackedTabUrl(tab);
     if (!tab || typeof tab.id !== "number") {
       const fallback = await this.resolveRelayAttachFallback();
       tab = fallback.tab;
       allowBlankRelayFallback = fallback.allowBlankRelayFallback;
+      tabUrl = getTrackedTabUrl(tab);
       if (!tab || typeof tab.id !== "number") {
         this.trackedTab = null;
         this.setStatus("disconnected");
@@ -442,21 +476,22 @@ export class ConnectionManager {
       }
     }
 
-    if (!tab.url) {
+    if (!tabUrl) {
       logWarn("Active tab URL missing.");
       const fallback = await this.resolveRelayAttachFallback(tab.id);
       if (fallback.tab) {
         tab = fallback.tab;
         allowBlankRelayFallback ||= fallback.allowBlankRelayFallback;
+        tabUrl = getTrackedTabUrl(tab);
       }
-      if (!tab.url) {
+      if (!tabUrl) {
         throw new ConnectionError("tab_url_missing", "Active tab URL is unavailable. Reload the tab and retry.");
       }
     }
 
     let parsedUrl: URL | null = null;
     try {
-      parsedUrl = new URL(tab.url);
+      parsedUrl = tabUrl ? new URL(tabUrl) : null;
     } catch (error) {
       logError("connection.parse_tab_url", error, { code: "tab_url_parse_failed" });
       parsedUrl = null;
@@ -468,8 +503,9 @@ export class ConnectionManager {
       if (fallback.tab) {
         tab = fallback.tab;
         allowBlankRelayFallback ||= fallback.allowBlankRelayFallback;
+        tabUrl = getTrackedTabUrl(tab);
         try {
-          parsedUrl = tab.url ? new URL(tab.url) : null;
+          parsedUrl = tabUrl ? new URL(tabUrl) : null;
         } catch {
           parsedUrl = null;
         }
@@ -484,13 +520,14 @@ export class ConnectionManager {
 
     const restrictionMessage = getRestrictionMessage(parsedUrl);
     if (restrictionMessage) {
-      logWarn(`Active tab blocked: ${summarizeProtocol(tab.url)} scheme.`);
+      logWarn(`Active tab blocked: ${summarizeProtocol(tabUrl)} scheme.`);
       const fallback = await this.resolveRelayAttachFallback(tab.id);
       if (fallback.tab) {
         tab = fallback.tab;
         allowBlankRelayFallback ||= fallback.allowBlankRelayFallback;
+        tabUrl = getTrackedTabUrl(tab);
         try {
-          parsedUrl = tab.url ? new URL(tab.url) : null;
+          parsedUrl = tabUrl ? new URL(tabUrl) : null;
         } catch {
           parsedUrl = null;
         }
@@ -527,12 +564,7 @@ export class ConnectionManager {
         message
       );
     }
-    this.trackedTab = {
-      id: tabId,
-      url: tab.url ?? undefined,
-      title: tab.title ?? undefined,
-      groupId: typeof tab.groupId === "number" ? tab.groupId : undefined
-    };
+    this.trackedTab = this.toTrackedTab(tab, null);
   }
 
   private async connectRelay(): Promise<void> {
@@ -593,6 +625,10 @@ export class ConnectionManager {
       this.persistRelayPort(ack.payload.relayPort);
       if (!mismatch) {
         this.persistRelayIdentity(ack.payload.relayPort, this.relayInstanceId, this.relayEpoch);
+      }
+      const handshakeHealthy = await this.verifyHandshakeHealth(relay, "connect");
+      if (!handshakeHealthy) {
+        return;
       }
       logInfo("Relay WebSocket connected.");
       this.setStatus("connected");
@@ -821,7 +857,7 @@ export class ConnectionManager {
     }
     this.setTrackedTab(tab);
     if (this.relay?.isConnected()) {
-      this.safeRelaySend(() => this.relay?.sendHandshake(this.buildHandshake()), "relay.send_handshake");
+      this.refreshHandshake();
     }
   };
 
@@ -940,9 +976,9 @@ export class ConnectionManager {
       this.clearStoredRelayIdentity();
       this.clearStoredPairingToken(false);
       this.relayNotice = instanceMismatch
-        ? "Relay instance changed. Re-pair and reconnect."
-        : "Relay restarted. Re-pair and reconnect.";
-      this.safeRelaySend(() => this.relay?.sendHandshake(this.buildHandshake()), "relay.rehandshake");
+        ? "Relay instance changed. Re-establishing a clean daemon-extension handshake."
+        : "Relay restarted. Re-establishing a clean daemon-extension handshake.";
+      this.refreshHandshake();
       return true;
     }
 
@@ -995,11 +1031,12 @@ export class ConnectionManager {
   }
 
   private isRestrictedTab(tab: chrome.tabs.Tab): boolean {
-    if (!tab.url) {
+    const rawUrl = getTrackedTabUrl(tab);
+    if (!rawUrl) {
       return true;
     }
     try {
-      return Boolean(getRestrictionMessage(new URL(tab.url)));
+      return Boolean(getRestrictionMessage(new URL(rawUrl)));
     } catch {
       return true;
     }
@@ -1050,11 +1087,25 @@ export class ConnectionManager {
     if (tabId === null) {
       return;
     }
-    this.trackedTab = {
+    this.trackedTab = this.toTrackedTab(tab, this.trackedTab);
+  }
+
+  private toTrackedTab(tab: chrome.tabs.Tab, previous: TrackedTab | null): TrackedTab {
+    const tabId = typeof tab.id === "number" ? tab.id : null;
+    if (tabId === null) {
+      throw new Error("Tracked tab id is missing");
+    }
+    const sameTab = previous?.id === tabId;
+    const url = getTrackedTabUrl(tab) ?? (sameTab ? previous?.url : undefined);
+    const title = getTrackedTabTitle(tab) ?? (sameTab ? previous?.title : undefined);
+    const groupId = typeof tab.groupId === "number"
+      ? tab.groupId
+      : (sameTab ? previous?.groupId : undefined);
+    return {
       id: tabId,
-      url: tab.url ?? this.trackedTab?.url,
-      title: tab.title ?? this.trackedTab?.title,
-      groupId: typeof tab.groupId === "number" ? tab.groupId : this.trackedTab?.groupId
+      ...(url ? { url } : {}),
+      ...(title ? { title } : {}),
+      ...(typeof groupId === "number" ? { groupId } : {})
     };
   }
 
@@ -1065,11 +1116,74 @@ export class ConnectionManager {
     }
   }
 
+  private async verifyHandshakeHealth(relay: RelayClient, source: "connect" | "refresh"): Promise<boolean> {
+    try {
+      const health = await relay.sendPing(this.heartbeatTimeoutMs);
+      if (health.extensionConnected && health.extensionHandshakeComplete) {
+        if (this.relay === relay) {
+          this.relayNotice = null;
+        }
+        return true;
+      }
+      if (this.relay === relay) {
+        this.relayNotice = "Extension websocket is connected but the daemon-extension handshake is still incomplete. Retrying a clean handshake.";
+        if (this.shouldReconnect && !this.disconnecting) {
+          relay.disconnect();
+        }
+      }
+    } catch (error) {
+      logError(`relay.${source}_handshake_health`, error, { code: "relay_handshake_health_failed" });
+      if (this.relay === relay) {
+        this.relayNotice = "Failed to verify a clean daemon-extension handshake. Retrying the relay connection.";
+        if (this.shouldReconnect && !this.disconnecting) {
+          relay.disconnect();
+        }
+      }
+    }
+    return false;
+  }
+
   private refreshHandshake(): void {
     if (!this.trackedTab || !this.relay?.isConnected()) {
       return;
     }
-    this.safeRelaySend(() => this.relay?.sendHandshake(this.buildHandshake()), "relay.send_handshake");
+    this.handshakeRefreshQueued = true;
+    if (this.handshakeRefreshPromise) {
+      return;
+    }
+
+    const run = (async () => {
+      while (this.handshakeRefreshQueued) {
+        this.handshakeRefreshQueued = false;
+        const relay = this.relay;
+        if (!this.trackedTab || !relay || !relay.isConnected()) {
+          return;
+        }
+        try {
+          await relay.sendHandshake(this.buildHandshake());
+          const handshakeHealthy = await this.verifyHandshakeHealth(relay, "refresh");
+          if (!handshakeHealthy) {
+            return;
+          }
+        } catch (error) {
+          logError("relay.refresh_handshake", error, { code: "relay_handshake_refresh_failed" });
+          if (this.relay === relay) {
+            this.relayNotice = "Failed to re-establish a clean daemon-extension handshake. Open the extension popup, click Connect again, confirm `status --daemon` shows ext=on and handshake=on, then retry.";
+            if (this.shouldReconnect && !this.disconnecting) {
+              relay.disconnect();
+            }
+          }
+          return;
+        }
+      }
+    })();
+
+    const refreshPromise = run.finally(() => {
+      if (this.handshakeRefreshPromise === refreshPromise) {
+        this.handshakeRefreshPromise = null;
+      }
+    });
+    this.handshakeRefreshPromise = refreshPromise;
   }
 }
 

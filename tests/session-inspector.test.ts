@@ -344,7 +344,7 @@ describe("inspectSession", () => {
         extensionConnected: true,
         extensionHandshakeComplete: false
       }),
-      expected: "Wait for extension handshake to complete or relaunch in managed mode if the relay is unhealthy."
+      expected: "Re-establish a clean daemon-extension handshake: open the extension popup, click Connect again, confirm `status --daemon` shows ext=on and handshake=on, then retry the next page action."
     },
     {
       name: "active blocker",
