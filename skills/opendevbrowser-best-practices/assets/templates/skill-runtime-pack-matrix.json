@@ -53,8 +53,13 @@
       "packId": "opendevbrowser-continuity-ledger",
       "packType": "doc_only",
       "docOnly": true,
-      "validatorCommands": [],
-      "sharedEvidenceIds": [],
+      "validatorCommands": [
+        "./skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "docs-drift",
+        "skill-discovery"
+      ],
       "runtimeSurfaces": {
         "cliCommands": [],
         "tools": [

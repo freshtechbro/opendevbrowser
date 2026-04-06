@@ -149,8 +149,13 @@ EOF
     cat <<'EOF'
 npm run build
 node scripts/docs-drift-check.mjs
+npm run test -- tests/skill-loader.test.ts tests/skill-list-tool.test.ts tests/cli-skills-installer.test.ts
+npm run test -- tests/cli-help.test.ts tests/cli-help-parity.test.ts tests/skill-runtime-audit.test.ts tests/skill-workflow-packs.test.ts
+npx opendevbrowser --help
+npx opendevbrowser help
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-best-practices/scripts/run-robustness-audit.sh
+./skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh

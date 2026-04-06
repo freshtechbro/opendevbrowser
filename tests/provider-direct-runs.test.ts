@@ -6,6 +6,7 @@ import {
   SOCIAL_POST_CASES
 } from "../scripts/shared/workflow-lane-constants.mjs";
 import {
+  buildProviderCoverageStep,
   buildProviderCases,
   classifyDaemonPreflight,
   evaluateMacroCase,
@@ -110,6 +111,42 @@ describe("provider-direct-runs", () => {
       detail: "Daemon not running. Start with `opendevbrowser serve`.",
       data: null
     });
+  });
+
+  it("downgrades non-release provider coverage gaps into explicit skipped advisories", () => {
+    const step = buildProviderCoverageStep({
+      expected: { all: Array.from({ length: 22 }, (_, index) => `provider-${index}`) },
+      scenarios: { all: Array.from({ length: 8 }, (_, index) => `provider-${index}`) },
+      missingProviderIds: ["provider-8", "provider-9"],
+      extraScenarioProviderIds: [],
+      ok: false
+    }, { releaseGate: false });
+
+    expect(step).toEqual({
+      id: "infra.provider_scenario_coverage",
+      status: "skipped",
+      detail: "missing=provider-8,provider-9 extra=none",
+      data: {
+        expectedCount: 22,
+        scenarioCount: 8,
+        missingProviderIds: ["provider-8", "provider-9"],
+        extraScenarioProviderIds: [],
+        coverageGap: true
+      }
+    });
+  });
+
+  it("keeps release-gate provider coverage gaps blocking", () => {
+    const step = buildProviderCoverageStep({
+      expected: { all: ["provider-a", "provider-b"] },
+      scenarios: { all: ["provider-a"] },
+      missingProviderIds: ["provider-b"],
+      extraScenarioProviderIds: [],
+      ok: false
+    }, { releaseGate: true });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("missing=provider-b extra=none");
   });
 
   it("preserves nested shopping provider shell diagnostics", () => {

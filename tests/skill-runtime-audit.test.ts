@@ -5,6 +5,7 @@ import {
   deriveAuditDomainStatus,
   derivePackStatus,
   normalizeLaneStatus,
+  preferConfiguredSmokeRerun,
   shouldUseConfiguredAuditEnv,
   summarizeJsonLane
 } from "../scripts/skill-runtime-audit.mjs";
@@ -245,6 +246,62 @@ describe("skill runtime audit status modeling", () => {
     expect(lane.rerunMetadata).toEqual({
       requestedChallengeAutomationMode: "browser_with_helper",
       helperCapableRequested: true
+    });
+  });
+
+  it("surfaces coverage-gap detail without upgrading a mixed lane to fail", () => {
+    const lane = summarizeJsonLane("provider-direct", "Direct provider runs", {
+      ok: true,
+      counts: {
+        pass: 20,
+        fail: 0,
+        env_limited: 0,
+        expected_timeout: 0,
+        skipped: 1
+      },
+      coverageGap: {
+        status: "skipped",
+        detail: "missing=social/x extra=none"
+      }
+    });
+
+    expect(lane.status).toBe("pass");
+    expect(lane.detail).toBe("missing=social/x extra=none");
+    expect(lane.coverageGap).toEqual({
+      status: "skipped",
+      detail: "missing=social/x extra=none"
+    });
+  });
+
+  it("prefers the configured-daemon rerun when a smoke harness lane fails", () => {
+    const merged = preferConfiguredSmokeRerun({
+      id: "live-regression",
+      status: "fail",
+      detail: "lane_report_failed",
+      artifactPath: "artifacts/live-regression.json"
+    }, {
+      id: "live-regression",
+      status: "pass",
+      detail: null,
+      artifactPath: "artifacts/live-regression-rerun.json",
+      rerunMetadata: {
+        helperCapableRequested: true
+      }
+    });
+
+    expect(merged.status).toBe("pass");
+    expect(merged.artifactPath).toBe("artifacts/live-regression-rerun.json");
+    expect(merged.rerunMetadata).toMatchObject({
+      authoritativeSource: "configured-daemon-rerun",
+      helperCapableRequested: true,
+      smokeHarnessResult: {
+        status: "fail",
+        artifactPath: "artifacts/live-regression.json"
+      },
+      configuredRerunResult: {
+        status: "pass",
+        artifactPath: "artifacts/live-regression-rerun.json"
+      }
     });
   });
 });

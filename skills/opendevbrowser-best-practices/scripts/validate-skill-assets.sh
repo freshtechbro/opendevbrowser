@@ -68,6 +68,13 @@ const workflowMarkers = [
   "canvas-feedback-eval",
   "release-direct-gates",
   "skill-runtime-audit",
+  "tests/skill-loader.test.ts",
+  "tests/skill-list-tool.test.ts",
+  "tests/cli-skills-installer.test.ts",
+  "tests/cli-help-parity.test.ts",
+  "npx opendevbrowser --help",
+  "npx opendevbrowser help",
+  "./skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh",
   "resolve-odb-cli.sh",
   "CLI_PREFIX"
 ];

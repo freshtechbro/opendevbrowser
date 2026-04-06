@@ -152,10 +152,24 @@ function createProductFixtureServer() {
   });
 }
 
+function getReviewBundleRoot() {
+  return path.join(process.cwd(), "artifacts", "skill-runtime-audit", "review-bundles", "product-video-fixture");
+}
+
+function persistArtifactBundle(sourcePath, runId, bundleName) {
+  const targetPath = path.join(getReviewBundleRoot(), runId, bundleName);
+  fs.rmSync(targetPath, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.cpSync(sourcePath, targetPath, { recursive: true });
+  return targetPath;
+}
+
 async function runProbe(options) {
+  const runId = path.basename(options.out, path.extname(options.out));
   const report = {
     startedAt: new Date().toISOString(),
     out: options.out,
+    reviewBundleDir: path.join(getReviewBundleRoot(), runId),
     steps: []
   };
 
@@ -204,8 +218,11 @@ async function runProbe(options) {
 
       const metadataOnlyData = metadataOnlyWorkflow.json?.data ?? {};
       const metadataOnlyArtifactPath = typeof metadataOnlyData.path === "string" ? metadataOnlyData.path : null;
+      const persistedMetadataOnlyArtifactPath = metadataOnlyArtifactPath
+        ? persistArtifactBundle(metadataOnlyArtifactPath, runId, "metadata-only")
+        : null;
       const metadataOnlyOk = metadataOnlyWorkflow.status === 0
-        && metadataOnlyArtifactPath
+        && persistedMetadataOnlyArtifactPath
         && Array.isArray(metadataOnlyData.screenshots)
         && metadataOnlyData.screenshots.length === 0
         && typeof metadataOnlyData.manifest?.product?.title === "string"
@@ -218,7 +235,8 @@ async function runProbe(options) {
         status: metadataOnlyOk ? "pass" : "fail",
         detail: metadataOnlyOk ? null : metadataOnlyWorkflow.detail,
         data: {
-          artifactPath: metadataOnlyArtifactPath,
+          artifactPath: persistedMetadataOnlyArtifactPath,
+          sourceArtifactPath: metadataOnlyArtifactPath,
           images: Array.isArray(metadataOnlyData.images) ? metadataOnlyData.images.length : 0,
           screenshots: Array.isArray(metadataOnlyData.screenshots) ? metadataOnlyData.screenshots.length : 0,
           title: metadataOnlyData.manifest?.product?.title ?? null,
@@ -247,11 +265,14 @@ async function runProbe(options) {
 
       const data = workflow.json?.data ?? {};
       const artifactPath = typeof data.path === "string" ? data.path : null;
-      const manifestPath = artifactPath ? path.join(artifactPath, "manifest.json") : null;
-      const copyPath = artifactPath ? path.join(artifactPath, "copy.md") : null;
-      const featuresPath = artifactPath ? path.join(artifactPath, "features.md") : null;
+      const persistedArtifactPath = artifactPath
+        ? persistArtifactBundle(artifactPath, runId, "with-screenshots")
+        : null;
+      const manifestPath = persistedArtifactPath ? path.join(persistedArtifactPath, "manifest.json") : null;
+      const copyPath = persistedArtifactPath ? path.join(persistedArtifactPath, "copy.md") : null;
+      const featuresPath = persistedArtifactPath ? path.join(persistedArtifactPath, "features.md") : null;
       const workflowOk = workflow.status === 0
-        && artifactPath
+        && persistedArtifactPath
         && manifestPath
         && copyPath
         && featuresPath
@@ -270,7 +291,8 @@ async function runProbe(options) {
         status: workflowOk ? "pass" : "fail",
         detail: workflowOk ? null : workflow.detail,
         data: {
-          artifactPath,
+          artifactPath: persistedArtifactPath,
+          sourceArtifactPath: artifactPath,
           images: Array.isArray(data.images) ? data.images.length : 0,
           screenshots: Array.isArray(data.screenshots) ? data.screenshots.length : 0,
           title: data.manifest?.product?.title ?? null,

@@ -90,6 +90,26 @@ export function classifyDaemonPreflight(result) {
   };
 }
 
+export function buildProviderCoverageStep(providerCoverage, { releaseGate = false } = {}) {
+  const detail = providerCoverage.ok
+    ? null
+    : `missing=${providerCoverage.missingProviderIds.join(",") || "none"} extra=${providerCoverage.extraScenarioProviderIds.join(",") || "none"}`;
+  return {
+    id: "infra.provider_scenario_coverage",
+    status: providerCoverage.ok
+      ? "pass"
+      : (releaseGate ? "fail" : "skipped"),
+    detail,
+    data: {
+      expectedCount: providerCoverage.expected.all.length,
+      scenarioCount: providerCoverage.scenarios.all.length,
+      missingProviderIds: providerCoverage.missingProviderIds,
+      extraScenarioProviderIds: providerCoverage.extraScenarioProviderIds,
+      coverageGap: !providerCoverage.ok
+    }
+  };
+}
+
 function collectMacroExecution(result) {
   const execution = result.json?.data?.execution;
   const records = Array.isArray(execution?.records) ? execution.records : [];
@@ -1042,23 +1062,19 @@ async function main() {
     releaseGate: options.releaseGate
   });
   report.providerCoverage = providerCoverage;
-  pushStep(report, {
-    id: "infra.provider_scenario_coverage",
-    status: options.releaseGate
-      ? (providerCoverage.ok ? "pass" : "fail")
-      : "pass",
-    detail: providerCoverage.ok
-      ? null
-      : (options.releaseGate
-        ? `missing=${providerCoverage.missingProviderIds.join(",") || "none"} extra=${providerCoverage.extraScenarioProviderIds.join(",") || "none"}`
-        : "release_gate_only_coverage_gap"),
-    data: {
-      expectedCount: providerCoverage.expected.all.length,
-      scenarioCount: providerCoverage.scenarios.all.length,
-      missingProviderIds: providerCoverage.missingProviderIds,
-      extraScenarioProviderIds: providerCoverage.extraScenarioProviderIds
-    }
-  }, { prefix: "[provider-direct]", logProgress: !options.quiet });
+  report.coverageGap = providerCoverage.ok
+    ? null
+    : {
+        status: options.releaseGate ? "fail" : "skipped",
+        detail: `missing=${providerCoverage.missingProviderIds.join(",") || "none"} extra=${providerCoverage.extraScenarioProviderIds.join(",") || "none"}`,
+        missingProviderIds: providerCoverage.missingProviderIds,
+        extraScenarioProviderIds: providerCoverage.extraScenarioProviderIds
+      };
+  pushStep(
+    report,
+    buildProviderCoverageStep(providerCoverage, { releaseGate: options.releaseGate }),
+    { prefix: "[provider-direct]", logProgress: !options.quiet }
+  );
 
   const daemonStatus = readDaemonStatus();
   pushStep(report, classifyDaemonPreflight(daemonStatus), {

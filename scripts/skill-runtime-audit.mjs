@@ -263,18 +263,42 @@ export function normalizeLaneStatus(counts, defaultStatus = "pass") {
 export function summarizeJsonLane(id, label, laneJson, fallbackArtifactPath = null) {
   const counts = laneJson?.counts ?? null;
   const status = normalizeLaneStatus(counts, laneJson?.ok === false ? "fail" : "pass");
+  const coverageGapDetail = typeof laneJson?.coverageGap?.detail === "string"
+    ? laneJson.coverageGap.detail
+    : null;
   return {
     id,
     label,
     status,
     detail: laneJson?.ok === false && status === "fail"
       ? "lane_report_failed"
-      : null,
+      : coverageGapDetail,
     artifactPath: laneJson?.out ?? laneJson?.outPath ?? fallbackArtifactPath,
     counts,
     observedExternalConstraintCount: countObservedExternalConstraints(counts),
+    coverageGap: laneJson?.coverageGap ?? null,
     rerunMetadata: laneJson?.rerunMetadata ?? null,
     data: laneJson
+  };
+}
+
+export function preferConfiguredSmokeRerun(primaryResult, rerunResult) {
+  return {
+    ...rerunResult,
+    rerunMetadata: {
+      ...(rerunResult.rerunMetadata ?? {}),
+      authoritativeSource: "configured-daemon-rerun",
+      smokeHarnessResult: {
+        status: primaryResult.status,
+        detail: primaryResult.detail ?? null,
+        artifactPath: primaryResult.artifactPath ?? null
+      },
+      configuredRerunResult: {
+        status: rerunResult.status,
+        detail: rerunResult.detail ?? null,
+        artifactPath: rerunResult.artifactPath ?? null
+      }
+    }
   };
 }
 
@@ -325,6 +349,77 @@ function readFrontmatterName(skillPath) {
   const content = fs.readFileSync(skillPath, "utf8");
   const match = content.match(/^name:\s*([^\n]+)$/m);
   return match?.[1]?.trim().replace(/^["']|["']$/g, "") ?? null;
+}
+
+async function withTemporaryEnv(overrides, task) {
+  const previousEntries = new Map();
+  for (const [key, value] of Object.entries(overrides)) {
+    previousEntries.set(key, process.env[key]);
+    if (typeof value === "string") {
+      process.env[key] = value;
+    } else {
+      delete process.env[key];
+    }
+  }
+
+  try {
+    return await task();
+  } finally {
+    for (const [key, value] of previousEntries.entries()) {
+      if (typeof value === "string") {
+        process.env[key] = value;
+      } else {
+        delete process.env[key];
+      }
+    }
+  }
+}
+
+async function loadBuiltSkillDiscoveryReport(workspaceDir, env) {
+  const loaderModuleUrl = pathToFileURL(path.join(ROOT, "dist", "skills", "skill-loader.js")).href;
+  return await withTemporaryEnv({
+    HOME: env.HOME,
+    OPENCODE_CONFIG_DIR: env.OPENCODE_CONFIG_DIR,
+    OPENCODE_CACHE_DIR: env.OPENCODE_CACHE_DIR,
+    CODEX_HOME: env.CODEX_HOME,
+    CLAUDECODE_HOME: env.CLAUDECODE_HOME,
+    CLAUDE_HOME: undefined,
+    AMPCLI_HOME: env.AMPCLI_HOME,
+    AMP_CLI_HOME: env.AMP_CLI_HOME,
+    AMP_HOME: undefined
+  }, async () => {
+    const { SkillLoader } = await import(loaderModuleUrl);
+    const loader = new SkillLoader(workspaceDir);
+    if (typeof loader.getDiscoveryReport === "function") {
+      return await loader.getDiscoveryReport();
+    }
+    return {
+      skills: await loader.listSkills(),
+      issues: [],
+      searchOrder: []
+    };
+  });
+}
+
+function summarizeCanonicalLoadAudit(packIds, discoveryReport) {
+  const discoveredByName = new Map(
+    (discoveryReport?.skills ?? []).map((entry) => [entry.name, entry])
+  );
+  return packIds.map((packId) => {
+    const discovered = discoveredByName.get(packId) ?? null;
+    return {
+      packId,
+      winningPath: discovered?.path ?? null,
+      winningSearchPath: discovered?.searchPath ?? null,
+      winningSourceFamily: discovered?.sourceFamily ?? null,
+      shadowedAlternatives: (discovered?.shadowedAlternatives ?? []).map((entry) => ({
+        path: entry.path,
+        searchPath: entry.searchPath,
+        sourceFamily: entry.sourceFamily,
+        isBundled: entry.isBundled
+      }))
+    };
+  });
 }
 
 async function runSkillDiscoveryLane(options, reportOut) {
@@ -405,6 +500,20 @@ async function runSkillDiscoveryLane(options, reportOut) {
       detail: localInstall.status === 0 ? null : localInstall.detail
     });
 
+    const mismatchSkillDir = path.join(workspaceDir, ".opencode", "skill", "mismatched-skill");
+    fs.mkdirSync(mismatchSkillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(mismatchSkillDir, "SKILL.md"),
+      "---\nname: mismatched-shadow\ndescription: Intentional name mismatch for discovery auditing.\n---\n# Mismatch\n",
+      "utf8"
+    );
+    const missingSkillDir = path.join(workspaceDir, ".codex", "skills", "missing-skill-entry");
+    fs.mkdirSync(missingSkillDir, { recursive: true });
+    report.probeFixtures = {
+      metadataNameMismatch: path.join(mismatchSkillDir, "SKILL.md"),
+      missingSkillFileDir: missingSkillDir
+    };
+
     const targets = [
       ...expectedGlobalTargets(env),
       ...expectedLocalTargets(workspaceDir)
@@ -432,6 +541,14 @@ async function runSkillDiscoveryLane(options, reportOut) {
     });
     report.loadChecks = loadChecks;
 
+    const discoveryReport = await loadBuiltSkillDiscoveryReport(workspaceDir, env);
+    report.searchOrder = discoveryReport.searchOrder;
+    report.discoveryIssues = discoveryReport.issues;
+    report.canonicalLoadAudit = summarizeCanonicalLoadAudit(packIds, discoveryReport);
+    report.shadowedPackIds = report.canonicalLoadAudit
+      .filter((entry) => entry.shadowedAlternatives.length > 0)
+      .map((entry) => entry.packId);
+
     const missingBundled = packIds.filter((packId) => !bundledEntries.includes(packId));
     const missingInstalled = targetChecks.flatMap((entry) =>
       entry.missing.map((packId) => `${entry.id}:${packId}`)
@@ -447,7 +564,8 @@ async function runSkillDiscoveryLane(options, reportOut) {
       || localInstall.status !== 0
       || missingBundled.length > 0
       || missingInstalled.length > 0
-      || loadFailures.length > 0;
+      || loadFailures.length > 0
+      || report.canonicalLoadAudit.some((entry) => !entry.winningPath);
 
     report.finishedAt = new Date().toISOString();
     report.ok = !failed;
@@ -467,7 +585,10 @@ async function runSkillDiscoveryLane(options, reportOut) {
           localInstall.status !== 0 ? "local_install_failed" : null,
           missingBundled.length > 0 ? `missing_bundled=${missingBundled.join(",")}` : null,
           missingInstalled.length > 0 ? `missing_installed=${missingInstalled.join(",")}` : null,
-          loadFailures.length > 0 ? `load_failures=${loadFailures.map((entry) => entry.packId).join(",")}` : null
+          loadFailures.length > 0 ? `load_failures=${loadFailures.map((entry) => entry.packId).join(",")}` : null,
+          report.canonicalLoadAudit.some((entry) => !entry.winningPath)
+            ? `missing_winning_path=${report.canonicalLoadAudit.filter((entry) => !entry.winningPath).map((entry) => entry.packId).join(",")}`
+            : null
         ].filter(Boolean).join(" | ")
         : null,
       artifactPath,
@@ -653,8 +774,7 @@ async function runSharedLane(laneId, options, reportOut) {
     }
     case "live-regression": {
       logProgress(options, `lane live-regression (${options.mode})`);
-      const laneJsonPath = artifactPath;
-      const runLane = async ({ env }) => {
+      const runLane = async ({ env }, laneJsonPath) => {
         const child = runNodeAtCwd([
           path.join(ROOT, "scripts", "live-regression-direct.mjs"),
           "--out",
@@ -677,9 +797,20 @@ async function runSharedLane(laneId, options, reportOut) {
           laneJsonPath
         );
       };
-      return shouldUseConfiguredAuditEnv(laneId, options)
-        ? await withConfiguredDaemon(runLane)
-        : await withTempHarness("odb-live-regression-audit", runLane);
+      if (shouldUseConfiguredAuditEnv(laneId, options)) {
+        return await withConfiguredDaemon(({ env }) => runLane({ env }, artifactPath));
+      }
+
+      const smokeHarnessResult = await withTempHarness("odb-live-regression-audit", ({ env }) =>
+        runLane({ env }, artifactPath)
+      );
+      if (options.smoke !== true || smokeHarnessResult.status !== "fail") {
+        return smokeHarnessResult;
+      }
+
+      const rerunArtifactPath = laneArtifactPath(reportOut, "live-regression-rerun");
+      const configuredRerun = await withConfiguredDaemon(({ env }) => runLane({ env }, rerunArtifactPath));
+      return preferConfiguredSmokeRerun(smokeHarnessResult, configuredRerun);
     }
     case "canvas-competitive": {
       logProgress(options, "lane canvas-competitive");
