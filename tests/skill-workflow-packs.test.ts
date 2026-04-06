@@ -9,6 +9,10 @@ const repoRoot = process.cwd();
 const bundledSkillsDir = join(repoRoot, "skills");
 
 const requiredFilesBySkill: Record<string, string[]> = {
+  "opendevbrowser-continuity-ledger": [
+    "SKILL.md",
+    "scripts/validate-skill-assets.sh"
+  ],
   "opendevbrowser-design-agent": [
     "SKILL.md",
     "artifacts/design-workflows.md",
@@ -341,7 +345,9 @@ describe("workflow skill packs", () => {
 
     const validatorPaths = [
       "skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-login-automation/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-research/scripts/validate-skill-assets.sh",

@@ -1,12 +1,16 @@
 ---
 name: opendevbrowser-continuity-ledger
 description: This skill should be used when the user asks to "track continuity", "resume a long task", "maintain CONTINUITY.md", or run multi-step work that may span context compaction.
-version: 1.1.0
+version: 1.2.0
 ---
 
 # OpenDevBrowser Continuity Ledger
 
 Use this guide to maintain compaction-safe project state in `CONTINUITY.md`.
+
+Validation helper:
+
+- `scripts/validate-skill-assets.sh`
 
 ## When to Use This Skill
 
@@ -67,6 +71,15 @@ Update `CONTINUITY.md` whenever one of these changes:
 - Important command/tool outcomes
 
 Keep entries factual and concise. Avoid transcript-style logging.
+
+## Validator Contract
+
+The validator must confirm all of these remain documented:
+
+- `CONTINUITY.md` and `sub_continuity.md` ownership boundaries
+- start-of-turn read and update protocol
+- required ledger headings and `UNCONFIRMED` handling
+- reply pattern with a short ledger snapshot before the main answer
 
 ## Handling Open Questions
 
