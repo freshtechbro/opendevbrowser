@@ -3,6 +3,7 @@ import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 import type { WorkflowBrowserMode } from "../../providers/types";
 
@@ -249,7 +250,7 @@ export async function runShoppingCommand(args: ParsedArgs) {
     browserMode: parsed.browserMode,
     sort: parsed.sort,
     mode: parsed.mode ?? "compact",
-    ...(typeof parsed.timeoutMs === "number" ? { timeoutMs: parsed.timeoutMs } : {}),
+    timeoutMs: parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
     outputDir: parsed.outputDir,
     ttlHours: parsed.ttlHours,
     useCookies: parsed.useCookies,

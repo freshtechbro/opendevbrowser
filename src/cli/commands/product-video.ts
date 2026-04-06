@@ -3,6 +3,7 @@ import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 
 type ProductVideoCommandArgs = {
@@ -188,7 +189,7 @@ export async function runProductVideoCommand(args: ParsedArgs) {
     throw createUsageError("Missing --product-url or --product-name");
   }
 
-  const timeoutMs = parsed.timeoutMs ?? 120000;
+  const timeoutMs = parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS;
   const data = await callDaemon("product.video.run", {
     product_url: parsed.productUrl,
     product_name: parsed.productName,

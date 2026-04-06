@@ -1,12 +1,12 @@
 ---
 name: opendevbrowser-research
 description: Deterministic multi-source research workflow with strict timebox and artifact outputs.
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Research Skill
 
-Use this skill when you need benchmark-style research across `web|community|social|shopping` with strict timebox semantics and stable output modes.
+Use this skill when you need benchmark-style research across public `web|community|social` sources by default, with explicit shopping opt-in only for commercial comparison tasks.
 
 ## Pack Contents
 
@@ -61,14 +61,15 @@ Matrix source: `../opendevbrowser-best-practices/artifacts/browser-agent-known-i
 ## Commands
 
 ```bash
-opendevbrowser research run --topic "<topic>" --days 30 --mode context
-opendevbrowser research run --topic "<topic>" --source-selection all --mode json
+opendevbrowser research run --topic "<topic>" --days 30 --source-selection auto --mode context
+opendevbrowser research run --topic "<topic>" --source-selection auto --mode json
 opendevbrowser research run --topic "<topic>" --sources web,shopping --mode md
 ```
 
 ## Notes
 
-- `auto` resolves to `web|community|social` in v1.
-- Use `--source-selection all` or `--sources shopping,...` to include shopping.
+- `auto` is the recommended default for topical research.
+- In the current contract, both `auto` and `all` resolve to `web|community|social`.
+- Use `--source-selection shopping` or explicit `--sources ...shopping...` to include shopping only when commercial intent is explicit.
 - Use `--mode path` with `scripts/write-artifacts.sh` when you need replayable handoff bundles.
 - For browser-backed release proof and mode sweeps, follow the canonical direct-run evidence policy in `../opendevbrowser-best-practices/SKILL.md`.

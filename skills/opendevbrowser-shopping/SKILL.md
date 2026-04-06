@@ -1,12 +1,17 @@
 ---
 name: opendevbrowser-shopping
 description: Deterministic multi-provider shopping and deal-comparison workflow.
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Shopping Skill
 
 Use this skill for robust deal hunting across providers with market-baseline validation and savings analysis.
+
+Reliable defaults:
+- start with explicit providers for reproducible reruns
+- prefer `--browser-mode managed` unless relay-backed session state is required
+- treat `--region` as advisory unless workflow output reports `meta.selection.region_authoritative=true`
 
 ## Pack Contents
 
@@ -86,7 +91,14 @@ Matrix source: `../opendevbrowser-best-practices/artifacts/browser-agent-known-i
 
 ```bash
 opendevbrowser shopping run --query "<query>" --providers shopping/amazon,shopping/walmart --mode json --output-format json
+opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
+opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
 ```
+
+Diagnostics rules:
+- inspect `meta.primaryConstraintSummary` before classifying a zero-offer run as a provider failure
+- inspect `meta.offerFilterDiagnostics` to see whether zero price, budget, or region-currency filters removed the candidate offers
+- if `meta.alerts` includes `reasonCode=region_unenforced`, do not present the output as a trustworthy regional comparison
 
 ## Classification Heuristics
 

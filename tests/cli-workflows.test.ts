@@ -4,6 +4,7 @@ import { runMacroResolve } from "../src/cli/commands/macro-resolve";
 import { runProductVideoCommand } from "../src/cli/commands/product-video";
 import { runResearchCommand } from "../src/cli/commands/research";
 import { runShoppingCommand } from "../src/cli/commands/shopping";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../src/cli/transport-timeouts";
 
 const { callDaemon } = vi.hoisted(() => ({
   callDaemon: vi.fn()
@@ -58,6 +59,7 @@ describe("workflow CLI commands", () => {
       mode: "context",
       includeEngagement: true,
       limitPerSource: 5,
+      timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
       outputDir: "/tmp/out",
       ttlHours: 72,
       useCookies: undefined,
@@ -90,8 +92,6 @@ describe("workflow CLI commands", () => {
       ttlHours: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
-    }, {
-      timeoutMs: 45000
     });
   });
 
@@ -115,6 +115,7 @@ describe("workflow CLI commands", () => {
       region: "us",
       sort: "lowest_price",
       mode: "md",
+      timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
       outputDir: undefined,
       ttlHours: undefined,
       useCookies: undefined,

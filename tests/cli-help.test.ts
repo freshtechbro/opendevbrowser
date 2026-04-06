@@ -70,12 +70,24 @@ describe("CLI help surface", () => {
   it("defines an explicit onboarding block for first-contact agents", () => {
     const labels = HELP_ONBOARDING_ENTRIES.map((entry) => entry.label);
 
-    expect(labels).toEqual(["prompting_guide", "skill_load", "skill_list", "happy_path", "docs"]);
+    expect(labels).toEqual([
+      "prompting_guide",
+      "skill_load",
+      "validated_lanes",
+      "skill_list",
+      "research_reliable",
+      "shopping_reliable",
+      "happy_path",
+      "docs"
+    ]);
     expect(HELP_ONBOARDING_ENTRIES[0]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.promptingGuide);
     expect(HELP_ONBOARDING_ENTRIES[1]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.skillLoad);
-    expect(HELP_ONBOARDING_ENTRIES[2]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.skillList);
+    expect(HELP_ONBOARDING_ENTRIES[2]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedLanes);
     expect(HELP_ONBOARDING_ENTRIES[2]?.details).toHaveLength(1);
-    expect(HELP_ONBOARDING_ENTRIES[4]?.details).toHaveLength(1);
+    expect(HELP_ONBOARDING_ENTRIES[3]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.skillList);
+    expect(HELP_ONBOARDING_ENTRIES[4]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedResearch);
+    expect(HELP_ONBOARDING_ENTRIES[5]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedShopping);
+    expect(HELP_ONBOARDING_ENTRIES[7]?.details).toHaveLength(1);
   });
 
   it("prints complete command, flag, and tool inventories with descriptions", () => {
@@ -86,7 +98,10 @@ describe("CLI help surface", () => {
     expect(output).toContain(onboardingMetadata.sectionSummary);
     expect(output).toContain(onboardingMetadata.quickStartCommands.promptingGuide);
     expect(output).toContain(onboardingMetadata.quickStartCommands.skillLoad);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.validatedLanes);
     expect(output).toContain(onboardingMetadata.quickStartCommands.skillList);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.validatedResearch);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.validatedShopping);
     expect(output).toContain(onboardingMetadata.quickStartCommands.happyPath);
     expect(output).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(output).toContain(onboardingMetadata.referencePaths.skillDoc);

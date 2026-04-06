@@ -2,10 +2,10 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-04-03
+Last updated: 2026-04-06
 
 OpenDevBrowser exposes 57 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
-Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
+Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
 Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts`, which is consumed by `src/cli/help.ts`, `src/cli/args.ts`, and re-exported by `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
@@ -253,6 +253,7 @@ npx opendevbrowser -v
 
 `--help` and `help` print the same generated first-contact inventory:
 - An `Agent Quick Start` block that tells agents to start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands.
+- A follow-up `validated_lanes` entry that points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` for the current reliable transcript, research, and shopping runbook.
 - A direct pointer to `opendevbrowser_skill_list` when an agent needs a different local skill lane.
 - The complete generated CLI command, flag, and `opendevbrowser_*` tool inventories.
 - Canonical pointers to `docs/FIRST_RUN_ONBOARDING.md`, `skills/opendevbrowser-best-practices/SKILL.md`, and `docs/SURFACE_REFERENCE.md`.
@@ -396,7 +397,7 @@ The workflow wrappers expose the finalized research/shopping/product-video surfa
 
 ```bash
 npx opendevbrowser research run --topic "browser automation" --days 30 --mode compact
-npx opendevbrowser research run --topic "market map" --from 2026-02-01 --to 2026-02-16 --source-selection all --mode json
+npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --mode json
 npx opendevbrowser research run --topic "creator tools" --sources web,shopping --include-engagement --limit-per-source 5 --mode context
 ```
 
@@ -418,12 +419,18 @@ Flags:
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
+Notes:
+- Use `--source-selection auto` for generic topical research.
+- In the current contract, `auto` and `all` both stay inside the public topical families (`web`, `community`, `social`).
+- Add shopping only with `--source-selection shopping` or explicit `--sources ...shopping...` when the task is deliberately commercial.
+
 #### Shopping (`shopping run`)
 
 ```bash
 npx opendevbrowser shopping run --query "usb microphone" --mode compact
-npx opendevbrowser shopping run --query "portable monitor" --providers shopping/amazon,shopping/newegg --sort lowest_price --mode md
-npx opendevbrowser shopping run --query "desk chair" --budget 250 --region us --mode path
+npx opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
+npx opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
+npx opendevbrowser shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json
 ```
 
 Flags:
@@ -431,6 +438,7 @@ Flags:
 - `--providers` (comma-separated; defaults to all v1 adapters)
 - `--budget`
 - `--region`
+- `--browser-mode` (`auto|extension|managed`)
 - `--sort` (`best_deal|lowest_price|highest_rating|fastest_shipping`)
 - `--mode` (`compact|json|md|context|path`)
 - `--timeout-ms`
@@ -440,6 +448,11 @@ Flags:
 - `--challenge-automation-mode` (`off|browser|browser_with_helper`)
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
+
+Notes:
+- Use explicit providers plus `--browser-mode managed` for the most reproducible live reruns.
+- Treat `--region` as advisory unless `meta.selection.region_authoritative=true`.
+- When a run returns no final offers, inspect `meta.primaryConstraintSummary` and `meta.offerFilterDiagnostics` before classifying the provider path as broken.
 
 #### Product presentation asset (`product-video run`)
 
@@ -1611,7 +1624,7 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
       "enableYtdlpAudioAsr": true,
       "enableApify": true,
       "apifyActorId": "streamers/youtube-scraper",
-      "enableBrowserFallback": true,
+      "enableBrowserFallback": false,
       "ytdlpTimeoutMs": 10000
     }
   },
@@ -1624,14 +1637,15 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
 
 The optional `skills.nudge` section controls the small one-time prompt hint that encourages early `skill(...)` usage on skill-relevant tasks. The optional `continuity` section controls the long-running task nudge and the ledger file path.
 Fingerprint runtime defaults are Tier 1/2/3 enabled, with Tier 2 and Tier 3 driven by continuous signals (debug trace remains readout/reporting).
-Provider runtime anti-bot/transcript controls default to an exhaustive YouTube fallback chain:
+Provider runtime anti-bot/transcript controls default to a public-first YouTube resolver chain:
 - Transcript mode semantics: `auto | web | no-auto | yt-dlp | apify`.
 - Request filter precedence is `filters.youtube_mode > providers.transcript.modeDefault > auto`.
 - No CLI mode flag is introduced in this phase; mode is configured in `providers.transcript.modeDefault` or per-request `youtube_mode` filter.
-- Auto mode fallback chain is `youtubei -> native_caption_parse -> ytdlp_audio_asr -> apify`, with browser-assisted fallback attempted last when browser escalation is available.
+- Auto mode fallback chain is `youtubei -> native_caption_parse -> ytdlp_audio_asr -> apify`.
 - `yt-dlp` audio transcription requires `providers.transcript.enableYtdlpAudioAsr=true`.
 - Apify requires `providers.transcript.enableApify=true`, a valid `APIFY_TOKEN`, and legal checklist approval for `apify`.
-- Browser-assisted fallback requires `providers.transcript.enableBrowserFallback=true` and `providers.antiBotPolicy.allowBrowserEscalation=true`.
+- Browser-assisted fallback is opt-in only and requires `providers.transcript.enableBrowserFallback=true` plus `providers.antiBotPolicy.allowBrowserEscalation=true`.
+- If browser fallback is enabled, run it in an isolated automation profile instead of a daily logged-in Google profile.
 
 Provider workflow and execution outputs now include normalized transcript/anti-bot telemetry:
 - Primary provider follow-up summary: `meta.primaryConstraintSummary`.

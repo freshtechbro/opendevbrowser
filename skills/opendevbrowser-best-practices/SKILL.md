@@ -1,7 +1,7 @@
 ---
 name: opendevbrowser-best-practices
 description: This skill should be used when the user asks to design or run OpenDevBrowser provider workflows, scraping pipelines, QA/debug automation, parity checks across modes, or resilient browser operations with codified scripts and artifacts.
-version: 2.5.0
+version: 2.6.0
 ---
 
 # OpenDevBrowser Best Practices
@@ -77,6 +77,51 @@ npx opendevbrowser help
 ./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-design-agent/scripts/design-workflow.sh contract-first
 ```
+
+## Validated Capability Lanes
+
+Load this section directly with:
+
+```text
+opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"
+```
+
+Current reliable lanes from the April 6 validation pass:
+
+1. Public-first YouTube transcript retrieval.
+
+```bash
+node scripts/youtube-transcript-live-probe.mjs --url "https://www.youtube.com/watch?v=aircAruvnKk" --youtube-mode auto --out artifacts/capability-fix/youtube-transcript-auto.json
+```
+
+Rules:
+- keep transcript runs public-first
+- browser-assisted transcript fallback is opt-in only
+- if browser fallback is enabled, use an isolated automation profile instead of a daily logged-in Google profile
+
+2. Generic topical research without shopping contamination.
+
+```bash
+npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --mode json --output-format json
+```
+
+Rules:
+- use `--source-selection auto` for general research
+- use `--source-selection shopping` or explicit `--sources ...shopping...` only when the task is deliberately commercial
+- in the current contract, `auto` and `all` both resolve to `web`, `community`, and `social`
+
+3. Deterministic shopping reruns with explicit providers.
+
+```bash
+npx opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
+npx opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
+npx opendevbrowser shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json
+```
+
+Rules:
+- use explicit providers plus `--browser-mode managed` for the most reproducible reruns
+- treat `--region` as advisory unless `meta.selection.region_authoritative=true`
+- inspect `meta.primaryConstraintSummary` and `meta.offerFilterDiagnostics` before calling a no-offer run a provider outage
 
 ## Agent Sync Targets
 
@@ -193,6 +238,7 @@ Use the router script to avoid retyping flows:
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh canvas-preflight
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh canvas-feedback-eval
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh skill-runtime-audit
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh validated-capabilities
 ```
 
 ## Modes and Surface Parity

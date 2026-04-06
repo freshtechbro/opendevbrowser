@@ -15,6 +15,8 @@ render_cli_prefix() {
 }
 
 CLI_PREFIX="$(render_cli_prefix)"
+PACKAGE_ROOT="$(cd "$script_dir/../../.." && pwd)"
+TRANSCRIPT_PROBE_PATH="$(printf '%q' "$PACKAGE_ROOT/scripts/youtube-transcript-live-probe.mjs")"
 
 print_help() {
   cat <<'EOF'
@@ -34,6 +36,7 @@ Workflows:
   parity-check
   release-direct-gates
   skill-runtime-audit
+  validated-capabilities
   surface-audit
   ops-channel-check
   cdp-channel-check
@@ -149,10 +152,14 @@ EOF
     cat <<'EOF'
 npm run build
 node scripts/docs-drift-check.mjs
+# Discovery, lifecycle, and help parity
 npm run test -- tests/skill-loader.test.ts tests/skill-list-tool.test.ts tests/cli-skills-installer.test.ts
 npm run test -- tests/cli-help.test.ts tests/cli-help-parity.test.ts tests/skill-runtime-audit.test.ts tests/skill-workflow-packs.test.ts
 npx opendevbrowser --help
 npx opendevbrowser help
+WORKDIR=$(mktemp -d /tmp/odb-skill-audit-XXXXXX)
+OPENCODE_CONFIG_DIR="$WORKDIR/config" CODEX_HOME="$WORKDIR/codex-home" CLAUDECODE_HOME="$WORKDIR/claude-home" AMP_CLI_HOME="$WORKDIR/amp-home" npx opendevbrowser --global --full --no-prompt
+OPENCODE_CONFIG_DIR="$WORKDIR/config" CODEX_HOME="$WORKDIR/codex-home" CLAUDECODE_HOME="$WORKDIR/claude-home" AMP_CLI_HOME="$WORKDIR/amp-home" npx opendevbrowser --uninstall --global --no-prompt
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-best-practices/scripts/run-robustness-audit.sh
 ./skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh
@@ -165,6 +172,22 @@ npx opendevbrowser help
 ./skills/opendevbrowser-shopping/scripts/validate-skill-assets.sh
 node scripts/skill-runtime-audit.mjs --smoke --out artifacts/skill-runtime-audit/smoke.json
 node scripts/skill-runtime-audit.mjs --out artifacts/skill-runtime-audit/full.json
+EOF
+    ;;
+  validated-capabilities)
+    cat <<EOF
+# Public-first YouTube transcript probe
+node $TRANSCRIPT_PROBE_PATH --url "https://www.youtube.com/watch?v=aircAruvnKk" --youtube-mode auto --out artifacts/capability-fix/youtube-transcript-auto.json
+
+# Generic topical research without shopping contamination
+$CLI_PREFIX research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --mode json --output-format json
+
+# Deterministic shopping reruns with explicit providers
+$CLI_PREFIX shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
+$CLI_PREFIX shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
+
+# Region note: advisory unless output reports meta.selection.region_authoritative=true
+$CLI_PREFIX shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json
 EOF
     ;;
   surface-audit)

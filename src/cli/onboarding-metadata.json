@@ -1,8 +1,9 @@
 {
   "sectionTitle": "Agent Quick Start",
-  "sectionSummary": "Start with opendevbrowser_prompting_guide or opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\" before low-level browser commands.",
+  "sectionSummary": "Start with opendevbrowser_prompting_guide or opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\" before low-level browser commands, then load the validated capability lanes when you need the current reliable transcript, research, and shopping workflows.",
   "skillName": "opendevbrowser-best-practices",
   "skillTopic": "quick start",
+  "validatedSkillTopic": "validated capability lanes",
   "designSkillName": "opendevbrowser-design-agent",
   "localOnlyToolNames": [
     "opendevbrowser_prompting_guide",
@@ -13,6 +14,9 @@
     "promptingGuide": "opendevbrowser_prompting_guide",
     "skillList": "opendevbrowser_skill_list",
     "skillLoad": "opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\"",
+    "validatedLanes": "opendevbrowser_skill_load opendevbrowser-best-practices \"validated capability lanes\"",
+    "validatedResearch": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --mode json --output-format json",
+    "validatedShopping": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json",
     "happyPath": "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
   },
   "referencePaths": {

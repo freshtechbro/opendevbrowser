@@ -188,14 +188,14 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--days", description: "Lookback window in days for research commands." },
       { flag: "--from", description: "Start date boundary for research commands." },
       { flag: "--to", description: "End date boundary for research commands." },
-      { flag: "--source-selection", description: "Research source-family selector." },
-      { flag: "--sources", description: "Explicit source selectors within a source family." },
+      { flag: "--source-selection", description: "Research source-family selector. Use auto for generic topical research; add shopping only for deliberate commercial comparison." },
+      { flag: "--sources", description: "Explicit source selectors within a source family. Use shopping only when commercial intent is explicit." },
       { flag: "--include-engagement", description: "Include engagement metrics in research output." },
       { flag: "--limit-per-source", description: "Per-source result cap for research runs." },
       { flag: "--query", description: "Shopping query input." },
       { flag: "--providers", description: "Comma-separated provider ids for shopping or artifact commands." },
       { flag: "--budget", description: "Budget filter for shopping workflows." },
-      { flag: "--region", description: "Region or country hint for provider selection." },
+      { flag: "--region", description: "Region or country hint for provider selection. Treat it as advisory unless output metadata reports `region_authoritative=true`." },
       { flag: "--sort", description: "Sort mode for shopping results." },
       { flag: "--product-url", description: "Target product URL for product-video workflows." },
       { flag: "--product-name", description: "Product name override for product-video workflows." },
@@ -204,7 +204,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--include-all-images", description: "Include all discovered product images." },
       { flag: "--include-copy", description: "Include product marketing copy metadata." },
       { flag: "--use-cookies", description: "Enable or disable provider cookie injection for workflow runs; a bare flag means true.", example: "opendevbrowser shopping run --query 'usb hub' --use-cookies" },
-      { flag: "--browser-mode", description: "Shopping browser-fallback preference: auto, extension, or managed. Use extension to require the connected relay when browser recovery is needed.", example: "opendevbrowser shopping run --query 'macbook pro m4 32gb ram' --browser-mode extension" },
+      { flag: "--browser-mode", description: "Shopping browser-recovery preference: auto, extension, or managed. Use managed for deterministic reruns and extension only when relay-backed auth/session state is required.", example: "opendevbrowser shopping run --query 'wireless ergonomic mouse' --providers shopping/bestbuy,shopping/ebay --browser-mode managed" },
       { flag: "--challenge-automation-mode", description: "Per-run challenge automation mode for workflow runs and macro-resolve execute: off, browser, or browser_with_helper. Precedence is run > session > config, and the helper remains browser-scoped only.", example: "opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute --challenge-automation-mode browser_with_helper" },
       { flag: "--cookie-policy-override", description: "Per-run workflow cookie policy override: off, auto, or required.", example: "opendevbrowser research run --topic 'agent workflows' --cookie-policy-override required" },
       { flag: "--cookie-policy", description: "Alias of --cookie-policy-override." },
@@ -229,9 +229,24 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
     details: [{ label: "tool:", value: onboardingMetadata.quickStartCommands.skillLoad }]
   },
   {
+    label: "validated_lanes",
+    description: `Load ${onboardingMetadata.skillName} ${onboardingMetadata.validatedSkillTopic} when you need the current proven transcript, research, and shopping runbook.`,
+    details: [{ label: "tool:", value: onboardingMetadata.quickStartCommands.validatedLanes }]
+  },
+  {
     label: "skill_list",
     description: "Inspect bundled and discovered skill packs when you need a different local lane.",
     details: [{ label: "tool:", value: onboardingMetadata.quickStartCommands.skillList }]
+  },
+  {
+    label: "research_reliable",
+    description: "Generic topical research is currently safest with `--source-selection auto`; add shopping only when the task is explicitly commercial.",
+    details: [{ label: "cli:", value: onboardingMetadata.quickStartCommands.validatedResearch }]
+  },
+  {
+    label: "shopping_reliable",
+    description: "Start deal hunting with explicit providers in managed mode and only trust regional comparisons when the result reports `region_authoritative=true`.",
+    details: [{ label: "cli:", value: onboardingMetadata.quickStartCommands.validatedShopping }]
   },
   {
     label: "happy_path",
