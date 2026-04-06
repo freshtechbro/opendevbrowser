@@ -54,7 +54,8 @@ Use these as planning references only; verify against runtime code and active do
    - `npm run lint --prefix frontend`
    - `npm run typecheck --prefix frontend`
    - `npm run build --prefix frontend`
-5. Run public quality gates before closing the task.
+5. Keep local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `coverage/`, `CONTINUITY*.md`, and `sub_continuity.md` uncommitted; `.gitignore` is the policy owner, and `node scripts/audit-zombie-files.mjs` is the duplicate-file guard.
+6. Run public quality gates before closing the task.
    - `npx opendevbrowser --help`
    - `npx opendevbrowser help`
    - `node scripts/cli-onboarding-smoke.mjs`
@@ -63,4 +64,4 @@ Use these as planning references only; verify against runtime code and active do
    - `node scripts/audit-zombie-files.mjs`
    - `node scripts/docs-drift-check.mjs`
    - `node scripts/chrome-store-compliance-check.mjs`
-6. Treat generated help as the canonical first-contact discovery surface, `docs/FIRST_RUN_ONBOARDING.md` as the first-run proof checklist, and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook and direct-run release evidence owner. Keep the onboarding smoke lane isolated inside temp config/cache homes when validating bundled behavior or managed skill lifecycle changes.
+7. Treat generated help as the canonical first-contact discovery surface, `docs/FIRST_RUN_ONBOARDING.md` as the first-run proof checklist, and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook and direct-run release evidence owner. Keep the onboarding smoke lane isolated inside temp config/cache homes when validating bundled behavior or managed skill lifecycle changes.

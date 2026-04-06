@@ -17,6 +17,7 @@ Applies to all markdown and reference assets under `docs/`.
 - Keep public docs concise and operational; avoid speculative claims.
 - If numbers (commands/tools/coverage) are mentioned, verify from code or generated artifacts in the same pass.
 - Prefer adding status context (for example `active`, `historical`) over deleting useful historical design docs.
+- Treat `prompt-exports/`, root `artifacts/`, `coverage/`, continuity ledgers, and duplicate `* 2.*` scratch files as local-only artifacts; do not cite or commit them as documentation truth.
 
 ## Required sync points
 
@@ -80,3 +81,4 @@ When mirrored website inputs change (`docs/`, `skills/`, `assets/`, `CHANGELOG.m
 - Do not imply public-repo ownership of `frontend/`; website source is private.
 - Do not over-claim `bound_app_runtime`; `canvas_html` remains the default preview/export contract unless the binding opts in and runtime instrumentation exists.
 - Do not edit private generated frontend docs JSON by hand when the source is in `docs/`, `CHANGELOG.md`, or `skills/*/SKILL.md`.
+- Do not preserve local-only generated artifacts just because they are ignored; clean them when a doc sweep or release gate calls them out.

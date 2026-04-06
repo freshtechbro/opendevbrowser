@@ -1,6 +1,6 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-03-23 | **Commit:** 4028b3bd | **Branch:** antibot
+**Generated:** 2026-04-04 | **Commit:** e6ed549 | **Branch:** codex/merge-antibot-workflow-stability
 
 ## Overview
 
@@ -98,7 +98,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 54 opendevbrowser_* tool definitions
+│   ├── tools/        # 57 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
@@ -126,7 +126,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Design canvas + code sync | `src/canvas/`, `src/canvas/kits/catalog.ts`, `src/canvas/starters/catalog.ts`, `src/browser/canvas-manager.ts`, `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`, `scripts/canvas-competitive-validation.mjs` | Current canvas technical docs, built-in kit and starter inventory, framework-adapter code sync, BYO plugin contract, validator evidence, manifest persistence, and runtime preview fallback |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
-| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 61 CLI + 54 tools + 54 `/ops` + 35 `/canvas` + `/cdp` map |
+| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 64 CLI + 57 tools + 59 `/ops` + 35 `/canvas` + `/cdp` map |
 
 ## Commands
 
@@ -213,7 +213,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_canvas: createCanvasTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 54 tools
+    // ... 57 tools
   };
 }
 ```
@@ -242,6 +242,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
 - Treat generated CLI help as part of the documentation surface.
+- Keep local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `coverage/`, `CONTINUITY*.md`, and `sub_continuity.md` out of commits; `.gitignore` is authoritative.
 - If tool list, command outputs, or help inventory changes, update `src/cli/help.ts`, `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, and this file together, then verify both `npx opendevbrowser --help` and `npx opendevbrowser help`.
 
 ## AGENTS.md Governance
@@ -252,6 +253,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 
 Subdirectory guides override this root file:
 - `src/AGENTS.md` — module boundaries, manager patterns
+- `src/annotate/AGENTS.md` — annotation transport, inbox storage, and delivery rules
 - `src/challenges/AGENTS.md` — bounded challenge orchestration plane, evidence, and recovery lanes
 - `src/browser/AGENTS.md` — browser/session module specifics
 - `src/canvas/AGENTS.md` — canvas document store, repo persistence, code-sync specifics
@@ -261,6 +263,7 @@ Subdirectory guides override this root file:
 - `src/devtools/AGENTS.md` — console/network/exception trackers and redaction rules
 - `src/export/AGENTS.md` — DOM capture, sanitization, and React export constraints
 - `src/integrations/AGENTS.md` — external integration adapters such as Figma import
+- `src/macros/AGENTS.md` — macro parsing, resolution, and provider-action expansion rules
 - `src/providers/AGENTS.md` — provider system (web/social/shopping), tiers, safety
 - `src/relay/AGENTS.md` — relay protocol and security specifics
 - `src/snapshot/AGENTS.md` — snapshot/ref pipeline specifics

@@ -1,10 +1,10 @@
 # Chrome DevTools MCP Competitive Inventory
 
-Status: active  
-Reviewed: 2026-03-27  
+Status: active
+Reviewed: 2026-04-05
 Chrome public surface baseline: official `chrome-devtools-mcp` README, tool reference, CLI docs, blog, and npm listing reviewed on 2026-03-27  
 Historical release-window audit used for provenance: `0.11.0` (2025-12-03) through `0.20.3` (2026-03-20)  
-OpenDevBrowser baseline: `docs/SURFACE_REFERENCE.md` updated 2026-03-26 with 61 CLI commands and 54 tools
+OpenDevBrowser baseline: `src/public-surface/source.ts` re-audited on 2026-04-05 via `node scripts/docs-drift-check.mjs` with 64 CLI commands, 57 tools, 59 `/ops` commands, and 35 `/canvas` commands
 
 ## Purpose
 

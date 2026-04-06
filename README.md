@@ -761,6 +761,7 @@ Release checklist: [docs/DISTRIBUTION_PLAN.md](docs/DISTRIBUTION_PLAN.md)
 Documentation index: [docs/README.md](docs/README.md)
 Frontend docs: [docs/FRONTEND.md](docs/FRONTEND.md)
 Dependency inventory: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)
+Local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `coverage/`, `CONTINUITY*.md`, and `sub_continuity.md` stay uncommitted; `.gitignore` is authoritative.
 
 ---
 

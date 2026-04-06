@@ -1,7 +1,7 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-03-23
+Last updated: 2026-04-05
 
 This document tracks runtime and build dependencies across the repository.
 
@@ -11,7 +11,7 @@ This document tracks runtime and build dependencies across the repository.
 
 | Package | Version | Purpose |
 |---|---|---|
-| `@opencode-ai/plugin` | `^1.2.11` | OpenCode plugin runtime integration |
+| `@opencode-ai/plugin` | `^1.2.25` | OpenCode plugin runtime integration |
 | `@puppeteer/browsers` | `^2.13.0` | Chrome for Testing resolution/download |
 | `async-mutex` | `^0.5.0` | Session/relay concurrency controls |
 | `jsonc-parser` | `^3.2.0` | JSONC config parsing |
@@ -53,6 +53,12 @@ Version synchronization is handled by `npm run extension:sync`, which keeps `ext
 - No new package dependencies were required for `challengeAutomationMode`.
 - No package.json, tsconfig.json, eslint.config.js, or vitest.config.ts changes were required for this rollout.
 - No Vite config exists in the public repo, so no Vite update was required.
+
+## Documentation sweep config audit (2026-04-05)
+
+- Reviewed `package.json`, `eslint.config.js`, `tsconfig.json`, and `vitest.config.ts` as part of the repo-wide docs sweep.
+- No manifest or toolchain config changes were required after the source-backed audit.
+- The live config filenames in this repo are `eslint.config.js` and `tsconfig.json`; there is no `eslintconfig.js`, `tsconfig.js`, or Vite config in the public repo.
 
 ## Dependency update workflow
 
