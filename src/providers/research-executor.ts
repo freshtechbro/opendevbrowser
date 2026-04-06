@@ -59,14 +59,14 @@ const appendTrace = (
   trace: WorkflowTraceEntry[],
   stage: WorkflowTraceEntry["stage"],
   event: string,
-  details?: Record<string, JsonValue>
+  details: Record<string, JsonValue>
 ): WorkflowTraceEntry[] => [
   ...trace,
   {
     at: new Date().toISOString(),
     stage,
     event,
-    ...(details ? { details } : {})
+    details
   }
 ];
 
@@ -98,9 +98,7 @@ const markStepCompleted = (
   stepId: string,
   result: ProviderAggregateResult
 ): ResearchWorkflowCheckpointState => ({
-  completed_step_ids: checkpointState.completed_step_ids.includes(stepId)
-    ? checkpointState.completed_step_ids
-    : [...checkpointState.completed_step_ids, stepId],
+  completed_step_ids: [...new Set([...checkpointState.completed_step_ids, stepId])],
   step_results_by_id: {
     ...checkpointState.step_results_by_id,
     [stepId]: result
@@ -164,23 +162,19 @@ export const resolveResearchWebFetchCandidates = (
 const buildSearchRuns = (
   steps: readonly ResearchSearchWorkflowStep[],
   checkpointState: ResearchWorkflowCheckpointState
-): ResearchWorkflowSearchRun[] => {
-  return steps.flatMap((step) => {
-    const result = checkpointState.step_results_by_id[step.id];
-    if (!result) {
-      return [];
-    }
-    return [{
-      source: step.input.source,
-      result
-    }];
-  });
-};
+): ResearchWorkflowSearchRun[] => steps.map((step) => ({
+  source: step.input.source,
+  result: getCheckpointedResult(checkpointState, step.id)
+}));
 
 const deriveResearchFetchSteps = (
   plan: CompiledResearchExecutionPlan,
   searchRuns: ResearchWorkflowSearchRun[]
 ): ResearchFetchWorkflowStep[] => {
+  if (!plan.compiled.allowFollowUpWebFetch) {
+    return [];
+  }
+
   return resolveResearchWebFetchCandidates(
     searchRuns.flatMap((run) => run.result.records),
     plan.compiled.followUpFetchLimit
@@ -200,19 +194,11 @@ const deriveResearchFetchSteps = (
 const buildFollowUpRuns = (
   steps: ResearchFetchWorkflowStep[],
   checkpointState: ResearchWorkflowCheckpointState
-): ResearchWorkflowFollowUpRun[] => {
-  return steps.flatMap((step) => {
-    const result = checkpointState.step_results_by_id[step.id];
-    if (!result) {
-      return [];
-    }
-    return [{
-      source: "web",
-      url: step.input.url,
-      result
-    }];
-  });
-};
+): ResearchWorkflowFollowUpRun[] => steps.map((step) => ({
+  source: "web",
+  url: step.input.url,
+  result: getCheckpointedResult(checkpointState, step.id)
+}));
 
 const executeSearchStep = async (
   runtime: ProviderExecutor,

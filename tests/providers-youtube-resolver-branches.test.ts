@@ -22,7 +22,6 @@ const youtubeiBootstrapHtml = (extra = ""): string => `
   <html><body>
   "INNERTUBE_API_KEY":"api-key-123"
   "INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.20260216.00.00"}}
-  "getTranscriptEndpoint":{"params":"CgtsZWdhY3ktcGFyYW1z"}
   ${extra}
   </body></html>
 `;
@@ -33,50 +32,35 @@ describe("youtube transcript resolver branch coverage", () => {
   });
 
   it("resolves transcripts through youtubei strategy", async () => {
+    const transcriptUrl = "https://www.youtube.com/api/timedtext?v=youtubei-success&fmt=srv3";
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
       const url = String(input);
-      if (url.includes("/youtubei/v1/get_transcript")) {
+      if (url.includes("/youtubei/v1/player")) {
         return {
           ok: true,
           status: 200,
           text: async () => JSON.stringify({
-            actions: [{
-              updateEngagementPanelAction: {
-                content: {
-                  transcriptRenderer: {
-                    body: {
-                      transcriptBodyRenderer: {
-                        cueGroups: [{
-                          transcriptCueGroupRenderer: {
-                            cues: [{
-                              transcriptCueRenderer: {
-                                cue: {
-                                  transcriptSegmentRenderer: {
-                                    snippet: {
-                                      runs: [{ text: "line one" }]
-                                    }
-                                  }
-                                }
-                              }
-                            }, {
-                              transcriptCueRenderer: {
-                                cue: {
-                                  transcriptSegmentRenderer: {
-                                    snippet: {
-                                      runs: [{ text: "line two" }]
-                                    }
-                                  }
-                                }
-                              }
-                            }]
-                          }
-                        }]
-                      }
-                    }
-                  }
-                }
+            captions: {
+              playerCaptionsTracklistRenderer: {
+                captionTracks: [{
+                  baseUrl: transcriptUrl,
+                  languageCode: "en",
+                  name: { runs: [{ text: "English" }] }
+                }]
               }
-            }]
+            }
+          })
+        };
+      }
+      if (url.includes("fmt=json3")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            events: [
+              { segs: [{ utf8: "line one" }] },
+              { segs: [{ utf8: "line two" }] }
+            ]
           })
         };
       }
@@ -144,7 +128,7 @@ describe("youtube transcript resolver branch coverage", () => {
     const transcriptUrl = "https://www.youtube.com/api/timedtext?v=rate-fallback";
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
       const url = String(input);
-      if (url.includes("/youtubei/v1/get_transcript")) {
+      if (url.includes("/youtubei/v1/player")) {
         return {
           ok: false,
           status: 429,
@@ -182,7 +166,7 @@ describe("youtube transcript resolver branch coverage", () => {
     const transcriptUrl = "https://www.youtube.com/api/timedtext?v=malformed-fallback";
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
       const url = String(input);
-      if (url.includes("/youtubei/v1/get_transcript")) {
+      if (url.includes("/youtubei/v1/player")) {
         return {
           ok: true,
           status: 200,

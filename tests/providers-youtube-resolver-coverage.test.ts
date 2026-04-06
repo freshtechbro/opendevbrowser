@@ -56,6 +56,28 @@ const createChecklist = (
   approvedTranscriptStrategies: strategies
 });
 
+const youtubeiBootstrapHtml = (extra = ""): string => `
+  <html><body>
+    "INNERTUBE_API_KEY":"legacy-key"
+    "INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.20260216.00.00"}}
+    ${extra}
+  </body></html>
+`;
+
+const youtubeiPlayerPayload = (
+  captionTracks: unknown[],
+  extra: Record<string, unknown> = {}
+): string => {
+  return JSON.stringify({
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks
+      }
+    },
+    ...extra
+  });
+};
+
 const setExecSuccess = async (options?: { createAudio?: boolean }): Promise<void> => {
   const createAudio = options?.createAudio ?? true;
   const custom = vi.fn(async (...args: unknown[]) => {
@@ -500,41 +522,47 @@ describe("youtube transcript resolver branch coverage", () => {
     expect(result.language).toBe("unknown");
   });
 
-  it("resolves youtubei context from legacy client-name/version fields and language from payload", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+  it("resolves youtubei through player bootstrap and native caption track reuse", async () => {
+    const transcriptUrl = "https://www.youtube.com/api/timedtext?v=youtubei-player-success";
+    let playerBody = "";
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
-      if (!url.includes("/youtubei/v1/get_transcript")) {
+      if (url.includes("/youtubei/v1/player")) {
+        playerBody = String(init?.body ?? "");
         return {
-          ok: false,
-          status: 404,
-          text: async () => ""
+          ok: true,
+          status: 200,
+          text: async () => youtubeiPlayerPayload([
+            {
+              baseUrl: transcriptUrl,
+              languageCode: "de",
+              name: { runs: [{ text: "Deutsch" }] }
+            }
+          ])
         };
       }
+
+      if (url.includes("fmt=json3")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            events: [{ segs: [{ utf8: "guten tag" }] }]
+          })
+        };
+      }
+
       return {
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({
-          languageCode: "de",
-          transcriptSegmentRenderer: {
-            snippet: {
-              runs: [{ text: "guten tag" }]
-            }
-          }
-        })
+        ok: false,
+        status: 404,
+        text: async () => ""
       };
     }) as unknown as typeof fetch);
 
     const result = await resolveTranscript({
       context,
       watchUrl: "https://www.youtube.com/watch?v=youtubei-legacy-context",
-      pageHtml: `
-        <html><body>
-          "INNERTUBE_API_KEY":"legacy-key"
-          "INNERTUBE_CONTEXT_CLIENT_NAME":"WEB"
-          "INNERTUBE_CONTEXT_CLIENT_VERSION":"2.20260216.00.00"
-          "getTranscriptEndpoint":{"params":"legacy-params"}
-        </body></html>
-      `,
+      pageHtml: youtubeiBootstrapHtml(),
       legalChecklist: createChecklist(["youtubei"]),
       config: {
         modeDefault: "web",
@@ -543,10 +571,20 @@ describe("youtube transcript resolver branch coverage", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("Expected youtubei success");
+    expect(JSON.parse(playerBody)).toMatchObject({
+      context: {
+        client: {
+          clientName: "ANDROID",
+          clientVersion: "20.10.38"
+        }
+      },
+      videoId: "youtubei-legacy-context"
+    });
     expect(result.language).toBe("de");
+    expect(result.text).toBe("guten tag");
   });
 
-  it("covers youtubei request failure and missing-segment branches", async () => {
+  it("covers youtubei request failure and missing-caption-track branches", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       throw new Error("network down");
     }) as unknown as typeof fetch);
@@ -554,13 +592,7 @@ describe("youtube transcript resolver branch coverage", () => {
     const requestFailure = await resolveTranscript({
       context,
       watchUrl: "https://www.youtube.com/watch?v=youtubei-request-fail",
-      pageHtml: `
-        <html><body>
-          "INNERTUBE_API_KEY":"legacy-key"
-          "INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.20260216.00.00"}}
-          "getTranscriptEndpoint":{"params":"legacy-params"}
-        </body></html>
-      `,
+      pageHtml: youtubeiBootstrapHtml(),
       legalChecklist: createChecklist(["youtubei"]),
       config: {
         modeDefault: "web",
@@ -573,67 +605,84 @@ describe("youtube transcript resolver branch coverage", () => {
       expect.objectContaining({ strategy: "youtubei", ok: false, reasonCode: "transcript_unavailable" })
     );
 
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ actions: [] })
-    })) as unknown as typeof fetch);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/youtubei/v1/player")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => youtubeiPlayerPayload([])
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        text: async () => ""
+      };
+    }) as unknown as typeof fetch);
 
-    const missingSegments = await resolveTranscript({
+    const missingCaptionTracks = await resolveTranscript({
       context,
-      watchUrl: "https://www.youtube.com/watch?v=youtubei-no-segments",
-      pageHtml: `
-        <html><body>
-          "INNERTUBE_API_KEY":"legacy-key"
-          "INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.20260216.00.00"}}
-          "getTranscriptEndpoint":{"params":"legacy-params"}
-        </body></html>
-      `,
+      watchUrl: "https://www.youtube.com/watch?v=youtubei-no-caption-tracks",
+      pageHtml: youtubeiBootstrapHtml(),
       legalChecklist: createChecklist(["youtubei"]),
       config: {
         modeDefault: "web",
       }
     });
 
-    expect(missingSegments.ok).toBe(false);
-    if (missingSegments.ok) throw new Error("Expected failure");
-    expect(missingSegments.attemptChain).toContainEqual(
-      expect.objectContaining({ strategy: "youtubei", ok: false, reasonCode: "transcript_unavailable" })
+    expect(missingCaptionTracks.ok).toBe(false);
+    if (missingCaptionTracks.ok) throw new Error("Expected failure");
+    expect(missingCaptionTracks.attemptChain).toContainEqual(
+      expect.objectContaining({ strategy: "youtubei", ok: false, reasonCode: "caption_missing" })
     );
   });
 
-  it("handles youtubei sparse segment payloads and run-text edge cases", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({
-        actions: [
-          null,
-          { transcriptSegmentRenderer: { snippet: { simpleText: "Hallo" } } },
-          [
+  it("handles youtubei sparse caption-track payloads and json3 transcript edge cases", async () => {
+    const transcriptUrl = "https://www.youtube.com/api/timedtext?v=youtubei-sparse-json3";
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/youtubei/v1/player")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => youtubeiPlayerPayload([
             null,
+            [],
+            { baseUrl: 9, languageCode: "skip" },
             {
-              transcriptSegmentRenderer: {
-                snippet: { runs: [null, { text: 9 }, { text: " Welt" }] }
-              }
+              baseUrl: transcriptUrl,
+              languageCode: "it",
+              name: { simpleText: "Italiano" }
             }
-          ],
-          { transcriptSegmentRenderer: { snippet: {} } },
-          { nested: { languageCode: "it" } }
-        ]
-      })
-    })) as unknown as typeof fetch);
+          ])
+        };
+      }
+      if (url.includes("fmt=json3")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            events: [
+              null,
+              { segs: null },
+              { segs: [null, { utf8: 9 }, { utf8: "Hallo" }] },
+              { segs: [{ utf8: " Welt" }] }
+            ]
+          })
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        text: async () => ""
+      };
+    }) as unknown as typeof fetch);
 
     const result = await resolveTranscript({
       context,
       watchUrl: "https://www.youtube.com/watch?v=youtubei-segment-edges",
-      pageHtml: `
-        <html><body>
-          "INNERTUBE_API_KEY":"legacy-key"
-          "INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.20260216.00.00"}}
-          "getTranscriptEndpoint":{"params":"legacy-params"}
-        </body></html>
-      `,
+      pageHtml: youtubeiBootstrapHtml(),
       legalChecklist: createChecklist(["youtubei"]),
       config: {
         modeDefault: "web",
@@ -642,34 +691,49 @@ describe("youtube transcript resolver branch coverage", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("Expected youtubei success");
-    expect(result.text).toContain("Hallo");
-    expect(result.text).toContain("Welt");
+    expect(result.text).toBe("Hallo\nWelt");
     expect(result.language).toBe("it");
   });
 
-  it("skips youtubei null snippets and null language nodes while preserving valid segments", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({
-        actions: [
-          { transcriptSegmentRenderer: { snippet: null } },
-          { transcriptSegmentRenderer: { snippet: { runs: [{ text: "one" }] } } },
-          { metadata: { languageCode: "pt", extra: null } }
-        ]
-      })
-    })) as unknown as typeof fetch);
+  it("skips invalid youtubei caption tracks while preserving the valid transcript source", async () => {
+    const transcriptUrl = "https://www.youtube.com/api/timedtext?v=youtubei-valid-track";
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/youtubei/v1/player")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => youtubeiPlayerPayload([
+            null,
+            [],
+            { baseUrl: transcriptUrl, languageCode: "pt", name: null },
+            { baseUrl: transcriptUrl, languageCode: 7 }
+          ])
+        };
+      }
+      if (url.includes("fmt=json3")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            events: [
+              { segs: null },
+              { segs: [null, { utf8: "one" }] }
+            ]
+          })
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        text: async () => ""
+      };
+    }) as unknown as typeof fetch);
 
     const result = await resolveTranscript({
       context,
       watchUrl: "https://www.youtube.com/watch?v=youtubei-null-snippet",
-      pageHtml: `
-        <html><body>
-          "INNERTUBE_API_KEY":"legacy-key"
-          "INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.20260216.00.00"}}
-          "getTranscriptEndpoint":{"params":"legacy-params"}
-        </body></html>
-      `,
+      pageHtml: youtubeiBootstrapHtml(),
       legalChecklist: createChecklist(["youtubei"]),
       config: {
         modeDefault: "web",
@@ -999,12 +1063,7 @@ describe("youtube transcript resolver branch coverage", () => {
       context,
       watchUrl: "https://www.youtube.com/watch?v=legal-continue",
       pageHtml: `
-        <html><body>
-          "INNERTUBE_API_KEY":"legacy-key"
-          "INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.20260216.00.00"}}
-          "getTranscriptEndpoint":{"params":"legacy-params"}
-          "captionTracks":[{"baseUrl":"${transcriptUrl}","languageCode":"en"}]
-        </body></html>
+        ${youtubeiBootstrapHtml(`"captionTracks":[{"baseUrl":"${transcriptUrl}","languageCode":"en"}]`)}
       `,
       legalChecklist: createChecklist(["native_caption_parse"]),
       config: {

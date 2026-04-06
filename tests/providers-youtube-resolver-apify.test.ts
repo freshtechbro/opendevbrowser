@@ -168,7 +168,7 @@ describe("youtube transcript resolver apify strategy", () => {
 
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
       const url = String(input);
-      if (url.includes("/youtubei/v1/get_transcript")) {
+      if (url.includes("/youtubei/v1/player")) {
         return {
           ok: false,
           status: 500,
@@ -212,7 +212,6 @@ describe("youtube transcript resolver apify strategy", () => {
         <html><body>
           "INNERTUBE_API_KEY":"api-key"
           "INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.20260216.00.00"}}
-          "getTranscriptEndpoint":{"params":"CgtsZWdhY3ktcGFyYW1z"}
         </body></html>
       `,
       legalChecklist: createChecklist(["native_caption_parse", "apify", "youtubei"]),

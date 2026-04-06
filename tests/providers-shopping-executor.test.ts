@@ -154,6 +154,42 @@ describe("shopping bounded executor", () => {
     expect(fetchSteps[0]?.id).toMatch(/^fetch:shopping\/amazon:/);
   });
 
+  it("skips fetch recovery when completed search output already carries a blocker hint", () => {
+    const searchStepId = createShoppingSearchStepId("shopping/amazon");
+    const plan = compileShoppingExecutionPlan({
+      input: {
+        query: "portable monitor",
+        providers: ["shopping/amazon"],
+        mode: "json"
+      }
+    });
+
+    const fetchSteps = deriveShoppingFetchSteps(plan.compiled, {
+      completed_step_ids: [searchStepId],
+      step_results_by_id: {
+        [searchStepId]: makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: ["shopping/amazon"],
+          records: [makeRecord({
+            id: "search-login-wall",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/s?k=portable+monitor",
+            title: "Sign in to continue",
+            content: "Please sign in to continue.",
+            attributes: {
+              retrievalPath: "shopping:search:index",
+              reasonCode: "auth_required",
+              blockerType: "auth_required",
+              links: ["https://www.amazon.com/dp/B0FETCH0001"]
+            }
+          })]
+        })
+      }
+    });
+
+    expect(fetchSteps).toEqual([]);
+  });
+
   it("reads rich checkpoint state and rejects malformed checkpoint payloads", () => {
     const searchStepId = createShoppingSearchStepId("shopping/amazon");
     const richResult = makeAggregate({
@@ -252,7 +288,7 @@ describe("shopping bounded executor", () => {
     })).toThrow(`Shopping workflow checkpoint state contains an invalid result for ${searchStepId}.`);
   });
 
-  it("skips fetch derivation until search is complete and deduplicates recovered candidate urls", () => {
+  it("skips fetch derivation until search is complete and recovers the first two provider-owned candidate urls", () => {
     const searchStepId = createShoppingSearchStepId("shopping/amazon");
     const plan = compileShoppingExecutionPlan({
       input: {
@@ -292,7 +328,8 @@ describe("shopping bounded executor", () => {
                 links: [
                   "mailto:merchant@example.com",
                   "https://www.amazon.com/dp/B0FETCH0002",
-                  "https://www.amazon.com/dp/B0FETCH0002"
+                  "https://www.amazon.com/dp/B0FETCH0002",
+                  "https://www.amazon.com/dp/B0FETCH0003"
                 ]
               }
             })
@@ -301,12 +338,19 @@ describe("shopping bounded executor", () => {
       }
     });
 
-    expect(fetchSteps).toHaveLength(1);
+    expect(fetchSteps).toHaveLength(2);
     expect(fetchSteps[0]).toMatchObject({
       kind: "fetch",
       input: {
         providerId: "shopping/amazon",
         url: "https://www.amazon.com/dp/B0FETCH0002"
+      }
+    });
+    expect(fetchSteps[1]).toMatchObject({
+      kind: "fetch",
+      input: {
+        providerId: "shopping/amazon",
+        url: "https://www.amazon.com/dp/B0FETCH0003"
       }
     });
   });
@@ -519,5 +563,264 @@ describe("shopping bounded executor", () => {
     expect((result.checkpoint.state as Record<string, unknown>).completed_step_ids).toEqual(
       expect.arrayContaining([searchStepId, expect.stringMatching(/^fetch:shopping\/amazon:/)])
     );
+  });
+
+  it("preserves recovery fetch failures and non-offer fetch records in the final provider run", async () => {
+    const plan = compileShoppingExecutionPlan({
+      input: {
+        query: "portable monitor",
+        providers: ["shopping/amazon"],
+        mode: "json"
+      }
+    });
+
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "search-index",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/s?k=portable+monitor",
+        title: "Search Results",
+        attributes: {
+          retrievalPath: "shopping:search:index",
+          links: ["https://www.amazon.com/dp/B0FETCH0004"]
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      ok: false,
+      partial: true,
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "fetch-shell",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/B0FETCH0004",
+        title: "Sign in to continue",
+        content: "Authentication required.",
+        attributes: {
+          retrievalPath: "shopping:fetch:url",
+          reasonCode: "auth_required",
+          blockerType: "auth_required"
+        }
+      })],
+      failures: [makeFailure("shopping/amazon", "shopping", {
+        code: "auth",
+        message: "Authentication required",
+        reasonCode: "auth_required",
+        provider: "shopping/amazon",
+        source: "shopping"
+      })],
+      metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+    }));
+
+    const result = await executeShoppingWorkflowPlan(toRuntime({ search, fetch }), plan, {
+      buildStepOptions: (step, envelope) => ({
+        source: "shopping",
+        providerIds: [step.input.providerId],
+        timeoutMs: 123,
+        suspendedIntent: {
+          kind: "workflow.shopping",
+          input: { workflow: envelope }
+        }
+      })
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.runs).toHaveLength(1);
+    expect(result.runs[0]?.result.records.map((record) => record.id)).toEqual([
+      "search-index",
+      "fetch-shell"
+    ]);
+    expect(result.runs[0]?.result.failures).toEqual([
+      expect.objectContaining({
+        provider: "shopping/amazon",
+        error: expect.objectContaining({
+          reasonCode: "auth_required"
+        })
+      })
+    ]);
+  });
+
+  it("merges multiple tactical fetch results and preserves the latest fetch-level error", async () => {
+    const searchStepId = createShoppingSearchStepId("shopping/amazon");
+    const checkpointSearchResult = makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "search-index",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/s?k=portable+monitor",
+        title: "Search Results",
+        attributes: {
+          retrievalPath: "shopping:search:index",
+          links: [
+            "https://www.amazon.com/dp/B0FETCH0005",
+            "https://www.amazon.com/dp/B0FETCH0006"
+          ]
+        }
+      })]
+    });
+    const plan = compileShoppingExecutionPlan({
+      input: {
+        query: "portable monitor",
+        providers: ["shopping/amazon"],
+        mode: "json"
+      },
+      envelope: buildWorkflowResumeEnvelope("shopping", {
+        query: "portable monitor",
+        providers: ["shopping/amazon"],
+        mode: "json"
+      } as unknown as JsonValue, {
+        checkpoint: {
+          stage: "execute",
+          stepId: searchStepId,
+          stepIndex: 0,
+          state: {
+            completed_step_ids: [searchStepId],
+            step_results_by_id: {
+              [searchStepId]: checkpointSearchResult
+            }
+          },
+          updatedAt: "2026-03-30T22:00:00.000Z"
+        }
+      })
+    });
+
+    const fetch = vi.fn(async ({ url }: { url: string }) => {
+      if (url.endsWith("B0FETCH0005")) {
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: ["shopping/amazon"],
+          records: [makeRecord({
+            id: "fetch-offer-one",
+            provider: "shopping/amazon",
+            url,
+            title: "Portable Monitor Pro",
+            content: "$199.99",
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "B0FETCH0005",
+                title: "Portable Monitor Pro",
+                url,
+                price: { amount: 199.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.8,
+                reviews_count: 31
+              }
+            }
+          })]
+        });
+      }
+      return makeAggregate({
+        ok: false,
+        partial: true,
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "fetch-shell-two",
+          provider: "shopping/amazon",
+          url,
+          title: "Challenge page",
+          content: "Complete the security check to continue.",
+          attributes: {
+            retrievalPath: "shopping:fetch:url",
+            reasonCode: "challenge_detected",
+            blockerType: "anti_bot_challenge"
+          }
+        })],
+        failures: [makeFailure("shopping/amazon", "shopping", {
+          code: "unavailable",
+          message: "challenge detected",
+          retryable: true,
+          reasonCode: "challenge_detected",
+          provider: "shopping/amazon",
+          source: "shopping"
+        })],
+        error: {
+          code: "unavailable",
+          message: "challenge detected",
+          retryable: true,
+          reasonCode: "challenge_detected",
+          provider: "shopping/amazon",
+          source: "shopping"
+        },
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      });
+    });
+
+    const result = await executeShoppingWorkflowPlan(toRuntime({ fetch }), plan, {
+      buildStepOptions: (step, envelope) => ({
+        source: "shopping",
+        providerIds: [step.input.providerId],
+        timeoutMs: 123,
+        suspendedIntent: {
+          kind: "workflow.shopping",
+          input: { workflow: envelope }
+        }
+      })
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result.runs[0]?.result.records.map((record) => record.id)).toEqual([
+      "search-index",
+      "fetch-offer-one",
+      "fetch-shell-two"
+    ]);
+    expect(result.runs[0]?.result.error).toMatchObject({
+      reasonCode: "challenge_detected"
+    });
+    expect(result.runs[0]?.result.failures).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        error: expect.objectContaining({
+          reasonCode: "challenge_detected"
+        })
+      })
+    ]));
+  });
+
+  it("supports empty execution plans even when no effective providers were resolved", async () => {
+    const result = await executeShoppingWorkflowPlan(toRuntime({}), {
+      input: {
+        query: "portable monitor",
+        providers: [],
+        mode: "json"
+      },
+      compiled: {
+        query: "portable monitor",
+        now: new Date("2026-03-30T22:00:00.000Z"),
+        providerIds: [],
+        hasExplicitProviderSelection: false,
+        autoExcludedProviders: [],
+        effectiveProviderIds: [],
+        regionDiagnostics: [],
+        sort: "best_deal"
+      },
+      plan: {
+        kind: "shopping",
+        steps: []
+      },
+      checkpointState: {
+        completed_step_ids: [],
+        step_results_by_id: {}
+      }
+    }, {
+      buildStepOptions: () => ({
+        source: "shopping",
+        providerIds: [],
+        timeoutMs: 123
+      })
+    });
+
+    expect(result.runs).toEqual([]);
+    expect(result.checkpoint).toMatchObject({
+      stage: "execute",
+      stepId: "shopping:execute",
+      stepIndex: 0
+    });
   });
 });

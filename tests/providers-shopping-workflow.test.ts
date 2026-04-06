@@ -9,7 +9,8 @@ import {
   extractShoppingOffer,
   parsePriceFromContent,
   postprocessShoppingWorkflow,
-  rankOffers
+  rankOffers,
+  stripBrandSuffix
 } from "../src/providers/shopping-postprocess";
 import * as shoppingModule from "../src/providers/shopping";
 import type {
@@ -231,6 +232,14 @@ describe("shopping workflow seam extraction", () => {
     });
   });
 
+  it("preserves titles without a brand suffix and ignores zero-value fallback prices", () => {
+    expect(stripBrandSuffix("Travel Monitor Pro", undefined)).toBe("Travel Monitor Pro");
+    expect(parsePriceFromContent("Buy now for USD 0.00 with free shipping")).toEqual({
+      amount: 0,
+      currency: "USD"
+    });
+  });
+
   it("drops mismatched-currency offers when a region hint is provided", () => {
     vi.spyOn(shoppingModule, "validateShoppingLegalReviewChecklist")
       .mockReturnValue({ valid: true });
@@ -320,13 +329,28 @@ describe("shopping workflow seam extraction", () => {
 
     expect(output.offers).toHaveLength(1);
     expect(output.offers[0]?.provider).toBe("shopping/walmart");
+    expect(output.regionCurrencyExcluded).toBe(1);
+    expect(output.budgetExcluded).toBe(0);
+    expect(output.offerFilterDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        providerId: "shopping/amazon",
+        candidateOffers: 1,
+        pricedOffers: 1,
+        regionMatchedOffers: 0,
+        regionCurrencyExcluded: 1,
+        allCandidateOffersDroppedByRegionCurrency: true
+      })
+    ]));
     expect(output.failures).toEqual(expect.arrayContaining([
       expect.objectContaining({
         provider: "shopping/amazon",
         error: expect.objectContaining({
           reasonCode: "env_limited",
           details: expect.objectContaining({
-            noOfferRecords: true
+            noOfferRecords: true,
+            filterReason: "region_currency",
+            regionCurrencyExcluded: 1,
+            expectedCurrency: "USD"
           })
         })
       })
@@ -425,6 +449,8 @@ describe("shopping workflow seam extraction", () => {
       })
     }));
     expect(output.zeroPriceExcluded).toBe(1);
+    expect(output.budgetExcluded).toBe(0);
+    expect(output.regionCurrencyExcluded).toBe(0);
     expect(output.records).toHaveLength(3);
     expect(output.failures).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -439,6 +465,73 @@ describe("shopping workflow seam extraction", () => {
         })
       })
     ]));
+  });
+
+  it("reports budget-filtered priced offers as a constraint-driven empty result", () => {
+    vi.spyOn(shoppingModule, "validateShoppingLegalReviewChecklist")
+      .mockReturnValue({ valid: true });
+    const compiled = compileShoppingWorkflow({
+      query: "27 inch 4k monitor",
+      providers: ["shopping/amazon"],
+      budget: 350,
+      mode: "json"
+    }, {
+      now: new Date("2026-03-30T18:00:00.000Z")
+    });
+
+    const runs: ShoppingWorkflowRun[] = [{
+      providerId: "shopping/amazon",
+      result: makeAggregate({
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "over-budget-offer",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/B0OVERBUDGET",
+          title: "4K Monitor",
+          content: "$399.99",
+          attributes: {
+            retrievalPath: "shopping:search:result-card",
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "over-budget-offer",
+              title: "4K Monitor",
+              url: "https://www.amazon.com/dp/B0OVERBUDGET",
+              price: {
+                amount: 399.99,
+                currency: "USD",
+                retrieved_at: isoHoursAgo(1)
+              },
+              shipping: {
+                amount: 0,
+                currency: "USD",
+                notes: "free"
+              },
+              availability: "in_stock",
+              rating: 4.7,
+              reviews_count: 120
+            }
+          }
+        })]
+      })
+    }];
+
+    const output = postprocessShoppingWorkflow(compiled, runs);
+
+    expect(output.offers).toEqual([]);
+    expect(output.budgetExcluded).toBe(1);
+    expect(output.failures).toEqual([
+      expect.objectContaining({
+        provider: "shopping/amazon",
+        error: expect.objectContaining({
+          reasonCode: "env_limited",
+          details: expect.objectContaining({
+            filterReason: "budget",
+            budgetExcluded: 1,
+            candidateOffers: 1
+          })
+        })
+      })
+    ]);
   });
 
   it("does not revive fetch-record body prices when a PDP offer has no trusted nested price", () => {
@@ -475,6 +568,365 @@ describe("shopping workflow seam extraction", () => {
       amount: 0,
       currency: "USD"
     });
+  });
+
+  it("ranks blank-query best-deal results by deal score without applying intent penalties", () => {
+    const now = new Date("2026-04-01T00:00:00.000Z");
+    const cheaperOffer = extractShoppingOffer(makeRecord({
+      id: "blank-query-cheaper",
+      url: "https://www.amazon.com/dp/B0BLANK0001",
+      title: "Portable Monitor Core",
+      content: "$89.99",
+      attributes: {
+        retrievalPath: "shopping:search:result-card",
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: "blank-query-cheaper",
+          title: "Portable Monitor Core",
+          url: "https://www.amazon.com/dp/B0BLANK0001",
+          price: {
+            amount: 89.99,
+            currency: "USD",
+            retrieved_at: isoHoursAgo(1)
+          },
+          shipping: {
+            amount: 0,
+            currency: "USD",
+            notes: "free"
+          },
+          availability: "in_stock",
+          rating: 4.5,
+          reviews_count: 45
+        }
+      }
+    }), now);
+    const pricierOffer = extractShoppingOffer(makeRecord({
+      id: "blank-query-pricier",
+      url: "https://www.amazon.com/dp/B0BLANK0002",
+      title: "Portable Monitor Plus",
+      content: "$129.99",
+      attributes: {
+        retrievalPath: "shopping:search:result-card",
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: "blank-query-pricier",
+          title: "Portable Monitor Plus",
+          url: "https://www.amazon.com/dp/B0BLANK0002",
+          price: {
+            amount: 129.99,
+            currency: "USD",
+            retrieved_at: isoHoursAgo(1)
+          },
+          shipping: {
+            amount: 0,
+            currency: "USD",
+            notes: "free"
+          },
+          availability: "in_stock",
+          rating: 4.5,
+          reviews_count: 45
+        }
+      }
+    }), now);
+
+    expect(rankOffers([pricierOffer, cheaperOffer], "best_deal", "   ")[0]?.url).toBe(cheaperOffer.url);
+  });
+
+  it("prefers direct product matches over accessory listings for best-deal ranking", () => {
+    const now = new Date("2026-04-01T00:00:00.000Z");
+    const directOffer = extractShoppingOffer(makeRecord({
+      id: "direct-monitor",
+      url: "https://www.amazon.com/dp/B0DIRECTMON",
+      title: "Portable Monitor 15.6 inch",
+      content: "$149.99",
+      attributes: {
+        retrievalPath: "shopping:search:result-card",
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: "direct-monitor",
+          title: "Portable Monitor 15.6 inch",
+          url: "https://www.amazon.com/dp/B0DIRECTMON",
+          price: {
+            amount: 149.99,
+            currency: "USD",
+            retrieved_at: isoHoursAgo(1)
+          },
+          shipping: {
+            amount: 0,
+            currency: "USD",
+            notes: "free"
+          },
+          availability: "in_stock",
+          rating: 4.4,
+          reviews_count: 82
+        }
+      }
+    }), now);
+    const accessoryOffer = extractShoppingOffer(makeRecord({
+      id: "monitor-stand",
+      url: "https://www.amazon.com/dp/B0MONITORSTD",
+      title: "Portable Monitor Stand",
+      content: "$19.99",
+      attributes: {
+        retrievalPath: "shopping:search:result-card",
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: "monitor-stand",
+          title: "Portable Monitor Stand",
+          url: "https://www.amazon.com/dp/B0MONITORSTD",
+          price: {
+            amount: 19.99,
+            currency: "USD",
+            retrieved_at: isoHoursAgo(1)
+          },
+          shipping: {
+            amount: 0,
+            currency: "USD",
+            notes: "free"
+          },
+          availability: "in_stock",
+          rating: 4.9,
+          reviews_count: 500
+        }
+      }
+    }), now);
+
+    expect(rankOffers([accessoryOffer, directOffer], "best_deal", "portable monitor")[0]?.url).toBe(directOffer.url);
+  });
+
+  it("treats unsupported region codes as advisory and keeps priced offers available", () => {
+    vi.spyOn(shoppingModule, "validateShoppingLegalReviewChecklist")
+      .mockReturnValue({ valid: true });
+    const compiled = compileShoppingWorkflow({
+      query: "wireless earbuds",
+      providers: ["shopping/amazon"],
+      region: "apac",
+      mode: "json"
+    }, {
+      now: new Date("2026-03-31T16:00:00.000Z")
+    });
+
+    const output = postprocessShoppingWorkflow(compiled, [{
+      providerId: "shopping/amazon",
+      result: makeAggregate({
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "unsupported-region-offer",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/B0APAC0001",
+          title: "Wireless Earbuds",
+          content: "CAD 36.25",
+          attributes: {
+            retrievalPath: "shopping:search:result-card",
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "unsupported-region-offer",
+              title: "Wireless Earbuds",
+              url: "https://www.amazon.com/dp/B0APAC0001",
+              price: {
+                amount: 36.25,
+                currency: "CAD",
+                retrieved_at: isoHoursAgo(1)
+              },
+              shipping: {
+                amount: 0,
+                currency: "CAD",
+                notes: "free"
+              },
+              availability: "in_stock",
+              rating: 4.7,
+              reviews_count: 120
+            }
+          }
+        })]
+      })
+    }]);
+
+    expect(output.offers).toHaveLength(1);
+    expect(output.regionCurrencyExcluded).toBe(0);
+    expect(output.offerFilterDiagnostics).toEqual([
+      expect.objectContaining({
+        requestedRegion: "apac",
+        finalOffers: 1
+      })
+    ]);
+    expect(output.offerFilterDiagnostics[0]).not.toHaveProperty("expectedCurrency");
+  });
+
+  it("reports zero-price-only candidate sets as a zero-price filter failure", () => {
+    vi.spyOn(shoppingModule, "validateShoppingLegalReviewChecklist")
+      .mockReturnValue({ valid: true });
+    const compiled = compileShoppingWorkflow({
+      query: "usb-c dock",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    }, {
+      now: new Date("2026-03-30T18:00:00.000Z")
+    });
+
+    const output = postprocessShoppingWorkflow(compiled, [{
+      providerId: "shopping/amazon",
+      result: makeAggregate({
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "zero-only-offer",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/B0ZEROONLY1",
+          title: "USB-C Dock",
+          content: "Price unavailable",
+          attributes: {
+            retrievalPath: "shopping:search:result-card",
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "zero-only-offer",
+              title: "USB-C Dock",
+              url: "https://www.amazon.com/dp/B0ZEROONLY1",
+              price: {
+                amount: 0,
+                currency: "USD",
+                retrieved_at: isoHoursAgo(1)
+              },
+              shipping: {
+                amount: 0,
+                currency: "USD",
+                notes: "free"
+              },
+              availability: "in_stock",
+              rating: 4.5,
+              reviews_count: 50
+            }
+          }
+        })]
+      })
+    }]);
+
+    expect(output.offers).toEqual([]);
+    expect(output.zeroPriceExcluded).toBe(1);
+    expect(output.failures).toEqual([
+      expect.objectContaining({
+        provider: "shopping/amazon",
+        error: expect.objectContaining({
+          details: expect.objectContaining({
+            filterReason: "zero_price",
+            zeroPriceExcluded: 1
+          })
+        })
+      })
+    ]);
+  });
+
+  it("includes region currency context when budget filtering removes every priced offer", () => {
+    vi.spyOn(shoppingModule, "validateShoppingLegalReviewChecklist")
+      .mockReturnValue({ valid: true });
+    const compiled = compileShoppingWorkflow({
+      query: "27 inch 4k monitor",
+      providers: ["shopping/amazon"],
+      budget: 100,
+      region: "us",
+      mode: "json"
+    }, {
+      now: new Date("2026-03-30T18:00:00.000Z")
+    });
+
+    const output = postprocessShoppingWorkflow(compiled, [{
+      providerId: "shopping/amazon",
+      result: makeAggregate({
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "over-budget-region-offer",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/B0OVERBUDGET2",
+          title: "4K Monitor",
+          content: "$120.00",
+          attributes: {
+            retrievalPath: "shopping:search:result-card",
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "over-budget-region-offer",
+              title: "4K Monitor",
+              url: "https://www.amazon.com/dp/B0OVERBUDGET2",
+              price: {
+                amount: 120,
+                currency: "USD",
+                retrieved_at: isoHoursAgo(1)
+              },
+              shipping: {
+                amount: 0,
+                currency: "USD",
+                notes: "free"
+              },
+              availability: "in_stock",
+              rating: 4.7,
+              reviews_count: 120
+            }
+          }
+        })]
+      })
+    }]);
+
+    expect(output.offers).toEqual([]);
+    expect(output.failures[0]?.error.message).toContain("USD currency heuristic for region us");
+  });
+
+  it("prioritizes render-required issue hints over generic env-limited search shells", () => {
+    vi.spyOn(shoppingModule, "validateShoppingLegalReviewChecklist")
+      .mockReturnValue({ valid: true });
+    const compiled = compileShoppingWorkflow({
+      query: "portable monitor",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    }, {
+      now: new Date("2026-03-30T18:00:00.000Z")
+    });
+
+    const output = postprocessShoppingWorkflow(compiled, [{
+      providerId: "shopping/amazon",
+      result: makeAggregate({
+        providerOrder: ["shopping/amazon"],
+        records: [
+          makeRecord({
+            id: "generic-env-limited-shell",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/s?k=portable+monitor",
+            title: "Search results",
+            content: "No usable offer cards were extracted.",
+            attributes: {
+              retrievalPath: "shopping:search:index",
+              reasonCode: "env_limited"
+            }
+          }),
+          makeRecord({
+            id: "render-required-shell",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/s?k=portable+monitor",
+            title: "Search results",
+            content: "Enable JavaScript to continue.",
+            attributes: {
+              retrievalPath: "shopping:search:index",
+              constraint: {
+                kind: "render_required",
+                summary: "Browser-rendered search results are required."
+              }
+            }
+          })
+        ]
+      })
+    }]);
+
+    expect(output.failures).toEqual([
+      expect.objectContaining({
+        provider: "shopping/amazon",
+        error: expect.objectContaining({
+          message: "Provider requires browser-rendered results for query \"portable monitor\".",
+          details: expect.objectContaining({
+            reasonCode: "env_limited",
+            recordsCount: 2,
+            title: "Search results",
+            url: "https://www.amazon.com/s?k=portable+monitor"
+          })
+        })
+      })
+    ]);
   });
 
   it("penalizes used-condition offers for generic queries but preserves used-intent and used-only fallbacks", () => {

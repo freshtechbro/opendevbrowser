@@ -624,7 +624,7 @@ export const createYouTubeProvider = (options: YouTubeProviderOptions = {}) => {
 export const withDefaultYouTubeOptions = (options: YouTubeProviderOptions = {}): YouTubeProviderOptions => ({
   ...options,
   recoveryHints: options.recoveryHints ?? (() => ({
-    preferredFallbackModes: ["extension", "managed_headed"],
+    preferredFallbackModes: ["managed_headed"],
     challengeProne: true,
     settleTimeoutMs: 5000,
     captureDelayMs: 500

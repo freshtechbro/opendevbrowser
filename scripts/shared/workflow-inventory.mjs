@@ -261,29 +261,29 @@ export const VALIDATION_SCENARIOS = [
     id: "workflow.research.run",
     label: "Research workflow",
     runner: "cli",
-    primaryArgs: ["research", "run", "--topic", "browser automation anti-bot changes", "--days", "14", "--source-selection", "all", "--limit-per-source", "4", "--mode", "compact", "--timeout-ms", "120000"],
-    secondaryArgs: ["research", "run", "--topic", "Chrome extension debugging workflows", "--days", "30", "--source-selection", "all", "--limit-per-source", "3", "--mode", "compact", "--timeout-ms", "120000"],
+    primaryArgs: ["research", "run", "--topic", "browser automation anti-bot changes", "--days", "14", "--source-selection", "auto", "--limit-per-source", "4", "--mode", "compact", "--timeout-ms", "120000"],
+    secondaryArgs: ["research", "run", "--topic", "Chrome extension debugging workflows", "--days", "30", "--source-selection", "auto", "--limit-per-source", "3", "--mode", "compact", "--timeout-ms", "120000"],
     timeoutMs: 120_000,
     allowedStatuses: ["pass", "env_limited"],
     executionPolicy: "automated",
     entryPath: "opendevbrowser research run",
     primaryTask: "Research the last 14 days of public anti-bot changes that affect production browser automation teams.",
     secondaryTask: "Research public guidance and field reports about Chrome extension debugging workflows over the last month.",
-    ownerFiles: ["src/cli/commands/research.ts", "src/providers/workflows.ts", "src/providers/renderer.ts"]
+    ownerFiles: ["src/cli/commands/research.ts", "src/providers/research-compiler.ts", "src/providers/research-executor.ts", "src/providers/workflows.ts", "src/providers/renderer.ts"]
   },
   {
     id: "workflow.shopping.run",
     label: "Shopping workflow",
     runner: "cli",
-    primaryArgs: ["shopping", "run", "--query", "wireless ergonomic mouse", "--providers", "shopping/bestbuy,shopping/ebay", "--budget", "150", "--region", "us", "--browser-mode", "managed", "--timeout-ms", "120000"],
-    secondaryArgs: ["shopping", "run", "--query", "27 inch 4k monitor", "--providers", "shopping/bestbuy,shopping/ebay", "--budget", "350", "--region", "us", "--browser-mode", "managed", "--sort", "lowest_price", "--timeout-ms", "120000"],
+    primaryArgs: ["shopping", "run", "--query", "wireless ergonomic mouse", "--providers", "shopping/bestbuy,shopping/ebay", "--budget", "150", "--browser-mode", "managed", "--timeout-ms", "120000"],
+    secondaryArgs: ["shopping", "run", "--query", "27 inch 4k monitor", "--providers", "shopping/bestbuy,shopping/ebay", "--budget", "350", "--browser-mode", "managed", "--sort", "lowest_price", "--timeout-ms", "120000"],
     timeoutMs: 120_000,
     allowedStatuses: ["pass"],
     executionPolicy: "automated",
     entryPath: "opendevbrowser shopping run",
     primaryTask: "Find the best ergonomic wireless mouse under a real budget using providers that should return live offers without auth walls.",
     secondaryTask: "Compare 27-inch 4K monitors under budget with explicit provider selection and price sorting pressure.",
-    ownerFiles: ["src/cli/commands/shopping.ts", "src/providers/workflows.ts", "src/providers/shopping-postprocess.ts", "src/providers/runtime-factory.ts"]
+    ownerFiles: ["src/cli/commands/shopping.ts", "src/providers/shopping-compiler.ts", "src/providers/shopping-workflow.ts", "src/providers/shopping-postprocess.ts", "src/providers/workflows.ts", "src/providers/runtime-factory.ts"]
   },
   {
     id: "workflow.product_video.url",

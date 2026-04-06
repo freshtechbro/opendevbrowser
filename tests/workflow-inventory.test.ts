@@ -90,15 +90,26 @@ describe("workflow inventory", () => {
 
     expect(onboarding?.ownerFiles).toContain("src/cli/onboarding-metadata.json");
     expect(onboarding?.ownerFiles).toContain("docs/FIRST_RUN_ONBOARDING.md");
-    expect(research?.primaryArgs).toContain("all");
-    expect(research?.secondaryArgs).toContain("all");
+    expect(research?.primaryArgs).toContain("auto");
+    expect(research?.secondaryArgs).toContain("auto");
     expect(research?.primaryArgs).not.toContain("--sources");
     expect(research?.secondaryArgs).not.toContain("--sources");
+    expect(research?.ownerFiles).toContain("src/providers/research-compiler.ts");
+    expect(research?.ownerFiles).toContain("src/providers/research-executor.ts");
     expect(webSearch?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(webFetch?.secondaryArgs.join(" ")).toContain("https://playwright.dev/docs/api/class-locator");
     expect(relayAnnotate?.requiresExtension).toBe(true);
     expect(extensionCanvas?.requiresExtension).toBe(true);
     expect(cdpCanvas?.requiresExtension).toBe(true);
+  });
+
+  it("keeps automated shopping validation scenarios off non-authoritative region comparisons", () => {
+    const shopping = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.shopping.run");
+
+    expect(shopping?.primaryArgs).not.toContain("--region");
+    expect(shopping?.secondaryArgs).not.toContain("--region");
+    expect(shopping?.ownerFiles).toContain("src/providers/shopping-compiler.ts");
+    expect(shopping?.ownerFiles).toContain("src/providers/shopping-workflow.ts");
   });
 
   it("allows env_limited for honest macro shell boundaries and product-video manual follow-up", () => {

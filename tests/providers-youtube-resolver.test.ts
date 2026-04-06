@@ -38,6 +38,7 @@ describe("youtube transcript resolver", () => {
 
     expect(config.modeDefault).toBe("yt-dlp");
     expect(config.enableYtdlpAudioAsr).toBe(true);
+    expect(config.enableBrowserFallback).toBe(false);
     expect(config.ytdlpTimeoutMs).toBe(1000);
     expect(config.strategyOrder).toEqual(["native_caption_parse", "optional_asr", "ytdlp_subtitle"]);
   });
@@ -191,6 +192,37 @@ describe("youtube transcript resolver", () => {
     expect(result.transcriptStrategy).toBe("browser_assisted");
     expect(result.transcriptStrategyDetail).toBe("browser_assisted");
     expect(result.attemptChain.at(-1)).toMatchObject({ strategy: "browser_assisted", ok: true });
+  });
+
+  it("does not attempt browser-assisted fallback unless it is explicitly enabled", async () => {
+    const fallbackPort = {
+      resolve: vi.fn(async () => ({
+        ok: true as const,
+        reasonCode: "transcript_unavailable" as const,
+        mode: "managed_headed" as const,
+        output: {
+          html: "<html><body>unused fallback output</body></html>"
+        }
+      }))
+    };
+
+    const result = await resolveYouTubeTranscript({
+      context,
+      watchUrl: "https://www.youtube.com/watch?v=fallback-disabled",
+      pageHtml: "<html><body>no caption block</body></html>",
+      legalChecklist: createChecklist(["native_caption_parse"]),
+      config: {
+        modeDefault: "web"
+      },
+      browserFallbackPort: fallbackPort,
+      allowBrowserFallbackEscalation: true
+    });
+
+    expect(fallbackPort.resolve).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: false,
+      reasonCode: "caption_missing"
+    });
   });
 
   it("surfaces browser fallback failure reason codes", async () => {

@@ -35,7 +35,7 @@ describe("youtube-transcript-live-probe script", () => {
     expect(parsed.quiet).toBe(true);
   });
 
-  it("maps transcript availability boundaries to env_limited", () => {
+  it("keeps transcript retrieval failures blocking", () => {
     const failure = classifyTranscriptProbeFailure({
       message: "YouTube transcript unavailable (transcript_unavailable)",
       details: {
@@ -45,9 +45,9 @@ describe("youtube-transcript-live-probe script", () => {
       }
     });
 
-    expect(TRANSCRIPT_ENV_LIMITED_REASON_CODES.has("caption_missing")).toBe(true);
+    expect(TRANSCRIPT_ENV_LIMITED_REASON_CODES.has("caption_missing")).toBe(false);
     expect(failure).toEqual({
-      status: "env_limited",
+      status: "fail",
       detail: "reason_codes=caption_missing",
       data: {
         reasonCode: "transcript_unavailable",

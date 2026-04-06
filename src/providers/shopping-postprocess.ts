@@ -207,11 +207,10 @@ export const extractBrandFromTitle = (title: string | undefined): string | undef
   return match?.[1]?.trim() || undefined;
 };
 
-const parseMatchedPrice = (currencySymbol: string | undefined, rawAmount: string | undefined): {
+const parseMatchedPrice = (currencySymbol: string, rawAmount: string): {
   amount: number;
   currency: string;
 } | null => {
-  if (!currencySymbol || !rawAmount) return null;
   const amount = Number(rawAmount.replace(/,/g, ""));
   if (!Number.isFinite(amount) || amount <= 0) return null;
   const normalizedCurrency = currencySymbol.trim().toUpperCase();
@@ -245,7 +244,7 @@ export const parsePriceFromContent = (content: string | undefined): { amount: nu
   if (!normalized) return { amount: 0, currency: "USD" };
 
   const contextualMatches = [...normalized.matchAll(CONTEXTUAL_PRICE_TOKEN_RE)]
-    .map((match) => parseMatchedPrice(match[1], match[2]))
+    .map((match) => parseMatchedPrice(match[1]!, match[2]!))
     .filter((entry): entry is { amount: number; currency: string } => entry !== null)
     .sort((left, right) => left.amount - right.amount);
   if (contextualMatches.length > 0) {
@@ -254,7 +253,7 @@ export const parsePriceFromContent = (content: string | undefined): { amount: nu
 
   const candidates = [...normalized.matchAll(PRICE_TOKEN_RE)]
     .map((match) => {
-      const parsed = parseMatchedPrice(match[1], match[2]);
+      const parsed = parseMatchedPrice(match[1]!, match[2]!);
       if (!parsed) return null;
       const index = match.index as number;
       const context = normalized.slice(Math.max(0, index - 48), Math.min(normalized.length, index + match[0].length + 48));
@@ -437,6 +436,65 @@ const offerMatchesRegionCurrency = (
   return offer.price.currency.trim().toUpperCase() === expectedCurrency;
 };
 
+export interface ShoppingOfferFilterDiagnostic {
+  providerId: string;
+  candidateOffers: number;
+  pricedOffers: number;
+  regionMatchedOffers: number;
+  zeroPriceExcluded: number;
+  regionCurrencyExcluded: number;
+  budgetExcluded: number;
+  finalOffers: number;
+  requestedRegion?: string;
+  expectedCurrency?: string;
+  allCandidateOffersDroppedByZeroPrice: boolean;
+  allCandidateOffersDroppedByRegionCurrency: boolean;
+  allCandidateOffersDroppedByBudget: boolean;
+}
+
+const buildOfferFilterDiagnostic = (
+  providerId: string,
+  offers: ShoppingOffer[],
+  compiled: CompiledShoppingWorkflow,
+  expectedCurrency: string | null
+): ShoppingOfferFilterDiagnostic => {
+  const pricedOffers = offers.filter((offer) => offer.price.amount > 0);
+  const regionMatchedOffers = pricedOffers.filter((offer) => offerMatchesRegionCurrency(offer, expectedCurrency));
+  const budget = typeof compiled.budget === "number" ? compiled.budget : null;
+  const finalOffers = typeof budget === "number"
+    ? regionMatchedOffers.filter((offer) => offer.price.amount <= budget)
+    : regionMatchedOffers;
+
+  return {
+    providerId,
+    candidateOffers: offers.length,
+    pricedOffers: pricedOffers.length,
+    regionMatchedOffers: regionMatchedOffers.length,
+    zeroPriceExcluded: offers.length - pricedOffers.length,
+    regionCurrencyExcluded: pricedOffers.length - regionMatchedOffers.length,
+    budgetExcluded: regionMatchedOffers.length - finalOffers.length,
+    finalOffers: finalOffers.length,
+    ...(compiled.region ? { requestedRegion: compiled.region } : {}),
+    ...(expectedCurrency ? { expectedCurrency } : {}),
+    allCandidateOffersDroppedByZeroPrice: offers.length > 0 && pricedOffers.length === 0,
+    allCandidateOffersDroppedByRegionCurrency: pricedOffers.length > 0 && regionMatchedOffers.length === 0,
+    allCandidateOffersDroppedByBudget: regionMatchedOffers.length > 0 && finalOffers.length === 0
+  };
+};
+
+const filterShoppingOffers = (
+  offers: ShoppingOffer[],
+  compiled: CompiledShoppingWorkflow,
+  expectedCurrency: string | null
+): ShoppingOffer[] => {
+  return offers.filter((offer) => {
+    if (offer.price.amount <= 0) return false;
+    if (!offerMatchesRegionCurrency(offer, expectedCurrency)) return false;
+    if (typeof compiled.budget !== "number") return true;
+    return offer.price.amount <= compiled.budget;
+  });
+};
+
 export const dedupeOffers = (offers: ShoppingOffer[]): ShoppingOffer[] => {
   const deduped = new Map<string, ShoppingOffer>();
   for (const offer of offers) {
@@ -513,39 +571,60 @@ export const isLikelyOfferRecord = (record: NormalizedRecord): boolean => {
   return true;
 };
 
+export const hasShoppingIssueHint = (records: NormalizedRecord[]): boolean => {
+  return records.some((record) => readProviderIssueHintFromRecord(record) !== null);
+};
+
+const withOfferFilterDiagnosticDetails = (
+  details: Record<string, JsonValue>,
+  offerFilterDiagnostic?: ShoppingOfferFilterDiagnostic
+): Record<string, JsonValue> => {
+  if (!offerFilterDiagnostic) {
+    return details;
+  }
+
+  return {
+    ...details,
+    candidateOffers: offerFilterDiagnostic.candidateOffers,
+    pricedOffers: offerFilterDiagnostic.pricedOffers,
+    regionMatchedOffers: offerFilterDiagnostic.regionMatchedOffers,
+    zeroPriceExcluded: offerFilterDiagnostic.zeroPriceExcluded,
+    regionCurrencyExcluded: offerFilterDiagnostic.regionCurrencyExcluded,
+    budgetExcluded: offerFilterDiagnostic.budgetExcluded,
+    finalOffers: offerFilterDiagnostic.finalOffers,
+    ...(offerFilterDiagnostic.requestedRegion ? { requestedRegion: offerFilterDiagnostic.requestedRegion } : {}),
+    ...(offerFilterDiagnostic.expectedCurrency ? { expectedCurrency: offerFilterDiagnostic.expectedCurrency } : {})
+  };
+};
+
 const inferShoppingNoOfferFailure = (
   providerId: string,
   query: string,
-  records: NormalizedRecord[]
+  records: NormalizedRecord[],
+  offerFilterDiagnostic?: ShoppingOfferFilterDiagnostic
 ): ProviderFailureEntry => {
-  const issuePriority = (issue: NonNullable<ReturnType<typeof readProviderIssueHintFromRecord>>): number => {
-    if (issue.reasonCode === "token_required" || issue.reasonCode === "auth_required") return 3;
-    if (issue.reasonCode === "challenge_detected") return 2;
-    if (issue.constraint?.kind === "render_required") return 1;
-    return 0;
-  };
-  let primaryRecordIssue:
-    | {
-      hint: NonNullable<ReturnType<typeof readProviderIssueHintFromRecord>>;
-      url?: string;
-      title?: string;
-      providerShell?: string;
-    }
-    | null = null;
-  for (const record of records) {
-    const hint = readProviderIssueHintFromRecord(record);
-    if (!hint) continue;
-    if (!primaryRecordIssue || issuePriority(hint) > issuePriority(primaryRecordIssue.hint)) {
-      primaryRecordIssue = {
+  const issuePriority = (issue: NonNullable<ReturnType<typeof readProviderIssueHintFromRecord>>): number => (
+    ({
+      token_required: 3,
+      auth_required: 3,
+      challenge_detected: 2
+    } as Partial<Record<typeof issue.reasonCode, number>>)[issue.reasonCode] ?? Number(issue.constraint?.kind === "render_required")
+  );
+  const primaryRecordIssue = records
+    .flatMap((record) => {
+      const hint = readProviderIssueHintFromRecord(record);
+      if (!hint) return [];
+      const title = normalizePlainText(record.title);
+      return [{
         hint,
         ...(typeof record.url === "string" ? { url: canonicalizeUrl(record.url) } : {}),
-        ...(normalizePlainText(record.title) ? { title: normalizePlainText(record.title) } : {}),
+        ...(title ? { title } : {}),
         ...(typeof record.attributes.providerShell === "string" && record.attributes.providerShell.trim().length > 0
           ? { providerShell: record.attributes.providerShell.trim() }
           : {})
-      };
-    }
-  }
+      }];
+    })
+    .sort((left, right) => issuePriority(right.hint) - issuePriority(left.hint))[0] ?? null;
 
   if (primaryRecordIssue) {
     const reasonCode = primaryRecordIssue.hint.reasonCode;
@@ -563,16 +642,84 @@ const inferShoppingNoOfferFailure = (
         reasonCode,
         provider: providerId,
         source: "shopping",
-        details: applyProviderIssueHint({
+        details: applyProviderIssueHint(withOfferFilterDiagnosticDetails({
           query,
           recordsCount: records.length,
           noOfferRecords: true,
           ...(primaryRecordIssue.url ? { url: primaryRecordIssue.url } : {}),
           ...(primaryRecordIssue.title ? { title: primaryRecordIssue.title } : {}),
           ...(primaryRecordIssue.providerShell ? { providerShell: primaryRecordIssue.providerShell } : {})
-        }, primaryRecordIssue.hint)
+        }, offerFilterDiagnostic), primaryRecordIssue.hint)
       }
     };
+  }
+
+  if (offerFilterDiagnostic?.candidateOffers) {
+    const filterDetails = withOfferFilterDiagnosticDetails({
+      query,
+      recordsCount: records.length,
+      noOfferRecords: true,
+      reasonCode: "env_limited"
+    }, offerFilterDiagnostic);
+
+    if (offerFilterDiagnostic.allCandidateOffersDroppedByRegionCurrency) {
+      return {
+        provider: providerId,
+        source: "shopping",
+        error: {
+          code: "unavailable",
+          message: `Provider returned priced offers for query "${query}", but all candidate offers were filtered by the ${offerFilterDiagnostic.expectedCurrency ?? "requested"} currency heuristic.`,
+          retryable: false,
+          reasonCode: "env_limited",
+          provider: providerId,
+          source: "shopping",
+          details: {
+            ...filterDetails,
+            filterReason: "region_currency"
+          }
+        }
+      };
+    }
+
+    if (offerFilterDiagnostic.allCandidateOffersDroppedByBudget) {
+      return {
+        provider: providerId,
+        source: "shopping",
+        error: {
+          code: "unavailable",
+          message: typeof offerFilterDiagnostic.expectedCurrency === "string" && typeof offerFilterDiagnostic.requestedRegion === "string"
+            ? `Provider returned priced offers for query "${query}", but all candidate offers exceeded the requested budget after applying the ${offerFilterDiagnostic.expectedCurrency} currency heuristic for region ${offerFilterDiagnostic.requestedRegion}.`
+            : `Provider returned priced offers for query "${query}", but all candidate offers exceeded the requested budget.`,
+          retryable: false,
+          reasonCode: "env_limited",
+          provider: providerId,
+          source: "shopping",
+          details: {
+            ...filterDetails,
+            filterReason: "budget"
+          }
+        }
+      };
+    }
+
+    if (offerFilterDiagnostic.allCandidateOffersDroppedByZeroPrice) {
+      return {
+        provider: providerId,
+        source: "shopping",
+        error: {
+          code: "unavailable",
+          message: `Provider returned candidate offers for query "${query}", but none had a trustworthy non-zero price.`,
+          retryable: false,
+          reasonCode: "env_limited",
+          provider: providerId,
+          source: "shopping",
+          details: {
+            ...filterDetails,
+            filterReason: "zero_price"
+          }
+        }
+      };
+    }
   }
 
   const fallbackFailure: ProviderFailureEntry = {
@@ -585,12 +732,12 @@ const inferShoppingNoOfferFailure = (
       reasonCode: "env_limited",
       provider: providerId,
       source: "shopping",
-      details: {
+      details: withOfferFilterDiagnosticDetails({
         query,
         recordsCount: records.length,
         noOfferRecords: true,
         reasonCode: "env_limited"
-      }
+      }, offerFilterDiagnostic)
     }
   };
 
@@ -619,7 +766,7 @@ const inferShoppingNoOfferFailure = (
         reasonCode,
         provider: providerId,
         source: "shopping",
-        details: {
+        details: withOfferFilterDiagnosticDetails({
           query,
           recordsCount: records.length,
           noOfferRecords: true,
@@ -628,7 +775,7 @@ const inferShoppingNoOfferFailure = (
           blockerConfidence: blocker.confidence,
           ...(url ? { url } : {}),
           ...(title ? { title } : {})
-        }
+        }, offerFilterDiagnostic)
       }
     };
   }
@@ -639,14 +786,18 @@ const inferShoppingNoOfferFailure = (
 const createEmptyShoppingResultFailure = (
   providerId: string,
   query: string,
-  records: NormalizedRecord[]
-): ProviderFailureEntry => inferShoppingNoOfferFailure(providerId, query, records);
+  records: NormalizedRecord[],
+  offerFilterDiagnostic?: ShoppingOfferFilterDiagnostic
+): ProviderFailureEntry => inferShoppingNoOfferFailure(providerId, query, records, offerFilterDiagnostic);
 
 export interface ShoppingWorkflowPostprocessResult {
   records: NormalizedRecord[];
   failures: ProviderFailureEntry[];
   offers: ShoppingOffer[];
   zeroPriceExcluded: number;
+  budgetExcluded: number;
+  regionCurrencyExcluded: number;
+  offerFilterDiagnostics: ShoppingOfferFilterDiagnostic[];
 }
 
 export const postprocessShoppingWorkflow = (
@@ -662,41 +813,51 @@ export const postprocessShoppingWorkflow = (
     ...run,
     extractedOffers: run.offerRecords.map((record) => extractShoppingOffer(record, compiled.now))
   }));
-  const extractedOffers = runsWithOfferRecords
-    .flatMap((run) => run.offerRecords)
-    .map((record) => extractShoppingOffer(record, compiled.now));
-  const zeroPriceExcluded = extractedOffers.filter((offer) => offer.price.amount <= 0).length;
+  const runsWithOfferDiagnostics = runsWithExtractedOffers.map((run) => {
+    const offerFilterDiagnostic = buildOfferFilterDiagnostic(
+      run.providerId,
+      run.extractedOffers,
+      compiled,
+      expectedCurrency
+    );
+    return {
+      ...run,
+      offerFilterDiagnostic,
+      filteredOffers: filterShoppingOffers(run.extractedOffers, compiled, expectedCurrency)
+    };
+  });
+  const zeroPriceExcluded = runsWithOfferDiagnostics.reduce((sum, run) => sum + run.offerFilterDiagnostic.zeroPriceExcluded, 0);
+  const budgetExcluded = runsWithOfferDiagnostics.reduce((sum, run) => sum + run.offerFilterDiagnostic.budgetExcluded, 0);
+  const regionCurrencyExcluded = runsWithOfferDiagnostics.reduce((sum, run) => sum + run.offerFilterDiagnostic.regionCurrencyExcluded, 0);
 
   const offers = rankOffers(
-    dedupeOffers(extractedOffers.filter((offer) => {
-      if (offer.price.amount <= 0) return false;
-      if (!offerMatchesRegionCurrency(offer, expectedCurrency)) return false;
-      if (typeof compiled.budget !== "number") return true;
-      return offer.price.amount <= compiled.budget;
-    })),
+    dedupeOffers(runsWithOfferDiagnostics.flatMap((run) => run.filteredOffers)),
     compiled.sort,
     compiled.query
   );
 
-  const failures = runsWithExtractedOffers.flatMap((run) => {
+  const failures = runsWithOfferDiagnostics.flatMap((run) => {
     if (run.result.failures.length > 0) {
       return run.result.failures;
     }
-    if (
-      run.extractedOffers.some((offer) => (
-        offer.price.amount > 0
-        && offerMatchesRegionCurrency(offer, expectedCurrency)
-      ))
-    ) {
+    if (run.offerFilterDiagnostic.finalOffers > 0) {
       return [];
     }
-    return [createEmptyShoppingResultFailure(run.providerId, compiled.query, run.result.records)];
+    return [createEmptyShoppingResultFailure(
+      run.providerId,
+      compiled.query,
+      run.result.records,
+      run.offerFilterDiagnostic
+    )];
   });
 
   return {
-    records: runsWithExtractedOffers.flatMap((run) => run.result.records),
+    records: runsWithOfferDiagnostics.flatMap((run) => run.result.records),
     failures,
     offers,
-    zeroPriceExcluded
+    zeroPriceExcluded,
+    budgetExcluded,
+    regionCurrencyExcluded,
+    offerFilterDiagnostics: runsWithOfferDiagnostics.map((run) => run.offerFilterDiagnostic)
   };
 };

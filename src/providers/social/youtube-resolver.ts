@@ -24,6 +24,13 @@ const YOUTUBEI_HEADERS = {
   "content-type": "application/json"
 } as const;
 
+const YOUTUBEI_PLAYER_CONTEXT = {
+  client: {
+    clientName: "ANDROID",
+    clientVersion: "20.10.38"
+  }
+} as const;
+
 const APIFY_HEADERS = {
   accept: "application/json",
   "content-type": "application/json"
@@ -152,7 +159,7 @@ const DEFAULT_TRANSCRIPT_RESOLVER_CONFIG: YouTubeTranscriptResolverConfig = {
   enableYtdlpAudioAsr: true,
   enableApify: true,
   apifyActorId: "streamers/youtube-scraper",
-  enableBrowserFallback: true,
+  enableBrowserFallback: false,
   ytdlpTimeoutMs: 10000
 };
 
@@ -314,11 +321,7 @@ const trackNameFromValue = (value: unknown): string => {
   return "";
 };
 
-const extractCaptionTracks = (html: string): CaptionTrack[] => {
-  const block = findJsonSegmentAfter(html, '"captionTracks":', "[", "]");
-  const parsed = parseJson<unknown[]>(block);
-  if (!Array.isArray(parsed)) return [];
-
+const normalizeCaptionTracks = (parsed: unknown[]): CaptionTrack[] => {
   const tracks: CaptionTrack[] = [];
   for (const candidate of parsed) {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
@@ -335,6 +338,19 @@ const extractCaptionTracks = (html: string): CaptionTrack[] => {
     });
   }
   return tracks;
+};
+
+const extractCaptionTracks = (html: string): CaptionTrack[] => {
+  const block = findJsonSegmentAfter(html, '"captionTracks":', "[", "]");
+  const parsed = parseJson<unknown[]>(block);
+  if (!Array.isArray(parsed)) return [];
+  return normalizeCaptionTracks(parsed);
+};
+
+const extractCaptionTracksFromTracklistRenderer = (value: unknown): CaptionTrack[] => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const captionTracks = (value as Record<string, unknown>).captionTracks;
+  return Array.isArray(captionTracks) ? normalizeCaptionTracks(captionTracks) : [];
 };
 
 const isAutomaticCaptionTrack = (track: CaptionTrack): boolean => {
@@ -473,13 +489,38 @@ const withQueryParam = (baseUrl: string, key: string, value: string): string => 
   }
 };
 
-const resolveNativeCaptionTranscript = async (args: {
-  pageHtml: string;
+const withoutQueryParam = (baseUrl: string, key: string): string => {
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.delete(key);
+    return url.toString();
+  } catch {
+    return baseUrl;
+  }
+};
+
+const hasQueryParamValue = (value: string, key: string, expected: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.searchParams.get(key) === expected;
+  } catch {
+    return false;
+  }
+};
+
+const parseAnyTranscriptPayload = (payload: string): string => {
+  const trimmed = payload.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("{")) return parseTranscriptJson3(trimmed);
+  return parseTranscriptPayload(trimmed);
+};
+
+const resolveNativeCaptionTranscriptFromTracks = async (args: {
+  tracks: CaptionTrack[];
   context: ProviderContext;
   manualOnly: boolean;
 }): Promise<TranscriptSuccessResult | TranscriptFailureResult> => {
-  const tracks = extractCaptionTracks(args.pageHtml);
-  const selectedTrack = pickCaptionTrack(tracks, args.manualOnly);
+  const selectedTrack = pickCaptionTrack(args.tracks, args.manualOnly);
   if (!selectedTrack) {
     return {
       ok: false,
@@ -490,38 +531,56 @@ const resolveNativeCaptionTranscript = async (args: {
     };
   }
 
-  const json3Url = withQueryParam(selectedTrack.baseUrl, "fmt", "json3");
-  const json3Response = await fetchTranscriptPayload(json3Url, args.context, "application/json,text/plain,*/*");
-  if (json3Response.ok) {
-    const json3Text = parseTranscriptJson3(json3Response.payload);
-    if (json3Text) {
+  const candidateUrls = [
+    withQueryParam(selectedTrack.baseUrl, "fmt", "json3"),
+    withQueryParam(selectedTrack.baseUrl, "fmt", "vtt"),
+    withoutQueryParam(selectedTrack.baseUrl, "fmt"),
+    selectedTrack.baseUrl
+  ].filter((url, index, values) => values.indexOf(url) === index);
+
+  let sawEmptyPayload = false;
+  let lastHttpFailure: TranscriptFailureResult | null = null;
+
+  for (const candidateUrl of candidateUrls) {
+    const response = await fetchTranscriptPayload(
+      candidateUrl,
+      args.context,
+      "application/json,text/plain,text/xml,text/vtt,*/*"
+    );
+
+    if (response.ok) {
+      const text = hasQueryParamValue(candidateUrl, "fmt", "json3")
+        ? parseTranscriptJson3(response.payload.trim())
+        : parseAnyTranscriptPayload(response.payload);
+      if (text) {
+        return {
+          ok: true,
+          text,
+          language: selectedTrack.languageCode || "unknown"
+        };
+      }
+      sawEmptyPayload = true;
+      continue;
+    }
+
+    if (response.status === 401 || response.status === 403 || response.status === 429) {
       return {
-        ok: true,
-        text: json3Text,
-        language: selectedTrack.languageCode || "unknown"
+        ok: false,
+        reasonCode: toTranscriptFetchReasonCode(response.status),
+        message: `Caption endpoint returned HTTP ${response.status}.`
       };
     }
-  } else if (json3Response.status === 401 || json3Response.status === 403 || json3Response.status === 429) {
-    return {
-      ok: false,
-      reasonCode: toTranscriptFetchReasonCode(json3Response.status),
-      message: `Caption JSON3 endpoint returned HTTP ${json3Response.status}.`
-    };
+
+    if (response.status > 0) {
+      lastHttpFailure = {
+        ok: false,
+        reasonCode: toTranscriptFetchReasonCode(response.status),
+        message: `Caption endpoint returned HTTP ${response.status}.`
+      };
+    }
   }
 
-  const fallbackResponse = await fetchTranscriptPayload(selectedTrack.baseUrl, args.context, TRANSCRIPT_FETCH_HEADERS.accept);
-  if (!fallbackResponse.ok) {
-    return {
-      ok: false,
-      reasonCode: toTranscriptFetchReasonCode(fallbackResponse.status),
-      message: fallbackResponse.status > 0
-        ? `Caption endpoint returned HTTP ${fallbackResponse.status}.`
-        : "Caption endpoint request failed."
-    };
-  }
-
-  const text = parseTranscriptPayload(fallbackResponse.payload);
-  if (!text) {
+  if (sawEmptyPayload) {
     return {
       ok: false,
       reasonCode: "transcript_unavailable",
@@ -529,11 +588,27 @@ const resolveNativeCaptionTranscript = async (args: {
     };
   }
 
+  if (lastHttpFailure) {
+    return lastHttpFailure;
+  }
+
   return {
-    ok: true,
-    text,
-    language: selectedTrack.languageCode || "unknown"
+    ok: false,
+    reasonCode: "transcript_unavailable",
+    message: "Caption endpoint request failed."
   };
+};
+
+const resolveNativeCaptionTranscript = async (args: {
+  pageHtml: string;
+  context: ProviderContext;
+  manualOnly: boolean;
+}): Promise<TranscriptSuccessResult | TranscriptFailureResult> => {
+  return resolveNativeCaptionTranscriptFromTracks({
+    tracks: extractCaptionTracks(args.pageHtml),
+    context: args.context,
+    manualOnly: args.manualOnly
+  });
 };
 
 const firstNonEmptyMatch = (value: string, patterns: RegExp[]): string | null => {
@@ -544,82 +619,6 @@ const firstNonEmptyMatch = (value: string, patterns: RegExp[]): string | null =>
     }
   }
   return null;
-};
-
-const extractYoutubeiContext = (html: string): Record<string, unknown> | null => {
-  const fromObject = parseJson<Record<string, unknown>>(findJsonSegmentAfter(html, '"INNERTUBE_CONTEXT":', "{", "}"));
-  if (fromObject) return fromObject;
-
-  const clientName = firstNonEmptyMatch(html, [
-    /"INNERTUBE_CONTEXT_CLIENT_NAME":"([^"]+)"/,
-    /"clientName":"([^"]+)"/
-  ]);
-  const clientVersion = firstNonEmptyMatch(html, [
-    /"INNERTUBE_CONTEXT_CLIENT_VERSION":"([^"]+)"/,
-    /"clientVersion":"([^"]+)"/
-  ]);
-
-  if (!clientName || !clientVersion) return null;
-  return {
-    client: {
-      clientName,
-      clientVersion
-    }
-  };
-};
-
-const extractYoutubeiTranscriptParams = (html: string): string | null => {
-  return firstNonEmptyMatch(html, [
-    /"getTranscriptEndpoint"\s*:\s*\{\s*"params"\s*:\s*"([^"]+)"/,
-    /"params"\s*:\s*"([^"]+)"\s*,\s*"commandMetadata"\s*:\s*\{\s*"webCommandMetadata"\s*:\s*\{\s*"apiUrl"\s*:\s*"\\\/youtubei\\\/v1\\\/get_transcript"/
-  ]);
-};
-
-const runTextFromRenderer = (value: unknown): string => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
-  const record = value as Record<string, unknown>;
-  if (typeof record.simpleText === "string") return decodeHtml(record.simpleText);
-  if (!Array.isArray(record.runs)) return "";
-  return record.runs
-    .map((entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return "";
-      const text = (entry as Record<string, unknown>).text;
-      return typeof text === "string" ? decodeHtml(text) : "";
-    })
-    .join("")
-    .trim();
-};
-
-const collectYoutubeiSegments = (payload: unknown): string[] => {
-  const segments: string[] = [];
-  const queue: unknown[] = [payload];
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current) continue;
-
-    if (Array.isArray(current)) {
-      for (const entry of current) {
-        queue.push(entry);
-      }
-      continue;
-    }
-
-    if (typeof current !== "object") continue;
-    const record = current as Record<string, unknown>;
-
-    const renderer = record.transcriptSegmentRenderer;
-    if (renderer && typeof renderer === "object" && !Array.isArray(renderer)) {
-      const text = runTextFromRenderer((renderer as Record<string, unknown>).snippet);
-      if (text) segments.push(text);
-    }
-
-    for (const value of Object.values(record)) {
-      queue.push(value);
-    }
-  }
-
-  return segments;
 };
 
 const findLanguageInPayload = (payload: unknown): string | null => {
@@ -647,7 +646,31 @@ const findLanguageInPayload = (payload: unknown): string | null => {
   return null;
 };
 
+const parseVideoIdFromWatchUrl = (watchUrl: string): string | null => {
+  try {
+    const parsed = new URL(watchUrl);
+    if (parsed.hostname === "youtu.be") {
+      const id = parsed.pathname.replace(/^\//, "").trim();
+      return id || null;
+    }
+    const queryId = parsed.searchParams.get("v");
+    if (queryId) return queryId;
+    const shortsMatch = parsed.pathname.match(/\/shorts\/([^/?#]+)/);
+    return shortsMatch?.[1] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const extractVideoIdFromHtml = (html: string): string | null => {
+  return firstNonEmptyMatch(html, [
+    /"videoId"\s*:\s*"([^"]+)"/,
+    /"video_id"\s*:\s*"([^"]+)"/
+  ]);
+};
+
 const resolveYoutubeiTranscript = async (args: {
+  watchUrl: string;
   pageHtml: string;
   context: ProviderContext;
 }): Promise<TranscriptSuccessResult | TranscriptFailureResult> => {
@@ -655,30 +678,32 @@ const resolveYoutubeiTranscript = async (args: {
     /"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/,
     /"innertubeApiKey"\s*:\s*"([^"]+)"/
   ]);
-  const context = extractYoutubeiContext(args.pageHtml);
-  const params = extractYoutubeiTranscriptParams(args.pageHtml);
+  const videoId = parseVideoIdFromWatchUrl(args.watchUrl) ?? extractVideoIdFromHtml(args.pageHtml);
 
-  if (!apiKey || !context || !params) {
+  if (!apiKey || !videoId) {
     return {
       ok: false,
       reasonCode: "caption_missing",
-      message: "youtubei transcript bootstrap payload is missing API key, context, or transcript params."
+      message: "youtubei transcript bootstrap payload is missing API key or video id."
     };
   }
 
   let response: Response;
   try {
-    response = await fetch(`https://www.youtube.com/youtubei/v1/get_transcript?key=${encodeURIComponent(apiKey)}`, {
+    response = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
       headers: YOUTUBEI_HEADERS,
-      body: JSON.stringify({ context, params }),
+      body: JSON.stringify({
+        context: YOUTUBEI_PLAYER_CONTEXT,
+        videoId
+      }),
       signal: args.context.signal
     });
   } catch {
     return {
       ok: false,
       reasonCode: "transcript_unavailable",
-      message: "youtubei transcript endpoint request failed."
+      message: "youtubei player endpoint request failed."
     };
   }
 
@@ -686,7 +711,7 @@ const resolveYoutubeiTranscript = async (args: {
     return {
       ok: false,
       reasonCode: toTranscriptFetchReasonCode(response.status),
-      message: `youtubei transcript endpoint returned HTTP ${response.status}.`
+      message: `youtubei player endpoint returned HTTP ${response.status}.`
     };
   }
 
@@ -696,23 +721,34 @@ const resolveYoutubeiTranscript = async (args: {
     return {
       ok: false,
       reasonCode: "transcript_unavailable",
-      message: "youtubei transcript endpoint returned malformed JSON."
+      message: "youtubei player endpoint returned malformed JSON."
     };
   }
 
-  const segments = collectYoutubeiSegments(payload);
-  if (segments.length === 0) {
+  const captionsTracklistRenderer = ((payload as Record<string, unknown>).captions as Record<string, unknown> | undefined)
+    ?.playerCaptionsTracklistRenderer;
+  const tracks = extractCaptionTracksFromTracklistRenderer(captionsTracklistRenderer);
+  if (tracks.length === 0) {
     return {
       ok: false,
-      reasonCode: "transcript_unavailable",
-      message: "youtubei transcript payload did not include transcript segments."
+      reasonCode: "caption_missing",
+      message: "youtubei player payload did not include caption tracks."
     };
+  }
+
+  const resolved = await resolveNativeCaptionTranscriptFromTracks({
+    tracks,
+    context: args.context,
+    manualOnly: false
+  });
+  if (!resolved.ok) {
+    return resolved;
   }
 
   return {
     ok: true,
-    text: segments.join("\n").trim(),
-    language: findLanguageInPayload(payload) ?? findTranscriptLanguage(args.pageHtml)
+    text: resolved.text,
+    language: resolved.language || findLanguageInPayload(payload) || findTranscriptLanguage(args.pageHtml)
   };
 };
 
@@ -1115,6 +1151,18 @@ const isDeferredFallbackReason = (reasonCode: ProviderReasonCode): boolean => {
   return reasonCode === "env_limited" || reasonCode === "token_required";
 };
 
+const canAttemptTranscriptBrowserFallback = (args: {
+  forcedMode: boolean;
+  config: YouTubeTranscriptResolverConfig;
+  browserFallbackPort?: BrowserFallbackPort;
+  allowBrowserFallbackEscalation?: boolean;
+}): boolean => {
+  return !args.forcedMode
+    && args.config.enableBrowserFallback
+    && Boolean(args.browserFallbackPort)
+    && args.allowBrowserFallbackEscalation !== false;
+};
+
 const resolveStrategyFailureReason = (
   fallback: ProviderReasonCode,
   attempts: YouTubeTranscriptAttempt[]
@@ -1174,6 +1222,7 @@ export const resolveYouTubeTranscript = async (
 
     if (strategy === "youtubei") {
       const resolved = await resolveYoutubeiTranscript({
+        watchUrl: deps.watchUrl,
         pageHtml: deps.pageHtml,
         context: deps.context
       });
@@ -1282,9 +1331,14 @@ export const resolveYouTubeTranscript = async (
     }
   }
 
-  if (!forcedMode && config.enableBrowserFallback && deps.browserFallbackPort) {
+  if (canAttemptTranscriptBrowserFallback({
+    forcedMode,
+    config,
+    browserFallbackPort: deps.browserFallbackPort,
+    allowBrowserFallbackEscalation: deps.allowBrowserFallbackEscalation
+  })) {
     const fallback = await resolveProviderBrowserFallback({
-      browserFallbackPort: deps.browserFallbackPort,
+      browserFallbackPort: deps.browserFallbackPort as BrowserFallbackPort,
       allowEscalation: deps.allowBrowserFallbackEscalation,
       provider: "social/youtube",
       source: "social",

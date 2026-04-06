@@ -15,7 +15,8 @@ import {
   sanitizeFeatureList,
   stripBrandSuffix,
   trimProductCopy,
-  postprocessShoppingWorkflow
+  postprocessShoppingWorkflow,
+  type ShoppingOfferFilterDiagnostic
 } from "./shopping-postprocess";
 import { enforceShoppingLegalReviewGate } from "./shopping-workflow";
 import { compileShoppingExecutionPlan, type ShoppingWorkflowExecutionStep } from "./shopping-compiler";
@@ -486,6 +487,75 @@ const withPrimaryConstraintMeta = (
       primaryConstraintSummary: primaryIssue.summary
     }
     : meta;
+};
+
+const withPrimaryConstraintSummaryOverride = (
+  meta: Record<string, unknown>,
+  summary: string
+): Record<string, unknown> => {
+  const currentPrimaryConstraint = meta.primaryConstraint;
+  const nextPrimaryConstraint = (
+    currentPrimaryConstraint
+    && typeof currentPrimaryConstraint === "object"
+    && !Array.isArray(currentPrimaryConstraint)
+  )
+    ? {
+      ...(currentPrimaryConstraint as Record<string, unknown>),
+      summary
+    }
+    : { summary, reasonCode: "env_limited" };
+
+  return {
+    ...meta,
+    primary_constraint: nextPrimaryConstraint,
+    primaryConstraint: nextPrimaryConstraint,
+    primaryConstraintSummary: summary
+  };
+};
+
+const summarizeShoppingOfferFilterConstraint = (args: {
+  diagnostics: ShoppingOfferFilterDiagnostic[];
+  budget?: number;
+  region?: string;
+  regionEnforced: boolean;
+  failures: ProviderFailureEntry[];
+}): string | null => {
+  const primaryIssue = summarizePrimaryProviderIssue(args.failures);
+  if (
+    primaryIssue
+    && (primaryIssue.reasonCode !== "env_limited" || primaryIssue.constraint || primaryIssue.blockerType === "anti_bot_challenge")
+  ) {
+    return null;
+  }
+
+  const candidateOffers = args.diagnostics.reduce((sum, entry) => sum + entry.candidateOffers, 0);
+  const pricedOffers = args.diagnostics.reduce((sum, entry) => sum + entry.pricedOffers, 0);
+  const regionMatchedOffers = args.diagnostics.reduce((sum, entry) => sum + entry.regionMatchedOffers, 0);
+  const finalOffers = args.diagnostics.reduce((sum, entry) => sum + entry.finalOffers, 0);
+  const zeroPriceExcluded = args.diagnostics.reduce((sum, entry) => sum + entry.zeroPriceExcluded, 0);
+  const regionCurrencyExcluded = args.diagnostics.reduce((sum, entry) => sum + entry.regionCurrencyExcluded, 0);
+  const budgetExcluded = args.diagnostics.reduce((sum, entry) => sum + entry.budgetExcluded, 0);
+  const requestedRegion = args.diagnostics.find((entry) => typeof entry.requestedRegion === "string")?.requestedRegion ?? args.region;
+  const expectedCurrency = args.diagnostics.find((entry) => typeof entry.expectedCurrency === "string")?.expectedCurrency;
+
+  if (candidateOffers === 0 || finalOffers > 0) {
+    return null;
+  }
+
+  if (pricedOffers > 0 && regionMatchedOffers === 0 && regionCurrencyExcluded > 0 && requestedRegion && !args.regionEnforced) {
+    return `Requested region ${requestedRegion} was not enforced by the selected providers, and all candidate offers were filtered by the ${expectedCurrency ?? "requested"} currency heuristic.`;
+  }
+
+  if (typeof args.budget === "number" && regionMatchedOffers > 0 && budgetExcluded > 0 && finalOffers === 0) {
+    const budgetLabel = expectedCurrency ? `${expectedCurrency} ${args.budget.toFixed(2)}` : args.budget.toFixed(2);
+    return `All candidate offers exceeded the requested budget of ${budgetLabel}.`;
+  }
+
+  if (candidateOffers > 0 && zeroPriceExcluded === candidateOffers) {
+    return "Selected providers returned only zero-price or missing-price offers, so this run could not determine a trustworthy deal price.";
+  }
+
+  return null;
 };
 
 const selectResearchPrimaryConstraintFailures = (
@@ -1838,7 +1908,10 @@ export const runShoppingWorkflow = async (
     offers,
     failures,
     records,
-    zeroPriceExcluded
+    zeroPriceExcluded,
+    budgetExcluded,
+    regionCurrencyExcluded,
+    offerFilterDiagnostics
   } = postprocessShoppingWorkflow(plan.compiled, execution.runs);
   const reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
   const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(failures);
@@ -1849,17 +1922,20 @@ export const runShoppingWorkflow = async (
   const browserFallbackModesObserved = summarizeBrowserFallbackModes(failures, records);
   const antiBotPressure = summarizeAntiBotPressure(failures);
   const alerts = buildWorkflowAlerts(runtime, failures, plan.compiled.effectiveProviderIds);
+  const regionEnforced = plan.compiled.regionDiagnostics.length > 0
+    ? plan.compiled.regionDiagnostics.every((entry) => entry.enforced)
+    : false;
   if (plan.compiled.regionDiagnostics.length > 0) {
     alerts.push({
       signal: "region_unenforced",
       reasonCode: "region_unenforced",
       state: "warning",
-      reason: "Default shopping adapters currently use provider default storefronts and do not enforce requested region filters.",
+      reason: "Default shopping adapters currently use provider default storefronts, so requested region filters are advisory only and not authoritative.",
       providers: plan.compiled.regionDiagnostics.map((entry) => entry.provider),
       requested_region: workflowInput.region ?? plan.compiled.regionDiagnostics[0]?.requestedRegion ?? ""
     });
   }
-  const meta = withPrimaryConstraintMeta({
+  let meta = withPrimaryConstraintMeta({
     selection: {
       providers: plan.compiled.effectiveProviderIds,
       ...(plan.compiled.autoExcludedProviders.length > 0 ? { excluded_providers: plan.compiled.autoExcludedProviders } : {}),
@@ -1867,13 +1943,15 @@ export const runShoppingWorkflow = async (
       ...(workflowInput.region
         ? {
           requested_region: workflowInput.region,
-          region_enforced: plan.compiled.regionDiagnostics.every((entry) => entry.enforced),
+          region_enforced: regionEnforced,
+          region_authoritative: regionEnforced,
           region_support: plan.compiled.regionDiagnostics
         }
         : {})
     },
     metrics: {
       total_offers: offers.length,
+      candidate_offers: offerFilterDiagnostics.reduce((sum, entry) => sum + entry.candidateOffers, 0),
       failed_providers: failures.map((entry) => entry.provider),
       reasonCodeDistribution,
       transcript_strategy_failures: transcriptStrategyFailures,
@@ -1892,11 +1970,25 @@ export const runShoppingWorkflow = async (
       browserFallbackModesObserved,
       anti_bot_pressure: antiBotPressure,
       antiBotPressure,
-      zero_price_excluded: zeroPriceExcluded
+      zero_price_excluded: zeroPriceExcluded,
+      budget_excluded: budgetExcluded,
+      region_currency_excluded: regionCurrencyExcluded
     },
+    offerFilterDiagnostics,
     failures,
     alerts
   } as Record<string, unknown>, failures);
+
+  const filterConstraintSummary = summarizeShoppingOfferFilterConstraint({
+    diagnostics: offerFilterDiagnostics,
+    budget: plan.compiled.budget,
+    region: workflowInput.region,
+    regionEnforced,
+    failures
+  });
+  if (typeof filterConstraintSummary === "string") {
+    meta = withPrimaryConstraintSummaryOverride(meta, filterConstraintSummary);
+  }
 
   const rendered = renderShopping({
     mode: workflowInput.mode,
@@ -1994,14 +2086,14 @@ export const runProductVideoWorkflow = async (
     currentTrace: WorkflowTraceEntry[],
     stage: WorkflowTraceEntry["stage"],
     event: string,
-    details?: Record<string, JsonValue>
+    details: Record<string, JsonValue>
   ): WorkflowTraceEntry[] => [
     ...currentTrace,
     {
       at: new Date().toISOString(),
       stage,
       event,
-      ...(details ? { details } : {})
+      details
     }
   ];
   const buildProductVideoCheckpoint = (

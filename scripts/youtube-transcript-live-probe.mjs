@@ -17,8 +17,6 @@ export const DEFAULT_YOUTUBE_TRANSCRIPT_PROBE_URL = "https://www.youtube.com/wat
 export const DEFAULT_YOUTUBE_TRANSCRIPT_MODE = "auto";
 export const DEFAULT_YOUTUBE_TRANSCRIPT_TIMEOUT_MS = 120_000;
 export const TRANSCRIPT_ENV_LIMITED_REASON_CODES = new Set([
-  "caption_missing",
-  "transcript_unavailable",
   "strategy_unapproved",
   "token_required",
   "rate_limited",
@@ -30,7 +28,7 @@ const HELP_TEXT = [
   "",
   "Options:",
   "  --url <url>             YouTube watch URL to probe",
-  "  --youtube-mode <mode>   Transcript mode override (default: web)",
+  `  --youtube-mode <mode>   Transcript mode override (default: ${DEFAULT_YOUTUBE_TRANSCRIPT_MODE})`,
   "  --timeout-ms <ms>       Provider timeout budget",
   "  --out <path>            Output JSON path",
   "  --quiet                 Suppress per-step progress logging",

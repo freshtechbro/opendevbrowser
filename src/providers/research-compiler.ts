@@ -15,7 +15,7 @@ import type { ResearchRunInput } from "./workflows";
 import type { WorkflowCheckpoint, WorkflowPlan, WorkflowPlanStep, WorkflowResumeEnvelope } from "./workflow-contracts";
 
 const RESEARCH_AUTO_SOURCES: ProviderSource[] = ["web", "community", "social"];
-const RESEARCH_ALL_SOURCES: ProviderSource[] = ["web", "community", "social", "shopping"];
+const RESEARCH_ALL_SOURCES: ProviderSource[] = [...RESEARCH_AUTO_SOURCES];
 const DEFAULT_RESEARCH_SEARCH_LIMIT = 10;
 export const RESEARCH_WEB_SEARCH_FETCH_LIMIT = 3;
 
@@ -66,6 +66,7 @@ export type CompiledResearchExecutionPlan = {
     timebox: ResolvedTimebox;
     searchLimit: number;
     followUpFetchLimit: number;
+    allowFollowUpWebFetch: boolean;
     autoExcludedProviders: string[];
   };
   plan: WorkflowPlan & {
@@ -311,6 +312,7 @@ export const compileResearchExecutionPlan = (args: {
       timebox,
       searchLimit,
       followUpFetchLimit: Math.max(1, Math.min(searchLimit, RESEARCH_WEB_SEARCH_FETCH_LIMIT)),
+      allowFollowUpWebFetch: resolved.includes("web"),
       autoExcludedProviders
     },
     checkpointState,

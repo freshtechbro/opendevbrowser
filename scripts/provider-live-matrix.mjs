@@ -78,7 +78,7 @@ export const WORKFLOW_RESEARCH_PROBE_ARGS = [
   '--topic',
   'browser automation production blockers',
   '--source-selection',
-  'all',
+  'auto',
   '--mode',
   'json',
   '--limit-per-source',
@@ -1545,13 +1545,13 @@ async function main() {
         const records = Array.isArray(data.records) ? data.records.length : 0;
         const failures = Array.isArray(data.meta?.failures) ? data.meta.failures.length : 0;
         pushStep({
-          id: 'workflow.research.all_sources',
+          id: 'workflow.research.auto_sources',
           status: research.status === 0 ? (records > 0 ? 'pass' : 'env_limited') : 'fail',
           data: { records, failures, artifactPath: data.artifact_path ?? data.path ?? null },
           detail: research.status === 0 ? null : research.detail
         });
       } catch (error) {
-        pushStep({ id: 'workflow.research.all_sources', status: 'fail', detail: String(error) });
+        pushStep({ id: 'workflow.research.auto_sources', status: 'fail', detail: String(error) });
       }
 
       try {
@@ -1604,7 +1604,7 @@ async function main() {
         pushStep({ id: YOUTUBE_TRANSCRIPT_PROBE_STEP_ID, status: 'fail', detail: String(error) });
       }
     } else {
-      pushStep({ id: 'workflow.research.all_sources', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
+      pushStep({ id: 'workflow.research.auto_sources', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
       pushStep({ id: 'workflow.product_video.amazon', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
       pushStep({ id: YOUTUBE_TRANSCRIPT_PROBE_STEP_ID, status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
     }

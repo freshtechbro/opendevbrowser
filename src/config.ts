@@ -403,7 +403,7 @@ const providersSchema = z.object({
     enableYtdlpAudioAsr: z.boolean().default(true),
     enableApify: z.boolean().default(true),
     apifyActorId: z.string().min(1).default("streamers/youtube-scraper"),
-    enableBrowserFallback: z.boolean().default(true),
+    enableBrowserFallback: z.boolean().default(false),
     ytdlpTimeoutMs: z.number().int().min(1000).max(120000).default(10000)
   }).default({}),
   cookiePolicy: z.enum(["off", "auto", "required"]).default("auto"),

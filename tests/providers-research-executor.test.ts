@@ -98,7 +98,8 @@ describe("research workflow executor", () => {
       resolvedSources: ["web", "community", "social"],
       autoExcludedProviders: ["social/youtube"],
       searchLimit: 5,
-      followUpFetchLimit: 3
+      followUpFetchLimit: 3,
+      allowFollowUpWebFetch: true
     });
     expect(plan.compiled.timebox).toMatchObject({
       mode: "days",
@@ -203,7 +204,8 @@ describe("research workflow executor", () => {
     });
 
     expect(allPlan.compiled.sourceSelection).toBe("all");
-    expect(allPlan.compiled.resolvedSources).toEqual(["web", "community", "social", "shopping"]);
+    expect(allPlan.compiled.resolvedSources).toEqual(["web", "community", "social"]);
+    expect(allPlan.compiled.allowFollowUpWebFetch).toBe(true);
   });
 
   it("accepts enriched checkpoint aggregates with mixed provider sources and optional metadata", () => {
@@ -564,6 +566,88 @@ describe("research workflow executor", () => {
     ]);
     expect(execution.searchRuns).toHaveLength(1);
     expect(execution.followUpRuns).toHaveLength(3);
+  });
+
+  it("does not widen non-web research selections into hidden web follow-up fetches", async () => {
+    const search = vi.fn(async (_input, options) => makeAggregate({
+      sourceSelection: options?.source ?? "social",
+      providerOrder: ["social/youtube"],
+      records: [makeRecord({
+        id: "social-index-result",
+        source: "social",
+        provider: "social/youtube",
+        url: "https://example.com/social-follow-up",
+        title: "Social index result",
+        attributes: {
+          retrievalPath: "social:search:index"
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate());
+    const plan = compileResearchExecutionPlan({
+      input: researchInput({
+        sources: ["social"]
+      })
+    });
+
+    const execution = await executeResearchWorkflowPlan(toRuntime({ search, fetch }), plan, {
+      buildStepOptions: buildStepOptions()
+    });
+
+    expect(plan.compiled.allowFollowUpWebFetch).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(execution.searchRuns).toHaveLength(1);
+    expect(execution.followUpRuns).toEqual([]);
+  });
+
+  it("keeps web follow-up fetches enabled when web is part of the resolved source set", async () => {
+    const search = vi.fn(async (_input, options) => makeAggregate({
+      sourceSelection: options?.source ?? "web",
+      providerOrder: [options?.source === "social" ? "social/youtube" : "web/default"],
+      records: options?.source === "social"
+        ? [makeRecord({
+          id: "social-follow-up",
+          source: "social",
+          provider: "social/youtube",
+          url: "https://example.com/social-follow-up",
+          title: "Social result",
+          attributes: {
+            retrievalPath: "social:search:index"
+          }
+        })]
+        : []
+    }));
+    const fetch = vi.fn(async (input) => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [makeRecord({
+        id: "web-follow-up",
+        source: "web",
+        provider: "web/default",
+        url: input.url,
+        title: "Fetched follow-up",
+        attributes: {
+          retrievalPath: "web:fetch:url"
+        }
+      })]
+    }));
+    const plan = compileResearchExecutionPlan({
+      input: researchInput({
+        sources: ["social", "web"]
+      })
+    });
+
+    const execution = await executeResearchWorkflowPlan(toRuntime({ search, fetch }), plan, {
+      buildStepOptions: buildStepOptions()
+    });
+
+    expect(plan.compiled.allowFollowUpWebFetch).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(execution.followUpRuns).toEqual([
+      expect.objectContaining({
+        url: "https://example.com/social-follow-up"
+      })
+    ]);
   });
 
   it("filters unsupported follow-up candidates before tactical web fetches are scheduled", () => {

@@ -245,6 +245,7 @@ describe("loadGlobalConfig", () => {
     }));
     const inlineConfig = loadGlobalConfig();
     expect(inlineConfig.providers?.transcript.modeDefault).toBe("yt-dlp");
+    expect(inlineConfig.providers?.transcript.enableBrowserFallback).toBe(false);
     expect(inlineConfig.providers?.cookieSource).toEqual({
       type: "inline",
       value: []

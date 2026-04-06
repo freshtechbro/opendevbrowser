@@ -1,4 +1,3 @@
-import { isLikelyOfferRecord } from "./shopping-postprocess";
 import {
   buildWorkflowResumeEnvelope,
   type WorkflowCheckpoint,
@@ -40,14 +39,14 @@ const appendTrace = (
   trace: WorkflowTraceEntry[],
   stage: WorkflowTraceEntry["stage"],
   event: string,
-  details?: Record<string, JsonValue>
+  details: Record<string, JsonValue>
 ): WorkflowTraceEntry[] => [
   ...trace,
   {
     at: new Date().toISOString(),
     stage,
     event,
-    ...(details ? { details } : {})
+    details
   }
 ];
 
@@ -79,9 +78,7 @@ const markStepCompleted = (
   stepId: string,
   result: ProviderAggregateResult
 ): ShoppingWorkflowCheckpointState => ({
-  completed_step_ids: checkpointState.completed_step_ids.includes(stepId)
-    ? checkpointState.completed_step_ids
-    : [...checkpointState.completed_step_ids, stepId],
+  completed_step_ids: [...new Set([...checkpointState.completed_step_ids, stepId])],
   step_results_by_id: {
     ...checkpointState.step_results_by_id,
     [stepId]: result
@@ -92,16 +89,12 @@ const mergeProviderResult = (
   base: ProviderAggregateResult,
   fetchResult: ProviderAggregateResult
 ): ProviderAggregateResult => {
-  const fetchedOfferRecords = fetchResult.records.filter((record) => isLikelyOfferRecord(record));
-  if (fetchedOfferRecords.length === 0 || fetchResult.failures.length > 0) {
-    return base;
-  }
-
   return {
     ...base,
     ok: base.ok && fetchResult.ok,
     partial: base.partial || fetchResult.partial,
-    records: [...base.records, ...fetchedOfferRecords],
+    records: [...base.records, ...fetchResult.records],
+    failures: [...base.failures, ...fetchResult.failures],
     providerOrder: [...new Set([...base.providerOrder, ...fetchResult.providerOrder])],
     metrics: {
       attempted: base.metrics.attempted + fetchResult.metrics.attempted,
@@ -109,7 +102,8 @@ const mergeProviderResult = (
       failed: base.metrics.failed + fetchResult.metrics.failed,
       retries: base.metrics.retries + fetchResult.metrics.retries,
       latencyMs: base.metrics.latencyMs + fetchResult.metrics.latencyMs
-    }
+    },
+    ...(fetchResult.error ? { error: fetchResult.error } : {})
   };
 };
 
@@ -118,10 +112,12 @@ const buildProviderRuns = (
   checkpointState: ShoppingWorkflowCheckpointState,
   fetchSteps: ShoppingWorkflowExecutionStep[]
 ): ShoppingWorkflowRun[] => {
-  const fetchStepByProviderId = new Map(fetchSteps.map((step) => [
-    step.input.providerId,
-    step
-  ]));
+  const fetchStepsByProviderId = new Map<string, ShoppingWorkflowExecutionStep[]>();
+  for (const step of fetchSteps) {
+    const existing = fetchStepsByProviderId.get(step.input.providerId) ?? [];
+    existing.push(step);
+    fetchStepsByProviderId.set(step.input.providerId, existing);
+  }
 
   return plan.compiled.effectiveProviderIds.flatMap((providerId) => {
     const searchStepId = createShoppingSearchStepId(providerId);
@@ -130,9 +126,10 @@ const buildProviderRuns = (
       return [];
     }
 
-    const fetchStep = fetchStepByProviderId.get(providerId);
-    const fetchResult = fetchStep ? checkpointState.step_results_by_id[fetchStep.id] : undefined;
-    const result = fetchResult ? mergeProviderResult(searchResult, fetchResult) : searchResult;
+    const fetchResults = (fetchStepsByProviderId.get(providerId) ?? [])
+      .map((step) => checkpointState.step_results_by_id[step.id])
+      .filter((result): result is ProviderAggregateResult => result !== undefined);
+    const result = fetchResults.reduce(mergeProviderResult, searchResult);
 
     return [{
       providerId,

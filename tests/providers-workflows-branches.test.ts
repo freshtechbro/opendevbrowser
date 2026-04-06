@@ -243,6 +243,39 @@ describe("workflow branch coverage", () => {
     expect(meta.metrics.final_records).toBe(1);
   });
 
+  it("keeps non-web research runs inside their declared source scope", async () => {
+    const search = vi.fn(async (_input, options) => makeAggregate({
+      sourceSelection: "social",
+      providerOrder: ["social/youtube"],
+      records: [makeRecord({
+        id: "social-only-record",
+        source: "social",
+        provider: "social/youtube",
+        url: "https://example.com/social-only",
+        title: "Social-only result",
+        content: "Operators reported a reliable extension debugging workflow.",
+        attributes: {}
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate());
+
+    const output = await runResearchWorkflow(toRuntime({ search, fetch }), {
+      topic: "extension debugging sessions",
+      sources: ["social"],
+      mode: "json",
+      limitPerSource: 3
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(output.meta).toMatchObject({
+      selection: {
+        source_selection: "auto",
+        resolved_sources: ["social"]
+      }
+    });
+    expect((output.records as Array<{ source: string }>).map((record) => record.source)).toEqual(["social"]);
+  });
+
   it("promotes provider alerts from warning to degraded across windows", async () => {
     const unstableProvider = "web/unstable-coverage";
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -2129,7 +2162,7 @@ describe("workflow branch coverage", () => {
       mode: "json"
     });
     const allMeta = fromAll.meta as { selection: { resolved_sources: string[] } };
-    expect(allMeta.selection.resolved_sources).toEqual(["web", "community", "social", "shopping"]);
+    expect(allMeta.selection.resolved_sources).toEqual(["web", "community", "social"]);
 
     const explicitSourcesNoSelection = await runResearchWorkflow(rankingRuntime, {
       topic: "ranking",
@@ -2476,6 +2509,7 @@ describe("workflow branch coverage", () => {
       selection: {
         requested_region: "us",
         region_enforced: false,
+        region_authoritative: false,
         region_support: expect.arrayContaining([
           expect.objectContaining({
             provider: "shopping/amazon",
@@ -2591,6 +2625,124 @@ describe("workflow branch coverage", () => {
     expect((output.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual(["Under Budget Monitor"]);
   });
 
+  it("explains region-filtered empty shopping runs as non-authoritative currency-heuristic results", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [makeRecord({
+            id: "cad-only-offer",
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.amazon.com/dp/B0CADONLY01",
+            title: "Region-mismatched earbuds",
+            content: "CAD 36.25",
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              shopping_offer: {
+                provider: providerId,
+                product_id: "cad-only-offer",
+                title: "Region-mismatched earbuds",
+                url: "https://www.amazon.com/dp/B0CADONLY01",
+                price: { amount: 36.25, currency: "CAD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "CAD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.7,
+                reviews_count: 120
+              }
+            }
+          })]
+        });
+      }
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "wireless earbuds",
+      providers: ["shopping/amazon"],
+      region: "us",
+      mode: "compact"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Requested region us was not enforced by the selected providers, and all candidate offers were filtered by the USD currency heuristic.",
+      selection: {
+        requested_region: "us",
+        region_enforced: false,
+        region_authoritative: false
+      },
+      metrics: {
+        candidate_offers: 1,
+        region_currency_excluded: 1,
+        zero_price_excluded: 0
+      }
+    });
+    expect(output.summary).toContain("Primary constraint: Requested region us was not enforced by the selected providers, and all candidate offers were filtered by the USD currency heuristic.");
+  });
+
+  it("explains budget-filtered empty shopping runs instead of collapsing to generic no-offer output", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/bestbuy";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [makeRecord({
+            id: "over-budget-offer",
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.bestbuy.com/site/4k-monitor/123.p",
+            title: "4K Monitor",
+            content: "$399.99",
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              shopping_offer: {
+                provider: providerId,
+                product_id: "over-budget-offer",
+                title: "4K Monitor",
+                url: "https://www.bestbuy.com/site/4k-monitor/123.p",
+                price: { amount: 399.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.6,
+                reviews_count: 88
+              }
+            }
+          })]
+        });
+      }
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "27 inch 4k monitor",
+      providers: ["shopping/bestbuy"],
+      budget: 350,
+      mode: "compact"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "All candidate offers exceeded the requested budget of 350.00.",
+      metrics: {
+        candidate_offers: 1,
+        budget_excluded: 1,
+        zero_price_excluded: 0
+      },
+      failures: [{
+        provider: "shopping/bestbuy",
+        error: {
+          details: {
+            filterReason: "budget",
+            budgetExcluded: 1
+          }
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: All candidate offers exceeded the requested budget of 350.00.");
+  });
+
   it("drops zero-price shopping offers even without a budget and reports the exclusion count", async () => {
     const runtime = toRuntime({
       search: async (_input, options) => {
@@ -2660,6 +2812,64 @@ describe("workflow branch coverage", () => {
         zero_price_excluded: 1
       }
     });
+  });
+
+  it("summarizes zero-price-only shopping runs as a trustworthy-price constraint", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [makeRecord({
+            id: "zero-price-only-offer",
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.amazon.com/dp/B0ZEROONLY2",
+            title: "USB-C Dock",
+            content: "Price unavailable",
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              shopping_offer: {
+                provider: providerId,
+                product_id: "zero-price-only-offer",
+                title: "USB-C Dock",
+                url: "https://www.amazon.com/dp/B0ZEROONLY2",
+                price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.4,
+                reviews_count: 74
+              }
+            }
+          })]
+        });
+      }
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "usb-c dock",
+      providers: ["shopping/amazon"],
+      mode: "compact"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Selected providers returned only zero-price or missing-price offers, so this run could not determine a trustworthy deal price.",
+      metrics: {
+        candidate_offers: 1,
+        zero_price_excluded: 1
+      },
+      failures: [{
+        provider: "shopping/amazon",
+        error: {
+          details: {
+            filterReason: "zero_price"
+          }
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: Selected providers returned only zero-price or missing-price offers, so this run could not determine a trustworthy deal price.");
   });
 
   it("covers shopping offer extraction fallbacks and availability mapping branches", async () => {
@@ -3134,6 +3344,80 @@ describe("workflow branch coverage", () => {
     });
     expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Target requires a live browser-rendered page.");
+  });
+
+  it("surfaces blocker-specific recovery fetch failures instead of generic no-offer output", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/costco"],
+      records: [makeRecord({
+        id: "costco-search-index",
+        source: "shopping",
+        provider: "shopping/costco",
+        url: "https://www.costco.com/CatalogSearch?keyword=wireless%20mouse",
+        title: "Search Results",
+        attributes: {
+          retrievalPath: "shopping:search:index",
+          links: ["https://www.costco.com/wireless-mouse.html"]
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      ok: false,
+      partial: true,
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/costco"],
+      records: [makeRecord({
+        id: "costco-auth-shell",
+        source: "shopping",
+        provider: "shopping/costco",
+        url: "https://www.costco.com/wireless-mouse.html",
+        title: "Sign In | Costco",
+        content: "Please sign in to continue.",
+        attributes: {
+          retrievalPath: "shopping:fetch:url",
+          reasonCode: "auth_required",
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          }
+        }
+      })],
+      failures: [makeFailure("shopping/costco", "shopping", {
+        code: "auth",
+        message: "Authentication required",
+        reasonCode: "auth_required",
+        provider: "shopping/costco",
+        source: "shopping",
+        details: {
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          }
+        }
+      })],
+      metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+    }));
+
+    const output = await runShoppingWorkflow(toRuntime({ search, fetch }), {
+      query: "membership gate",
+      providers: ["shopping/costco"],
+      mode: "compact"
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Costco requires login or an existing session.",
+      failures: [{
+        provider: "shopping/costco",
+        error: {
+          reasonCode: "auth_required"
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: Costco requires login or an existing session.");
   });
 
   it("upgrades higher-priority auth_required no-offer records even when url and title are missing", async () => {
@@ -6635,6 +6919,73 @@ describe("workflow branch coverage", () => {
     expect(metrics.challengeOrchestration).toEqual(metrics.challenge_orchestration);
     expect(metrics.browser_fallback_modes_observed).toEqual(["extension", "managed_headed"]);
     expect(metrics.browserFallbackModesObserved).toEqual(metrics.browser_fallback_modes_observed);
+  });
+
+  it("omits fallback metadata when challenge-orchestration diagnostics are present without reason or mode labels", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [
+          makeRecord({
+            id: "challenge-orchestration-record-only",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/dp/challenge-orchestration-record-only",
+            title: "Challenge Orchestration Record Only",
+            content: "$39.99",
+            attributes: {
+              browser_fallback_challenge_orchestration: {
+                status: "pending"
+              },
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "challenge-orchestration-record-only",
+                title: "Challenge Orchestration Record Only",
+                url: "https://www.amazon.com/dp/challenge-orchestration-record-only",
+                price: { amount: 39.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.1,
+                reviews_count: 11
+              }
+            }
+          })
+        ],
+        failures: [{
+          provider: "shopping/amazon",
+          source: "shopping",
+          error: {
+            code: "",
+            message: "",
+            retryable: true,
+            details: {
+              challengeOrchestration: {
+                status: "pending"
+              }
+            }
+          }
+        }]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "challenge orchestration labels",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+
+    const diagnostics = ((output.meta as {
+      metrics: {
+        challenge_orchestration: Array<Record<string, unknown>>;
+      };
+    }).metrics.challenge_orchestration);
+    const recordDiagnostic = diagnostics.find((entry) => entry.status === "pending" && entry.provider === "shopping/amazon");
+
+    expect(recordDiagnostic).toBeDefined();
+    expect(recordDiagnostic).not.toHaveProperty("reasonCode");
+    expect(recordDiagnostic).not.toHaveProperty("browserFallbackReasonCode");
+    expect(recordDiagnostic).not.toHaveProperty("browserFallbackMode");
   });
 
   it("rejects product-video urls that use non-http protocols even when they parse cleanly", async () => {

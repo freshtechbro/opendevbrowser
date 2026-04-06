@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { canonicalizeUrl } from "./web/crawler";
-import { isLikelyOfferRecord } from "./shopping-postprocess";
+import { hasShoppingIssueHint, isLikelyOfferRecord } from "./shopping-postprocess";
 import { compileShoppingWorkflow, type CompiledShoppingWorkflow } from "./shopping-workflow";
 import { getShoppingProviderProfile } from "./shopping";
 import type { ProviderAggregateResult, JsonValue, NormalizedRecord, ProviderFailureEntry, ProviderSource } from "./types";
@@ -8,6 +8,7 @@ import type { ShoppingRunInput } from "./workflows";
 import type { WorkflowCheckpoint, WorkflowPlan, WorkflowPlanStep, WorkflowResumeEnvelope } from "./workflow-contracts";
 
 const DEFAULT_SHOPPING_SEARCH_LIMIT = 8;
+const SHOPPING_FETCH_RECOVERY_LIMIT = 2;
 const SEARCH_INDEX_RETRIEVAL_PATHS = new Set(["shopping:search:index", "shopping:search:link"]);
 
 export type ShoppingWorkflowStepKind = "search" | "fetch";
@@ -271,13 +272,17 @@ export const deriveShoppingFetchSteps = (
     if (searchResult.records.some((record) => isLikelyOfferRecord(record))) {
       return [];
     }
-
-    const candidateUrl = collectProviderCandidateUrls(providerId, searchResult.records)[0];
-    if (!candidateUrl) {
+    if (hasShoppingIssueHint(searchResult.records)) {
       return [];
     }
 
-    return [{
+    const candidateUrls = collectProviderCandidateUrls(providerId, searchResult.records)
+      .slice(0, SHOPPING_FETCH_RECOVERY_LIMIT);
+    if (candidateUrls.length === 0) {
+      return [];
+    }
+
+    return candidateUrls.map((candidateUrl) => ({
       id: createShoppingFetchStepId(providerId, candidateUrl),
       kind: "fetch",
       policy: {
@@ -288,7 +293,7 @@ export const deriveShoppingFetchSteps = (
         providerId,
         url: candidateUrl
       }
-    }];
+    }));
   });
 };
 
